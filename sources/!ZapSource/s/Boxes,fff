@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 2.25 2003/04/13 23:55:40 ds Exp $
+; $Id: Boxes,fff,v 2.26 2004/04/21 18:39:25 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -74,6 +74,9 @@
  EXPORT Movebox
  EXPORT Clonebox
 
+ EXPORT ColourChoice
+ EXPORT ColourClose
+ EXPORT close_colour_picker
 
 ; list template offsets $t=title $f=flags $c=create sub $i=interprate sub
 ; $ll=label
@@ -4600,6 +4603,23 @@ set_colourbox				; make tem_colour the chosen one + update
 	FNLDR	R0,tem_colour		; new colour
 	BIC	R0,R0,#&E9		; ensure low bits of byte 0 are clear
 	ORR	R0,R0,R2		; add in style information...
+	BL	colourbox_set_colour
+end$l	BLVC	leaf_update		; changed the colour (now update the box)
+	MOVVC	R5,#16
+	BLVC	icon_update
+	MOVVC	R5,#17
+	BLVC	icon_update
+	MOVVC	R5,#18
+	BLVC	icon_update
+	MOVVC	R5,#26
+	BLVC	icon_update
+	FNRTS
+
+
+; colour changed
+; E R0 = new palette entry  R7 -> template  R8
+colourbox_set_colour
+	FNJSR	"R2,R4"
 	LDR	R2,[R7,#4]		; flags
 	MOV	R2,R2,ASR#16		; colour number
 	CMP	R2,#0
@@ -4616,30 +4636,20 @@ set_colourbox				; make tem_colour the chosen one + update
 a$l	BL	mode_colour_all		; set the colour(s)
 	FNRTS	VS
 	TEQ	R8,#0
-	BEQ	end$l			; done it
+	FNRTS	EQ			; done it
 	BL	create_palette		; update the window palette
-	BL	blat_cache_of_this_window
-	BLVC	update_whole_window
-	BVC	end$l
+	BLVC	blat_cache_of_this_window
+	BLVC	update_whole_window_bar_title
 	FNRTS
 
 mini$l	CMP	R2,#-1
 	FNSTR	R0,opt_minibac,LT
 	FNSTR	R0,opt_minifor,EQ
 	BL	minibuffer_update	; redraw
-	FNRTS	VS
-
-end$l	BL	leaf_update		; changed the colour (now update the box)
-	MOVVC	R5,#16
-	BLVC	icon_update
-	MOVVC	R5,#17
-	BLVC	icon_update
-	MOVVC	R5,#18
-	BLVC	icon_update
-	MOVVC	R5,#26
-	BLVC	icon_update
 	FNRTS
 
+
+	LOCAL
 
 ;E R0=colour number to create it on (as a menu window)
 ;    -2=minibuffer background -1=minibuffer foreground +ve=window colour num
@@ -4651,10 +4661,102 @@ create_ColourBox
 	ORR	R0,R0,#6		; arrow direction, don't redraw
 	FNind	R7,t_ColourBox
 	STR	R0,[R7,#4]		; write the flags
+	BL	test_shiftctrl
+	TST	R1,#1
+	BNE	colpick$l
 	MOV	R1,#0			; opened off a menu
 	BL	create_leaf_window
 	FNRTS
 
+colpick$l
+	SUB	R13,R13,#64
+
+	BL	close_colour_picker
+	MOV	R0,#8
+	STR	R0,[R13]
+	MOV	R0,#0
+	STR	R0,[R13,#4]
+	STR	R0,[R13,#24]
+	STR	R0,[R13,#28]
+	STR	R0,[R13,#36]
+	STR	R0,[R13,#40]
+	MOV	R0,#1<<31
+	STR	R0,[R13,#12]
+	MVN	R0,R0
+	STR	R0,[R13,#16]
+	LDR	R0,[R11,#24]		; WARNING: assumes R11 -> wimp poll block - not
+	STR	R0,[R13,#8]		;	   a documented entry condition!
+	LDR	R0,[R11,#28]
+	STR	R0,[R13,#20]
+
+	LDR	R2,[R7,#4]
+	MOV	R2,R2,ASR#16		; zap colour number (sign saved)
+	CMP	R2,#-1
+	FNLDR	R0,opt_minibac,LT
+	FNLDR	R0,opt_minifor,EQ
+	BLE	a$l
+	MOV	R0,#-1
+	TEQ	R8,#0
+	FNLDRB  R1,opt_format,EQ
+	LDRNEB  R1,[R8,#w_format]	; mode
+	BL	mode_colour		; read palette entry
+	BVS	done$l
+
+a$l	FNSTR	R0,tem_colour		; keep the current colour
+	BIC	R0,R0,#&FF		; lose the substyle bits
+	STR	R0,[R13,#32]
+
+	MOV	R0,#3
+	MOV	R1,R13
+	SWI	XColourPicker_OpenDialogue
+	FNSTR	R0,wimp_colourpicker,VC
+	MOVVC	R0,#0
+
+done$l	ADD	R13,R13,#64
+	FNRTS
+
+
+; ColourPicker_ColourChoice / ColourPicekr_ColourChanged message
+	FNAME	ColourChoice
+ColourChoice
+	FNJSR	"R7"
+	FNLDR	R0,wimp_colourpicker			; check it's our picker
+	LDR	R2,[R1,#20]				;
+	TEQ	R0,R2					;
+	FNRTS	NE					;
+
+	FNind	R7,t_ColourBox				; update the colour
+	LDR	R0,[R1,#28]				;
+	BIC	R0,R0,#255				; add in substyle bits
+	FNLDR	R2,tem_colour				;
+	AND	R2,R2,#255				;
+	ORR	R0,R0,R2				;
+	BL	colourbox_set_colour			;
+	FNRTS
+
+; ColourPicker_CloseRequest message
+	FNAME	ColourClose
+ColourClose
+	FNJSR	"R1"
+	FNLDR	R0,wimp_colourpicker			; check it's our picker
+	LDR	R1,[R1,#20]				;
+	TEQ	R0,R1					;
+	FNRTS	NE					;
+
+	MOV	R0,#0
+	FNSTR	R0,wimp_colourpicker
+	SWI	XColourPicker_CloseDialogue
+	FNRTS
+
+
+close_colour_picker
+	FNLDR	R1,wimp_colourpicker			; close dialogue if already open
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	FNSTR	R0,wimp_colourpicker,NE
+	SWINE	XColourPicker_CloseDialogue
+	ADDS	R0,R0,#0				; clear any invalid handle errors
+	MOV	PC,R14
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.26 2003/04/13 23:55:40 ds Exp $
+; $Id: StartCode,fff,v 2.27 2004/04/21 18:39:25 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -23,6 +23,7 @@
  GET h.Commands
  GET h.Execute
  GET h.LineEditor
+ GET h.Boxes
 
  IMPORT title_string
  IMPORT help_string_1
@@ -450,14 +451,19 @@ end$l
 	FNLDR	R1,wimp_buffer
 	MVN	R0,#0
 	STR	R0,[R1,#28]		; pre-poll setup for DeepKeys
+	FNLDR	R0,wimp_colourpicker	; return immediately if colour picker open
+	TEQ	R0,#0
+	MOVNE	R0,#0
+	BNE	immediate$l
 	CMP	R2,#0
 	BMI	wait$l			; wait indefinitely
 	MOV	R0,#(1<<22)
 	ADD	R3,R12,#wimp_poll_word
 	SWI	XWimp_PollIdle		; wait until specified time
 	FNRTS
-wait$l
-	MOV	R0,#1			; mask out nulls
+
+wait$l	MOV	R0,#1			; mask out nulls
+immediate$l
 	ORR	R0,R0,#(1<<22)
 	ADD	R3,R12,#wimp_poll_word
 	SWI	XWimp_Poll		; wait for 'ever'
@@ -1154,6 +1160,7 @@ notakey$l
 menu_selection
 	FNJSR
 	MOV	R11,R1			; menu tree
+	BL	close_colour_picker	; make sure the picker's closed
 	FNLDR	R1,wimp_block
 	SWI	XWimp_GetPointerInfo
 	FNRTS	VS
@@ -1379,12 +1386,16 @@ list$l	DCD	0,main_exit		; telling me to die (nodie???)
 	DCD	&502,help_help		; Help wants info on a window
 	DCD	&400C0,menu_warning	; a submenu has been opened
 	DCD	&400C1,mode_changed	; mode change
+	DCD	&400C9,close_colour_picker	; menus deleted without selection
 	DCD	&400CC,window_info	; our window has been iconised (SJA)
 	DCD	&45D80,Edit_Rq		; request for external editing session
 	DCD	&45D82,Edit_Return	; request for return of data
 	DCD	&45D83,Edit_Abort	; abort editing session
 	DCD	&45D84,data_save	; external edit file to be updated
 	DCD	&45D85,Edit_Cursor	; place cursor or select area
+	DCD	&47700,ColourChoice	; ColourPicker_ColourChoice (cl)
+	DCD	&47701,ColourChoice	; ColourPicker_ColourChanged (cl)
+	DCD	&47702,ColourClose	; ColourPicker_CloseRequest (cl)
 	DCD	&80E21,OLE_OpenSession  ; request for OLE session (sja)
 	DCD	&80E23,OLE_CloseSession ; close the OLE session (sja)
 	DCD	-1
