@@ -1,5 +1,5 @@
 <?php
-  // $Id: faq.php,v 1.3 2002/04/24 23:16:36 ds Exp $
+  // $Id: faq.php,v 1.4 2002/07/01 21:59:48 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
@@ -22,7 +22,6 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   function addSection (&$qa, $k, $s)
   {
-    ++$section;
     $qa[] = array ('KEY'=>$k, 'TITLE'=>$s);
   }
 
@@ -168,5 +167,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2002/04/24 23:16:36 $');
+  zap_body_end ('$Date: 2002/07/01 21:59:48 $');
 ?>

@@ -1,5 +1,5 @@
 <?php
-  // $Id: tmt-changes.php,v 1.1 2002/01/23 20:27:04 ds Exp $
+  // $Id: tmt-changes.php,v 1.2 2002/07/01 21:59:48 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/tmt-changes');
   include "../.php/zap-changes.inc";
@@ -305,6 +305,6 @@ other developers, and all who contributed to the zap-devel mailing list.
 <hr>
 
 <?php
-  zap_changelig_links ('tmt');
-  zap_body_end ('$Date: 2002/01/23 20:27:04 $');
+  zap_changelog_links ('tmt');
+  zap_body_end ('$Date: 2002/07/01 21:59:48 $');
 ?>
