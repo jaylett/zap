@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Execute,fff,v 2.12 2002/11/16 00:06:54 christian Exp $
+; $Id: Execute,fff,v 2.13 2002/11/18 11:18:42 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -894,7 +894,8 @@ process_command
 	TEQ	R5,#3			; string command?
 	TEQEQ	R6,#0			; empty argument?
 	BEQ	mini$l			; open the minibuffer
-	BL	checklearn		; repeating a REPEAT/WHILE loop?
+	TST	R3,#command_DontLearn
+	BLEQ	checklearn		; repeating a REPEAT/WHILE loop?
 	BNE	nolearn$l		; if so, don't learn command
 	FNLDR	R11,key_flags
 	TST	R11,#4
@@ -1307,14 +1308,14 @@ a$l
 
 	LOCAL
 
-;E R0=string + b31 if don't want commands learnt
-;  R8-R10=input caret/0's (uses wimp_kbdbuf)
-;X Command string executed R0=0/-1 if minibuf opened #
+;E R0     = string
+;  R1 b31 = set if you don't want commands learnt
+;  R8-R10 = input caret/0's (uses wimp_kbdbuf)
+;X Command string executed  R0 = 0/-1 if minibuf opened #
 	FNAME	command_string
 command_string
 	FNJSR	"R1-R7"
-	AND	R2,R0,#1 << 31		; get the learn flag
-	BIC	R0,R0,R2
+	AND	R2,R1,#1 << 31		; get the learn flag
 	PUSH	"R10"			; save input caret
 	MOV	R10,R0			; string start
 	BL	read_validate_command	; R7=command address
