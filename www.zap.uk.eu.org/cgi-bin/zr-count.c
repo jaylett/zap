@@ -23,9 +23,8 @@ fail (const char *msg)
   printf ("\
 Content-Type: text/plain\n\
 \n\
-Vote script error (%s): %s.\n\
-Report this to the webmaster.\n\
-", msg, strerror (errno));
+ZapRedraw counter script error (%s): %s.\n%s", msg + (*msg == '#'),
+    strerror (errno), (*msg == '#') ? "" : "Report this to the webmaster.\n");
   exit (0);
 }
 
@@ -116,20 +115,26 @@ main (void)
     {
       int file;
       FILE *fd;
+      int timer = 20;
+      struct stat check;
 
       sprintf (lockfile, "%s.%s.%i", VOTE_FILE, getenv ("SERVER_NAME"),
 	       getpid ());
 
       /* Make the lockfile */
-      file = open (lockfile, O_CREAT|O_WRONLY, 0600);
+      file = creat (lockfile, 0600);
       if (file == -1)
 	fail ("couldn't lock");
       havelock = 1;
       /* Link to it */
-      if (link (lockfile, VOTE_FILE".lock"))
+      while (link (lockfile, VOTE_FILE".lock"))
       {
-	struct stat check;
-	if (fstat (file, &check) || check.st_nlink != 2)
+	if (errno != EEXIST)
+	  fail ("couldn't lock");
+	if (!fstat (file, &check) && check.st_nlink == 2)
+	  break;
+	sleep (1);
+	if (--timer == 0)
 	  fail ("couldn't lock");
       }
       havelock = 2;
@@ -157,7 +162,7 @@ main (void)
       /* Increment */
       version[vote_number]++;
       if (viewfinder && vote_number > 1)
-        ver_vf[vote_number - 2]++;
+	ver_vf[vote_number - 2]++;
       /* Write */
       /* FIXME: use lots of fprintfs */
       if (fseek (fd, 0, SEEK_SET) ||
