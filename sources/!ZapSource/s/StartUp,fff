@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.25 1999/08/27 17:10:06 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.26 1999/10/25 22:09:48 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1523,9 +1523,12 @@ remove_clone_mode_entry
 	BEQ	noconf$l
 	MOV	R0,R5			; if we're hiding the mode,
 	BL	write_config_block	; preserve its config block
-	FNRTS	VS
+	BVC	freenum$l
+	FNRTS
 noconf$l
-	FNADD	R4,R12,mode_store	; otherwise, free up its mode number
+	BL	findclonemodeentry$l	; else check it's not a clone base
+freenum$l
+	FNADD	R4,R12,mode_store	; free up its mode number
 	ADD	R4,R4,R5,LSL #3
 	LDMIA	R4,{R0,R3}
 	MOV	R1,#0
@@ -1541,7 +1544,7 @@ noconf$l
 	FNRTS	NE			; if hiding, return now
 forget$l
 	LDR	R1,[R13]
-	BL	find_clone_mode_entry
+	BL	findclonemodeentry$l	; check that it's not a clone base
 	FNLDR	R3,ext_clones		; completely forget about this mode
 	MOV	R4,R3
 loop$l	LDR	R2,[R3],#4
@@ -1572,7 +1575,8 @@ s1$l	LDRB	R0,[R2],#1
 	LDR	R1,[R13,#4]
 	TEQ	R1,#0
 	FNRTS	NE			; if hiding, then nothing to do
-	BL	delete_config_block	; else delete the mode's config block
+	BL	findclonemodeentry$l	; check that it's not a clone base
+	BL	delete_config_block	; delete the mode's config block
 	B	forget$l		; and completely forget about it
 nodel$l	ADR	R0,nodelmsg$l
 	LDR	R4,[R13]
@@ -1591,5 +1595,24 @@ checkuse$l
 	TEQ	R0,R5
 	MOVEQ	R1,#1
 	MOVS	PC,R14
+
+findclonemodeentry$l ;E [R13]=mode name ;X R1=clone mode entry
+	LDR	R1,[R13]
+	FNJSR	"R1-R3"
+	BL	find_clone_mode_entry
+	STR	R1,[R13]
+	FNLDR	R3,ext_clones
+ifbase$l
+	LDR	R1,[R3],#4
+	TEQ	R1,#0
+	FNRTS	EQ
+skip$l	LDRB	R14,[R1],#1
+	TEQ	R14,#0
+	BNE	skip$l
+	LDR	R2,[R13]
+	BL	strCMP
+	BNE	ifbase$l
+	FNPULL
+	B	inuse$l			; well, it is :-)
 
  END
