@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 2.11 2003/01/26 12:55:45 christian Exp $
+; $Id: AlterTxt,fff,v 2.12 2004/10/31 23:27:18 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -456,7 +456,7 @@ un14	MOV	R0,#0
 	FNRTS
 
 maybe_rapid_not_preinput
-	FNJSR	"R8-R9"
+	FNJSR	"R8-R10"
 	MOV	R7,R9
 	FNLDR	R10,car_cursor
 	LDR	R0,[R10,#c_wind]	; This code doesn't appear to work properly
@@ -470,14 +470,14 @@ maybe_rapid_not_preinput
 	FNRTS
 
 
-;E R9=file
+;E R9=file  R10 = operation
 ;X caret mode and selected region status prepared for
 ;  insertion of text #
 	FNAME	pre_input
 pre_input
 	FNJSR	"R10"
 	LDR	R0,[R9,#f_flags]
-	TST	R0,#1<<8
+	TST	R0,#flags_ReadOnly
 	BNE	pr27			; file read only
 	BL	maybe_rapid_not_preinput ; a cursor in this file?
 	FNRTS	NE			; return here...
@@ -486,16 +486,21 @@ pr26	FNLDR	R0,car_mode
 	CMP	R0,#0
 	BLGT	caret_writable		; if caret exists the make mode 1/2
 	FNRTS	VS
-	FNLDR	R0,opt_flags
-	TST	R0,#1<<22
+
+	AND	R14,R10,#7
+	TEQ	R14,#7			; don't clear selection on startop marker
+	TEQNE	R14,#0			;   or fast undo pointer
+	FNLDR	R0,opt_flags,NE
+	TSTNE	R0,#flags_SelectionsVanish
 	FNRTS	EQ			; don't auto clear selections
+
 	FNLDR	R0,car_selection
 	LDR	R0,[R0,#c_wind]
 	MOVS	R0,R0
 	BLPL	clear_selection
 	FNRTS
 
-pr27	PUSH	"R0,R1"
+pr27	PUSH	"R0,R1"			; Read only
 	ADR	R0,pr_s0
 	MOV	R1,#1<<29
 	BL	warn_user
@@ -1037,7 +1042,7 @@ start_operation
 	SWI	XHourglass_On		; the first time...
 
 	LDR	R0,[R9,#f_flags]
-	TST	R0,#1<<8
+	TST	R0,#flags_ReadOnly
 	MOV	R0,#7
 	BLEQ	command_primative	; insert marker for multiop start
 	MVNVC	R14,#0
