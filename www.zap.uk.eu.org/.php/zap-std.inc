@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.8 2002/06/30 17:33:10 ds Exp $
+  // $Id: zap-std.inc,v 1.9 2002/07/02 13:43:31 james Exp $
 
   if ($GLOBALS['SERVER_NAME'] != 'zap.tartarus.org' ||
       substr (gethostbyaddr($GLOBALS['REMOTE_ADDR']), -13) == '.tartarus.org')
@@ -112,7 +112,7 @@ EOF;
 	        $rel = ereg_replace ('/[^/]*/\.\./', '/', $rel);
 	      echo '<link rel=', $arg[0], ' href="', $rel;
 	      if (count ($arg) == 3)
-		echo '" title="', $arg[3];
+		echo '" title="', $arg[2];
 	      echo "\">\n";
 	    }
 	  }
