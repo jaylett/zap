@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.6 2002/04/24 23:21:43 ds Exp $
+  // $Id: download.php,v 1.7 2002/08/21 23:35:22 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -178,7 +178,7 @@ Development release sites
 <?php
   zapfile ('1.40/zmods1_update.zip', 'Update from initial release to current extension modules group 1', '', '');
   zapfile ('1.40/zapconfig.zip', 'ZapConfig', 'sja', '');
-  zapfile ('1.40/ZapEmail.zip', 'ZapEmail', 'ds', 'PGP');
+  zapfile ('1.40/ZapEmail.zip', 'ZapEmail', 'ds', '');
 ?>
 </ul>
 
@@ -256,5 +256,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
+  zap_body_end ('$Date: 2002/08/21 23:35:22 $');
 ?>
