@@ -1,0 +1,1707 @@
+; **************************************************************************
+; *                                                                        *
+; *  Project: ZapMJE                Purpose: Extensions for Zap            *
+; *  Module: C_Redraw.s             Purpose: Redraw code for C/C++ modes   *
+; *  © 1997 Martin Ebourne          Last update: 02-02-97                  *
+; *                                                                        *
+; **************************************************************************
+
+;  Things to do: (in approx. order)
+;    Improve whole caching area
+;    Comment out line when in comment doesn't always redraw screen - also anything else with
+;      start/stop op. I think this is Dom's fault....
+;    "#define wibble \n (" && "wibble \n #define \n (" spannered
+;    if screws up in preproc
+;    egg (foo) ();
+;    Recognise unary minus for redraw
+;    Depth shading
+;    "#define wiggle ""\\\nhello" -> "#define wiggle ""\\\n\nhello"
+
+
+		GET	h.Main
+		GET	h.C
+		GET	h.Support
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+;  Coloured redraw
+
+char		RN	r0		;  Current character, -1 if just started scan
+ptr		RN	r1		;  Pointer to next character. Note that within scanfile
+					;  this is a POINTER into memory taking account of split,
+					;  externally this is an OFFSET into the file ignoring
+					;  the split
+lwidth		RN	r2		;  Number of columns in display, or -1 to prevent
+					;  stopping at physical line end
+state		RN	r3
+lastchar	RN	r4		;  Previous character, and temporary work
+crtab		RN	r5		;  b0-7  : Tab char
+					;  b8    : Set if C
+					;  b9    : Set if C++
+					;  b10   : Set if Java
+					;  b12,13: Tab style, as for b12,13 in w_format
+					;  b24-31: CR char
+output		RN	r6		;  b0-30 : Ptr to buffer for output, 0 for none
+					;  b31   : Clear for text redraw output - also forces
+					;          stopping at newline
+					;          Set for state words output (1 word per char)
+rangeend	RN	r7		;  Offset to stop at, or 0 to continue to EOF
+width		RN	r8		;  Length of redraw buffer excluding colours
+;  r9 fileblk
+splito		RN	r10		;  Pointer (NOT offset) to end of this file chunk, ie.
+					;  end of first block before split or end of file
+rcolumn		RN	r11		;  Current column
+;  r12 zapws, not generally used
+
+backgroundcol	EQU	1		;  Colour for background
+ctrlcol		EQU	8		;  Colour for ctrl codes
+
+;  State flags for state
+;  b0-3  : Basic state, equivalent to the colour
+;  b4-6  : Substate
+;  b7    : Set if in preprocessor line
+;  b8    : Set for reset - resets state as appropriate after outputting char
+;  b9    : Set if this backslash is escaping a CR. If so loops inside getchar$L
+;  b31   : Set if only white space so far this line
+other		EQU	2		;  Normal punctuation etc characters
+;  comment/startcomment and inccomment/startinccmmnt must each be consecutive
+comment		EQU	9		;  Inside normal C comment
+startcomment	EQU	9+1<<4		;  '/' for the start of a comment
+endcomment	EQU	9+2<<4		;  '*' which may be from the end of a comment
+cppcomment	EQU	9+3<<4		;  Inside C++ comment
+inccomment	EQU	9+4<<4		;  Inside comment when preprocinc
+startinccmmnt	EQU	9+5<<4		;  '/' for the start of a comment when preprocinc
+endinccomment	EQU	9+6<<4		;  '*' which may be from the end of inccomment
+string		EQU	10		;  String
+stringignore	EQU	10+1<<4		;  '\' inside string which escapes the next character
+charconst	EQU	10+2<<4		;  Character constant
+charconstign	EQU	10+3<<4		;  '\' inside char const which escapes next character
+ansiinclude	EQU	10+4<<4		;  ANSI include as in <file.h>
+builtin		EQU	11		;  Reserved word
+preproc		EQU     12		;  Normal punctuation etc. in preprocessor line
+preprocword	EQU     12+1<<4		;  Preprocessor reserved word in preprocessor line
+preprocincwd	EQU	12+2<<4		;  Preprocessor special reserved word in preproc line (1)
+preprocinc	EQU	12+3<<4		;  Special mode for normal in preprocessor line (1)
+function	EQU	13		;  Function name
+variable	EQU	14		;  Variable name
+somenumber	EQU	15		;  '0' at start of number, could be hex oct or bin
+decnumber	EQU	15+1<<4		;  Decimal number
+decnumberexp	EQU	15+2<<4		;  'E' for exponent in decimal number
+binnumber	EQU	15+3<<4		;  Binary number
+binnumberexp	EQU	15+4<<4		;  'E' for exponent in binary number(!)
+hexnumber	EQU	15+5<<4		;  Hex number
+statemask	EQU	(1<<7)-1	;  Mask for state bits 0-6
+preprocflag	EQU	1<<7		;  In preprocessor line
+reset		EQU	1<<8		;  Reset state
+slasheol	EQU	1<<9		;  '\' before CR
+whitespace	EQU	1<<31		;  Only whitespace so far this line
+
+;  Flags in crtab
+cext		EQU	1<<8		;  In C mode
+cppext		EQU	1<<9		;  In C++ mode
+javaext		EQU	1<<10		;  In Java mode
+
+;  Flags in reserved word table
+
+;  Normal reserved words, first word
+cppkeyword	EQU	1<<7		;  Keyword valid in C++ mode
+javakeyword	EQU	1<<15		;  Keyword valid in Java mode
+
+;  Normal reserved words, second word
+ckeyword	EQU	1<<23		;  Keyword valid in C mode
+longkeyword	EQU     1<<31           ;  Keyword is longer than 8 chars & is hence 4 + address
+                                        ;  Don't move from bit 31
+
+;  Preprocessor reserved words, second word
+specialkeyword	EQU	1<<23		;  Keyword is a special preprocessor word (1)
+
+;  All reserved words, second word
+dupkeyword	EQU	1<<15		;  Keyword shares first 4 chars with another
+
+;  Notes:
+;    1. Special preprocessor words are include and define. Bit set for include means accept ANSI
+;       <file.h> style names as strings. Bit set for define means don't allow space inbetween
+;       function name and open bracket
+
+		EXPORT	defaultstate$C
+defaultstate$C	EQU	other + whitespace
+
+
+		LOCAL
+
+
+;  Invalidate extra cache for redraw
+
+		EXPORT	clnphy$C
+clnphy$C	SAVE	modeblk
+		BL	checkmode
+		MOVEQ	r1,#-1
+		STREQ	r1,m_caddr$C
+		LDR	r9,=e_clnphy
+		BL	callbasemode
+		RTS
+
+
+		LOCAL
+
+
+;  Return first line shiftable with no redraw
+
+		EXPORT	nextline$C
+nextline$C	SAVE	r2,modeblk
+		BL	checkmode
+		RTS NE
+		LDR	r0,m_invend$C
+		LDR	r1,f_len
+		CMP	r0,r1
+		MOVHS	r0,r1
+		LDRHS	r1,w_height
+		SUBHS	r1,r1,#1
+		RTS HS
+		LDR	r9,=e_clnoff
+		BL	callbasemode
+		EOR	r0,r0,r1		; swap R0,R1...
+		EOR	r1,r0,r1
+		EOR	r0,r0,r1
+		RTS
+
+
+		LOCAL
+
+
+;  Redraw line of display
+
+		EXPORT	redrawline$C
+redrawline$C	STMFD	sp!,{r6,windowblk,r11,lr}
+		SWI	XHourglass_On
+		SUB	r11,r7,r5
+		BL	scaninit$C
+		BL	scanto$C
+		LDMFD	sp,{r6}
+		LDR	lwidth,w_bpl
+		LDR	width,w_txtw
+		MOV	rangeend,#-1
+		BL	scanfile$C
+		LDMFD	sp!,{r6,windowblk}
+		BL	checkmode
+		LDMNEFD	sp!,{r11,pc}			; hourglass?
+		ADD	modeblk,modeblk,#m_caddr$C-m_0$C
+		STMIA	modeblk,{ptr,state}
+		LDMFD	sp!,{r11,lr}
+		STR	state,w_res14
+		STR	ptr,w_res15
+		TEQ	r0,r5,LSR #24
+		ADDEQ	r11,r11,#1
+		LDR	r5,f_ptr
+		LDR	r0,f_splito
+		CMP	ptr,r0
+		LDRHS	r0,f_splits
+		ADDHS	r5,r5,r0
+		ADD	r7,ptr,r5
+		SWI	XHourglass_Off
+		MOV	pc,lr
+
+
+		LOCAL
+
+
+;  Initialisation for syntax scan
+;
+;  Entry conditions:
+;    r4           - Format word
+;
+;  Exit conditions:
+;    r0, r4       - Corrupted
+;    r5  crtab    - Set up for call to scanfile
+
+scaninit$C	SAVE	modeblk,wsblk
+		BL	checkmode
+		RTS	NE
+		LDRB	crtab,w_cr			;  Combine w_cr & w_tabchar into crtab
+		LDRB	r0,w_tabchar
+		ORR	crtab,r0,crtab,LSL #24
+		AND	r4,r4,#2_11<<12			;  Also tab type into crtab
+		ORR	crtab,crtab,r4
+		LDR	r0,m_info			;  Check for C++ mode
+		LDR	r0,[r0,#i_intmode]
+		TEQ	r0,#c
+		ORREQ	crtab,crtab,#cext		;  Also C flag into crtab
+		TEQ	r0,#cpp
+		ORREQ	crtab,crtab,#cppext		;  Also C++ flag into crtab
+		TEQ	r0,#java
+		ORREQ	crtab,crtab,#javaext		;  Also Java flag into crtab
+		RTS
+
+
+		LOCAL
+
+; E R0,R8,R9...
+		EXPORT	in_comment
+in_comment	STMFD	sp!,{r1-r12,lr}
+		MOV 	r11,r0
+
+;		LDR	r6,[r10]	;  Get static base
+;		LDMIB	r6,{r8-r12}	;  Load static vars, omit modeblk(?
+;		BL	getws
+;		BL	getformat	;  Get modeblk
+;		LDR	r0,w_format
+;		AND	r1,r0,#255
+;		CALL	Zap_GetModeWord,r2
+;		MOV	modeblk,r0
+;		STMIA	r6,{r7-r12} ;  Update static vars, including modeblk
+		LDR	r3,[r10]	; !?!?
+;		LDMIB	r3,{r8-r12}	;  Load static vars, omit modeblk
+;		LDR	cursorblk,[r3,#p_cursorblk]
+		LDR	fileblk,[r3,#p_fileblk]
+		LDR	windowblk,[r3,#p_windowblk]
+		LDR	modeblk,[r3,#p_modeblk]
+		LDR	r12,[r3,#p_zapwsblk]
+		BL	asm_a_comment
+		LDMFD	sp!,{r1-r12,pc}
+
+		EXPORT	asm_a_comment
+asm_a_comment	STMFD	sp!,{lr}
+		LDR	r4,w_format
+
+		BL	scaninit$C		; sets up R5...
+
+		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext)
+		BEQ	inassembler$L
+		LDR	R0,f_len
+		CMP	R11,R0
+		BCS	notinacomment$L
+
+		BL	scanto$C
+		AND	state,state,#15
+		TEQ	state,#9		; a comment?
+		MOVEQ	r0,#1
+		MOVNE	r0,#0
+		LDMFD	sp!,{pc}
+
+notinacomment$L	MOV	r0,#0
+		LDMFD	sp!,{pc}
+inassembler$L	MOV	R0,#2
+		LDMFD	sp!,{pc}
+
+;  Scan source to given point, putting entry into cache buffer every k
+;
+;  Entry conditions:
+;    r8, r9
+;    r11 = toptr  - Offset to scan to
+;
+;  Exit conditions:
+;    r0, r2, r6, r7, r10, r11 - Corrupted
+;    r4, r8, r9, r12 - Preserved
+;    r1  ptr      - Offset of position
+;    r3  state    - State of position
+;
+;  NB. scaninit must be called before scanto, and r5 preserved between calls
+
+hourcount$L	RN	r4				;  Chars per hourglass %
+cache$L		RN	r10				;  Current pointer into state cache
+toptr$L		RN	r11				;  Offset to scan to
+
+scanto$C	STMFD	sp!,{hourcount$L,r7,toptr$L,lr}
+		BL	checkmode
+		LDMNEFD	sp!,{hourcount$L,r7,toptr$L,pc}
+		LDR	toptr$L,[sp,#4*2]		;  Restore toptr
+		LDR	ptr,m_caddr$C			;  Check for extra cache being suitable
+		TEQ	ptr,toptr$L
+;		CMP	ptr,toptr$L
+		LDREQ	state,m_cstate$C
+		LDMEQFD	sp!,{hourcount$L,r7,toptr$L,pc}	;  If so then already done
+		ADD	cache$L,modeblk,#m_cacheaddr$C-m_0$C
+findloop$L	LDMIA	cache$L!,{ptr,state}		;  Find next entry past toptr in cache
+		CMP	toptr$L,ptr
+		BHI	findloop$L
+		LDMEQFD	sp!,{hourcount$L,r7,toptr$L,pc}	;  Found exactly at toptr, job done
+		SUB	cache$L,cache$L,#16		;  Reload entry before toptr in cache
+		LDMIA	cache$L!,{ptr,state}
+		MOV	rangeend,ptr,LSR #7 ; 10	;  Round up to next 1k boundary
+		ADD	rangeend,rangeend,#1
+		MOV	rangeend,rangeend,LSL #7 ; 10
+		SUB	r0,toptr$L,rangeend		;  Calculate amount to be done and
+		BL	startlongnoesc			;    respective hourglass counts
+		MOV	hourcount$L,lr
+scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
+		MOVLO	rangeend,toptr$L
+		LDRHS	output,[cache$L]		;  If found end of cache mark then move
+		MOVS	output,output			;    to entry after this
+		MOV	lwidth,#-1
+		; one of the following lines causes problems...!
+		STRMI	lwidth,[cache$L,#8]
+		STR	cache$L,[sp,#4]			;  Save cache on stack
+		MOV	output,#1<<31			;  Scan file to calculate state
+		BL	scanfile$C
+		LDMIB	sp,{cache$L,toptr$L}		;  Restore cache and toptr from stack
+		STMHSIA	cache$L!,{ptr,state}		;  Update cache entry if on 1k boundary
+		ADD	rangeend,ptr,#128 ; 1024	;  Get next 1k boundary
+		SUBS	hourcount$L,hourcount$L,#128 ; 1024 ;  Update hourglass
+		MOVLS	r0,hourcount$L
+		BLLS	newpercent
+		MOVLS	hourcount$L,r0
+;		TEQ	toptr$L,ptr			;  Loop if toptr not reached
+		CMP	ptr,toptr$L			;  Loop if toptr not reached
+		BLT	scanloop$L
+		BL	stoplongop
+		LDMFD	sp!,{hourcount$L,r7,toptr$L,pc}
+
+
+		LOCAL
+
+
+;  Scan source to determine syntax
+;
+;  Entry conditions:
+;    r1  ptr      - Offset of scan start
+;    r2  lwidth   - Number of columns, or -1 to prevent stopping at physical line end
+;                   NB. For this to work, ptr must be at the start of a physical line
+;    r3  state    - Current state
+;    r6  output   - Address of buffer for output, or 0. If top bit set, just store states
+;                   NB. If top bit clear scanning stops at newline, else ignored
+;    r7  rangeend - Offset to stop at, or 0 for end of file, (or -1...? TT)
+;    r8  width    - Length of redraw buffer (not including colours)
+;    r9
+;
+;  Exit conditions:
+;    r0, r5, r7, r10, r11 - Corrupted
+;    r2, r4, r8, r9, r12, flags - Preserved
+;    r1  ptr      - Offset of current position
+;    r3  state    - State of current position
+;    r6  output   - End of buffer
+;
+;  NB. scaninit must be called before scanfile, and r5 preserved between calls
+
+scanfile$C	STMFD	sp!,{r4,lr}
+		LDR	splito,f_splito
+		LDR	lr,f_splits
+		CMP	rangeend,splito
+		ADDGE	rangeend,rangeend,lr
+		CMP	ptr,splito
+		ADDHS	ptr,ptr,lr
+		LDRHS	splito,f_bufl
+		LDR	lr,f_ptr
+		CMP	rangeend,#0
+		ADDGE	rangeend,rangeend,lr
+		ADD	ptr,ptr,lr
+		ADD	splito,splito,lr
+		MOV	char,#-1
+		MOV	rcolumn,#0
+		TST	state,#reset
+		MOVNE	state,#other
+
+;  Dispatcher for current state
+
+		AND	lastchar,state,#statemask
+		TEQ	lastchar,#comment
+		TEQNE	lastchar,#inccomment
+		TEQNE	lastchar,#endcomment
+		TEQNE	lastchar,#endinccomment
+		BEQ	commentloop$L
+		TEQ	lastchar,#cppcomment	; new kid OTB...
+		BEQ	to_cpploop$L		; cppcomloop$L
+notprevnext$L
+		TEQ	lastchar,#startcomment
+		TEQNE	lastchar,#startinccmmnt
+		BEQ	commentstart$L
+		TEQ	lastchar,#string
+		TEQNE	lastchar,#stringignore
+		BEQ	quoteloop$L
+		TEQ	lastchar,#charconst
+		TEQNE	lastchar,#charconstign
+		BEQ	singquoteloop$L
+		TEQ	lastchar,#ansiinclude
+		BEQ	ansiincloop$L
+		TEQ	lastchar,#preprocword
+		TEQNE	lastchar,#preprocincwd
+		TEQNE	lastchar,#function
+		TEQNE	lastchar,#variable
+		TEQNE	lastchar,#builtin
+		BEQ	nameloop$L
+		TEQ	lastchar,#decnumberexp
+		TEQNE	lastchar,#binnumberexp
+		BEQ	exponent$L
+		TEQ	lastchar,#somenumber
+		BEQ	findnumtype$L
+		TEQ	lastchar,#decnumber
+		TEQNE	lastchar,#binnumber
+		TEQNE	lastchar,#hexnumber
+		BEQ	numberloop$L
+;		B	mainloop$L ; commented out as per comment below...!
+;		Fall through...
+
+;  Main loop
+
+
+normal$L	ORREQ	state,state,#reset ; /always/ EQ when gets here
+mainloop$L	BL	getchar$L
+gotchar$L	TEQ	char,#'#'
+		BEQ	checkpreproc$L
+		TEQ	char,#'/'
+		BEQ	checkcomment$L
+notcomment$L	TEQ	char,crtab,LSR #24
+		TEQNE	char,#' '
+		ANDNE	lr,crtab,#255
+		TEQNE	char,lr
+		BICNE	state,state,#whitespace
+		TEQ	char,#'"'
+		BEQ	quotes$L
+		TEQ	char,#'<'
+		BEQ	checkansiinc$L
+		TEQ	char,#'''
+		BEQ	singlequotes$L
+		TEQ	char,#'.'
+		BEQ	fraction$L
+		TEQ	char,#'L'
+		BEQ	longstring$L
+		AND	lr,char,#&DF
+		CMP	lr,#'Z'
+		RSBLSS	lr,lr,#'A'
+		TEQHI	char,#'_'
+		BLS	name$L
+		CMP	char,#'9'
+		RSBLSS	lr,char,#'0'
+		BHI	mainloop$L
+
+;  Numbers
+
+number$L	TEQ	char,#'0'
+		ANDNE	state,state,#preprocflag
+		ORRNE	state,state,#decnumber
+		BNE	numberloop$L
+		AND	state,state,#preprocflag
+		ORR	state,state,#somenumber
+findnumtype$L	BL	getchar$L
+		AND	state,state,#preprocflag
+		ORR	state,state,#decnumber
+		AND	lr,char,#&DF
+		TEQ	lr,#'X'
+		ANDEQ	state,state,#preprocflag
+		ORREQ	state,state,#hexnumber
+		TEQ	lr,#'B'
+		ANDEQ	state,state,#preprocflag
+		ORREQ	state,state,#binnumber
+		AND	lr,state,#statemask
+		TEQ	lr,#decnumber
+		BEQ	checkdec$L
+numberloop$L	BL	getchar$L
+checkdec$L	AND	lr,char,#&DF
+		TEQ	lr,#'E'
+		BEQ	checkexponent$L
+		TEQ	lr,#'L'
+		TEQNE	lr,#'U'
+		BEQ	numberloop$L
+		AND	lr,state,#statemask
+		CMP	char,#'.'
+		CMPNE	char,#'F'
+		TEQEQ	lr,#decnumber
+		CMPNE	char,#'0'
+		BLO	endcolour$L
+		TEQNE	char,#'1'
+		BEQ	numberloop$L
+		TEQ	lr,#binnumber
+		BEQ	endcolour$L
+		CMP	char,#'9'
+		BLS	numberloop$L
+		TEQ	lr,#decnumber
+		BEQ	endcolour$L
+		AND	lr,char,#&DF
+		CMP	lr,#'F'
+		RSBLSS	lr,lr,#'A'
+		BLS	numberloop$L
+endcolour$L	TST	state,#preprocflag
+		MOVEQ	state,#other
+		MOVNE	state,#preproc+preprocflag
+		B	gotchar$L
+checkexponent$L	AND	lr,state,#statemask
+		TEQ	lr,#hexnumber
+		BEQ	numberloop$L
+		ADD	state,state,#1<<4
+exponent$L	BL	getchar$L
+		SUB	state,state,#1<<4
+		TEQ	char,#'+'
+		TEQNE	char,#'-'
+		BEQ	numberloop$L
+		B	checkdec$L
+
+;  Check for number starting with .
+
+fraction$L	STMFD	sp!,{char,ptr,splito}
+		BL	getahead$L
+		CMP	char,#'9'
+		RSBLSS	lr,char,#'0'
+		LDMFD	sp!,{char,ptr,splito}
+		BLS	number$L
+		B	mainloop$L
+
+;  Comments
+
+;cppcomloop$L	BL	getchar$L
+;		TEQ	char,crtab,LSR #24
+;		BNE	cppcomloop$L
+;;		MOVEQ	state,#2 ; (normal)
+;;		BICEQ	state,state,#statemask ; ???
+;;		ANDEQ	state,state,#whitespace ; ????
+;		B	normal$L
+
+checkcomment$L	STMFD	sp!,{char,ptr,splito}
+		BL	getahead$L
+		TEQ	char,#'/'
+		BEQ	cpp$L
+		TEQ	char,#'*'
+		LDMFD	sp!,{char,ptr,splito}
+		BCS	notcomment$L
+		BNE	notcomment$L
+		TEQ	state,#preprocflag+preprocinc
+		BIC	state,state,#statemask
+		ORRNE	state,state,#startcomment
+		ORREQ	state,state,#startinccmmnt
+commentstart$L	BL	getchar$L
+		SUB	state,state,#1<<4
+commentloop$L	BL	getchar$L
+		TEQ	char,crtab,LSR #24
+		ANDEQ	state,state,#whitespace
+		ORREQ	state,state,#comment
+		AND	lr,state,#statemask
+		TEQ	lr,#endcomment
+		TEQNE	lr,#endinccomment
+		TEQEQ	char,#'/'
+		BEQ	normal$L
+		TEQ	char,#'*'
+		ORREQ	state,state,#endcomment:EOR:comment
+		BICNE	state,state,#endcomment:EOR:comment
+		B	commentloop$L
+
+cpp$L		LDMFD	sp!,{char,ptr,splito}
+		BCS	notcomment$L		; fires...? huh?
+		TST	crtab,#cext
+;		BNE	testtoseeppon$L
+		TSTEQ	crtab,#cppext+javaext
+		BEQ	notcomment$L
+testtoseeppon$L	AND	state,state,#preprocflag
+		ORR	state,state,#cppcomment
+cpploop$L
+;		; next 2 lines seem to have no effect :-/
+;		CMP	ptr,rangeend		; new stuff...
+;		BHS	finished$L		; new stuff...
+
+		BL	getchar$L
+		TEQ	char,crtab,LSR #24
+		BNE	cpploop$L
+;		ORR	state,state,#whitespace	; something...!
+;		SWI	&107
+		B	normal$L
+
+to_cpploop$L
+		LDR	lr,local_prevnextflag
+		CMP	lr,#0
+		BEQ	cpploop$L
+		B	notprevnext$L
+
+;testtoseeppon$L
+;;		STMFD	sp!,{r0-r12}
+;;		MOV	r0,#0
+;;		BL	checkmode
+;;		BNE	cpploop$L
+;;		BL	getmodeblk
+;;		LDR	r14,m_sharedflags1
+;;		LDMFD	sp!,{r0-r12}
+;;		TST	r14,#1
+;;		BEQ	notcomment$L
+;;		LDMFD	sp!,{r0-r12}
+;		AND	state,state,#preprocflag
+;		ORR	state,state,#cppcomment
+;		B	cpploop$L
+
+;to_cpploop$L
+;		LDMFD	sp!,{r0-r12}
+;		B	cpploop$L
+;to_notcomment$L
+;		LDMFD	sp!,{r0-r12}
+;		B	notcomment$L
+
+;  Strings
+
+quotes$L	AND	state,state,#preprocflag
+		ORR	state,state,#string
+quoteloop$L	BL	getchar$L
+		BIC	state,state,#whitespace
+		TEQ	char,crtab,LSR #24
+		BEQ	normal$L
+		TEQ	state,#stringignore
+		TEQNE	state,#stringignore+preprocflag
+		AND	state,state,#preprocflag
+		ORR	state,state,#string
+		BEQ	quoteloop$L
+		TEQ	char,#'\'
+		ORREQ	state,state,#stringignore
+		TEQ	char,#'"'
+		BNE	quoteloop$L
+		B	normal$L
+
+;  Character constants
+
+singlequotes$L	AND	state,state,#preprocflag
+		ORR	state,state,#charconst
+singquoteloop$L	BL	getchar$L
+		BIC	state,state,#whitespace
+		TEQ	char,crtab,LSR #24
+		BEQ	normal$L
+		TEQ	state,#charconstign
+		TEQNE	state,#charconstign+preprocflag
+		AND	state,state,#preprocflag
+		ORR	state,state,#charconst
+		BEQ	singquoteloop$L
+		TEQ	char,#'\'
+		ORREQ	state,state,#charconstign
+		TEQ	char,#'''
+		BNE	singquoteloop$L
+		B	normal$L
+
+;  <> in #include
+
+checkansiinc$L	TEQ	state,#preprocinc+preprocflag
+		BNE	mainloop$L
+		MOV	state,#ansiinclude+preprocflag
+ansiincloop$L	BL	getchar$L
+		TEQ	char,#'>'
+		TEQNE	char,crtab,LSR #24
+		BNE	ansiincloop$L
+		B	normal$L
+
+;  Check preprocessor
+
+checkpreproc$L	TST	state,#whitespace
+		TSTNE	crtab,#cext+cppext		;  :NOT:javaext
+		MOVNE	state,#preproc+preprocflag
+		B	mainloop$L
+
+;  Get next character
+
+getchar$L	CMP	ptr,splito
+		BLO	notfinish$L
+		LDR	splito,f_bufl
+		LDR	lastchar,f_ptr
+		ADD	splito,splito,lastchar
+		CMP	ptr,splito
+		LDRLO	lastchar,f_splits
+		ADDLO	ptr,ptr,lastchar
+notfinish$L	CMP	char,#-1
+		CMPNE	output,#1<<31
+		BEQ	nooutput$L
+		BHI	intobuffer$L
+		AND	lastchar,crtab,#255
+		TEQ	char,lastchar
+		BNE	nottab$L
+		ANDS	lastchar,crtab,#2_11<<12
+		BEQ	nottab$L
+		TEQ	output,#0
+		BEQ	nostoretab$L
+		CMP	lastchar,#2_10<<12
+		MOVLO	char,#' '
+		MOVEQ	char,#9
+		MOVHI	char,#'-'
+		CMP	lastchar,#2_11<<12
+tabloop$L	MOV	lastchar,#backgroundcol
+		STRB	lastchar,[output,width,LSL #1]
+		MOV	lastchar,#ctrlcol
+		STRB	lastchar,[output,width]
+		STRB	char,[output],#1
+		ADD	rcolumn,rcolumn,#1
+		MOVLO	char,#' '
+		TEQ	rcolumn,lwidth
+		TSTNE	rcolumn,#7
+		BNE	tabloop$L
+		MOVHS	char,#9
+		STRHSB	char,[output,#-1]
+		AND	char,crtab,#255
+		B	nooutput$L
+nostoretab$L	ADD	rcolumn,rcolumn,#15
+		BIC	rcolumn,rcolumn,#3
+		CMP	rcolumn,lwidth
+		MOVHI	rcolumn,lwidth
+		B	nooutput$L
+intobuffer$L	BIC	lastchar,output,#1<<31
+		STR	state,[lastchar]
+		ADD	output,output,#4
+		B	nooutput$L
+nottab$L	ADD	rcolumn,rcolumn,#1
+		AND	lastchar,char,#255
+		TEQ	output,#0
+		TEQNE	lastchar,crtab,LSR #24
+		BEQ	nooutput$L
+		TST	state,#slasheol
+		ANDEQ	lastchar,state,#15
+		BEQ	notslash$L
+		TST	state,#preprocflag
+		MOVEQ	lastchar,#other:AND:15
+		MOVNE	lastchar,#preproc:AND:15
+notslash$L	STRB	lastchar,[output,width]
+		MOV	lastchar,#backgroundcol
+		STRB	lastchar,[output,width,LSL #1]
+		STRB	char,[output],#1
+nooutput$L	TST	state,#reset
+		BEQ	noreset$L
+		AND	lastchar,state,#statemask
+		TEQ	lastchar,#endinccomment
+		ANDEQ	state,state,#slasheol
+		ORREQ	state,state,#preprocinc+preprocflag
+		BEQ	noreset$L
+		TST	state,#preprocflag
+		BIC	state,state,#255
+		BIC	state,state,#reset
+		ORREQ	state,state,#other
+		ORRNE	state,state,#preproc+preprocflag
+noreset$L	TEQ	char,crtab,LSR #24
+		BNE	noquiteol$L
+		TST	state,#slasheol
+		BICNE	state,state,#slasheol
+		BNE	slasheol$L
+		AND	state,state,#statemask
+		TEQ	state,#preproc
+		TEQNE	state,#preprocinc
+		MOVEQ	state,#other
+		ORR	state,state,#whitespace
+slasheol$L	CMP	output,#0
+		BGE	finished$L
+noquiteol$L	CMP	ptr,rangeend
+		CMPLO	ptr,splito
+		BHS	finished$L
+		LDRB	char,[ptr],#1
+		TST	state,#slasheol
+		BNE	getchar$L
+		CMP	rcolumn,lwidth
+		BHS	physlineend$L
+		TEQ	char,#'\'
+		MOVNES	pc,lr
+gcbackslash$L	STMFD	sp!,{ptr,splito,lr}
+		ADD	lr,pc,#4
+		STMFD	sp!,{lr}
+		BL	getc$L
+		TEQ	char,crtab,LSR #24
+		MOV	char,#'\'
+		LDMNEFD	sp!,{ptr,splito,pc}^
+		LDMFD	sp!,{ptr,splito,lr}
+		ORR	state,state,#slasheol
+		B	getchar$L
+physlineend$L	TEQ	char,crtab,LSR #24
+		MOVEQS	pc,lr
+		SUB	ptr,ptr,#1
+finished$L	LDR	lr,f_ptr
+		SUB	ptr,ptr,lr
+		LDR	splito,f_splito
+		CMP	ptr,splito
+		LDRHS	lr,f_splits
+		SUBHS	ptr,ptr,lr
+		LDMFD	sp!,{r4,pc}^
+
+
+;  Character look ahead, CS if reached end
+
+gabackslash$L	BIC	lr,lr,#Cbit
+		STMFD	sp!,{ptr,splito,lr}
+		ADD	lr,pc,#4
+		STMFD	sp!,{lr}
+		BL	getc$L
+		TEQ	char,crtab,LSR #24
+		MOVNE	char,#'\'
+		LDMNEFD	sp!,{ptr,splito,pc}
+		ADD	sp,sp,#8
+		LDMFD	sp!,{lr}
+getahead$L	ADR	lastchar,gabackslash$L
+		STMFD	sp!,{lastchar}			; copy } aborts! :-(
+		; /why/ I don't know - this is the stack :-(
+getc$L		CMP	ptr,splito
+		BLO	notend$L
+		LDR	splito,f_len
+		LDR	lastchar,f_ptr
+		ADD	splito,splito,lastchar
+		CMP	ptr,splito
+		ADDHS	sp,sp,#4
+		MOVHS	pc,lr
+		LDR	lastchar,f_splits
+		ADD	ptr,ptr,lastchar
+		ADD	splito,splito,lastchar
+notend$L	LDRB	char,[ptr],#1
+		TEQ	char,#'\'
+		ADDNE	sp,sp,#4
+		MOVNE	pc,lr
+		LDMFD	sp!,{pc}
+
+;  Long character string/char constants (eg. L"Hello" or L'!')
+
+longstring$L	STMFD	sp!,{char,ptr,splito}
+		BL	getahead$L
+		MOV	lr,char
+		LDMFD	sp!,{char,ptr,splito}
+		TEQ	lr,#'''
+		ANDEQ	state,state,#preprocflag
+		ORREQ	state,state,#charconstign
+		BEQ	singquoteloop$L
+		TEQ	lr,#'"'
+		ANDEQ	state,state,#preprocflag
+		ORREQ	state,state,#stringignore
+		BEQ	quoteloop$L
+
+;  Names
+
+name$L		STMFD	sp!,{char,ptr,crtab,width,splito}
+		MOV	width,#0
+		MOV	lr,#0
+		STMFD	sp!,{width,lr}
+		STMFD	sp!,{width,lr}
+		MOV	width,#16
+namesearchlp$L	SUBS	width,width,#1
+		STRPLB	char,[sp,width]
+		BL	getahead$L
+		BCS	isvariable$L
+		AND	lr,char,#&DF
+		CMP	lr,#'Z'
+		RSBLSS	lr,lr,#'A'
+		TEQHI	char,#'_'
+		BLS	namesearchlp$L
+		CMP	char,#'9'
+		RSBLSS	lr,char,#'0'
+		BLS	namesearchlp$L
+		TEQ	state,#preprocinc+preprocflag
+		BEQ	nameendfound$L
+whitespacelp$L	TEQ	char,#'/'
+		BEQ	namecomment$L
+		TEQ	char,#' '
+		TEQNE	char,crtab,LSR #24
+		ANDNE	lr,crtab,#255
+		TEQNE	char,lr
+		BNE	nameendfound$L
+		BL	getahead$L
+morewhitespc$L	BCC	whitespacelp$L
+nameendfound$L	TEQ	char,#'('
+		ANDEQ	state,state,#preprocflag
+		ORREQ	state,state,#function
+		BEQ	isfunction$L
+isvariable$L	AND	state,state,#preprocflag
+		ORR	state,state,#variable
+isfunction$L	CMP	width,#0
+		BLT	notreserved$L
+		LDR	width,[sp,#12]
+		TST	state,#preprocflag
+		BEQ	notpreword$L
+		MOV	char,#0
+		MOV	crtab,#(preprocend$L-preprocstart$L)>>3
+searchpreloop$L	ADD	lr,char,crtab
+		MOV	lr,lr,LSR #1
+		ADRL	lastchar,preprocstart$L  ;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		CMP	lastchar,width
+		MOVHI	crtab,lr
+		ADDLO	char,lr,#1
+		TEQNE	crtab,char
+		BNE	searchpreloop$L
+		TEQ	lastchar,width
+		BNE	notpreword$L
+		ADRL	lastchar,preprocstart$L+4	;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	crtab,lastchar,#specialkeyword
+		BIC	crtab,crtab,#dupkeyword
+		LDR	char,[sp,#8]
+		TEQ	char,crtab
+		BEQ	preword$L
+		TST	lastchar,#dupkeyword
+		BEQ	notpreword$L
+		SUB	lr,lr,#1
+		ADRL	lastchar,preprocstart$L		;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		TEQ	lastchar,width
+		ADDNE	lr,lr,#2
+		ADRL	lastchar,preprocstart$L+4	;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	crtab,lastchar,#specialkeyword
+		BIC	crtab,crtab,#dupkeyword
+		TEQ	char,crtab
+		BNE	notpreword$L
+preword$L	TST	lastchar,#specialkeyword
+		MOVEQ	state,#preprocword+preprocflag
+		MOVNE	state,#preprocincwd+preprocflag
+		B	notreserved$L
+
+ LTORG
+
+notpreword$L	MOV	char,#0
+		MOV	crtab,#(reservedend$L-reservedstart$L)>>3
+searchresloop$L	ADD	lr,char,crtab
+		MOV	lr,lr,LSR #1
+		ADRL	lastchar,reservedstart$L	;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	lastchar,lastchar,#cppkeyword
+		BIC	lastchar,lastchar,#javakeyword
+		CMP	lastchar,width
+		MOVHI	crtab,lr
+		ADDLO	char,lr,#1
+		TEQNE	crtab,char
+		BNE	searchresloop$L
+		TEQ	lastchar,width
+		BNE	notreserved$L
+		LDMIB	sp,{char,width}
+		ADRL	lastchar,reservedstart$L+4	;L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	crtab,lastchar,#ckeyword
+		BICS	crtab,crtab,#dupkeyword
+		BMI	longres1$L
+		TEQ	char,#0
+		TEQEQ	width,crtab
+		BEQ	matchedres$L
+notres1$L	TST	lastchar,#dupkeyword
+		BEQ	notreserved$L
+; BYTE #'S'
+; WORD width
+; WORD crtab
+; WORD lr
+		LDR	crtab,[sp,#12]
+		SUB	lr,lr,#1
+		ADR	lastchar,reservedstart$L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	lastchar,lastchar,#cppkeyword
+		BIC	lastchar,lastchar,#javakeyword
+		TEQ	lastchar,crtab
+		ADDNE	lr,lr,#2
+		ADR	lastchar,reservedstart$L+4
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		BIC	crtab,lastchar,#ckeyword
+		BICS	crtab,crtab,#dupkeyword
+		BMI	longres2$L
+; WORD width
+; WORD crtab
+; WORD lr
+		TEQ	char,#0
+		TEQEQ	width,crtab
+		BEQ	matchedres$L
+		B	notreserved$L
+
+; LTORG
+
+longres1$L	TEQ	char,#0
+		BEQ	notres1$L
+longres2$L	LDR	lastchar,={PC}+1<<31+12
+		ADD	crtab,pc,crtab
+		SUB	crtab,crtab,lastchar
+		LDR	lastchar,[crtab],#4
+		TEQ	lastchar,width
+		LDMEQIA	crtab,{crtab,width}
+		TEQEQ	crtab,char
+		LDREQ	crtab,[sp]
+		TEQEQ	width,crtab
+		BNE	notreserved$L
+		MOV	lastchar,#0			;  Can't be C keyword since >8 chars
+matchedres$L	LDR	crtab,[sp,#16+2*4]		;  Keep in step with stack - gets crtab
+		TST	lastchar,#ckeyword
+		TSTNE	crtab,#cext
+		BNE	isreserved$L
+		ADR	lastchar,reservedstart$L
+		LDR	lastchar,[lastchar,lr,LSL #3]
+		TST	lastchar,#javakeyword
+		TSTNE	crtab,#javaext
+		BNE	isreserved$L
+		TST	lastchar,#cppkeyword
+		TSTNE	crtab,#cppext
+isreserved$L	ANDNE	state,state,#preprocflag
+		ORRNE	state,state,#builtin
+notreserved$L	ADD	sp,sp,#16
+		LDMFD	sp!,{char,ptr,crtab,width,splito}
+nameloop$L	BL	getchar$L
+		AND	lr,char,#&DF
+		CMP	lr,#'Z'
+		RSBLSS	lr,lr,#'A'
+		TEQHI	char,#'_'
+		BLS	nameloop$L
+		CMP	char,#'9'
+		RSBLSS	lr,char,#'0'
+		BLS	nameloop$L
+		TEQ	state,#preprocincwd+preprocflag
+		BNE	endcolour$L
+		MOV	state,#preprocinc+preprocflag
+		B	gotchar$L
+
+namecomment$L	BL	getahead$L
+		TEQ	char,#'/'
+		BEQ	namecpploop$L
+		TEQ	char,#'*'
+		BNE	isvariable$L
+namecommentlp$L	BL	getahead$L
+		BCS	isvariable$L
+nameendcmmnt$L	TEQ	char,#'*'
+		BNE	namecommentlp$L
+		BL	getahead$L
+		BCS	isvariable$L
+		TEQ	char,#'/'
+		BNE	nameendcmmnt$L
+		BL	getahead$L
+		B	morewhitespc$L
+
+namecpploop$L	TST	crtab,#cppext+javaext
+		BEQ	isvariable$L
+		BL	getahead$L
+		BCS	isvariable$L
+		TEQ	char,crtab,LSR #24
+		BNE	namecpploop$L
+		B	whitespacelp$L
+
+;		LTORG
+
+;  This is worse than it looks...
+
+		MACRO
+$label		RWORD	$flag1,$flag2,$flag3,$dup,$addr,$lt0,$lt1,$lt2,$lt3,$lt4,$lt5,$lt6,$lt7
+		ALIGN
+		[	"$lt2"=""
+$label		=	$flag2<<7,$flag3<<7,'$lt1','$lt0'
+		|
+		[	"$lt3"=""
+$label		=	$flag2<<7,'$lt2'+($flag3<<7),'$lt1','$lt0'
+		|
+$label		=	'$lt3'+($flag2<<7),'$lt2'+($flag3<<7),'$lt1','$lt0'
+		]
+		]
+		ALIGN
+		[	"$addr"=""
+		[	"$lt5"=""
+		[	"$lt4"=""
+		=	0,$dup<<7,$flag1<<7,0
+		|
+		=	0,$dup<<7,$flag1<<7,'$lt4'
+		]
+		|
+		[	"$lt6"=""
+		=	0,$dup<<7,'$lt5'+($flag1<<7),'$lt4'
+		|
+		[	"$lt7"=""
+		=	0,'$lt6'+($dup<<7),'$lt5'+($flag1<<7),'$lt4'
+		|
+		=	'$lt7','$lt6'+($dup<<7),'$lt5'+($flag1<<7),'$lt4'
+		]
+		]
+		]
+		|
+		DCD	$addr+($dup<<15)+($flag1<<23)+(1<<31)
+		]
+		MEND
+
+
+;  Preprocessor
+
+;  Columns:
+;    1 - Special preprocessor word (see above)
+;    2 - Unused; MUST be 0
+;    3 - Unused; MUST be 0
+;    4 - Shares first 4 chars with another reserved word
+;    5 - Unused
+;    6 - Reserved word
+
+;			1 , 2 , 3 , 4 , 5        , 6...
+preprocstart$L
+		RWORD	1 , 0 , 0 , 1 ,          , d,e,f,i,n,e
+		RWORD	0 , 0 , 0 , 1 ,          , d,e,f,i,n,e,d
+		RWORD	0 , 0 , 0 , 0 ,          , e,l,i,f
+		RWORD	0 , 0 , 0 , 0 ,          , e,l,s,e
+		RWORD	0 , 0 , 0 , 0 ,          , e,n,d,i,f
+		RWORD	0 , 0 , 0 , 0 ,          , e,r,r,o,r
+		RWORD	0 , 0 , 0 , 0 ,          , i,f
+		RWORD	0 , 0 , 0 , 0 ,          , i,f,d,e,f
+		RWORD	0 , 0 , 0 , 0 ,          , i,f,n,d,e,f
+		RWORD	1 , 0 , 0 , 0 ,          , i,n,c,l,u,d,e
+		RWORD	0 , 0 , 0 , 0 ,          , l,i,n,e
+		RWORD	0 , 0 , 0 , 0 ,          , p,r,a,g,m,a
+		RWORD	0 , 0 , 0 , 0 ,          , u,n,d,e,f
+preprocend$L
+
+;  Reserved words
+
+;  Columns:
+;    1 - Valid in C
+;    2 - Valid in C++
+;    3 - Valid in Java
+;    4 - Shares first 4 chars with another reserved word
+;    5 - Address of remainder of long word (>8 chars)
+;    6 - Reserved word, or first four chars if long word
+
+;			1 , 2 , 3 , 4 , 5        , 6...
+reservedstart$L	RWORD	1 , 1 , 0 , 0 ,          , _,_,D,A,T,E,_,_
+		RWORD	1 , 1 , 0 , 0 ,          , _,_,F,I,L,E,_,_
+		RWORD	1 , 1 , 0 , 0 ,          , _,_,L,I,N,E,_,_
+		RWORD	1 , 1 , 0 , 0 ,          , _,_,S,T,D,C,_,_
+		RWORD	1 , 1 , 0 , 0 ,          , _,_,T,I,M,E,_,_
+		RWORD	0 , 0 , 1 , 0 ,          , a,b,s,t,r,a,c,t
+		RWORD	0 , 1 , 0 , 0 ,          , a,n,d
+		RWORD	0 , 1 , 0 , 0 ,          , a,n,d,_,e,q
+		RWORD	0 , 1 , 0 , 0 ,          , a,s,m
+		RWORD	1 , 1 , 0 , 0 ,          , a,u,t,o
+		RWORD	0 , 1 , 0 , 0 ,          , b,i,t,a,n,d
+		RWORD	0 , 1 , 0 , 0 ,          , b,i,t,o,r
+		RWORD	0 , 1 , 0 , 1 ,          , b,o,o,l
+		RWORD	0 , 0 , 1 , 1 ,          , b,o,o,l,e,a,n
+		RWORD	1 , 1 , 1 , 0 ,          , b,r,e,a,k
+		RWORD	0 , 0 , 1 , 0 ,          , b,y,t,e
+		RWORD	1 , 1 , 1 , 0 ,          , c,a,s,e
+		RWORD	0 , 1 , 1 , 0 ,          , c,a,t,c,h
+		RWORD	1 , 1 , 1 , 0 ,          , c,h,a,r
+		RWORD	0 , 1 , 1 , 0 ,          , c,l,a,s,s
+		RWORD	0 , 1 , 0 , 0 ,          , c,o,m,p,l
+		RWORD	1 , 1 , 1 , 1 ,          , c,o,n,s,t
+		RWORD	0 , 1 , 0 , 1 , k_cons$L , c,o,n,s	; const_cast
+		RWORD	1 , 1 , 1 , 0 ,          , c,o,n,t,i,n,u,e
+		RWORD	1 , 1 , 1 , 0 ,          , d,e,f,a,u,l,t
+		RWORD	0 , 1 , 0 , 0 ,          , d,e,l,e,t,e
+		RWORD	1 , 1 , 1 , 0 ,          , d,o
+		RWORD	1 , 1 , 1 , 0 ,          , d,o,u,b,l,e
+		RWORD	0 , 1 , 0 , 0 , k_dyna$L , d,y,n,a	; dynamic_cast
+		RWORD	1 , 1 , 1 , 0 ,          , e,l,s,e
+		RWORD	1 , 1 , 0 , 0 ,          , e,n,u,m
+		RWORD	0 , 1 , 0 , 0 ,          , e,x,p,l,i,c,i,t
+		RWORD	0 , 0 , 1 , 1 ,          , e,x,t,e,n,d,s
+		RWORD	1 , 1 , 0 , 1 ,          , e,x,t,e,r,n
+		RWORD	0 , 1 , 0 , 0 ,          , f,a,l,s,e
+		RWORD	0 , 0 , 1 , 1 ,          , f,i,n,a,l
+		RWORD	0 , 0 , 1 , 1 ,          , f,i,n,a,l,l,y
+		RWORD	1 , 1 , 1 , 0 ,          , f,l,o,a,t
+		RWORD	1 , 1 , 1 , 0 ,          , f,o,r
+		RWORD	0 , 1 , 0 , 0 ,          , f,r,i,e,n,d
+		RWORD	0 , 0 , 1 , 0 ,          , f,u,t,u,r,e
+		RWORD	0 , 0 , 1 , 0 ,          , g,e,n,e,r,i,c
+		RWORD	1 , 1 , 1 , 0 ,          , g,o,t,o
+		RWORD	1 , 1 , 1 , 0 ,          , i,f
+		RWORD	0 , 0 , 1 , 0 , k_impl$L , i,m,p,l	; implements
+		RWORD	0 , 0 , 1 , 0 ,          , i,m,p,o,r,t
+		RWORD	0 , 1 , 0 , 0 ,          , i,n,l,i,n,e
+		RWORD	0 , 0 , 1 , 0 ,          , i,n,n,e,r
+		RWORD	0 , 0 , 1 , 0 , k_inst$L , i,n,s,t	; instanceof
+		RWORD	1 , 1 , 1 , 0 ,          , i,n,t
+		RWORD	0 , 0 , 1 , 0 , k_inte$L , i,n,t,e	; interface
+		RWORD	1 , 1 , 1 , 0 ,          , l,o,n,g
+		RWORD	0 , 1 , 0 , 0 ,          , m,u,t,a,b,l,e
+		RWORD	0 , 1 , 0 , 0 , k_name$L , n,a,m,e	; namespace
+		RWORD	0 , 0 , 1 , 0 ,          , n,a,t,i,v,e
+		RWORD	0 , 1 , 1 , 0 ,          , n,e,w
+		RWORD	0 , 1 , 0 , 0 ,          , n,o,t
+		RWORD	0 , 0 , 1 , 0 ,          , n,u,l,l
+		RWORD	0 , 1 , 1 , 0 ,          , o,p,e,r,a,t,o,r
+		RWORD	0 , 1 , 0 , 0 ,          , o,r
+		RWORD	0 , 1 , 0 , 0 ,          , o,r,_,e,q
+		RWORD	0 , 0 , 1 , 0 ,          , o,u,t,e,r
+		RWORD	0 , 0 , 1 , 0 ,          , p,a,c,k,a,g,e
+		RWORD	0 , 1 , 1 , 0 ,          , p,r,i,v,a,t,e
+		RWORD	0 , 1 , 1 , 0 , k_prot$L , p,r,o,t	; protected
+		RWORD	0 , 1 , 1 , 0 ,          , p,u,b,l,i,c
+		RWORD	1 , 1 , 0 , 0 ,          , r,e,g,i,s,t,e,r
+		RWORD	0 , 1 , 0 , 0 , k_rein$L , r,e,i,n	; reinterpret_cast
+		RWORD	0 , 0 , 1 , 0 ,          , r,e,s,t
+		RWORD	1 , 1 , 1 , 0 ,          , r,e,t,u,r,n
+		RWORD	1 , 1 , 1 , 0 ,          , s,h,o,r,t
+		RWORD	1 , 1 , 0 , 0 ,          , s,i,g,n,e,d
+		RWORD	1 , 1 , 0 , 0 ,          , s,i,z,e,o,f
+		RWORD	1 , 1 , 1 , 1 ,          , s,t,a,t,i,c
+		RWORD	0 , 1 , 0 , 1 , k_stat$L , s,t,a,t	; static_cast
+		RWORD	1 , 1 , 0 , 0 ,          , s,t,r,u,c,t
+		RWORD	0 , 0 , 1 , 0 ,          , s,u,p,e,r
+		RWORD	1 , 1 , 1 , 0 ,          , s,w,i,t,c,h
+		RWORD	0 , 0 , 1 , 0 , k_sync$L , s,y,n,c	; synchronized
+		RWORD	0 , 1 , 0 , 0 ,          , t,e,m,p,l,a,t,e
+		RWORD	0 , 1 , 1 , 0 ,          , t,h,i,s
+		RWORD	0 , 1 , 1 , 1 ,          , t,h,r,o,w
+		RWORD	0 , 0 , 1 , 1 ,          , t,h,r,o,w,s
+		RWORD	0 , 0 , 1 , 0 , k_tran$L , t,r,a,n	; transient
+		RWORD	0 , 1 , 0 , 0 ,          , t,r,u,e
+		RWORD	0 , 1 , 1 , 0 ,          , t,r,y
+		RWORD	1 , 1 , 0 , 1 ,          , t,y,p,e,d,e,f
+		RWORD	0 , 1 , 0 , 1 ,          , t,y,p,e,i,d
+		RWORD	1 , 1 , 0 , 0 ,          , u,n,i,o,n
+		RWORD	1 , 1 , 0 , 0 ,          , u,n,s,i,g,n,e,d
+		RWORD	0 , 1 , 0 , 0 ,          , u,s,i,n,g
+		RWORD	0 , 0 , 1 , 0 ,          , v,a,r
+		RWORD	0 , 1 , 0 , 0 ,          , v,i,r,t,u,a,l
+		RWORD	1 , 1 , 1 , 0 ,          , v,o,i,d
+		RWORD	1 , 1 , 1 , 0 ,          , v,o,l,a,t,i,l,e
+		RWORD	1 , 1 , 1 , 0 ,          , w,h,i,l,e
+		RWORD	0 , 1 , 0 , 0 ,          , x,o,r
+		RWORD	0 , 1 , 0 , 0 ,          , x,o,r,_,e,q
+reservedend$L
+
+;  Tail strings
+
+		ALIGN
+k_cons$L	=	"ac_t"
+		=	0,0,"ts"
+		DCD	0
+
+k_dyna$L	=	"_cim"
+		=	"tsac"
+		DCD	0
+
+k_impl$L	=	"neme"
+		=	0,0,"st"
+		DCD	0
+
+k_inst$L	=	"ecna"
+		=	0,0,"fo"
+		DCD	0
+
+k_inte$L	=	"cafr"
+		=	0,0,0,"e"
+		DCD	0
+
+k_name$L	=	"caps"
+		=	0,0,0,"e"
+		DCD	0
+
+k_prot$L	=	"etce"
+		=	0,0,0,"d"
+		DCD	0
+
+k_rein$L	=	"pret"
+		=	"_ter"
+		=	"tsac"
+
+k_stat$L	=	"c_ci"
+		=	0,"tsa"
+		DCD	0
+
+k_sync$L	=	"norh"
+		=	"dezi"
+		DCD	0
+
+k_tran$L	=	"neis"
+		=	0,0,0,"t"
+		DCD	0
+
+
+		LOCAL
+
+
+;  Find start of update region
+tempblk$L	RN	r4
+firstsize$L	*	640
+bigsize$L	*	1280
+local_prevnextflag
+		DCD 0
+
+		EXPORT	prevline$C
+prevline$C
+		STMFD	sp!,{r0-r11,lr}
+		SWI	XHourglass_On
+		MOV	r1,r0
+		LDR	r4,w_format
+		BL	scaninit$C
+		BL	checkmode
+		BNE	attempttoe2$L
+		MOV	r0,#bigsize$L ; 1280
+		CALL	Zap_Claim
+		BVS	attempttoexit$L
+		MOV	tempblk$L,r0
+		STR	modeblk,[tempblk$L,#16]
+
+
+		STMFD	sp!,{r1,r2,r3}
+;		B	hardcase$L ; delnolengthcheck$L
+		LDR	R0,f_docom
+		AND	R0,R0,#7
+		CMP	R0,#1
+		CMPNE	R0,#6
+		BNE	notsoeasycase$L
+
+		LDR	R0,f_dolen
+		BIC	R0,R0,#&FF000000	; !
+		LDR	R2,f_dodata
+checkalp1a$L	SUBS	R0,R0,#1
+		BMI	easycase$L
+		LDRB	R3,[R2,R0]
+		CMP	R3,#'0'
+		BLT	notsoeasycase$L ; hardcase$L
+		CMP	R3,#'_'
+		CMPNE	R3,#'9'
+		BLE	checkalp1a$L
+		CMP	R3,#'@'
+		BLT	notsoeasycase$L ; hardcase$L
+		CMP	R3,#'['
+		BLT	checkalp1a$L
+		CMP	R3,#'a'
+		BLT	notsoeasycase$L ; hardcase$L
+		CMP	R3,#'{'
+		BLT	checkalp1a$L
+;		TEQ	R3,#'*'
+;		TEQNE	R3,#'/'
+;		TEQNE	R3,#'('
+;;		TEQNE	R3,#10			; newline inCR //<CR>*...?
+;;		CMPNE	R3,#31
+;		BNE	checkalp1a$L
+		B	notsoeasycase$L ; hardcase$L
+
+easycase$L	SUBS	R0,R1,#1
+		BLPL	getchar
+		CMP	R0,#'@'
+		BLE	notsoeasycase$L
+		MOV	R0,#17
+		LDMFD	sp!,{r1,r2,r3}
+		B	carryon$L
+
+;		MOV 	R3,R0
+;checkalp1b$L	SUB	R2,R2,#1
+;		MOVS	R0,R2
+;		BLPL	getchar
+;		CMP	R0,#'*'
+;		CMPNE	R0,#'/'
+;		CMPNE	R0,#'@'
+;		BLT	stopcolbackh$L
+;		CMP	R0,#'z'
+;		BGT	stopcolbackh$L
+;		CMP	R0,#']'
+;		CMPNE	R0,#'['
+;		CMPNE	R0,#'_'
+;		BNE	checkalp1b$L
+;stopcolbackh$L	SUB	R0,R3,R2
+;		CMP 	R0,#9
+;		MOV	R0,#9
+;		MOVCS   R0,#9
+;		LDMFD	sp!,{r1,r2,r3}
+;		B 	carryon$L
+
+notsoeasycase$L
+		LDMFD	sp!,{r1,r2,r3}
+		MOV     r0,#128
+
+carryon$L
+		MOV	R11,#-1
+		STR	R11,local_prevnextflag
+		SUBS	r11,r1,R0		; how far back to look...
+		; code above should be reused to minimise this...
+		MOVMI	r11,#0
+		STR	r1,[tempblk$L,#12]
+		BL	scanto$C		; scan file to get status
+		STMIB	tempblk$L,{ptr,state}
+		LDR	rangeend,[tempblk$L,#12]
+		ADD	output,tempblk$L,#1<<31+32
+		MOV	lwidth,#-1
+		BL	scanfile$C		; scan file to get status
+		STR	output,[tempblk$L]
+noprev$L	LDR	r11,f_splito
+		BL	scanto$C
+		MOV	output,#0
+		MOV	lwidth,#-1
+		MOV	rangeend,#-1
+		BL	scanfile$C		; scan file to get status
+		ADD	r0,tempblk$L,#(firstsize$L - 40) ; 600
+		STMIA	r0,{ptr,state}
+		LDR	r2,f_splito
+		LDR	r6,f_splits
+		LDR	r7,f_len
+		ADD	r0,tempblk$L,#20
+		STMIA	r0,{r2,r6,r7}
+		LDR	r3,f_dolen
+		LDR	r0,f_docom
+
+; 		AND	r0,r0,#&F
+; 		CMP	r0,#2
+; 		SUBHS	r2,r2,r3
+; 		STRHS	r2,f_splito
+;delete$L	ADDEQ	r6,r6,r3
+;		SUBEQ	r7,r7,r3
+;		BEQ	rescan$L
+;insert$L	SUBLO	r6,r6,r3
+;		ADDLO	r7,r7,r3
+;replace$L	ADD	r2,r2,r6
+;		LDR	r0,f_ptr
+;		ADD	r2,r2,r0
+;		LDR	r1,f_dodata
+;		CALL	Zap_MoveBytes
+;rescan$L	STR	r6,f_splits
+
+		AND	r0,r0,#&F
+		CMP	r0,#6			; ?
+		BEQ 	ininsert$L
+		CMP	r0,#2			; ?
+		SUBHS	r2,r2,r3		; 2/3/4/5
+		STRHS	r2,f_splito		; ?????????????
+delete$L	CMP	r0,#2			; ?
+		CMPNE	r0,#5			; ?
+		ADDEQ	r6,r6,r3		; 2/5
+		SUBEQ	r7,r7,r3
+		BEQ	rescan$L
+insert$L	CMP	r0,#6			; ?
+		CMPNE	r0,#1			; ?
+ininsert$L	SUBLE	r6,r6,r3
+		ADDLE	r7,r7,r3
+replace$L	ADD	r2,r2,r6
+		LDR	r0,f_ptr
+		ADD	r2,r2,r0
+		LDR	r1,f_dodata
+		CALL	Zap_MoveBytes
+rescan$L	STR	r6,f_splits		; ?????????????
+		STR	r7,f_len
+		LDR	r0,[tempblk$L,#4]
+		LDR	modeblk,[tempblk$L,#16]
+		ADD	r2,modeblk,#m_cacheaddr$C-m_0$C
+findloop$L	LDMIA	r2!,{ptr,state}
+		CMP	r0,ptr
+		BHI	findloop$L
+		SUBLO	r2,r2,#8
+		MOV	r1,#-1
+		STR	r1,[r2]
+		BL	ensuresize$C
+		STR	modeblk,[tempblk$L,#16]
+		LDR	r0,[tempblk$L]
+		TEQ	r0,tempblk$L
+		BEQ	nocheckprev$L
+		LDMIB	tempblk$L,{ptr,state,rangeend}
+		ADD	output,tempblk$L,#firstsize$L ; 640
+		ORR	output,output,#1<<31
+		MOV	lwidth,#-1
+		BL	scanfile$C		; scan file to get status
+		LDR	r2,[tempblk$L]
+		BIC	r2,r2,#1<<31
+		ADD	r3,tempblk$L,#32
+		ADD	r6,tempblk$L,#firstsize$L ; 640
+		STMFD   sp!,{R1,R4,R5,R7,R8,R9,R10,R11,R12}
+;scanprevloop$L	CMP	r3,r2
+;		BHS	foundprev$L
+;		LDR	r0,[r3],#4
+;		LDR	lr,[r6],#4
+;		TEQ	r0,lr
+;		BEQ	scanprevloop$L
+;		SUB	r3,r3,#4
+scanprevloop$L	CMP	r3,r2
+		BHS	foundprev$L
+		LDMIA	R3,{R0,R1,R4,R5,R7}
+		LDMIA	R6,{R8,R9,R10,R11,R12}
+
+		TEQ 	R0,R8
+		BNE	foundprev$L
+		ADD	R3,R3,#4
+		CMP	r3,r2
+		BHS	foundprev$L
+
+		TEQ 	R1,R9
+		BNE	foundprev$L
+		ADD	R3,R3,#4
+		CMP	r3,r2
+		BHS	foundprev$L
+
+		TEQ 	R4,R10
+		BNE	foundprev$L
+		ADD	R3,R3,#4
+		CMP	r3,r2
+		BHS	foundprev$L
+
+		TEQ 	R5,R11
+		BNE	foundprev$L
+		ADD	R3,R3,#4
+		CMP	r3,r2
+		BHS	foundprev$L
+
+		TEQ 	R7,R12
+		ADDEQ	R3,R3,#4
+		ADD	R6,R6,#20
+		BEQ	scanprevloop$L
+;		SUB	r3,r3,#4
+foundprev$L	LDMFD   sp!,{R1,R4,R5,R7,R8,R9,R10,R11,R12}
+		SUB	r3,r3,tempblk$L
+		SUB	r3,r3,#32
+		MOV	r3,r3,LSR #2
+		LDR	r0,[tempblk$L,#4]
+		ADD	r0,r0,r3
+		STR	r0,[sp]
+		LDR	modeblk,[tempblk$L,#16]
+nocheckprev$L	LDR	r11,f_splito
+		BL	scanto$C
+		MOV	output,#0
+		MOV	lwidth,#-1
+		MOV	rangeend,#-1
+		BL	scanfile$C		; scan file to get status
+		MOV	r6,state
+		ADD	r0,tempblk$L,#20
+		LDMIA	r0,{r0,r1,r2}
+		STR	r0,f_splito		; OK - restore...
+		STR	r1,f_splits		; OK - restore...
+		STR	r2,f_len
+		ADD	r0,tempblk$L,#(firstsize$L - 40) ; 600
+		LDMIA	r0,{ptr,state}
+;		AND	R7,state,#15		; statemask
+;		CMP	R7,#2			; cppcomment ???
+;		MOVEQ	state,#-1		; ???!
+;		SWIEQ	&107
+		MOV	r7,#50			; Counter...? whoa...???
+;		BEQ	premature$L
+scanloop$L	TEQ	state,r6		; hmm problem with //<CR>/*?
+		BEQ	foundnext$L
+;		SWI	&107			; never...
+premature$L
+		STMFD	sp!,{ptr,r6,r7}
+		MOV	output,#0
+		LDR	lwidth,w_bpl
+		MOV	rangeend,#-1		; R7 = for ever?
+		BL	scanfile$C		; scan file to get status
+		STMIA	tempblk$L,{state}
+		LDMFD	sp!,{ptr,state}
+		BL	scanfile$C		; scan file to get status
+		MOV	r6,state
+		LDMIA	tempblk$L,{state}
+		LDMFD	sp!,{r7}
+		SUBS	r7,r7,#1
+		LDR	r0,f_len
+		CMPHS	r0,ptr
+		BHI	scanloop$L
+		MOV	ptr,r0
+foundnext$L	LDR	modeblk,[tempblk$L,#16]
+		STR	ptr,m_invend$C
+
+		MOV	R0,#0
+		STR	R0,local_prevnextflag
+
+		MOV	r0,tempblk$L
+		CALL	Zap_Free
+attempttoe2$L	SWI	XHourglass_Off
+		LDMFD	sp!,{r0-r11,pc}
+
+attempttoexit$L MOV	R11,R0
+		SWI	XHourglass_Off
+		ADD	sp,sp,#4
+		MOV	R0,R11
+		LDMFD	sp!,{r1-r11,lr}
+		ORR 	pc,lr,#&FC000000	; sec...
+;resolver1$L	MOV 	R14,#
+
+
+;
+
+
+; ;  Find start of update region
+; ; tempblk$L	RN	r4
+; ; 		EXPORT	prevline$C
+; prevline$C	STMFD	sp!,{r0-r11,lr}
+; 		SWI	XHourglass_On
+; 		MOV	r1,r0
+; 		LDR	r4,w_format
+; 		BL	scaninit$C
+; 		BL	checkmode
+; 		LDMNEFD	sp!,{r0-r11,pc}
+; 		MOV	r0,#1280
+; 		CALL	Zap_Claim
+; 		ADDVS	sp,sp,#4
+; 		LDMVSFD	sp!,{r1-r11,pc}
+; 		MOV	tempblk$L,r0
+; 		STR	modeblk,[tempblk$L,#16]
+; 		SUBS	r11,r1,#128
+; 		MOVMI	r11,#0
+; 		STR	r1,[tempblk$L,#12]
+; 		BL	scanto$C
+; 		STMIB	tempblk$L,{ptr,state}
+; 		LDR	rangeend,[tempblk$L,#12]
+; 		ADD	output,tempblk$L,#1<<31+32
+; 		MOV	lwidth,#-1
+; 		BL	scanfile$C
+; 		STR	output,[tempblk$L]
+; noprev$L	LDR	r11,f_splito
+; 		BL	scanto$C
+; 		MOV	output,#0
+; 		MOV	lwidth,#-1
+; 		MOV	rangeend,#-1
+; 		BL	scanfile$C
+; 		ADD	r0,tempblk$L,#600
+; 		STMIA	r0,{ptr,state}
+; 		LDR	r2,f_splito
+; 		LDR	r6,f_splits
+; 		LDR	r7,f_len
+; 		ADD	r0,tempblk$L,#20
+; 		STMIA	r0,{r2,r6,r7}
+; 		LDR	r3,f_dolen
+; 		LDR	r0,f_docom
+; 		AND	r0,r0,#&F
+; 		CMP	r0,#2
+; 		SUBHS	r2,r2,r3
+; 		STRHS	r2,f_splito
+; delete$L	ADDEQ	r6,r6,r3
+; 		SUBEQ	r7,r7,r3
+; 		BEQ	rescan$L
+; insert$L	SUBLO	r6,r6,r3
+; 		ADDLO	r7,r7,r3
+; replace$L	ADD	r2,r2,r6
+; 		LDR	r0,f_ptr
+; 		ADD	r2,r2,r0
+; 		LDR	r1,f_dodata
+; 		CALL	Zap_MoveBytes
+; rescan$L	STR	r6,f_splits
+; 		STR	r7,f_len
+; 		LDR	r0,[tempblk$L,#4]
+; 		LDR	modeblk,[tempblk$L,#16]
+; 		ADD	r2,modeblk,#m_cacheaddr$C-m_0$C
+; findloop$L	LDMIA	r2!,{ptr,state}
+; 		CMP	r0,ptr
+; 		BHI	findloop$L
+; 		SUBLO	r2,r2,#8
+; 		MOV	r1,#-1
+; 		STR	r1,[r2]
+; 		BL	ensuresize$C
+; 		STR	modeblk,[tempblk$L,#16]
+; 		LDR	r0,[tempblk$L]
+; 		TEQ	r0,tempblk$L
+; 		BEQ	nocheckprev$L
+; 		LDMIB	tempblk$L,{ptr,state,rangeend}
+; 		ADD	output,tempblk$L,#640
+; 		ORR	output,output,#1<<31
+; 		MOV	lwidth,#-1
+; 		BL	scanfile$C
+; 		LDR	r2,[tempblk$L]
+; 		BIC	r2,r2,#1<<31
+; 		ADD	r3,tempblk$L,#32
+; 		ADD	r6,tempblk$L,#640
+; scanprevloop$L	CMP	r3,r2
+; 		BHS	foundprev$L
+; 		LDR	r0,[r3],#4
+; 		LDR	lr,[r6],#4
+; 		TEQ	r0,lr
+; 		BEQ	scanprevloop$L
+; 		SUB	r3,r3,#4
+; foundprev$L	SUB	r3,r3,tempblk$L
+; 		SUB	r3,r3,#32
+; 		MOV	r3,r3,LSR #2
+; 		LDR	r0,[tempblk$L,#4]
+; 		ADD	r0,r0,r3
+; 		STR	r0,[sp]
+; 		LDR	modeblk,[tempblk$L,#16]
+; nocheckprev$L	LDR	r11,f_splito
+; 		BL	scanto$C
+; 		MOV	output,#0
+; 		MOV	lwidth,#-1
+; 		MOV	rangeend,#-1
+; 		BL	scanfile$C
+; 		MOV	r6,state
+; 		ADD	r0,tempblk$L,#20
+; 		LDMIA	r0,{r0,r1,r2}
+; 		STR	r0,f_splito
+; 		STR	r1,f_splits
+; 		STR	r2,f_len
+; 		ADD	r0,tempblk$L,#600
+; 		LDMIA	r0,{ptr,state}
+; 		MOV	r7,#50
+; scanloop$L	TEQ	state,r6
+; 		BEQ	foundnext$L
+; 		STMFD	sp!,{ptr,r6,r7}
+; 		MOV	output,#0
+; 		LDR	lwidth,w_bpl
+; 		MOV	rangeend,#-1
+; 		BL	scanfile$C
+; 		STMIA	tempblk$L,{state}
+; 		LDMFD	sp!,{ptr,state}
+; 		BL	scanfile$C
+; 		MOV	r6,state
+; 		LDMIA	tempblk$L,{state}
+; 		LDMFD	sp!,{r7}
+; 		SUBS	r7,r7,#1
+; 		LDR	r0,f_len
+; 		CMPHS	r0,ptr
+; 		BHI	scanloop$L
+; 		MOV	ptr,r0
+; foundnext$L	LDR	modeblk,[tempblk$L,#16]
+; 		STR	ptr,m_invend$C
+; 		MOV	r0,tempblk$L
+; 		CALL	Zap_Free
+; 		SWI	XHourglass_Off
+; 		LDMFD	sp!,{r0-r11,pc}
+
+
+		END

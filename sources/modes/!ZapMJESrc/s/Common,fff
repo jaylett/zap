@@ -1,0 +1,856 @@
+; **************************************************************************
+; *									   *
+; *  Project: ZapMJE		    Purpose: Extensions for Zap		   *
+; *  Module: Common.s		    Purpose: Common routines		   *
+; *  © 1997 Martin Ebourne	    Last update: 02-02-97		   *
+; *									   *
+; **************************************************************************
+
+;  Things to do:
+;    Seriously improve compile (!) - give it a *command and allow wimpslot etc to be set
+;    Make bracket matching work on all modes & properly
+
+
+		GET	h.Main
+		GET	h.Help
+		GET	h.Routines
+		GET	h.Support
+		GET	h.Tables
+
+		GET	h.C_Redraw
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+
+;  Initialisation code
+
+info$L		RN	r6
+
+		REGS	r1-r4,info$L,modeblk,windowblk	;  ** Keep in step with LDM at bottom
+
+		EXPORT	service$P
+service$P	PUSH
+		ADRL	info$L,infotable$P
+		B	service$L
+
+		EXPORT	service$ASM
+service$ASM	PUSH
+		ADRL	info$L,infotable$ASM
+		B	service$L
+
+		EXPORT	service$CPP
+service$CPP	PUSH
+		ADRL	info$L,infotable$CPP
+		B	service$L
+
+		EXPORT	service$J
+service$J	PUSH
+		ADRL	info$L,infotable$J
+		B	service$L
+
+		EXPORT	service$C
+service$C	PUSH
+		ADRL	info$L,infotable$C
+service$L	CMP	r1,#1
+		STREQ	r0,[info$L,#i_mode]
+		LDREQ	lr,[info$L,#i_intmode]
+		STREQ	r0,[wsblk,lr,LSL #2]
+		BLLO	beingkilled
+		TEQ	r1,#6
+		BEQ	colnames$L
+		TEQ	r1,#12
+		BEQ	functionfind$L
+		TEQ	r1,#7
+		BEQ	menu$L
+		TEQ	r1,#2
+		RTS NE
+		MOV	windowblk,#0
+		MOV	r1,r0
+		BL	getmodeblk
+		RTS VS
+		TEQ	modeblk,#0
+		BEQ	newblock$L
+		LDR	r0,m_version
+		LDR	r2,[info$L,#i_modeblk]
+		LDR	r2,[r2,#m_version-m_0]
+		TEQ	r0,r2
+		BNE	replaceblock$L
+		STR	info$L,m_info
+		LDR	r3,m_sharedlength
+		RSBS	r4,r3,#m_sharedsize
+		BEQ	sharedok$L
+		BMI	shrink$L
+		MOV	r1,r4
+		MOV	r0,modeblk
+		CALL	Zap_Extend,r2
+		RTS VS
+		MOV	modeblk,r0
+shrink$L	MOV	r2,#m_sharedsize
+		STR	r2,m_sharedlength
+		ADD	r1,modeblk,r3
+		ADD	r2,modeblk,#m_sharedsize
+		LDR	r3,m_length
+		ADD	r3,r3,r4
+		STR	r3,m_length
+		SUB	r3,r3,#m_sharedsize
+		CALL	Zap_MoveBytes,r0
+		RTS VS
+		MOVS	r1,r4
+		BPL	copydef$L
+		MOV	r0,modeblk
+		CALL	Zap_Extend,r2
+		MOVVC	modeblk,r0
+		B	doneshared$L
+copydef$L	RSB	r0,r4,#m_sharedsize
+		LDR	r1,[info$L,#i_modeblk]
+		ADD	r1,r1,r0
+		ADD	r2,modeblk,r0
+		MOV	r3,r4
+		CALL	Zap_MoveBytes,r0
+doneshared$L	RTS VS
+		BL	setmodeblk
+sharedok$L	LDR	r4,m_length
+		LDR	r3,[info$L,#i_modeblkdefl]
+		SUBS	r1,r3,r4
+		BEQ	checkcolours$L
+		MOV	r0,modeblk
+		CALL	Zap_Extend,r2
+		MOVVC	modeblk,r0
+		STRVC	r3,m_length
+		BLVC	setmodeblk
+		MOVS	r3,r1
+		BMI	checkcolours$L
+		LDRVC	r1,[info$L,#i_modeblk]
+		ADDVC	r1,r1,r4
+		ADDVC	r2,modeblk,r4
+		CALL	Zap_MoveBytes,r0,VC
+checkcolours$L	MOVVC	r0,#-1
+		LDRVC	r1,[info$L,#i_mode]
+		CALL	Zap_ModeColourNum,r2,VC
+		RTS	VS
+		SUB	r1,r0,#9
+		LDR	r0,[info$L,#i_numcolours]
+		CMP	r1,r0
+		RTS	GE
+		B	updatecolours$L
+
+replaceblock$L	MOV	r0,modeblk
+		CALL	Zap_Free,r1
+newblock$L	LDRVC	r0,[info$L,#i_modeblkdefl]
+		CALL	Zap_Claim,r1,VC
+		MOVVC	modeblk,r0
+		LDRVC	r1,[info$L,#i_modeblk]
+		MOVVC	r2,r0
+		LDRVC	r3,[info$L,#i_modeblkdefl]
+		MOVVC	r4,r3
+		CALL	Zap_MoveBytes,r0,VC
+		STRVC	info$L,m_info
+		STRVC	r4,m_length
+		BLVC	setmodeblk
+		LDRVC	r4,[info$L,#i_modedata]
+		LDRVC	r1,[info$L,#i_mode]
+		MOVVC	r2,#0
+dataloop$L	LDRVC	r0,[r4],#4
+		CALL	Zap_ModeData,r3,VC
+		RTS VS
+		ADD	r2,r2,#1
+		CMP	r2,#1				;  Mode data length
+		BLO	dataloop$L
+		MOV	r1,#0
+updatecolours$L	LDR	r0,[info$L,#i_numcolours]
+		SUB	r4,r0,r1
+		LDR	r3,[info$L,#i_colours]
+		ADD	r3,r3,r1,LSL #2
+		ADD	r2,r1,#9
+		LDR	r1,[info$L,#i_mode]
+		ADD	r0,r0,#9
+		CALL	Zap_ModeColourNum,modeblk
+		RTS	VS
+colourloop$L	SUBS	r4,r4,#1
+		RTS MI
+		LDR	r0,[r3],#4
+		CALL	Zap_ModeColour,modeblk
+		ADD	r2,r2,#1
+		BVC	colourloop$L
+		RTS
+
+colnames$L	LDR	r1,[info$L,#i_colournames]
+		TEQ	r1,#0
+		RTS EQ
+		LDMFD	sp!,{r0,r2-r4,info$L,modeblk,windowblk,pc} ;  ** Keep in step with pushed
+
+menu$L		LDR	r1,[info$L,#i_menu]
+		LDMFD	sp!,{r0,r2-r4,info$L,modeblk,windowblk,pc} ;  ** Keep in step with pushed
+
+functionfind$L	STMFD	sp!,{r1-r11}
+		ADR	R0,blockid$L
+		CALL	Zap_CommandString
+		ADR	R0,tldbfile$L
+		CALL	Zap_CommandString
+		ADR	R0,clearsel$L
+		CALL	Zap_CommandString
+		MOV 	R0,#2
+		LDMFD	sp!,{r1-r11}
+		RTS
+blockid$L
+		= "BLOCKID",0
+tldbfile$L
+		= "TLDBFILE",0
+clearsel$L
+		= "CLEARSEL",0
+		ALIGN
+
+
+		LOCAL
+
+
+;  Called when window enters this mode
+
+info$L		RN	r6
+
+		EXPORT	start$P
+start$P		LDR	r0,ws_mode$P
+		B	start$L
+
+		EXPORT	start$ASM
+start$ASM	LDR	r0,ws_mode$ASM
+start$L		SAVE	r1,info$L,modeblk
+		MOV	r1,r0
+		BL	getmodeblk
+		RTS	VS
+		LDR	info$L,m_info
+		TEQ	windowblk,#0
+		LDRNE	r1,[info$L,#i_modeblktotl]
+		LDRNE	r0,m_length
+		TEQNE	r1,r0
+		BEQ	noexpand$L
+		MOV	r0,modeblk
+		CALL	Zap_Ensure,modeblk
+		MOVVC	modeblk,r0
+		STRVC	r1,m_length
+		BLVC	setmodeblk
+noexpand$L	LDRVC	r0,[info$L,#i_mode]
+		CALL	Zap_RestoreModeWord,r1,VC
+		RTS
+
+
+		LOCAL
+
+
+;  Called when window leaves this mode
+
+info$L		RN	r6
+
+		EXPORT	end$P
+end$P		LDR	r0,ws_mode$P
+		B	end$L
+
+		EXPORT	end$ASM
+end$ASM		LDR	r0,ws_mode$ASM
+end$L		SAVE	r1,info$L,modeblk
+		MOV	r1,r0
+		BL	getmodeblk
+		LDRVC	info$L,m_info
+		LDRVC	r1,[info$L,#i_modeblkdefl]
+		LDRVC	r0,m_length
+		TEQ	r1,r0
+		BEQ	noshrink$L
+		MOVVC	r0,modeblk
+		CALL	Zap_Ensure,modeblk,VC
+		MOVVC	modeblk,r0
+		STRVC	r1,m_length
+		BLVC	setmodeblk
+noshrink$L	LDRVC	r0,[info$L,#i_mode]
+		CALL	Zap_SaveModeWord,r1,VC
+		RTS
+
+
+		LOCAL
+
+
+;  Shift right (next word)
+
+; 		EXPORT	splus
+; splus		STMFD	sp!,{r3,lr}
+; 		LDR	r2,f_ptr
+; 		LDR	r3,f_splito
+; 		CMP	r1,r3
+; 		LDRHS	r3,f_splits
+; 		ADDHS	r1,r1,r3
+; 		LDRHS	r0,f_len
+; 		ADDHS	r3,r3,r0
+; 		BL	pgetchnoinc$L
+; 		BCC	firstchar$L
+; 		ADD	r1,r1,#1
+; 		B	pfound$L
+; ploop1$L	BL	pgetchar$L
+; firstchar$L	BCS	pfound$L
+; 		BNE	ploop1$L
+; ploop2$L	TEQ	r0,#' '
+; 		LDRNEB	lr,w_tabchar
+; 		TEQNE	r0,lr
+; 		BEQ	ploop3$L
+; 		BL	pgetchar$L
+; 		BCS	pfound$L
+; 		BEQ	ploop2$L
+; pfound$L	LDR	r0,f_splite
+; 		CMP	r1,r0
+; 		LDRHS	r0,f_splits
+; 		SUBHS	r1,r1,r0
+; 		MOV	r2,#-1
+; 		LDMFD	sp!,{r3,pc}
+; ploop3$L	BL	pgetchar$L
+; 		TEQ	r0,#' '
+; 		LDRNEB	lr,w_tabchar
+; 		TEQNE	r0,lr
+; 		BEQ	ploop3$L
+; 		B	pfound$L
+;
+; pgetchar$L	ADD	r1,r1,#1
+; pgetchnoinc$L	CMP	r1,r3
+; 		BLO	getchar$L
+; 		LDR	r0,f_splito
+; 		TEQ	r1,r0
+; 		BNE	pfound$L
+; 		LDR	r0,f_splits
+; 		ADD	r1,r1,r0
+; 		LDR	r3,f_len
+; 		ADD	r3,r3,r0
+; 		LDRB	r0,[r2,r1]
+; 		B	isfiller
+
+
+;  Shift left (previous word)
+
+; 		EXPORT	sminus
+; sminus		CMP	r2,#1
+; 		BHI	mnotstart$L
+; 		TEQ	r1,#0
+; 		SUBNE	r1,r1,#1
+; 		MOV	r2,#-1
+; 		MOV	pc,lr
+; mnotstart$L	STMFD	sp!,{r3,lr}
+; 		LDR	r2,f_ptr
+; 		LDR	r0,f_splito
+; 		CMP	r1,r0
+; 		LDRHS	r0,f_splits
+; 		ADDHS	r1,r1,r0
+; 		LDRHS	r3,f_splite
+; 		MOVLO	r3,#0
+; mloop1$L	BL	mgetchar$L
+; 		BCS	mfound$L
+; 		BNE	mloop1$L
+; mloop2$L	TEQ	r0,#' '
+; 		LDRNEB	lr,w_tabchar
+; 		TEQNE	r0,lr
+; 		BEQ	mloop3$L
+; 		BL	mgetchar$L
+; 		BCS	mfound$L
+; 		BEQ	mloop2$L
+; mfound$L	ADD	r1,r1,#1
+; 		LDR	r0,f_splite
+; 		CMP	r1,r0
+; 		LDRHS	r0,f_splits
+; 		SUBHS	r1,r1,r0
+; 		MOV	r2,#-1
+; 		LDMFD	sp!,{r3,pc}
+; mloop3$L	BL	mgetchar$L
+; 		TEQ	r0,#' '
+; 		LDRNEB	lr,w_tabchar
+; 		TEQNE	r0,lr
+; 		BEQ	mloop3$L
+; 		B	mfound$L
+;
+; mgetchar$L	SUB	r1,r1,#1
+; 		CMP	r1,r3
+; 		BHS	getchar$L
+; 		TEQ	r1,#0
+; 		MOVEQ	r2,#-1
+; 		LDMEQFD	sp!,{r3,pc}
+; 		LDR	r0,f_splits
+; 		SUB	r1,r1,r0
+; 		MOV	r3,#0
+; getchar$L	LDRB	r0,[r2,r1]
+; 		B	isfiller
+
+
+		LOCAL
+
+
+;  Insert character(s)
+
+		EXPORT	char
+char		MOV	r0,r4
+		MOV	r1,r5
+		MOV	r2,r6
+		MOV	r3,r7
+		MOV	r4,lr
+		BL	checkmode
+		MOV	lr,r4
+		ADRL	r6,C_char
+		B	callc
+
+		EXPORT	return
+return		MOV	r2,r0 ; was R7
+		MOV	r1,r6
+;		MOV	r2,r6
+		MOV	r0,r4	; wflags
+		MOV	r3,r7	; ?
+		MOV	r4,lr   ; tmp
+		BL	checkmode
+		MOV	lr,r4
+		ADRL	r6,C_return
+		B	callc
+
+;		EXPORT	initglobals
+;initglobals	MOV	r2,r0
+;		MOV	r1,r6
+;		MOV	r0,r4
+;		MOV	r3,r7
+;		MOV	r4,lr
+;		BL	checkmode
+;		MOV	lr,r4
+;		ADRL	r6,C_init
+;		B	callc
+
+
+		LOCAL
+
+
+;  Called just before saving (ensures there is a linefeed at the end of the file)
+
+		EXPORT	presave
+presave		STMFD	sp!,{lr}
+		LDR	lr,f_len
+		SUBS	lr,lr,#1
+		LDMMIFD	sp!,{pc}
+		LDR	r0,f_splito
+		CMP	lr,r0
+		LDRHS	r0,f_splits
+		ADDHS	lr,lr,r0
+		LDR	r0,f_ptr
+		LDRB	lr,[lr,r0]
+		LDRB	r0,w_cr
+		TEQ	r0,lr
+		LDMEQFD	sp!,{pc}
+		STMFD	sp!,{r0-r2}
+		LDR	r2,f_flags
+		ORR	r2,r2,#1<<14			;  Unlink cursor & input
+		STR	r2,f_flags
+		MOV	r0,sp
+		CALL	Zap_InsertString,r1
+		BIC	r2,r2,#1<<14			;  Relink cursor & input
+		STR	r2,f_flags
+		LDMFD	sp!,{r0-r2,pc}
+
+
+		LOCAL
+
+
+;  Redraw line of display
+
+		EXPORT	redrawline
+redrawline	SUB	r1,r7,r5			;  Get offset of start of line
+		STMFD	sp!,{r1,r6,lr}
+		STMFD	sp!,{modeblk,wsblk}		;  Get mode details
+		BL	checkmode
+		LDR	r1,m_info
+		LDMFD	sp!,{modeblk,wsblk}
+		MOV	lr,pc
+		LDR	pc,[r1,#i_redrawline]		;  Redraw line
+		LDMFD	sp!,{r1,r6}
+		SUB	r4,r7,r5			;  Get offset of start of next line
+		STMFD	sp!,{modeblk,wsblk}		;  Get mode details
+		BL	checkmode
+		LDMNEFD	sp!,{modeblk,wsblk,pc}
+		CALL	Zap_GetWindOff,r0
+		LDR	r2,ws_oldcwind			;  Check for same window as us
+		TEQ	r0,r2
+		LDMNEFD	sp!,{modeblk,wsblk,pc}		;  Return if it isn't
+		LDR	r0,ws_bracketoff1		;  Check bracket 1 on this line
+		CMP	r0,r1
+		CMPGE	r4,r0
+		BLGT	highlight$L			;  Highlight if it is
+		LDR	r0,ws_bracketoff2		;  Check bracket 2 on this line
+		CMP	r0,r1
+		CMPGE	r4,r0
+		BLGT	highlight$L			;  Highlight if it is
+		LDMFD	sp!,{modeblk,wsblk,pc}		;  Return if it isn't
+
+highlight$L	STMFD	sp!,{r1,lr}
+		CALL	Zap_OffLineCol,r3		;  Get column
+		LDR	r14,w_margin
+		SUB	r2,r2,r14
+		LDR	r3,w_txtw			;  Calculate offset for chars background
+		ADD	r2,r2,r3,LSL #1
+		LDR	r3,ws_bracketclr		;  Highlight background colour
+		STRB	r3,[r6,r2]			;  Write to buffer
+		LDMFD	sp!,{r1,pc}
+
+
+		LOCAL
+
+
+;  Modify file - called by Zap_Command
+
+		EXPORT	command
+command		SAVE	r9,wsblk
+		BL	getws
+		MOV	lr,#-1
+		STR	lr,ws_oldcoff
+		STMFD	sp!,{r0-r10}
+		ADRL	r6,C_command
+		BL	callc
+		LDMFD	sp!,{r0-r10}
+		MOV	r9,#e_command
+		BL	callbasemode
+		RTS
+
+
+		LOCAL
+
+
+;  Compiles program without saving source
+
+		EXPORT	run
+run		STMFD	sp!,{lr}
+		B	nosave$L
+
+
+;  Compiles program after saving source
+
+		EXPORT	compile
+compile		STMFD	sp!,{lr}
+		CALL	Zap_SaveFile
+		TEQ	r0,#0
+		LDMNEFD	sp!,{pc}
+nosave$L	BL	releasekeys
+		LDR	r1,f_name
+		BL	count
+		CMP	r0,#192
+		BCS	toolong$L
+		MOV	r0,#256
+		CALL	Zap_Claim
+		LDMVSFD	sp!,{pc}
+		MOV	r7,r0
+		ADD	r0,r0,#44
+		LDR	r1,f_name
+		BL	strcpy
+		ADR	r1,makefiletext$L
+		BL	strcpy
+		CALL	Zap_GetWindOff
+		STR	r0,ws_compiling
+		MOV	r0,#17			;  Read catalogue info
+		ADD	r1,r7,#44
+		SWI	XOS_File
+		BVS	exit$L
+		TEQ	r0,#1
+		LDRNE	r1,f_name
+		BNE	taskwindow$L
+		MOV	r2,r2,ASR #8
+		CMP	r2,#&FFFFFFFF		;  Text
+		MOVEQ	r2,#&FFFFFFE1
+		CMPNE	r2,#&FFFFFFE1		;  Makefile
+		BNE	runit$L
+		ADR	r6,msgblock$L
+		LDMIA	r6,{r0,r3,r4}
+		STMIA	r7,{r0-r4}
+		LDR	r0,w_handle
+		STR	r0,[r7,#20]
+		LDR	r0,w_minx
+		LDR	r1,w_maxx
+		ADD	r0,r0,r1
+		MOV	r0,r0,LSR #1
+		STR	r0,[r7,#28]
+		LDR	r0,w_miny
+		LDR	r1,w_maxy
+		ADD	r0,r0,r1
+		MOV	r0,r0,LSR #1
+		STR	r0,[r7,#32]
+		MOV	r0,#0
+		STR	r0,[r7,#36]
+		ADD	r0,r2,#4096		;  &FFFFFXXX -> &XXX
+		STR	r0,[r7,#40]
+		MOV	r0,#18
+		MOV	r1,r7
+		MOV	r2,#0
+		STR	r2,[r7,#12]		; *not* a reply to a message
+		SWI	XWimp_SendMessage
+		B	exit$L
+taskwindow$L	BL	taskwindow
+		B	exit$L
+runit$L		ADD	r0,r7,#44
+		SWI	XWimp_StartTask
+exit$L		MOV	r0,r7
+		LDMFD	sp!,{lr}
+		JMP	Zap_Free,r1
+
+msgblock$L	DCD	256
+		DCD	0
+		DCD	5
+
+makefiletext$L	=	".^.^.Makefile",0
+
+toolong$L	LDMFD	sp!,{r14}
+		ADR	r0,toolongerr$L
+		ORRS	pc,lr,#Vbit
+toolongerr$L	DCD	0
+		=	"Filename too long",0
+
+
+		LOCAL
+
+
+;  Starts a make/compilation in a task window. r1 pointer to filename,
+;   r3 -ve for amu, else perform appropriate action for mode
+
+taskwindowtxt$L	=	"TaskWindow """,0
+amutext$L	=	"amu -f ",0
+
+		EXPORT	taskwindow
+taskwindow	SAVE	r4-r7,r9
+		LDR	r0,ws_compiling
+		CALL	Zap_ConvWindOff,r6
+		TEQ	r8,#0
+		RTS EQ
+		BL	checkmode
+		RTS NE
+		MOV	r0,#512
+		CALL	Zap_Claim,r6
+		RTS VS
+		MOV	r4,r0
+		MOV	r5,r1
+		MOV	r0,#-1
+		MOV	r1,#-1
+		SWI	XWimp_SlotSize
+		CMP	r1,#640*1024
+		MOVLO	r1,#-1
+		MOVLO	r1,#640*1024
+		SWILO	XWimp_SlotSize
+		MOV	r0,r4
+		ADR	r1,taskwindowtxt$L
+		BL	strcpy
+		CMP	r3,#0
+		LDRGE	r1,m_info
+		LDRGE	r1,[r1,#i_compilecmd]
+		ADRLT	r1,amutext$L
+		BL	strcpy
+		MOV	r1,r5
+		BL	strcpy
+		LDR	r6,f_len
+		CMP	r6,#6*256
+		MOVHS	r6,#6*256
+		LDR	r1,f_splito
+		CMP	r1,r6
+		BHS	splitok$L
+		MOV	r2,r0
+		MOV	r0,r6
+		MOV	r1,#0
+		CALL	Zap_SplitBuffer
+		MOV	r0,r2
+splitok$L	MOV	r2,#0
+		LDR	r5,f_ptr
+findloop$L	CMP	r2,#1024
+		CMPLO	r2,r6
+		BHS	defaultopt$L
+		LDRB	r1,[r5,r2]
+		ADD	r2,r2,#1
+		TEQ	r7,#1
+		TEQEQ	r1,#';'
+		BEQ	checkplus$L
+		CMP	r7,#1
+		BEQ	findloop$L
+		TEQHI	r1,#'('
+		TEQLO	r1,#'/'
+		BNE	findloop$L
+		LDRB	r1,[r5,r2]
+		TEQ	r1,#'*'
+		BNE	findloop$L
+		ADD	r2,r2,#1
+checkplus$L	LDRB	r1,[r5,r2]
+		TEQ	r1,#'+'
+		BNE	findloop$L
+		ADD	r2,r2,#1
+		ADD	r5,r5,r2
+		SUB	r6,r6,r2
+		MOV	r2,#0
+copyloop$L	CMP	r2,#256
+		CMPLO	r2,r6
+		BHS	truncate$L
+		LDRB	r1,[r5,r2]
+		ADD	r2,r2,#1
+		STRB	r1,[r0],#1
+		LDRB	lr,w_cr
+		TEQ	r1,lr
+		BEQ	foundend$L
+		CMP	r7,#1
+		BEQ	copyloop$L
+		TEQ	r1,#'*'
+		BNE	copyloop$L
+		LDRB	r1,[r5,r2]
+		TEQLO	r1,#'/'
+		TEQHS	r1,#')'
+		BNE	copyloop$L
+foundend$L	SUB	r0,r0,#1
+truncate$L	MOV	r1,#0
+		STRB	r1,[r0]
+		B	finalopts$L
+defaultopt$L	CMP	r3,#0
+		LDRGE	r1,m_info
+		LDRGE	r1,[r1,#i_compileparams]
+		ADRLT	r1,amuopttext$L
+		BL	strcpy
+finalopts$L	ADR	r1,taskwopttext$L
+		BL	strcpy
+		MOV	r0,r4
+		SWI	XWimp_StartTask
+		MOV	r0,r4
+		CALL	Zap_Free,r6
+		RTS
+
+amuopttext$L	=	" -desktop -k",0
+taskwopttext$L	=	""" -display -quit",0
+
+
+		LOCAL
+
+
+;  Check for bounced messages (used for compile & StrongHelp)
+
+		EXPORT	message
+message		TEQ	r3,#19
+		MOVNE	pc,lr
+		LDR	r0,=stronghelpmsg$H
+		TEQ	r2,r0
+		BEQ	helpbounced$H
+		TEQ	r2,#5
+		MOVNE	pc,lr
+		STMFD	sp!,{r1-r3,lr}
+		MOV	r3,#-1
+		ADD	r1,r1,#44
+		BL	taskwindow
+		LDMFD	sp!,{r1-r3,pc}
+
+
+		LOCAL
+
+
+;  Handler for paren call backs
+
+		EXPORT	startparen
+startparen	SAVE	r1-r3,r6-r11
+		BL	getws
+		B	setcallback$L
+
+parencallback$L	PUSH
+		SWI     XHourglass_On
+		ADRL	r6,C_parencallback
+		BL	callc
+		SWI     XHourglass_Off
+setcallback$L	MOV	r1,#-100
+		ADR	r2,parencallback$L
+		MOV	r3,wsblk
+		CALL	Zap_CallBack
+		RTS
+
+		EXPORT	asminterrogate
+asminterrogate	CMP	R0,#20
+		CMPNE	R0,#19
+		BEQ	asmwordqueri$L ; asmwordqueri2$L
+		B	processasnorm$L
+
+		EXPORT	interrogate
+interrogate	CMP	R0,#19
+		BEQ	wordendqueri$L
+		CMP	R0,#20
+		BEQ	wherewordqst$L
+processasnorm$L	CMP	R0,#15
+		BEQ	processcolour$L
+		STMFD	R13!,{R9-R11,R14}
+		LDRB	r9,w_format
+		MOV	R11,#e_interrogate
+		CALL	Zap_CallBaseMode
+		LDMFD	R13!,{R9-R11,PC}
+
+processcolour$L	TEQ	R1,#16
+		MOVEQ	R0,#0
+		MOV	PC,R14
+
+asmwordqueri$L  STMFD   R13!,{R14}
+		MOVS 	R0,R1
+		BLPL    getchar
+		CMP	R0,#'&'
+		MOVEQ 	R0,#0
+		MOVNE   R0,#19
+		ADDEQ	R1,R1,#1
+		LDMFD   R13!,{PC}
+
+wordendqueri$L	STMFD   R13!,{R1,R14}
+		MOVS 	R0,R1
+		BLPL    getchar
+		CMP	R0,#'.'
+		CMPNE	R0,#'>'
+		CMPNE	R0,#'-'
+		MOVNE   R0,#19
+		LDMNEFD R13!,{R1,PC}
+		CMP	R0,#'.'
+		BEQ	chkifincmt$L
+		CMP	R0,#'>'
+		SUBEQ   R1,R1,#1
+before$L
+		MOVS	R0,R1
+		BLPL    getchar
+		CMP	R0,#'-'
+		BNE	noexit$L
+		ADD	R0,R1,#1
+		BL      getchar
+		CMP	R0,#'>'
+		BNE	noexit$L
+		SUBS	R0,R1,#1
+		BLPL    getchar
+		CMP	R0,#'0'
+		BCC	noexit$L
+		ADD	R0,R1,#2
+		BL      getchar
+		CMP	R0,#'0'
+		BCC	noexit$L
+chkifincmt$L	STMFD   R13!,{R1-R12}
+		MOV     R11,R1		; offset to be queried in R11...
+		BL 	getws		; R12
+		BL	checkmode	; R7 what more can it want..!?
+		BL	asm_a_comment
+;		MOV	R4,R10
+;		MOV	R5,R12
+;		BL	checkmode	; R7 what more can it want..!?
+		;ADRL	r6,ischarincomment
+		;MOV 	R0,R11
+		;BL	callc
+
+		LDMFD   R13!,{R1-R12}
+		CMP 	R0,#0		; always 0 :-(
+		BNE	noexit2$L
+		; check for in quotes...?
+		MOV	R0,#0
+		LDMFD   R13!,{R1,PC}
+
+noexit$L	MOV	R0,#19
+		LDMFD   R13!,{R1,PC}
+
+noexit2$L	SWI &107
+		MOV	R0,#19
+		LDMFD   R13!,{R1,PC}
+
+
+wherewordqst$L	STMFD   R13!,{R14}	; 19 and 20...!
+		BL	wordendqueri$L
+		CMP     R0,#19
+		LDMEQFD R13!,{PC}
+		MOVS 	R0,R1
+		BLPL    getchar
+		CMP	R0,#'>'
+		SUBEQ	R1,R1,#1
+		SUB	R1,R1,#1
+		MOV	R0,#0
+		LDMFD	R13!,{PC}
+
+		END

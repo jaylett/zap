@@ -1,0 +1,1253 @@
+; **************************************************************************
+; *                                                                        *
+; *  Project: ZapMJE                Purpose: Extensions for Zap            *
+; *  Module: C.s                    Purpose: C source editing mode         *
+; *  © 1997 Martin Ebourne          Last update: 02-02-97                  *
+; *                                                                        *
+; **************************************************************************
+
+;  Things to do: (in approx. order)
+;    Improve whole caching area
+;    Function find etc.:
+;      Preproc not at start of line
+;      foo ()
+;      \ at ends of lines
+;      #if 0
+;      extern "C" { ... }
+;    Auto prototypes:
+;      static
+;      types not on same line as identifier?
+;    Handle multiple click selection sensibly
+;    Amazing indenting code!
+;    Pretty neat block commenting/uncommenting
+;    Redraw code:
+;      Comment out line when in comment doesn't always redraw screen -
+;      also anything else with start/stop op. I think this was Dom's fault.
+;      "#define wibble \n (" && "wibble \n #define \n (" spannered
+;      if screws up in preproc
+;      egg (foo) (); ?
+;      Recognise unary minus for redraw
+;      Depth shading
+;      "#define wiggle ""\\\nhello" -> "#define wiggle ""\\\n\nhello"
+;    Folding comments
+
+
+		GET	h.Main
+		GET	h.Commands
+		GET	h.Common
+		GET	h.C_Redraw
+		GET	h.Support
+		GET	h.Tables
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+
+;  Called when window enters this mode
+
+		EXPORT	start$CPP
+start$CPP	LDR	r0,ws_mode$CPP
+		B	intstart$C
+
+		EXPORT	start$J
+start$J		LDR	r0,ws_mode$J
+		B	intstart$C
+
+		EXPORT	start$C
+start$C		LDR	r0,ws_mode$C
+
+		EXPORT	intstart$C
+intstart$C	SAVE	r1,modeblk
+		MOV	r1,r0
+		BL	getformat
+		BIC	r1,r1,#255
+		ORR	r1,r1,r0
+		BL	setformat
+		MOV	r1,#-1
+		BL	ensuresize$C
+		RTS	VS
+		TEQ	fileblk,#0
+		MOVNE	r1,#0
+		STRNE	r1,m_cacheaddr$C
+		LDRNE	r1,=defaultstate$C
+		STRNE	r1,m_cachestate$C
+		MOVNE	r1,#-1
+		STRNE	r1,m_cacheaddr$C+8
+		LDR	r0,m_info
+		LDR	r0,[r0,#i_mode]
+		CALL	Zap_RestoreModeWord
+;		BL	initglobals		; set up global states...
+		RTS
+
+
+		LOCAL
+
+
+;  Called when window leaves this mode
+
+		EXPORT	end$C
+end$C		STMFD	sp!,{r1,modeblk,lr}
+		MOV	r1,#0
+		BL	ensuresize$C
+		LDRVC	r0,ws_mode$C
+		LDR	r0,m_info
+		LDR	r0,[r0,#i_mode]
+		CALL	Zap_SaveModeWord,,VC
+		LDMFD	sp!,{r1,modeblk,pc}
+
+
+		LOCAL
+
+
+;  Called after file is loaded (switches to appropriate mode if not C)
+
+ptr$L		RN	r0
+char$L		RN	r1
+end$L		RN	r2
+cr$L		RN	r3
+tab$L		RN	lr
+
+		EXPORT	postload$C
+postload$C	SAVE	r1-r3
+		CMP	R1,#0
+		RTS	NE
+;		SWI	&107
+		LDR	ptr$L,f_ptr
+		LDR	end$L,f_splito
+		ADD	end$L,ptr$L,end$L
+		LDRB	cr$L,w_cr
+		LDRB	tab$L,w_tabchar
+loop$L		CMP	ptr$L,end$L
+		RTS	HS
+		LDRB	char$L,[ptr$L],#1
+		TEQ	char$L,#' '
+		TEQNE	char$L,cr$L
+		TEQNE	char$L,tab$L
+		BEQ	loop$L
+		LDR	tab$L,ws_mode$C
+		TEQ	char$L,#';'
+		LDREQ	tab$L,ws_mode$ASM
+		TEQ	char$L,#'('
+		LDREQ	tab$L,ws_mode$P
+		TEQ	char$L,#'/'
+		BNE	notcpp$L
+		CMP	ptr$L,end$L
+		RTS	HS
+		LDRB	char$L,[ptr$L],#1
+		TEQ	char$L,#'/'
+		LDREQ	tab$L,ws_mode$CPP
+notcpp$L	LDR	r1,w_format
+		BIC	r1,r1,#255
+		ORR	r1,r1,tab$L
+		STR	r1,w_format
+		RTS
+
+
+		LOCAL
+
+
+;  Insert return(s)
+
+		EXPORT	return$C
+return$C	STMFD	sp!,{lr}
+		CALL	Zap_StartOp
+		BL	getprevchar
+		TEQ	r0,#'{'
+		BNE	noindent$L
+		BL	getindentcurr$C
+		MOV	r2,r0
+		BL	getindent$C
+		ADD	r2,r2,r0
+		STMFD	sp!,{r1,r2,r8-r10}
+		MOV	r1,#1
+		LDR	r9,=e_return
+		BL	callbasemode
+		LDMFD	sp!,{r1,r2,r8-r10}
+		SUB	r1,r1,#1
+		BL	getindentcurr$C
+		SUBS	r0,r2,r0
+		BLE	noindent$L
+		STMFD	sp!,{r1,r8-r10}
+		MOV	r5,r0
+		BL	getflags
+		MOV	r4,r0
+		BL	getformat
+		MOV	r6,r0
+		ADR	r7,thirtytwospaces
+		LDR	r9,=e_char
+		BL	callbasemode
+		LDMFD	sp!,{r1,r8-r10}
+noindent$L	CMP	r1,#0
+		BLE	noreturn$L
+		LDR	r9,=e_return
+		BL	callbasemode
+noreturn$L	CALL	Zap_StopOp
+		LDMFD	sp!,{pc}
+
+thirtytwospaces	=	"                                ",0
+
+
+		LOCAL
+
+
+;  Insert character(s)
+
+		EXPORT	char$C
+char$C		STMFD	sp!,{lr}
+		MOV	r1,#0
+00		CMP	r1,r5
+		BGE	%f01
+		LDRB	r0,[r7,r1]
+		TEQ	r0,#'}'
+		TEQNE	r0,#')'
+		TEQNE	r0,#']'
+		ADDNE	r1,r1,#1
+		BNE	%b00
+		BL	%f02
+		SUB	r5,r5,r1
+		ADD	r7,r7,r1
+		TEQ	r0,#'}'
+		BLEQ	%f03
+		TEQ	r0,#')'
+		BLEQ	%f05
+		TEQ	r0,#']'
+		BLEQ	%f06
+		SUB	r5,r5,#1
+		ADD	r7,r7,#1
+		MOV	r1,#0
+		B	%b00
+
+01		BL	%f02
+		LDMFD	sp!,{pc}
+
+02		CMP	r1,#0
+		MOVLE	pc,lr
+		STMFD	sp!,{r1-r10,lr}
+		MOV	r5,r1
+		LDR	r9,=e_char
+		BL	callbasemode
+		LDMFD	sp!,{r1-r10,pc}
+
+03		STMFD	sp!,{r1-r10,lr}
+		LDR	r0,c_off
+		MOV	r1,#'{'
+		MOV	r2,#'}'
+		BL	findmatch$C
+		BLT	%f04
+		BL	moveandwait$C
+		LDR	r9,=e_lineend
+		BL	callbasemode
+		BL	getindentline$C
+		BL	adjustleft$C
+		BL	adjustright$C
+04		MOV	r5,#1
+		LDR	r9,=e_char
+		BL	callbasemode
+		LDMFD	sp!,{r1-r10,pc}
+
+05		STMFD	sp!,{r1-r10,lr}
+		LDR	r0,c_off
+		MOV	r1,#'('
+		MOV	r2,#')'
+		BL	findmatch$C
+		BLEQ	moveandwait$C
+		MOV	r5,#1
+		LDR	r9,=e_char
+		BL	callbasemode
+		LDMFD	sp!,{r1-r10,pc}
+
+06		STMFD	sp!,{r1-r10,lr}
+		LDR	r0,c_off
+		MOV	r1,#'['
+		MOV	r2,#']'
+		BL	findmatch$C
+		BLEQ	moveandwait$C
+		MOV	r5,#1
+		LDR	r9,=e_char
+		BL	callbasemode
+		LDMFD	sp!,{r1-r10,pc}
+
+
+		LTORG
+
+		LOCAL
+
+
+;  Jump to start of next function
+
+		EXPORT	nextfunc$C
+nextfunc$C	LDR	r4,c_loff
+		MOV	r0,cursorblk
+		LDR	r5,f_len
+		BL	initfindfunc$C
+		BL	findfunc$C
+		BCS	exit$L
+		MOV	cursorblk,r0
+		STR	r1,c_off
+		CALL	Zap_ReflectCaret
+		CALL	Zap_ShowCursor
+exit$L		LDMFD	sp!,{lr}
+		B	stoplongop
+
+
+		LOCAL
+
+
+;  Jump to start of last function
+
+		EXPORT	lastfunc$C
+lastfunc$C	MOV	r4,#-1
+		LDR	r5,c_loff
+		STMFD	sp!,{cursorblk}
+		BL	initfindfunc$C
+		MOV	r0,#-1
+loop$L		BL	findfunc$C
+		MOVCC	r0,r1
+		MOVCC	r4,r1
+		BCC	loop$L
+		TEQ	r1,#0
+		CMPNE	r0,#-1
+		BEQ	exit$L
+		LDMFD	sp,{cursorblk}
+		STR	r0,c_off
+		CALL	Zap_ReflectCaret
+		CALL	Zap_ShowCursor
+exit$L		LDMFD	sp!,{cursorblk,lr}
+		B	stoplongop
+
+
+		LOCAL
+
+
+;  Generate function browser
+
+sourcetext$L	=	"Source file: ",0
+functext$L	=	10,10,"Functions:"
+newltext$L	=	10,0
+
+;		EXPORT	funcbrowser$C
+;funcbrowser$C	STMFD	sp!,{lr}
+;		BL	checkmode
+;		LDMNEFD	sp!,{pc}
+;		STMFD	sp!,{r1,r2,windowblk,fileblk}
+;		CALL	Zap_GetWindOff
+;		STMFD	sp!,{r0}
+;		MOV	r4,#-1
+;		LDR	r5,f_len
+;		BL	initfindfunc$C
+;		MOV	r0,#-1
+;loop$L		LDR	windowblk,[sp,#3*4]
+;		LDR	fileblk,[sp,#4*4]
+;		MOV	r4,r1
+;		BL	findfunc$C
+;		BLCS	stoplongop
+;		LDMCSFD	sp!,{r0-r2,windowblk,fileblk,pc}
+;		STMFD	sp!,{r1-r6}
+;		CMP	r0,#-1
+;		BNE	addline$L
+;		LDR	r0,=&FFF			;  Text
+;		MOV	r1,#1
+;		MOV	r2,#0				;  No undo
+;		MOV	r3,#&FF
+;		MOV	r4,#11				;  Mode throwback
+;		CALL	Zap_CreateFile
+;		STR	windowblk,[sp,#7*4]
+;		STR	fileblk,[sp,#8*4]
+;		MOV	r0,#11
+;		CALL	Zap_NewMode
+;		ADR	r0,sourcetext$L
+;		BL	appendtext$L
+;		LDR	r0,[sp,#6*4]
+;		MOV	r1,fileblk
+;		MOV	r4,windowblk			; new
+;		CALL	Zap_ConvWindOff
+;		STR	r8,[sp,#9*4]
+;		STR	r9,[sp,#10*4]
+;		LDR	r0,f_name
+;		MOV	fileblk,r1
+;		MOV	windowblk,r4			; new
+;		BL	appendtext$L
+;		ADR	r0,functext$L
+;		BL	appendtext$L
+;		LDR	windowblk,[sp,#9*4]
+;addline$L	LDR	r0,[sp]
+;		LDR	fileblk,=e_clnoff
+;		BL	callbasemode
+;		LDR	r4,f_ptr
+;		LDR	r5,f_splito
+;		LDR	windowblk,[sp,#7*4]
+;		LDR	fileblk,[sp,#8*4]
+;		SUB	sp,sp,#12
+;		ADD	r0,r2,#1
+;		MOV	r6,r0
+;		MOV	r1,sp
+;		MOV	r2,#9
+;		SWI	XOS_ConvertCardinal3
+;		LDR	r0,=&20202020
+;		STR	r0,[sp]
+;		STR	r0,[sp,#4]
+;		MOV	r0,r6
+;		ADD	r1,sp,r2
+;		SUB	r1,r1,#1
+;		MOV	r2,#9
+;		SWI	XOS_ConvertCardinal3
+;		LDR	r0,colontext$L
+;		STR	r0,[sp,#8]
+;		MOV	r0,#1
+;		LDR	r1,f_len
+;		MOV	r2,#11
+;		MOV	r3,sp
+;		CALL	Zap_DoCommand
+;		ADD	sp,sp,#12
+;		MOV	r2,#0
+;		ADD	r3,r4,r7
+;		SUB	r4,r5,r7
+;lengthloop1$L	LDRB	r0,[r3,r2]
+;		LDRB	lr,w_cr
+;		TEQ	r0,lr
+;		TEQNE	r0,#'{'
+;		BEQ	foundend$L
+;		ADD	r2,r2,#1
+;		CMP	r2,r4
+;		BLO	lengthloop1$L
+;		MOV	r0,#1
+;		LDR	r1,f_len
+;		CALL	Zap_DoCommand
+;		LDR	r5,[sp,#10*4]
+;		LDR	r3,[r5,#f_ptr-f_0]
+;		LDR	r4,[r5,#f_splite-f_0]
+;		ADD	r3,r3,r4
+;		MOV	r2,#0
+;lengthloop2$L	LDRB	r0,[r3,r2]
+;		LDRB	lr,w_cr
+;		TEQ	r0,lr
+;		TEQNE	r0,#'{'
+;		ADDNE	r2,r2,#1
+;		BNE	lengthloop2$L
+;foundend$L	MOV	r0,#1
+;		LDR	r1,f_len
+;		CALL	Zap_Command
+;		ADRL	r0,newltext$L
+;		BL	appendtext$L
+;		MOV	r0,r6
+;		LDR	r1,[sp,#10*4]
+;		LDR	r1,[r1,#f_name-f_0]
+;		LDR	r4,[sp,#6*4]
+;		LDR	r5,=3<<16 + 1<<8 + 1		;  source=2, 1 line/find
+;		CALL	Zap_NewLinkEntry
+;		LDR	r1,f_flags
+;		BIC	r1,r1,#1<<3			;  Clear file altered bit
+;		STR	r1,f_flags
+;		LDMFD	sp!,{r1-r6}
+;		B	loop$L
+
+;colontext$L	=	" : ",0
+
+;  Add text pointed to by r0 onto end of file; destroys r1
+
+;appendtext$L	JMP	Zap_InsertString,r1
+
+
+		EXPORT	funcbrowser$C
+funcbrowser$C	STMFD	sp!,{lr}
+		BL	checkmode
+		LDMNEFD	sp!,{pc}
+		STMFD	sp!,{r1,r2,windowblk,fileblk}
+		; split fudge due to prefindfunc bodge ;-)
+;		STMFD	sp!,{r0,r1}
+;		MOV	R0,#0
+;		MOV	R1,#0
+;		CALL	Zap_SplitBuffer
+;		LDMFD	sp!,{r0,r1}
+		;
+		CALL	Zap_GetWindOff
+		STMFD	sp!,{r0}
+		MOV	r4,#-1
+		LDR	r5,f_len
+		BL	initfindfunc$C
+		MOV	r0,#-1
+loop$L		LDR	windowblk,[sp,#3*4]
+		LDR	fileblk,[sp,#4*4]
+		BL	prefindfunc$C		; skip this line...!?!
+		MOV	r4,r1
+		BL	findfunc$C
+		BCS	extitfrombroza$L
+		STMFD	sp!,{r1-r6}
+		CMP	r0,#-1
+		BNE	addline$L
+		BL	secndsetup$L
+		STR	R0,[sp,#7*4]			; window index
+
+;		LDR	r0,=&FFF			;  Text
+;		MOV	r1,#1
+;		MOV	r2,#0				;  No undo
+;		MOV	r3,#&FF
+;		MOV	r4,#11				;  Mode throwback
+;		CALL	Zap_CreateFile
+;		CALL	Zap_GetWindOff
+
+;		STR	windowblk,[sp,#7*4]		; **MAY CHANGE***
+;		STR	fileblk,[sp,#8*4]		; **MAY CHANGE***
+
+;		MOV	r0,#11
+;		CALL	Zap_NewMode
+		ADR	r0,sourcetext$L
+		BL	appendtext$L
+		LDR	r0,[sp,#6*4]			; original window?
+		MOV	r1,fileblk
+		MOV	r4,windowblk			; new
+		CALL	Zap_ConvWindOff
+;
+		STR	r8,[sp,#9*4]			; **MAY CHANGE***
+		STR	r9,[sp,#10*4]			; **MAY CHANGE***
+;
+		LDR	r0,f_name
+		MOV	fileblk,r1
+		MOV	windowblk,r4			; new
+		BL	appendtext$L
+		ADR	r0,functext$L
+		BL	appendtext$L
+		LDR	windowblk,[sp,#9*4]
+addline$L	LDR	r0,[sp]
+		LDR	fileblk,=e_clnoff
+		BL	callbasemode
+		LDR	r4,f_ptr
+		LDR	r5,f_splito
+;		CALL	Zap_GetWindOff
+		LDR	R0,[sp,#7*4]			; **MAY CHANGE***
+		CALL	Zap_ConvWindOff
+;		LDR	R0,[windowblk,#w_file-w_0]
+;		CALL	Zap_ConvFileOff
+
+;		LDR	windowblk,[sp,#7*4]		; the throwback file
+;		LDR	fileblk,[sp,#8*4]		; the throwback file
+
+		SUB	sp,sp,#12
+		ADD	r0,r2,#1
+		MOV	r6,r0				; = log line no...?
+		MOV	r1,sp
+		MOV	r2,#9
+		SWI	XOS_ConvertCardinal3
+		LDR	r0,=&20202020
+		STR	r0,[sp]
+		STR	r0,[sp,#4]
+		MOV	r0,r6
+		ADD	r1,sp,r2
+		SUB	r1,r1,#1
+		MOV	r2,#9
+		SWI	XOS_ConvertCardinal3
+		LDR	r0,colontext$L
+		STR	r0,[sp,#8]
+		MOV	r0,#1
+		LDR	r1,f_len
+		MOV	r2,#11
+		MOV	r3,sp
+		CALL	Zap_DoCommand
+		ADD	sp,sp,#12		; ?
+		MOV	r2,#0
+		ADD	r3,r4,r7
+		SUB	r4,r5,r7
+lengthloop1$L	LDRB	r0,[r3,r2]
+		LDRB	lr,w_cr
+		TEQ	r0,lr
+		TEQNE	r0,#'{'			; dangerous - may be in comm
+		BEQ	foundend$L
+		ADD	r2,r2,#1
+		CMP	r2,r4
+		BLO	lengthloop1$L
+		MOV	r0,#1
+		LDR	r1,f_len
+		CALL	Zap_DoCommand
+
+		LDR	r5,[sp,#10*4]		; stored R9???
+		LDR	r3,[r5,#f_ptr-f_0]
+		LDR	r4,[r5,#f_splite-f_0]
+		ADD	r3,r3,r4
+		MOV	r2,#0
+lengthloop2$L	LDRB	r0,[r3,r2]
+		LDRB	lr,w_cr
+		TEQ	r0,lr
+		TEQNE	r0,#'{'			; dangerous - may be in comm
+		ADDNE	r2,r2,#1
+		BNE	lengthloop2$L
+foundend$L	MOV	r0,#1				; insert...
+		LDR	r1,f_len
+		CALL	Zap_Command
+		ADRL	r0,newltext$L
+		BL	appendtext$L
+		MOV	r0,r6
+;		MOV	r0,#0 ; dummy !!!!!!!!!!!!!!!!!!!!
+
+		LDR	r4,[sp,#6*4]
+
+		STMFD	sp!,{R0,R8,R9}
+
+		MOV	R0,R4
+		CALL	Zap_ConvWindOff
+		LDR	r1,f_name
+
+;		LDR	r1,[sp,#10*4]
+;		LDR	r1,[r1,#f_name-f_0]
+
+		LDMFD	sp!,{R0,R8,R9}
+;		STMFD	sp!,{R1-R7}
+;		ADR	R2,functext$L
+;		ADR	R3,sourcetext$L
+		MOV	R4,#-1
+		LDR	r5,=3<<16 + 1<<8 + 1	;  source=2, 1 line/find
+		CALL	Zap_NewLinkEntry
+;		MOV	R6,#0
+;		MOV	R7,#0
+;		CALL	Zap_Throwback
+;		LDMFD	sp!,{R1-R7}
+
+		LDR	r1,f_flags
+		BIC	r1,r1,#1<<3		;  Clear file altered bit
+		STR	r1,f_flags
+		LDMFD	sp!,{r1-r6}
+		B	loop$L
+
+colontext$L	=	" : ",0
+
+;  Add text pointed to by r0 onto end of file; destroys r1
+
+appendtext$L	JMP	Zap_InsertString,r1
+
+secndsetup$L	STMFD	sp!,{lr}
+;		LDR	r0,=&FFF			;  Text
+;		MOV	r1,#1
+;		MOV	r2,#0				;  No undo
+;		MOV	r3,#&FF
+;		MOV	r4,#11				;  Mode throwback
+;		CALL	Zap_CreateFile
+;		CALL	Zap_GetWindOff
+		CALL	Zap_CreateThrowback
+		LDMFD	sp!,{pc}
+
+extitfrombroza$L
+		BL	stoplongop
+		LDMFD	sp!,{r0-r2,windowblk,fileblk,pc}
+
+		LOCAL
+
+
+;  Auto-generate header file
+
+handle$L	RN	r1
+
+		DCD	x_noparams			;  Flags for command
+
+		EXPORT	autoheader$C
+autoheader$C	STMFD	sp!,{lr}
+		BL	checkmode
+		LDMNEFD	sp!,{pc}
+		LDR	r1,f_name
+		BL	count
+		CALL	Zap_Claim
+		LDMVSFD	sp!,{pc}
+		ADD	r3,r0,#2
+		BL	strcpy
+finddotloop$L	LDRB	r4,[r0,#-1]!
+		CMP	r0,r3
+		TEQ	r4,#'.'
+		BHI	finddotloop$L
+		LDREQB	r4,[r0,#-2]
+		TEQEQ	r4,#'.'
+		BNE	nofile
+		LDRB	r4,[r0,#-1]
+		TEQ	r4,#'h'
+		BEQ	nofile
+		MOV	r4,#'h'
+		STRB	r4,[r0,#-1]
+		SUB	r1,r3,#2
+		MOV	r0,#&C5				;  Update
+		SWI	XOS_Find
+		BVS	nofile
+		MOVS	handle$L,r0
+		BEQ	nofile
+		SUB	r0,r3,#2
+		CALL	Zap_Free
+		LDMVSFD	sp!,{pc}
+		ADR	r2,autotext$L
+findautoloop$L	MOV	r3,#0
+autonextchar$L	SWI	XOS_BGet
+		BCS	autonotfound$L
+		LDRB	r4,[r2,r3]
+		TEQ	r0,r4
+		BNE	findautoloop$L
+		ADD	r3,r3,#1
+		CMP	r3,#?autotext$L
+		BLO	autonextchar$L
+		MOV	r0,#0				;  Read PTR#
+		SWI	XOS_Args
+		MOV	r0,#3				;  Set EXT#
+		SWI	XOS_Args
+		B	autofound$L
+autonotfound$L	MOV	r2,#?autotext$L
+		ADR	r3,autotext$L
+		BL	appendtext$L
+autofound$L	MOV	r0,#10
+		SWI	XOS_BPut
+		SWI	XOS_BPut
+		STMFD	sp!,{handle$L}
+		MOV	r4,#-1
+		LDR	r5,f_len
+		BL	initfindfunc$C
+loop$L		MOV	r4,r1
+		BL	findfunc$C
+		BCS	finished$L
+		STMFD	sp!,{r1-r6}
+		LDR	handle$L,[sp,#6*4]
+		MOV	r2,#?externtext$L
+		ADR	r3,externtext$L
+		BL	appendtext$L
+		LDR	r4,f_ptr
+		LDR	r5,f_splito
+		MOV	r2,#0
+		ADD	r3,r4,r7
+		SUB	r5,r5,r7
+lengthloop1$L	LDRB	r0,[r3,r2]
+		TEQ	r0,#'{'
+		BEQ	foundend$L
+		ADD	r2,r2,#1
+		CMP	r2,r5
+		BLO	lengthloop1$L
+		BL	appendtext$L
+		LDR	r5,f_splite
+		ADD	r3,r4,r5
+		MOV	r2,#0
+lengthloop2$L	LDRB	r0,[r3,r2]
+		LDRB	lr,w_cr
+		TEQ	r0,#'{'
+		ADDNE	r2,r2,#1
+		BNE	lengthloop2$L
+foundend$L	BL	appendtext$L
+		MOV	r0,#';'
+		SWI	XOS_BPut
+		MOV	r0,#10
+		SWI	XOS_BPut
+		LDMFD	sp!,{r1-r6}
+		B	loop$L
+
+autotext$L	=	"/* Auto */"
+externtext$L	=	"extern "
+
+finished$L	LDMFD	sp!,{r1}
+		MOV	r0,#0
+		SWI	XOS_Find
+		LDMFD	sp!,{lr}
+		B	stoplongop
+
+;  Add text pointed to by r3, length in r2, onto end of file whose handle is in r1
+;  After, r3 points to end, r2=0 and r0 corrupted
+
+appendtext$L	SUBS	r2,r2,#1
+		MOVMI	pc,lr
+		LDRB	r0,[r3],#1
+		SWI	OS_BPut
+		B	appendtext$L
+
+
+		LOCAL
+
+
+;  Initialise function search
+;  Entry conditions:
+;    r4 rangestart - Start of range to be checked (exclusive)
+;    r5 rangeend   - End of range to be checked (exclusive)
+;  Exit conditions:
+;    r1-r6         - Set up for first call to findfunc. NOTE: These must not be altered
+
+char$L		RN	r0
+ptr$L		RN	r1
+splito$L	RN	r2
+fptr$L		RN	r3
+rangestart$L	RN	r4
+rangeend$L	RN	r5
+state$L		RN	r6
+lastfunc$L	RN	r7
+lastchar$L	RN	r8
+hourcount$L	RN	r10
+cr$L		RN	r12
+
+initfindfunc$C	STMFD	sp!,{r0,lr}
+		LDR	r0,f_len
+		BL	startlongop
+		MOV	hourcount$L,lr
+		LDR	r1,f_splits
+		LDR	splito$L,f_splito
+		CMP	rangestart$L,splito$L
+		ADDGE	rangestart$L,rangestart$L,r1
+		CMP	rangeend$L,splito$L
+		ADDGE	rangeend$L,rangeend$L,r1
+		MOV	ptr$L,#-1
+		LDMFD	sp!,{r0,pc}
+
+; skip this line...
+
+prefindfunc$C	STMFD	sp!,{r0,r2-r12,lr}
+		LDRB	cr$L,w_cr
+		LDR	splito$L,f_splito
+		CMP	ptr$L,splito$L
+		LDRGE	splito$L,f_splits
+		ADDGE	ptr$L,ptr$L,splito$L
+		LDRGE	splito$L,f_bufl
+		LDR	fptr$L,f_ptr
+looppff$L	BL	getquick$L
+		CMP	char$L,cr$L
+		MOVNE	r5,ptr$L
+		BNE	looppff$L
+		LDR	splito$L,f_splito
+		CMP	R5,splito$L
+		LDRCS	splito$L,f_splits
+		SUBCS	ptr$L,r5,splito$L
+		MOVCC	ptr$L,r5
+		LDMFD	sp!,{r0,r2-r12,pc}
+
+
+;  Search for start of function
+;  Entry conditions:
+;    ** initfindfunc MUST be called to set up the entry conditions. The ONLY change allowed to
+;    ** r1-r6, r10, wsblk between calls is MOV r4,r1 to continue search from where we left off
+;    windowblk, fileblk
+;  Exit conditions:
+;    C set if not found or Escape pressed, C clear if found
+;    r1 ptr      - 0 if Escape pressed (C set), offset to function start if found (C clear), else
+;                  rubbish (C set)
+;    r0 char     - Preserved
+;    r2-r6, r10  - Undefined
+;    r7 lastfunc - Offset to function start, taking account of split
+;    wsblk, windowblk, fileblk
+
+findfunc$C	STMFD	sp!,{r0,r8,r12,lr}
+		LDRB	cr$L,w_cr
+		LDR	splito$L,f_splito
+		CMP	ptr$L,splito$L
+		LDRGE	splito$L,f_splits
+		ADDGE	ptr$L,ptr$L,splito$L
+		LDRGE	splito$L,f_bufl
+		LDR	fptr$L,f_ptr
+		MOV	state$L,#0
+		MOV	lastfunc$L,#0
+		MOV	char$L,#0
+loop$L		BL	getchar$L
+		TEQ	char$L,#'*'
+		TEQEQ	lastchar$L,#'/'
+		BEQ	commentloop$L
+		TEQ	char$L,#'"'
+		BEQ	quoteloop$L
+		TEQ	char$L,#'''
+		BEQ	charconstloop$L
+		TEQ	char$L,#'#'
+		TEQEQ	lastchar$L,cr$L
+		BEQ	preprocloop$L
+		TEQ	char$L,#'/'
+		TEQEQ	lastchar$L,#'/'
+		BEQ	cppcommentlp$L
+		TEQ	char$L,#'{'
+		BEQ	opencurly$L
+		TEQ	char$L,#'}'
+		BEQ	closecurly$L
+		TEQ	char$L,cr$L
+		BEQ	newl$L
+		TEQ	char$L,#';'
+		CMPEQ	state$L,#-2
+		MOVEQ	state$L,#0
+		TEQ	char$L,#'('
+		BEQ	openparen$L
+		TEQ	char$L,#')'
+		BEQ	closeparen$L
+		CMP	state$L,#-2
+		MOVEQ	state$L,#-1
+		B	loop$L
+
+commentloop$L	BL	getchar$L
+		TEQ	char$L,#'/'
+		TEQEQ	lastchar$L,#'*'
+		BNE	commentloop$L
+		B	loop$L
+
+quoteloop$L	BL	getchar$L
+		TEQ	char$L,#'\'
+		BEQ	skipquote$L
+		TEQ	char$L,#'"'
+		TEQNE	char$L,cr$L
+		BNE	quoteloop$L
+		B	loop$L
+skipquote$L	BL	getchar$L
+		TEQ	char$L,cr$L
+		BNE	quoteloop$L
+		B	loop$L
+
+charconstloop$L	BL	getchar$L
+		TEQ	char$L,#'\'
+		BEQ	skipcharconst$L
+		TEQ	char$L,#'''
+		TEQNE	char$L,cr$L
+		BNE	charconstloop$L
+		B	loop$L
+skipcharconst$L	BL	getchar$L
+		TEQ	char$L,cr$L
+		BNE	charconstloop$L
+		B	loop$L
+
+preprocloop$L	BL	getchar$L
+		TEQ	char$L,cr$L
+		BNE	preprocloop$L
+		TEQ	lastchar$L,#'\'
+		BEQ	preprocloop$L
+		B	loop$L
+
+cppcommentlp$L	BL	getchar$L
+		TEQ	char$L,cr$L
+		BNE	cppcommentlp$L
+		B	loop$L
+
+opencurly$L	CMP	state$L,#-2
+		MOVLT	state$L,#1
+		BLT	loop$L
+		CMP	state$L,#0
+		ADDGE	state$L,state$L,#1
+		BGE	loop$L
+		CMP	rangestart$L,lastfunc$L
+		CMPLT	lastfunc$L,rangeend$L
+		MOVGE	state$L,#1
+		BGE	loop$L
+		MOV	ptr$L,lastfunc$L
+		LDR	r0,f_splite
+		CMP	ptr$L,r0
+		LDRHS	r0,f_splits
+		SUBHS	ptr$L,ptr$L,r0
+		ADDS	r0,r0,#0
+		LDMFD	sp!,{r0,r8,r12,pc}
+
+closecurly$L	CMP	state$L,#0
+		SUBGT	state$L,state$L,#1
+		MOVLE	state$L,#0
+		B	loop$L
+
+newl$L		CMP	state$L,#0
+		ADDGE	lastfunc$L,ptr$L,#1
+		CMP	lastfunc$L,splito$L
+		BLO	loop$L
+		LDR	lastfunc$L,f_splite
+		B	loop$L
+
+openparen$L
+;		TEQ	lastchar$L,#' '		; why?
+;		BEQ	loop$L			; why?
+		CMP	state$L,#0
+		MOVEQ	state$L,#-2
+		SUBLE	state$L,state$L,#1
+		B	loop$L
+
+closeparen$L	CMP	state$L,#-2
+		ADDLT	state$L,state$L,#1
+		B	loop$L
+
+
+;  Get byte for function search
+
+getchar$L	ADD	ptr$L,ptr$L,#1
+		CMP	ptr$L,splito$L
+		BLO	notend$L
+		LDR	splito$L,f_len
+		CMP	ptr$L,splito$L
+		LDMHSFD	sp!,{r0,r8,r12,pc}
+		LDR	splito$L,f_bufl
+		LDR	ptr$L,f_splite
+notend$L	MOV	lastchar$L,char$L
+		LDRB	char$L,[fptr$L,ptr$L]
+		SUBS	hourcount$L,hourcount$L,#1
+		MOVNES	pc,lr
+		STMFD	sp!,{lr}
+		BL	nextpercent
+		MOV	hourcount$L,lr
+		SWI	XOS_ReadEscapeState
+		LDMCCFD	sp!,{pc}^
+		MOV	r1,#0
+		ADD	sp,sp,#4
+		LDMFD	sp!,{r0,r8,r12,pc}
+
+
+;  Get byte for pre-function search
+
+getquick$L	ADD	ptr$L,ptr$L,#1
+		CMP	ptr$L,splito$L
+		BLO	quicknend$L
+		LDR	splito$L,f_len
+		CMP	ptr$L,splito$L
+		MOVHS	char$L,cr$L		; cr
+		MOVHS	pc,lr
+		LDR	splito$L,f_bufl
+		LDR	ptr$L,f_splite
+quicknend$L	MOV	lastchar$L,char$L
+		LDRB	char$L,[fptr$L,ptr$L]
+		MOVS	pc,lr
+
+		LOCAL
+
+
+;  Move caret to position in r0 for delay time or until key pressed
+
+until$L		RN	r3
+oldcoff$L	RN	r4
+
+moveandwait$C	STMFD	sp!,{r0-r7,lr}
+		LDR	oldcoff$L,c_off
+		STR	r0,c_off
+		CALL	Zap_ReflectCaret
+		SWI	XOS_ReadMonotonicTime
+		MOV	until$L,r0
+		BL	getdelay$C
+		ADD	until$L,until$L,r0
+delayloop$L	MOV	r0,#152			;  Examine buffer status
+		MOV	r1,#0
+		SWI	XOS_Byte
+		BCC	keypressed$L
+		SWI	XOS_ReadMonotonicTime
+		CMP	r0,until$L
+		BLT	delayloop$L
+keypressed$L	STR	oldcoff$L,c_off
+		CALL	Zap_ReflectCaret
+		LDMFD	sp!,{r0-r7,pc}
+
+
+		LOCAL
+
+
+;  Returns size of indent of current line in r0
+
+getindentcurr$C	LDR	r0,c_off
+
+;  Returns size of indent of line pointed to by r0, in r0
+
+getindentline$C	STMFD	sp!,{r1-r3,lr}
+		MOV	r2,r0
+		LDR	r9,=e_linestart
+		BL	callbasemode
+		MOV	r1,r0
+		MOV	r3,#0
+loop$L		CMP	r1,r2
+		BGE	finished$L
+		MOV	r0,r1
+		ADD	r1,r1,#1
+		BL	getchar
+		TEQ	r0,#' '
+		ADDEQ	r3,r3,#1
+		BEQ	loop$L
+		LDRB	lr,w_tabchar
+		TEQ	r0,lr
+		ADDEQ	r3,r3,#8
+		BICEQ	r3,r3,#7
+		BEQ	loop$L
+finished$L	MOV	r0,r3
+		LDMFD	sp!,{r1-r3,pc}
+
+
+		LOCAL
+
+
+;  Find matching bracket, left in r1, right in r2, position in r0. Returns position in r0 or -ve
+
+findmatch$C	STMFD	sp!,{r3,r4,lr}
+		MOV	r3,r0
+		MOV	r4,#1
+loop$L		SUBS	r3,r3,#1
+		BLT	finished$L
+		MOV	r0,r3
+		BL	getchar
+		TEQ	r0,r2
+		ADDEQ	r4,r4,#1
+		BEQ	loop$L
+		TEQ	r0,r1
+		BNE	loop$L
+		SUBS	r4,r4,#1
+		BNE	loop$L
+finished$L	MOV	r0,r3
+		LDMFD	sp!,{r3,r4,pc}
+
+
+		LOCAL
+
+
+;  Adjust to left in order to line indents up
+
+adjustleft$C	STMFD	sp!,{r0,r1,lr}
+		MOV	r1,r0
+loop$L		BL	getindentcurr$C
+		CMP	r0,r1
+		LDMLEFD	sp!,{r0,r1,pc}
+		BL	getprevchar
+		TEQ	r0,#' '
+		LDRNEB	lr,w_tabchar
+		TEQNE	r0,lr
+		LDMNEFD	sp!,{r0,r1,pc}
+		LDR	r0,c_off
+		TEQ	r0,#0
+		LDMEQFD	sp!,{r0,r1,pc}
+		STMFD	sp!,{r1-r10}
+		MOV	r5,#1
+		LDR	r6,w_format
+		MOV	r7,#0
+		LDR	r9,=e_delete
+		BL	callbasemode
+		LDMFD	sp!,{r1-r10}
+		B	loop$L
+
+
+		LOCAL
+
+
+;  Adjust to right in order to line indents up
+
+adjustright$C	STMFD	sp!,{r0,r1,lr}
+		MOV	r1,r0
+loop$L		BL	getindentcurr$C
+		SUBS	r0,r1,r0
+		LDMLEFD	sp!,{r0,r1,pc}
+		STMFD	sp!,{r0-r11}
+		MOV	r2,r0
+		MOV	r0,#1
+		LDR	r1,c_off
+		CMP	r2,#32
+		MOVGE	r2,#32
+		ADRL	r3,thirtytwospaces
+		CALL	Zap_Command
+		LDMFD	sp!,{r0-r11}
+		B	loop$L
+
+
+		LOCAL
+
+
+;  Ensure mode block is of suitable size for file of length in r1 (-1 if for current file), or
+;  shrink to default if r1=0. If r9=0, then uses default size regardless
+;  (Data length = (File length / 1k * 2 words) rounded up to &80,
+;   Data length + &80 <= Block length <= Data length + &180)
+
+
+newlength$L	RN	r1
+oldlength$L	RN	r2
+
+		EXPORT	ensuresize$C
+ensuresize$C	SAVE	oldlength$L
+		BL	checkmode
+		TEQ	fileblk,#0
+		CMPNE	r1,#0
+		MOVEQ	r1,#m_defsize$C
+		BEQ	resize$L
+		LDRLT	r1,f_len
+		MOV	newlength$L,r1,LSR #(7-3)	;  /1024*8
+		ADD	newlength$L,newlength$L,#&FF	; was &FF
+		BIC	newlength$L,newlength$L,#&7F	; was &7F +&80 and round up to &80
+		ADD	lr,newlength$L,#&100
+		LDR	oldlength$L,m_length
+		CMP	oldlength$L,newlength$L
+		CMPHI	lr,oldlength$L
+		RTS	HS
+;		SWI &107 ; BEEP! - fires...
+		ADD	r1,newlength$L,#&80		; was &80
+resize$L	MOV	r0,modeblk
+		CALL	Zap_Ensure
+		MOVVC	modeblk,r0
+		STRVC	r1,m_length
+		BLVC	setmodeblk
+		RTS
+
+
+		LOCAL
+
+
+;  Update pause sub-menu
+
+		EXPORT	updatepause$C
+updatepause$C	SAVE
+		BL	getdelay$C
+		LDR	r1,[r10,#40]
+		MOV	r2,#4
+		SWI	XOS_ConvertCardinal1
+		RTS
+
+
+		LOCAL
+
+
+;  Update indent sub-menu
+
+		EXPORT	updateindent$C
+updateindent$C	SAVE
+		BL	getindent$C
+		LDR	r1,[r10,#40]
+		MOV	r2,#4
+		SWI	XOS_ConvertCardinal1
+		RTS
+
+
+		LOCAL
+
+
+;  Handle click on pause sub-menu
+
+		EXPORT	pauseclicked$C
+pauseclicked$C	SAVE
+		BL	checkmode
+		RTS NE
+		MOV	r0,r10
+		BL	evaluateentry
+		RTS VS
+		CMP	r0,#255
+		MOVGT	r0,#255
+		MOVS	r1,r0
+		MOVMI	r1,#0
+		STRB	r0,m_flags1$C
+		RTS
+
+
+		LOCAL
+
+
+;  Handle click on indent sub-menu
+
+		EXPORT	indentclicked$C
+indentclicked$C	SAVE
+		BL	checkmode
+		RTS NE
+		MOV	r0,r10
+		BL	evaluateentry
+		RTS VS
+		CMP	r0,#31
+		MOVGT	r0,#31
+		MOVS	r1,r0
+		MOVMI	r1,#0
+		LDR	r0,m_flags1$C
+		BIC	r0,r0,#31<<17
+		ORR	r0,r0,r1,LSL #17
+		STR	r0,m_flags1$C
+		RTS
+
+
+		LOCAL
+
+
+;  Returns indent size in r0
+
+getindent$C	SAVE
+		BL	checkmode
+		LDREQ	r0,m_flags1$C
+		MOV	r0,r0,LSR #17
+		AND	r0,r0,#31
+		RTS
+
+
+		LOCAL
+
+
+;  Returns delay in r0
+
+getdelay$C	SAVE
+		BL	checkmode
+		LDREQB	r0,m_flags1$C
+		RTS
+
+
+		END

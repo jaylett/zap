@@ -1,0 +1,456 @@
+; **************************************************************************
+; *                                                                        *
+; *  Project: ZapMJE                Purpose: Extensions for Zap            *
+; *  Module: Assembler.s            Purpose: Acorn assembler editing mode  *
+; *  © 1997 Martin Ebourne          Last update: 12-01-97                  *
+; *                                                                        *
+; **************************************************************************
+
+;  Things to do:
+;    Make compile work properly with no make file
+;    Proper function finding
+
+
+		GET	h.Main
+		GET	h.Support
+		GET	h.Tables
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+
+;  Set up default colours for redraw
+
+		EXPORT	clnphy$ASM
+clnphy$ASM	STMFD	sp!,{modeblk,lr}
+		BL	checkmode
+		MOVEQ	r1,#-1
+		STREQ	r1,m_cstate$ASM
+		LDMFD	sp!,{modeblk,lr}
+		LDR	r9,=e_clnphy
+		B	callbasemode
+
+
+		LOCAL
+
+
+;  Redraw single line of display
+
+backgroundcol$L	EQU	1
+othercol$L	EQU	2
+ctrlcol$L	EQU	8
+commentcol$L	EQU	9
+stringcol$L	EQU	10
+instructcol$L	EQU	11
+opercol$L	EQU	12
+labelcol$L	EQU	13
+namecol$L	EQU	14
+numbercol$L	EQU	15
+charconstcol$L	EQU	1<<4 + stringcol$L
+barlabelcol$L	EQU	1<<5 + labelcol$L
+barnamecol$L	EQU	1<<5 + namecol$L
+asmvarcol$L	EQU	1<<4 + opercol$L		;  To be used for {PC} etc
+
+nextfieldflag$L	EQU	1<<8
+charconstflag$L	EQU	1<<9				;  Usually in miscreg, stored in colour
+newlflag$L	EQU	1<<10				;    between calls...
+colour$L	RN	r2
+width$L		RN	r3
+format$L	RN	r4
+apparentfptr$L	RN	r5
+output$L	RN	r6
+ptr$L		RN	r7
+splito$L	RN	r10
+logline$L	RN	r11
+miscreg$L	RN	r12
+column$L	RN	r14
+
+;  Usage of miscreg:
+;  bits 0-7  : cr
+;       9    : charconstflag
+;       16-23: bpl
+;       24-31: tabchar
+
+		EXPORT	redrawline$ASM
+redrawline$ASM	STMFD	sp!,{r6,r12,lr}
+		STMFD	sp!,{modeblk,wsblk}
+		BL	checkmode
+		LDREQ	colour$L,m_cstate$ASM
+		LDMFD	sp!,{modeblk,wsblk}
+		LDMNEFD	sp!,{r6,r12,pc}
+		LDR	width$L,w_txtw
+		AND	format$L,format$L,#2_11<<12
+		LDRB	miscreg$L,w_cr
+		CMP	colour$L,#-1
+		ANDNE	r1,colour$L,#charconstflag$L
+		ORRNE	miscreg$L,miscreg$L,r1
+		BICNE	colour$L,colour$L,#charconstflag$L
+		BNE	noreset$L
+		MOV	colour$L,#labelcol$L
+		LDR	apparentfptr$L,f_ptr
+		LDR	splito$L,f_bufl
+		ADD	splito$L,splito$L,apparentfptr$L
+		TEQ	ptr$L,splito$L
+		LDMEQFD	sp!,{r6,r12,pc}
+		LDR	splito$L,f_splite
+		ADD	splito$L,splito$L,apparentfptr$L
+		CMP	ptr$L,splito$L
+		MOVLO	splito$L,apparentfptr$L
+		MOV	output$L,#0
+backloop$L	SUB	output$L,output$L,#1
+		LDRB	r0,[ptr$L],#-1
+		TEQ	r0,miscreg$L
+		BEQ	found$L
+		CMP	ptr$L,splito$L
+		BHS	backloop$L
+		TEQ	apparentfptr$L,splito$L
+		LDRNE	splito$L,f_splits
+		SUBNE	ptr$L,ptr$L,splito$L
+		MOVNE	splito$L,apparentfptr$L
+		CMP	ptr$L,splito$L
+		BHS	backloop$L
+		SUB	output$L,output$L,#1
+		SUB	ptr$L,ptr$L,#1
+found$L		ADDS	output$L,output$L,#2
+		ADD	ptr$L,ptr$L,#2
+		SUBPL	ptr$L,ptr$L,output$L
+		LDMPLFD	sp,{output$L}
+		TEQ	apparentfptr$L,splito$L
+		LDREQ	splito$L,f_splito
+		ADDEQ	splito$L,splito$L,apparentfptr$L
+		LDRNE	splito$L,f_splits
+		ADDNE	apparentfptr$L,apparentfptr$L,splito$L
+		LDRNE	splito$L,f_len
+		ADDNE	splito$L,splito$L,apparentfptr$L
+noreset$L	LDRB	r0,w_tabchar
+		ORR	miscreg$L,miscreg$L,r0,LSL #24
+		LDRB	r0,w_bpl
+		ORR	miscreg$L,miscreg$L,r0,LSL #16
+newline$L	MOV	column$L,#0
+mainloop$L	CMP	ptr$L,splito$L
+		BLO	notend$L
+		LDR	splito$L,f_len
+		ADD	splito$L,splito$L,apparentfptr$L
+		CMP	ptr$L,splito$L
+		LDMHSFD	sp!,{r6,r12,pc}
+		LDR	r1,f_splits
+		ADD	ptr$L,ptr$L,r1
+		ADD	apparentfptr$L,apparentfptr$L,r1
+		ADD	splito$L,splito$L,r1
+notend$L	LDRB	r0,[ptr$L],#1
+		AND	r1,miscreg$L,#255
+		EOR	colour$L,colour$L,#newlflag$L
+		TEQ	r0,r1
+		TSTEQ	colour$L,#newlflag$L
+		MOVEQ	colour$L,#labelcol$L
+		BEQ	mainloop$L
+		BIC	colour$L,colour$L,#newlflag$L
+		TEQ	r0,r1
+		BEQ	nextchar$L
+		CMP	output$L,#0
+		MOVGT	r1,#backgroundcol$L
+		STRGTB	r1,[output$L,width$L,LSL #1]
+		TEQ	r0,#'''
+		BEQ	checkcharcnst$L
+		BIC	miscreg$L,miscreg$L,#charconstflag$L
+		TEQ	r0,#' '
+		TEQNE	r0,miscreg$L,LSR #24
+		BEQ	notset$L
+		TEQ	r0,#';'
+		BEQ	checkcomment$L
+		TEQ	r0,#'"'
+		BEQ	checkstring$L
+		TEQ	r0,#':'
+		BEQ	checkoper$L
+		TST	colour$L,#nextfieldflag$L
+		TEQNE	colour$L,#charconstcol$L
+		BEQ	notset$L
+		AND	colour$L,colour$L,#255
+		TEQ	colour$L,#labelcol$L
+		MOVEQ	colour$L,#instructcol$L
+		MOVNE	colour$L,#othercol$L
+notset$L	TEQ	r0,#'|'
+		BEQ	checkbar$L
+		TEQ	colour$L,#namecol$L
+		BEQ	checkname$L
+		TEQ	colour$L,#othercol$L
+		TEQNE	colour$L,#numbercol$L
+		BNE	storechar$L
+		TEQ	r0,#'&'
+		BEQ	number$L
+		CMP	r0,#'9'
+		RSBLSS	r1,r0,#'0'
+		BLS	number$L
+		TEQ	colour$L,#numbercol$L
+		BNE	checkname$L
+		MOV	colour$L,#othercol$L
+		TEQ	r0,#'_'
+		TEQNE	r0,#'.'
+		BEQ	number$L
+		AND	r1,r0,#&DF
+		CMP	r1,#'F'
+		RSBLSS	r1,r1,#'A'
+		TEQNE	r1,#'X'
+number$L	MOVLS	colour$L,#numbercol$L
+		BLS	storechar$L
+checkname$L	TEQ	r0,#'$'
+		TEQNE	r0,#'%'
+		BEQ	name$L
+		AND	r1,r0,#&DF
+		CMP	r1,#'Z'
+		RSBLSS	r1,r1,#'A'
+		BLS	name$L
+		TEQ	colour$L,#namecol$L
+		BNE	notname$L
+		MOV	colour$L,#othercol$L
+		CMP	column$L,#4
+		CMPHS	output$L,#0
+		BLT	noshift$L
+		LDRB	r1,[output$L,#-1]
+		TEQ	r1,#'X'
+		BEQ	extended$L
+		TEQ	r1,#'R'
+		TEQNE	r1,#'L'
+		BNE	noshift$L
+		LDRB	r1,[output$L,#-2]
+		TEQ	r1,#'O'
+		BEQ	rotate$L
+		TEQ	r1,#'S'
+		BNE	noshift$L
+		LDRB	r1,[output$L,#-3]
+		TEQ	r1,#'A'
+		TEQNE	r1,#'L'
+		BNE	noshift$L
+		B	checkbefore$L
+extended$L	LDRB	r1,[output$L,#-2]
+		TEQ	r1,#'R'
+rotate$L	LDREQB	r1,[output$L,#-3]
+		TEQEQ	r1,#'R'
+		BNE	noshift$L
+checkbefore$L	SUB	r1,output$L,#4
+		LDRB	r1,[r1,width$L]
+		TEQ	r1,#namecol$L
+		MOVNE	r1,#instructcol$L
+		ADDNE	output$L,output$L,width$L
+		STRNEB	r1,[output$L,#-3]
+		STRNEB	r1,[output$L,#-2]
+		STRNEB	r1,[output$L,#-1]
+		SUBNE	output$L,output$L,width$L
+noshift$L	TEQ	r0,#'_'
+		BEQ	name$L
+		CMP	r0,#'9'
+		RSBLSS	r1,r0,#'0'
+name$L		MOVLS	colour$L,#namecol$L
+		BLS	storechar$L
+notname$L	CMP	output$L,#0
+		BLT	storechar$L
+		TEQ	r0,#','
+		TEQNE	r0,#'{'
+		TEQNE	r0,#'}'
+		TEQNE	r0,#'['
+		TEQNE	r0,#']'
+		TEQNE	r0,#'!'
+		TEQNE	r0,#'#'
+		MOVEQ	r1,#othercol$L		; was instructcol$L :-(
+		STREQB	r1,[output$L,width$L]
+		BEQ	storenocolour$L
+storechar$L	TEQ	r0,#' '
+		TEQNE	r0,miscreg$L,LSR #24
+		BEQ	whitespace$L
+storenoqs$L	CMP	output$L,#0
+		ANDGT	r1,colour$L,#15
+		STRGTB	r1,[output$L,width$L]
+storenocolour$L	CMP	output$L,#0
+		STRGTB	r0,[output$L],#1
+		ADD	column$L,column$L,#1
+nextchar$L	CMP	output$L,#0
+		ADDLTS	output$L,output$L,#1
+		BMI	mainloop$L
+		LDMEQFD	sp,{output$L}
+		BEQ	newline$L
+		AND	r1,miscreg$L,#255
+		TEQ	r0,r1
+		BEQ	specialcaseatle
+prenotataneol$L	ORR	colour$L,colour$L,#newlflag$L
+notataneol$L	AND	r0,miscreg$L,#255<<16
+		TEQNE	column$L,r0,LSR #16
+		BICNE	colour$L,colour$L,#newlflag$L
+		BNE	mainloop$L
+
+		STMFD	sp!,{apparentfptr$L,ptr$L}
+		CMP	ptr$L,splito$L
+		BLO	notend2$L
+		LDR	splito$L,f_len
+		ADD	splito$L,splito$L,apparentfptr$L
+		CMP	ptr$L,splito$L
+		BHS	notend2$L
+		LDR	r1,f_splits
+		ADD	ptr$L,ptr$L,r1
+		ADD	apparentfptr$L,apparentfptr$L,r1
+		ADD	splito$L,splito$L,r1
+notend2$L	LDRB	r0,[ptr$L]
+		AND	r1,miscreg$L,#255
+		TEQ	r0,r1
+;		ADDEQ	logline$L,logline$L,#1
+		LDMFD	sp!,{apparentfptr$L,ptr$L}
+		ADDEQ	ptr$L,ptr$L,#1
+		BEQ	specialcaseatle
+;		SWIEQ	&107
+afterllchks$L	AND	r0,miscreg$L,#255<<16
+		TEQ	column$L,r0,LSR #16
+		BICNE	colour$L,colour$L,#newlflag$L
+		AND	r0,miscreg$L,#charconstflag$L
+		ORR	colour$L,colour$L,r0
+		LDMFD	sp!,{r6,r12}
+		STMFD	sp!,{modeblk,wsblk}
+		BL	checkmode
+		STR	colour$L,m_cstate$ASM
+		LDMFD	sp!,{modeblk,wsblk,pc}
+
+checkcomment$L	TEQ	colour$L,#stringcol$L
+		TEQNE	colour$L,#charconstcol$L
+		TEQNE	colour$L,#barlabelcol$L
+		TEQNE	colour$L,#barnamecol$L
+		MOVNE	colour$L,#commentcol$L
+		B	storechar$L
+
+specialcaseatle ADD	logline$L,logline$L,#1	; problem1.
+		MOV	colour$L,#labelcol$L
+		B	afterllchks$L
+
+checkstring$L	TEQ	colour$L,#commentcol$L
+		TEQNE	colour$L,#charconstcol$L
+		TEQNE	colour$L,#barlabelcol$L
+		TEQNE	colour$L,#barnamecol$L
+		BEQ	storechar$L
+		TEQ	colour$L,#stringcol$L
+		MOVNE	colour$L,#stringcol$L
+		BNE	storechar$L
+stringstore$L	CMP	output$L,#0
+		ANDGT	r1,colour$L,#15
+		STRGTB	r1,[output$L,width$L]
+		MOV	colour$L,#othercol$L
+		B	storenocolour$L
+
+checkcharcnst$L	TEQ	colour$L,#stringcol$L
+		TEQNE	colour$L,#commentcol$L
+		TEQNE	colour$L,#barlabelcol$L
+		TEQNE	colour$L,#barnamecol$L
+		BEQ	storechar$L
+		TEQ	colour$L,#charconstcol$L
+		MOVNE	colour$L,#charconstcol$L
+		ORRNE	miscreg$L,miscreg$L,#charconstflag$L
+		BNE	storechar$L
+		TST	miscreg$L,#charconstflag$L
+		BIC	miscreg$L,miscreg$L,#charconstflag$L
+		BNE	storechar$L
+		B	stringstore$L
+
+checkbar$L	TEQ	colour$L,#commentcol$L
+		TEQNE	colour$L,#stringcol$L
+		TEQNE	colour$L,#charconstcol$L
+		TEQNE	colour$L,#instructcol$L
+		BEQ	storechar$L
+		TEQ	colour$L,#barnamecol$L
+		BEQ	stringstore$L
+		TEQ	colour$L,#barlabelcol$L
+		BEQ	barstore$L
+		TEQ	colour$L,#labelcol$L
+		MOVEQ	colour$L,#barlabelcol$L
+		MOVNE	colour$L,#barnamecol$L
+		B	storechar$L
+barstore$L	CMP	output$L,#0
+		ANDGT	r1,colour$L,#15
+		STRGTB	r1,[output$L,width$L]
+		MOV	colour$L,#labelcol$L
+		B	storenocolour$L
+
+checkoper$L	TEQ	colour$L,#commentcol$L
+		TEQNE	colour$L,#stringcol$L
+		TEQNE	colour$L,#charconstcol$L
+		TEQNE	colour$L,#barlabelcol$L
+		TEQNE	colour$L,#barnamecol$L
+		BEQ	storechar$L
+		TEQ	colour$L,#opercol$L
+		MOVNE	colour$L,#opercol$L
+		BNE	storechar$L
+		B	stringstore$L
+
+whitespace$L	TEQ	colour$L,#charconstcol$L
+		ANDNE	colour$L,colour$L,#15
+		TEQ	colour$L,#labelcol$L
+		TEQNE	colour$L,#instructcol$L
+		ORREQ	colour$L,colour$L,#nextfieldflag$L
+		TEQ	format$L,#2_00<<12
+		TEQEQ	r0,miscreg$L,LSR #24
+		BEQ	storenocolour$L
+		TEQ	r0,#' '
+		BEQ	storenoqs$L
+		CMP	output$L,#0
+		BLT	nextchar$L
+		MOV	r0,#9
+		TEQ	format$L,#2_01<<12
+		MOVEQ	r0,#' '
+		TEQ	format$L,#2_11<<12
+		MOVEQ	r0,#'-'
+tabloop$L	MOV	r1,#ctrlcol$L
+		STRB	r1,[output$L,width$L]
+		MOV	r1,#backgroundcol$L
+		STRB	r1,[output$L,width$L,LSL #1]
+		STRB	r0,[output$L],#1
+		ADD	column$L,column$L,#1
+		TEQ	format$L,#2_10<<12
+		MOVEQ	r0,#' '
+		AND	r1,miscreg$L,#255<<16
+		TEQ	column$L,r1,LSR #16
+		TSTNE	column$L,#7
+		BNE	tabloop$L
+		TEQ	format$L,#2_11<<12
+		MOVEQ	r0,#9
+		STREQB	r0,[output$L,#-1]
+		MOV	r0,miscreg$L,LSR #24
+		B	nextchar$L
+
+
+		LOCAL
+
+
+;  Handle insertion of tabs specially (activated by non-standard mode)
+
+		EXPORT	tab$ASM
+tab$ASM		LDR	r0,w_format
+		EOR	r0,r0,#1<<15
+		TST	r0,#1<<15
+		LDREQ	r0,w_flags
+		TSTEQ	r0,#2_11<<9
+		LDRNE	r9,=e_tab
+		BNE	callbasemode
+		LDR	r0,c_off
+		MOV	r2,lr
+		BL	getchar
+		MOV	lr,r2
+		LDRB	r9,w_tabchar
+		TEQ	r0,r9
+		LDR	r9,=e_tab
+		BCS	fulltab$L
+		BEQ	callbasemode
+fulltab$L	LDR	r0,c_col
+		MOVS	r0,r0,LSR #3
+		ADDEQ	r1,r1,#1
+		RSB	r0,r0,#6
+		CMP	r0,#4
+		ADDLO	r1,r1,r0
+		B	callbasemode
+
+
+		LOCAL
+
+
+;  Find start of update region
+
+		EXPORT	prevline$ASM
+prevline$ASM	SUBS	r0,r0,#4
+		MOVMI	r0,#0
+		MOV	pc,lr
+
+
+		END

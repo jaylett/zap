@@ -1,0 +1,936 @@
+; **************************************************************************
+; *                                                                        *
+; *  Project: ZapMJE                Purpose: Extensions for Zap            *
+; *  Module: Commands.s             Purpose: Extension commands            *
+; *  © 1997 Martin Ebourne          Last update: 13-03-97                  *
+; *                                                                        *
+; **************************************************************************
+
+;  Things to do:
+;    Seriously improve compile (!) - give it a *command and allow
+;      wimpslot etc to be set
+;    Make bracket matching work on all modes & properly
+
+
+		GET	h.Main
+		GET	h.Assembler
+		GET	h.C
+		GET	h.Header
+		GET	h.Help
+		GET	h.Routines
+		GET	h.Support
+		GET	h.Tables
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+
+;  Extra command table
+
+		EXPORT	extracmdtable
+extracmdtable	DCD	extracmdtable		;  Offset of table from start of module
+		DCD	cmdservice		;  Offset of service call code
+
+
+		MACRO
+		CMD	$name,$handler
+		=	"$name",0
+		ALIGN
+		DCD	$handler
+		MEND
+
+;  Commands specific to my modes
+
+		CMD	"MJE_NEXTFUNC",nextfunc
+		CMD	"MJE_LASTFUNC",lastfunc
+		CMD	"MJE_OPENCOMMENT",insopencomment
+		CMD	"MJE_CLOSECOMMENT",insclosecomment
+		CMD	"MJE_IF",insertif
+		CMD	"MJE_ENDIF",insertendif
+		CMD	"MJE_COMMENT",comment
+		CMD	"MJE_COMMENTLINE",commentout
+		CMD	"MJE_UNCOMMENTLINE",uncomment
+		CMD	"MJE_REINDENT",reindentthisline
+		CMD	"MJE_SWAPTOHEADER",swaptoheader
+		CMD	"MJE_GENERATEHEADER",autoheader$C
+		CMD	"MJE_FINDHEADER",findheader ; works elsewhere
+
+;  Menu entries
+
+		CMD	"MJE_PAUSE",pause
+		CMD	"MJE_INDENT",indent
+		CMD	"MJE_COMMENTSET",commentset
+
+;  Help commands
+
+		CMD	"MJE_HELPCONTEXT",helpcontext$H
+		CMD	"MJE_HELPLAST",helplast$H
+		CMD	"MJE_HELPTOPIC",helptopic$H
+
+;  Generic commands
+
+		CMD	"MJE_ALTERSEL",altersel
+		CMD	"MJE_IFMODE",ifmode
+
+		[	$debug
+		CMD	"MJE_COREDUMP",coredump
+		CMD	"MJE_COREDUMPD",coredumpd
+		CMD	"MJE_CTEST",callctest
+		]
+
+		=	0
+
+		ALIGN
+
+		LOCAL
+
+
+;  Jump to start of next function
+
+		DCD	x_noparams			;  Flags for command
+
+nextfunc	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r1,m_info
+		LDR	r0,[r1,#i_funcstring]
+		PULL
+		LDR	pc,[r1,#i_nextfunc]
+
+
+;  Jump to start of next function using search string in r0
+
+		EXPORT	nextfuncsrch
+nextfuncsrch	MOV	r1,#0				;  Move cursor
+		LDR	r3,c_off			;  Start offset
+		MOV	r4,#1				;  Forwards
+		MOV	r5,#0				;  String
+		JMP	Zap_Search,r6
+
+
+		LOCAL
+
+
+;  Jump to start of last function
+
+		DCD	x_noparams			;  Flags for command
+
+lastfunc	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r1,m_info
+		LDR	r0,[r1,#i_funcstring]
+		PULL
+		LDR	pc,[r1,#i_lastfunc]
+
+
+;  Jump to start of last function using search string in r0
+
+		EXPORT	lastfuncsrch
+lastfuncsrch	MOV	r1,#0				;  Move cursor
+		LDR	r3,c_off			;  Start offset
+		MOV	r4,#-1				;  Backwards
+		MOV	r5,#0				;  String
+		JMP	Zap_Search,r6
+
+
+		LOCAL
+
+
+;  Generate function browser
+
+		EXPORT	funcbrowser
+funcbrowser	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r1,m_info
+		LDR	r0,[r1,#i_funcstring]
+		MOV	r1,#1				;  Buffer
+		MOV	r3,#0				;  Start offset
+		MOV	r4,#1				;  Forwards
+		MOV	r5,#0				;  String
+		PULL
+		JMP	Zap_Search,r6
+
+
+		LOCAL
+
+
+;  Inserts open comment
+
+		DCD	x_noparams			;  Flags for command
+
+insopencomment	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r0,m_sharedflags1
+		TST	r0,#1				;  Alternative comment set
+		LDR	r0,m_info
+		LDREQ	r2,[r0,#i_opencoml]
+		LDREQ	r3,[r0,#i_opencom]
+		LDRNE	r2,[r0,#i_opencoml2]
+		LDRNE	r3,[r0,#i_opencom2]
+		MOV	r0,#&11
+		LDR	r1,c_off
+		PULL
+		JMP	Zap_Command,r6
+
+
+		LOCAL
+
+
+;  Inserts close comment
+
+		DCD	x_noparams			;  Flags for command
+
+insclosecomment	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r0,m_sharedflags1
+		TST	r0,#1				;  Alternative comment set
+		LDR	r0,m_info
+		LDREQ	r2,[r0,#i_closecoml]
+		LDREQ	r3,[r0,#i_closecom]
+		LDRNE	r2,[r0,#i_closecoml2]
+		LDRNE	r3,[r0,#i_closecom2]
+		MOV	r0,#&11
+		LDR	r1,c_off
+		PULL
+		JMP	Zap_Command,r6
+
+
+		LOCAL
+
+
+;  Inserts "#if 0\n" or " [ 1<>0\n" at start of line
+
+		DCD	x_noparams			; Flags for command
+
+insertif	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r0,m_info
+		LDR	r2,[r0,#i_ifl]
+		LDR	r3,[r0,#i_if]
+		MOV	r0,#&11
+		LDR	r1,c_loff
+		PULL
+		JMP	Zap_Command,r6
+
+
+		LOCAL
+
+
+;  Inserts "#endif\n" or " ]" at start of line
+
+		DCD	x_noparams			;  Flags for command
+
+insertendif	SAVE
+		BL	checkmode
+		RTS NE
+		LDR	r0,m_info
+		LDR	r2,[r0,#i_endifl]
+		LDR	r3,[r0,#i_endif]
+		MOV	r0,#&11
+		LDR	r1,c_loff
+		PULL
+		JMP	Zap_Command,r6
+
+		LOCAL
+
+
+;  Insert open & close comment leaving cursor in the middle
+
+flags$L		RN	r5
+info$L		RN	r6
+
+		DCD	x_noparams			;  Flags for command
+
+comment		SAVE
+		BL	checkmode
+		RTS NE
+		CALL	Zap_StartOp,r0
+		RTS VS
+		LDR	info$L,m_info
+		LDR	flags$L,m_sharedflags1
+		TST	flags$L,#1			;  Alternative comment set
+		LDREQ	r2,[info$L,#i_opencoml]
+		LDREQ	r3,[info$L,#i_opencom]
+		LDRNE	r2,[info$L,#i_opencoml2]
+		LDRNE	r3,[info$L,#i_opencom2]
+		MOV	r0,#&11				;  Insert block
+		LDR	r1,c_off
+		CALL	Zap_Command,r4
+		RTS VS
+		ADD	r1,r1,r2
+		TST	flags$L,#1
+		LDREQ	r2,[info$L,#i_closecoml]
+		LDREQ	r3,[info$L,#i_closecom]
+		LDRNE	r2,[info$L,#i_closecoml2]
+		LDRNE	r3,[info$L,#i_closecom2]
+		MOV	r0,#&11
+		CALL	Zap_Command,r4
+		MOVVC	r0,r1
+		CALL	Zap_JumpToOffset,r1,VC
+		CALL	Zap_StopOp,r0,VC
+		RTS
+
+
+		LOCAL
+
+
+;  Comment out line and move onto next
+
+		DCD	x_noparams			;  Flags for command
+
+commentout	SAVE
+		BL	checkmode
+		RTS NE
+		CALL	Zap_StartOp,r6
+		LDRVC	r0,c_off
+		LDRVC	r9,=e_linestart
+		BLVC	callbasemode
+		RTS VS
+		MOV	r1,r0
+		MOV	r0,#1
+		LDR	r4,m_info
+		LDR	r5,m_sharedflags1
+		TST	r5,#1				;  Alternative comment set
+		LDREQ	r2,[r4,#i_opencoml]
+		LDREQ	r3,[r4,#i_opencom]
+		LDRNE	r2,[r4,#i_opencoml2]
+		LDRNE	r3,[r4,#i_opencom2]
+		CALL	Zap_Command,r6
+		MOVVC	r0,r1
+		LDRVC	r9,=e_lineend
+		BLVC	callbasemode
+		RTS VS
+		MOV	r1,r0
+		MOV	r0,#1
+		TST	r5,#1
+		LDREQ	r2,[r4,#i_closecoml]
+		LDREQ	r3,[r4,#i_closecom]
+		LDRNE	r2,[r4,#i_closecoml2]
+		LDRNE	r3,[r4,#i_closecom2]
+		CALL	Zap_Command,r6
+		ADDVC	r0,r1,r2
+		ADDVC	r0,r0,#1
+		CALL	Zap_JumpToOffset,r6,VC
+		CALL	Zap_StopOp,r6,VC
+		RTS
+
+
+		LOCAL
+
+
+;  Uncomment line and move onto next
+
+string$L	RN	r1
+length$L	RN	r2
+ptr$L		RN	r3
+flags$L		RN	r4
+start$L		RN	r5
+openlen$L	RN	r6
+info$L		RN	r11
+
+		DCD	x_noparams			;  Flags for command
+
+		REGS
+
+uncomment	PUSH
+		BL	checkmode
+		RTS NE
+		LDR	info$L,m_info
+		LDR	r0,c_off
+		LDR	r9,=e_linestart
+		BL	callbasemode
+		RTS VS
+		MOV	start$L,r0
+		LDR	flags$L,m_sharedflags1
+		TST	flags$L,#1			;  Alternative comment set
+		LDREQ	string$L,[info$L,#i_opencom]
+		LDREQ	length$L,[info$L,#i_opencoml]
+		LDRNE	string$L,[info$L,#i_opencom2]
+		LDRNE	length$L,[info$L,#i_opencoml2]
+		BL	compare$L
+		ADD	openlen$L,length$L,#1
+		MOV	r0,ptr$L
+		LDR	r9,=e_lineend
+		BL	callbasemode
+		RTS VS
+		TST	flags$L,#1
+		LDREQ	string$L,[info$L,#i_closecom]
+		LDREQ	length$L,[info$L,#i_closecoml]
+		LDRNE	string$L,[info$L,#i_closecom2]
+		LDRNE	length$L,[info$L,#i_closecoml2]
+		SUB	r0,r0,length$L
+		ADD	r0,r0,openlen$L
+		CMP	r0,ptr$L
+		BLO	exit$L
+		BL	compare$L
+		CALL	Zap_StartOp,r0
+		RTS VS
+		MOV	r0,#&12				;  Delete block
+		MOV	r1,start$L
+		TST	flags$L,#1
+		LDREQ	length$L,[info$L,#i_opencoml]
+		LDRNE	length$L,[info$L,#i_opencoml2]
+		SUB	length$L,length$L,openlen$L
+		CALL	Zap_Command,r3
+		MOVVC	r0,r1
+		LDRVC	r9,=e_lineend
+		BLVC	callbasemode
+		RTS VS
+		TST	flags$L,#1
+		LDREQ	length$L,[info$L,#i_closecoml]
+		LDRNE	length$L,[info$L,#i_closecoml2]
+		SUB	r1,r0,length$L
+		MOV	r0,#&12
+		CALL	Zap_Command,r3
+		MOVVC	r0,r1
+		ADDVC	r0,r0,#1
+		CALL	Zap_JumpToOffset,r1,VC
+		CALL	Zap_StopOp,r1,VC
+		RTS
+
+compare$L	PUSH
+		MOV	ptr$L,r0
+loop$L		MOV	r0,ptr$L
+		SUBS	length$L,length$L,#1
+		RTS MI
+		ADD	ptr$L,ptr$L,#1
+		BL	getchar
+		LDRB	lr,[string$L],#1
+		BCS	fileend$L
+		TEQ	r0,lr
+		BEQ	loop$L
+fileend$L	TEQ	length$L,#0
+		TEQEQ	lr,#' '
+		BNE	pullexit$L
+		RTS CS
+		LDRB	lr,w_cr
+		TEQ	r0,lr
+		RTS EQ
+pullexit$L	ADD	sp,sp,#4			;  Keep in step with stacked
+exit$L		LDR	r0,c_off
+		LDR	r9,=e_lineend
+		BL	callbasemode
+		ADDVC	r0,r0,#1
+		CALL	Zap_JumpToOffset,r1,VC
+		RTS
+
+
+		LOCAL
+
+
+;  Swap between header & source file
+
+		DCD	x_noparams			;  Flags for command
+
+swaptoheader	SAVE
+		BL	checkmode
+		RTS NE
+		BL	releasekeys
+		LDR	r1,f_name
+		BL	count
+		CALL	Zap_Claim
+		RTS VS
+		ADD	r3,r0,#2
+		BL	strcpy
+finddotloop$L	LDRB	r4,[r0,#-1]!
+		CMP	r0,r3
+		TEQ	r4,#'.'
+		BHI	finddotloop$L
+		LDREQB	r4,[r0,#-2]
+		TEQEQ	r4,#'.'
+		BNE	nofile
+		LDRB	r4,[r0,#-1]
+		TEQ	r4,#'h'
+		MOVNE	r4,#'h'
+		BNE	toheader$L
+		LDR	r4,m_info
+		LDR	r4,[r4,#i_directory]
+		LDRB	r4,[r4]
+toheader$L	STRB	r4,[r0,#-1]
+		SUB	r0,r3,#2
+		CALL	Zap_FindFile
+		BVS	nofile
+		TEQ	r9,#0
+		BEQ	nofile
+		MOV	r0,#3
+		CALL	Zap_OpenWindow
+		BVS	exit$L
+		LDR	r2,f_mark
+		SUBS	r2,r2,#8
+		BMI	exit$L
+		STR	r2,f_mark
+		CALL	Zap_GetWindOff
+		LDRVC	r4,c_wind
+		LDRVC	r5,c_off
+		STRVC	r0,c_wind
+		LDRVC	r1,f_mptr
+		LDRVC	r0,[r1,r2]
+		CALL	Zap_JumpToOffset,,VC
+		MOVVC	r0,r4
+		CALL	Zap_ConvWindOff,,VC
+		MOVVC	r0,r5
+		CALL	Zap_InsertMark,,VC
+exit$L		SUB	r0,r3,#2
+		PULL
+		JMP	Zap_Free,r6
+
+
+		LOCAL
+
+		DCD	(3<<3) + (1<<6) ;  Flags for command
+
+findheader	SAVE
+		CMP	R2,#6
+		BEQ	pointtoblank$L
+		LDRB	R14,[R0]
+		CMP	R14,#'@'
+		BNE	supplied$L
+		LDRB	R14,[R0,#1]
+		CMP	R14,#0
+		BNE	supplied$L
+		BL	releasekeys
+		LDR	r0,c_off		;  Start offset
+		LDR	r9,=e_linestart
+		BL	callbasemode
+		MOV	R6,R0
+		LDRB	R4,w_cr
+firstloop$L	MOV	R0,R6
+		BL	getchar
+		BCS	errormessage3$L
+		ADD	R6,R6,#1
+		CMP	R0,#39 ; "'"
+		CMPNE	R0,#'"'
+		CMPNE	R0,#32
+		MOVLE	R5,R6
+		CMP	R0,#'.'
+		BEQ	foundfinally$L
+		CMP	R0,R4
+		BNE	firstloop$L
+		B	errormessage3$L
+foundfinally$L	SUB	R14,R6,R5
+		CMP	R14,#2
+		MOVLE	R5,R6
+		BL	setupmjevar
+		BVS	errormessage2$L
+		MOV	r0,r7
+		ADR	R1,UseZapMJEWork
+		BL	strcpy
+		MOV	R4,R0
+secondloop$L	MOV	R0,R5
+		BL	getchar
+		BCS	errormessage2$L
+		STRB	R0,[R4],#1
+		ADD	R5,R5,#1
+		CMP	R0,#'.'
+		CMPNE	R0,#32
+		BGT	secondloop$L
+		MOV	R0,#0
+		STRB	R0,[R4,#-1]
+findtheheader$L	MOV	R0,R7
+		CALL	Zap_FindFile,r1,VC
+		BVS	errormessage$L
+		TEQ	r9,#0
+		BEQ	nofile
+		MOV	r0,#3
+		CALL	Zap_OpenWindow,r1,VC
+		CALL	Zap_FindInput,r1,VC
+		CALL	Zap_PutCaret,r1,VC
+		;Zap_JumpToOffset,r1,VC
+errorquit1$L	MOV	R0,R7
+		CALL	Zap_Free,r1,VC
+errorquit$L	BL	destroymjevar
+		RTS
+
+
+ZapMJEWorkPath  = "ZapMJEWork$Path",0
+EndOfWorkPath   = ".^.^.,C:,",0
+UseZapMJEWork   = "ZapMJEWork:h.",0
+ptrtoblnk$L	= "@",0
+s$L		= "Find header:",0
+notfound$L	= "Named header file not located",0
+notfound2$L	= "Unable to resolve header file name",0
+		ALIGN
+
+errormessage$L
+		ADR	R0,notfound$L
+		MOV	R1,#0
+		CALL	Zap_Warning
+		B	errorquit1$L
+
+errormessage2$L
+		ADR	R0,notfound2$L
+		MOV	R1,#0
+		CALL	Zap_Warning
+		B	errorquit1$L
+
+errormessage3$L
+		ADR	R0,notfound2$L
+		MOV	R1,#0
+		CALL	Zap_Warning
+		B	errorquit$L
+
+supplied$L	MOV	R6,R0
+		BL	setupmjevar
+		BVS	errorquit1$L
+		MOV	r0,r7
+		ADR	R1,UseZapMJEWork
+		BL	strcpy
+		MOV	R1,R6
+		BL	strcpy
+		B	findtheheader$L
+
+pointtoblank$L	ADR R0,s$L
+		CALL Zap_MiniPrompt
+		RTS
+
+		LOCAL
+
+setupmjevar	SAVE
+		LDR	r1,f_name
+		BL	count
+		ADD	R0,R0,#16
+		CALL	Zap_Claim
+		RTS	VS
+		MOV	r7,r0
+		LDR	r1,f_name
+		BL	strcpy
+		ADR	R1,EndOfWorkPath
+		BL	strcpy
+		ADR 	R0,ZapMJEWorkPath
+		MOV	R1,R7
+		MOV	R2,#255
+		MOV	R3,#0
+		MOV	R4,#0
+		SWI	XOS_SetVarVal
+		RTS
+
+		LOCAL
+
+destroymjevar	SAVE
+		ADR 	R0,ZapMJEWorkPath
+		MOV	R1,R7
+		MOV	R2,#-1
+		MOV	R3,#0
+		MOV	R4,#0
+		SWI	XOS_SetVarVal
+		RTSS			; ignore any error...
+
+		LOCAL
+
+
+;  Called also from autoheader$C
+
+		EXPORT	nofile
+		REGS
+nofile		SUB	r0,r3,#2
+		CALL	Zap_Free,r6
+		RTS VS
+		ADR	r0,filenotfound$L
+		MOV	r1,#0
+		PULL
+		JMP	Zap_Warning,r6
+
+filenotfound$L	=	"File not found",0
+
+
+		LOCAL
+
+
+;  Menu entry for bracket match pause
+
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_defaultstring + x_tickable;+ x_menutext			;  Flags for command
+
+pause		SAVE
+		TEQ	r2,#17
+		BEQ	whatstrings$L
+		TEQ	r2,#15
+		BEQ	tickable_tested
+;		TEQ	r2,#18
+;		BEQ	thisstring$L
+		TEQ	r2,#0
+		RTS	NE
+		LDR	r4,[r0]
+		CMP	r4,#0
+		CMPPL	r4,#&10000
+		RTS PL
+		MOV	r0,#0
+		BL	checkmode
+		RTS	NE
+		STR	r4,m_matchdelay
+		RTS
+
+tickable$L
+		LDR	r14,[r0]
+		CMP	r14,#&10000
+		MOVCC	r0,#0
+		RTS CC
+		MOVEQ	r0,#0
+		MOVNE	r0,#2
+		RTS
+
+whatstrings$L
+		CMP	R0,#0
+		ADREQ	R0,title$L
+		RTS	EQ
+		CMP	R0,#2
+		MOVEQ	R0,#4
+		RTS	EQ
+		CMP	R0,#1
+		RTS	NE
+		MOV	r0,#0
+		BL	checkmode
+		RTS	NE
+		LDR	r0,m_matchdelay
+		STR 	r0,local_mess1
+		ADR	r0,local_mess1
+		RTS
+;thisstring$L
+;		MOV	r0,#0
+;		BL	checkmode
+;		RTS	NE
+;		LDR	r0,m_matchdelay
+;		STR 	r0,local_mess1
+;		ADR	r0,local_mess1
+;		RTS
+
+local_mess1	DCD 0
+
+title$L		= "Delay (cs)",0
+
+
+ ALIGN
+
+		LOCAL
+
+
+;  Menu entry for code indent
+
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_defaultstring + x_tickable ;+ x_menutext			;  Flags for command
+
+indent		SAVE
+		TEQ	r2,#17
+		BEQ	whatstrings$L
+		TEQ	r2,#15
+		BEQ	tickable_tested
+		TEQ	r2,#0
+		RTS	NE
+		LDR	r4,[r0]
+		CMP	r4,#0
+		CMPPL	r4,#&10000
+		RTS PL
+		MOV	r0,#0
+		BL	checkmode
+		RTS	NE
+		STR	r4,m_indent$C
+		RTS
+
+whatstrings$L	CMP	R0,#0
+		ADREQ	R0,title$L
+		RTS	EQ
+		CMP	R0,#2
+		MOVEQ	R0,#4
+		RTS	EQ
+		CMP	R0,#1
+		RTS	NE
+		MOV	r0,#0
+		BL	checkmode
+		RTS	NE
+		LDR	r0,m_indent$C
+		STR 	r0,local_mess1
+		ADR	r0,local_mess1
+		RTS
+
+tickable_tested	BL	maybe_grey
+		MOVEQ	r0,#0
+		MOVNE	r0,#2
+		RTS
+
+title$L		= "Depth",0
+
+ ALIGN
+
+;E R0 = pointer to &10000/&20000 etc...
+;X
+maybe_grey	STMFD	sp!,{r0-r4,lr}
+		LDR	r4,[r0]
+		BL	checkmode
+		LDMNEFD	sp!,{r0-r4,pc}
+		LDR	r0,m_info
+		LDR	r3,[r0,#i_intmode]
+		ADD	r3,r3,#1
+		CMP	r3,r4,LSR #16
+		LDMFD	sp!,{r0-r4,pc}
+
+		LOCAL
+
+
+;  Menu entry for select comment set
+
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable ;  Flags for command
+
+commentset	SAVE
+		MOV	R4,R0
+		MOV	r0,#0
+		BL	checkmode
+		MOVNE	R3,#0
+		BNE	checkforgrey$L
+		RTS	NE
+		LDR	r0,m_sharedflags1
+		TEQ	r2,#0
+		EOREQ	r0,r0,#1
+		STREQ	r0,m_sharedflags1
+		AND	r3,r0,#1
+		MOV	R0,R4
+checkforgrey$L	BL	maybe_grey
+		MOVEQ	r0,#0
+		MOVNE	r0,#2
+		ORR	r0,r0,r3
+
+		RTS
+
+		LOCAL
+
+
+;  Alter selection (equivalent to clicking adjust)
+
+		DCD	x_noparams			;  Flags for command
+
+altersel	STMFD	sp!,{windowblk,fileblk,lr}
+		CALL	Zap_GetSel,r6
+		LDMFD	sp!,{r0,fileblk}
+		TEQ	r0,windowblk
+		SUBNES	windowblk,r0,#0
+		ADD	r4,r1,r2,LSR #1
+		ADD	r3,r1,r2
+		MOV	r2,r1
+		LDR	r0,c_off
+		ADDCS	r3,r0,#1
+		CMPCC	r4,r0
+		MOVHS	r2,r0
+		MOVLO	r3,r0
+		LDMFD	sp!,{lr}
+		JMP	Zap_Select,r6
+
+
+		LOCAL
+
+;  Execute command string if in certain mode(s)
+
+		DCD	x_stringparam			;  Flags for command
+
+ifmode		TEQ	R8,#0
+		MOVEQ	PC,R14
+		ADRL	r6,C_ifmode
+		B	callc
+
+		LOCAL
+
+
+;  Re-indent line
+
+		DCD	0				;  Flags for command
+
+reindentthisline MOV	r2,r0 ; was R7
+		MOV	r1,r5
+;		MOV	r2,r6
+		MOV	r0,r4
+		MOV	r3,r7
+		MOV	r4,lr
+		BL	checkmode
+		MOV	lr,r4
+		LDR	r3,w_format
+		LDR	r4,w_flags
+		ADRL	r6,C_reindent
+		B	callc
+
+		LOCAL
+
+
+		[	$debug
+
+;  Generate window on mode blocks
+
+count$L		RN	r5
+window$L	RN	r6
+
+		REGS
+
+		DCD	x_noparams			;  Flags for command
+
+coredumpd	PUSH
+		BL	getws
+		MOV	window$L,#-1
+		MOV	count$L,#-1
+		B	loop$L
+
+		DCD	x_noparams
+
+coredump	PUSH
+		BL	getws
+		CALL	Zap_GetWindOff,r0
+		RTS VS
+		MOV	window$L,r0
+		LDR	count$L,=nummodes-1
+loop$L		TST	count$L,#1<<31
+		BNE	moduleblk$L
+		MOV	r0,window$L
+		CALL	Zap_ConvWindOff,r1
+		LDRVC	r1,[wsblk,count$L,LSL #2]
+		BLVC	getmodeblk
+moduleblk$L	LDRVC	r0,=&FFD			;  Data
+		MOVVC	r1,#0
+		MOVVC	r2,#0
+		MOVVC	r3,#0
+		MOVVC	r4,#0
+		CALL	Zap_CreateFile,cursorblk,VC
+		MOVVC	r0,#2				;  Word mode
+		CALL	Zap_NewMode,r1,VC
+		RTS VS
+		TST	count$L,#1<<31
+		LDREQ	r0,m_info
+		LDREQ	r0,[r0,#i_modetitle]
+		ADRNEL	r0,titletext
+		CALL	Zap_NewFileName,r1
+		MOVVC	r0,#1				;  Insert
+		MOVVC	r1,#0				;  Offset
+		TST	count$L,#1<<31
+		LDREQ	r2,m_length
+		MOVEQ	r3,modeblk
+		MOVNE	r2,#ws_size
+		MOVNE	r3,wsblk
+		CALL	Zap_Command,r4,VC
+		LDRVC	r0,f_flags
+		BICVC	r0,r0,#1<<3			;  Clear file altered
+		STRVC	r0,f_flags
+		CALL	Zap_NewFileTitle,r0,VC
+		RTS	VS
+		TST	count$L,#1<<31
+		LDRNE	count$L,=nummodes-1
+		BNE	loop$L
+		SUBS	count$L,count$L,#1
+		BPL	loop$L
+		RTS
+
+
+		LOCAL
+
+
+; Call C test function
+
+		DCD	x_noparams			;  Flags for command
+
+callctest	SAVE
+		BL	checkmode
+		RTS NE
+		PULL
+		ADRL	r6,C_test
+		B	callc
+
+		]
+
+
+		END

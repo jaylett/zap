@@ -1,0 +1,695 @@
+; **************************************************************************
+; *                                                                        *
+; *  Project: ZapMJE                Purpose: Extensions for Zap            *
+; *  Module: Support.s              Purpose: Miscellaneous support fns     *
+; *  © 1997 Martin Ebourne          Last update: 02-02-97                  *
+; *                                                                        *
+; **************************************************************************
+
+;  Things to do:
+;    Seriously improve compile (!) - give it a *command and allow wimpslot etc to be set
+;    Make bracket matching work on all modes & properly
+
+
+		GET	h.Main
+		GET	h.Help
+
+		AREA	|Asm$$code|,CODE,READONLY
+
+
+;  Somewhere to store our wsblk pointer since Zap_AddCommands is random
+
+		EXPORT	wsblkstore
+wsblkstore	DCD	0	; This really shouldn't be in a read-only
+				;   area!!!
+
+		LOCAL
+
+
+;  Set up workspace pointer
+
+		EXPORT	getws
+getws		LDR	wsblk,wsblkstore
+		MOV	pc,lr
+
+
+		LOCAL
+
+		EXPORT	wordr11
+wordr11	;	BYTE	r0
+	;	WORD	r11
+		MOV	pc,lr
+
+
+;  Check we are in one of our modes. Z set if we are. Also wsblk and modeblk loaded
+;  C version returns true if one of our modes
+
+		EXPORT	checkmode
+checkmode	SAVE	r0-r2			; R12 not set up problem???
+		LDR	wsblk,wsblkstore
+		BL	getformat
+		AND	r1,r0,#255
+		CALL	Zap_GetModeWord,r2
+		MOV	modeblk,r0
+		LDR	r0,ws_mode$C
+		TEQ	r1,r0
+		LDRNE	r0,ws_mode$CPP
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$J
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$ASM
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$P
+		TEQNE	r1,r0
+		RTS
+
+		NEWREGS
+
+		EXPORT	C_checkmode
+C_checkmode	SAVE	r6-r12
+		LDR	r6,[r10]			;  Get static base
+		LDMIB	r6,{r8-r12}			;  Load static vars, omit modeblk
+		LDR	wsblk,wsblkstore
+		BL	getformat			;  Get modeblk
+		AND	r1,r0,#255
+		CALL	Zap_GetModeWord,r2
+		MOV	modeblk,r0
+		STMIA	r6,{r7-r12}			;  Update static vars, including modeblk
+		LDR	r0,ws_mode$C
+		TEQ	r1,r0
+		LDRNE	r0,ws_mode$CPP
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$J
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$ASM
+		TEQNE	r1,r0
+		LDRNE	r0,ws_mode$P
+		TEQNE	r1,r0
+		MOVEQ	r0,#1				;  Return true if our mode
+		MOVNE	r0,#0
+		RTS
+
+
+		LOCAL
+
+
+;  Service code for command table
+
+		EXPORT	cmdservice
+cmdservice	STMFD	sp!,{wsblk,lr}
+		LDR	wsblk,wsblkstore
+		TEQ	r1,#0				;  Zap quitting
+		BLEQ	beingkilled
+		LDMFD	sp!,{wsblk,pc}
+
+
+		LOCAL
+
+
+;  Call base mode entry point in r9
+
+		EXPORT	callbasemode
+callbasemode	STMFD	sp!,{r0,r11,lr}
+		MOV	r11,r9
+		BL	getformat
+		AND	r9,r0,#255
+		LDMFD	sp!,{r0}
+		CALL	Zap_BaseMode
+		LDMFD	sp!,{r11,pc}
+
+
+		LOCAL
+
+
+;  Start long operation (hourglass on, setup percentage & enable escape (if relevant))
+;  Entry conditions:
+;    r0 - Number of bytes to scan
+;  Exit conditions:
+;    lr - Number to decrement to zero before incrementing percentage
+;    Flags preserved
+
+		EXPORT	startlongop
+		EXPORT	startlongnoesc
+startlongop	STMFD	sp!,{r0-r2,lr}
+		MOV	r0,#229
+		MOV	r1,#0
+		MOV	r2,#0
+		SWI	XOS_Byte
+		LDMFD	sp!,{r0-r2,lr}
+startlongnoesc	STMFD	sp!,{wsblk,lr}
+		BL	getws
+		MOV	lr,#0
+		STR	lr,ws_percent
+		MOV	lr,r0,LSR #7			;  Divide by 100, accurate to 0.1%
+		ADD	lr,lr,r0,LSR #9
+		ADDS	lr,lr,r0,LSR #12
+		STRNE	lr,ws_percount
+		MOVEQ	lr,#&7F000000
+		SWI	XHourglass_On
+		LDMFD	sp!,{wsblk,pc}^
+
+
+		LOCAL
+
+
+;  Increment percentage display on hourglass
+;  Exit conditions:
+;    lr - New value for decrement counter
+;    Flags preserved
+
+		EXPORT	nextpercent
+nextpercent	STMFD	sp!,{r0,wsblk,lr}
+		BL	getws
+		LDR	r0,ws_percent
+		ADD	r0,r0,#1
+		STR	r0,ws_percent
+		SWI	XHourglass_Percentage
+		LDR	lr,ws_percount
+		LDMFD	sp!,{r0,wsblk,pc}^
+
+
+		LOCAL
+
+
+;  Calculate new percentage display for hourglass
+;  Entry conditions:
+;    r0 - Current value of decrement counter (should be negative)
+;  Exit conditions:
+;    r0 - New value for decrement counter
+;    Flags preserved
+
+		EXPORT	newpercent
+newpercent	STMFD	sp!,{r1,r2,wsblk,lr}
+		BL	getws
+		LDR	r1,ws_percent
+		LDR	r2,ws_percount
+loop$L		ADD	r1,r1,#1
+		ADDS	r0,r0,r2
+		BMI	loop$L
+		BEQ	loop$L
+		STR	r1,ws_percent
+		MOV	r0,r1
+		SWI	XHourglass_Percentage
+		MOV	r0,r2
+		LDMFD	sp!,{r1,r2,wsblk,pc}^
+
+
+		LOCAL
+
+
+;  Stop long operation (hourglass off, disable & clear escape)
+;  Exit conditions:
+;    Flags preserved
+
+		EXPORT	stoplongop
+stoplongop	STMFD	sp!,{r0-r2,lr}
+		SWI	XHourglass_Off
+		MOV	r0,#229
+		MOV	r1,#1
+		MOV	r2,#0
+		SWI	XOS_Byte
+		MOV	r0,#124
+		SWI	XOS_Byte
+		LDMFD	sp!,{r0-r2,pc}^
+
+
+		LOCAL
+
+
+;  Get char to left of caret into r0
+
+		EXPORT	getprevchar
+getprevchar	LDR	r0,c_off
+		SUBS	r0,r0,#1
+		MOVLT	r0,#0
+		MOVLT	pc,lr
+
+;  Get character at position in r0 into r0, CS on exit if off end of file
+
+		EXPORT	getchar
+getchar		SAVE
+		LDR	lr,f_len
+		CMP	r0,lr
+		RTS HS
+		LDR	lr,f_splito
+		CMP	r0,lr
+		LDRHS	lr,f_splits
+		ADDHSS	r0,r0,lr
+		LDR	lr,f_ptr
+		LDRB	r0,[lr,r0]
+		RTS
+
+
+		LOCAL
+
+
+;  Get character at position in r0 into r0. Result undefined if off file
+;  *** For use only from C
+;  __pure char getc(unsigned int offset);
+
+		EXPORT	getc
+getc		LDR	r3,[r10]
+		LDR	r3,[r3,#p_fileblk]
+		LDR	r1,[r3,#f_len-f_0]
+		CMP	r0,r1
+		MOVHSS	pc,lr
+		LDR	r1,[r3,#f_splito-f_0]
+		CMP	r0,r1
+		LDRHS	r1,[r3,#f_splits-f_0]
+		ADDHSS	r0,r0,r1
+		LDR	r1,[r3,#f_ptr-f_0]
+		LDRB	r0,[r1,r0]
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Counts length of string
+;  Entry: r1 (or r0 for strlen) string, termination <32
+;  Exit : r0 contains length (including termination), r1 string passed in, r2 undefined
+;  __pure int strlen(const char *string);
+
+		EXPORT	strlen
+		EXPORT	count
+strlen		MOV	r1,r0
+count		MOV	r0,#0
+loop$L		LDRB	r2,[r1,r0]
+		ADD	r0,r0,#1
+		CMP	r2,#' '
+		BHS	loop$L
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Copies string
+;  Entry: r1 from, r0 to, termination <32
+;  Exit : r0 points to termination (0); r1 & r2 undefined
+;  char *strcpy(char *to,const char *from);
+
+		EXPORT	strcpy
+strcpy		LDRB	r2,[r1],#1
+		CMP	r2,#' '
+		MOVLO	r2,#0
+		STRB	r2,[r0],#1
+		BHS	strcpy
+		SUB	r0,r0,#1
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Copies string up to maximum number of bytes
+;  Entry: r1 from, r0 to, r2 count, termination <32
+;  Exit : r0 points to termination (0), or next byte to be written if r2 hit 0; r1-r3 undefined
+;  char *strncpy(char *to,const char *from,unsigned int count);
+
+		EXPORT	strncpy
+strncpy		SUBS	r2,r2,#1
+		MOVMIS	pc,lr
+		LDRB	r3,[r1],#1
+		CMP	r3,#' '
+		MOVLO	r3,#0
+		STRB	r3,[r0],#1
+		BHS	strncpy
+		SUB	r0,r0,#1
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Returns true iff a key has been pressed
+;  bool kbhit(void);
+
+		EXPORT	kbhit
+kbhit		MOV     r0,#152
+                MOV     r1,#0
+                SWI     XOS_Byte
+                MOV     r0,#0
+                MOVCC   r0,#1
+                MOVS    pc,lr
+
+
+		LOCAL
+
+
+		[	$debug
+
+		EXPORT	debug_word
+debug_word	WORD	r0
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+		EXPORT	debug_dump
+debug_dump	DUMP	r0,r1
+		MOVS	pc,lr
+
+		]
+
+
+		LOCAL
+
+
+;  Exits with C set if start/end of line found, else Z set if a r0 is a 'filler' character
+
+		EXPORT	isfiller
+isfiller	STMFD	sp!,{r1}
+		LDRB	r1,w_cr
+		TEQ	r0,r1
+		LDMFD	sp!,{r1}
+		ORREQS	pc,lr,#Cbit
+		BIC	lr,lr,#Cbit
+		CMP	r0,#'0'
+		ORRLOS	pc,lr,#Zbit
+		CMP	r0,#'9'+1
+		MOVLO	pc,lr
+		CMP	r0,#'A'
+		ORRLOS	pc,lr,#Zbit
+		CMP	r0,#'Z'+1
+		MOVLO	pc,lr
+		CMP	r0,#'a'
+		ORRLOS	pc,lr,#Zbit
+		CMP	r0,#'z'+1
+		MOVLO	pc,lr
+		ORRS	pc,lr,#Zbit
+
+
+		LOCAL
+
+
+;  Check if ok for Zap to kill module (ie. all other modes etc. deregistered)
+
+		EXPORT	beingkilled
+beingkilled	LDR	r0,ws_numinit
+		SUBS	r0,r0,#1
+		STR	r0,ws_numinit
+		MOVNE	r0,#-1
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Wait for both shift and ctrl to be released
+;  void releasekeys(void);
+
+
+		EXPORT	releasekeys
+releasekeys	MOV	r0,#202
+		MOV	r1,#0
+		MOV	r2,#255
+		SWI	XOS_Byte
+		TST	r1,#2_01001000
+		BNE	releasekeys
+		MOVS	pc,lr
+
+
+		LOCAL
+
+
+;  Decode number entered into menu
+
+		EXPORT	evaluateentry
+evaluateentry	STMFD	sp!,{r1,r2,lr}
+		MOV	r1,#0
+		MOV	r2,#0
+		SWI	XOS_EvaluateExpression
+		LDMVSFD	sp!,{r1,r2,pc}
+		CMP	r1,#0
+		MOVEQ	r0,r2
+		MOVNE	r0,#0
+		LDMFD	sp!,{r1,r2,pc}
+
+
+		LOCAL
+
+
+;  Veneer to call C from assembler
+;  Entry: r0-r5 params; modeblk, windowblk, fileblk, cursorblk, wsblk, zapwsblk;
+;         r6 = routine
+;  Exit : r0-r3 results; modeblk, windowblk, fileblk, cursorblk, wsblk, zapwsblk updated;
+;         r4-r6 preserved
+
+		EXPORT	callc
+callc		STMFD	sp!,{r4-r12,lr}
+		ADD	r10,sp,#12
+		STR	r10,[r10,#-4]!
+		MOV	lr,pc				;  *** Put try in here somewhere!
+		MOV	pc,r6
+		ADD	sp,sp,#12
+		LDMFD	sp!,{r7-r12,pc}
+
+
+		LOCAL
+
+
+;  Veneer to call Zap routine from C. In r0-r2, out r0-r3, r8-r10 unset
+;  __value_in_regs lowregs callzap3n(int r0,int r1,int r2,int off);
+
+		EXPORT	callzap3n_I_I_I_I_I
+callzap3n_I_I_I_I_I
+		EXPORT	callzap3n_I_VP_I_I_I
+callzap3n_I_VP_I_I_I
+		EXPORT	callzap3n_I_CCP_I_I_I
+callzap3n_I_CCP_I_I_I
+		EXPORT	callzap3n
+callzap3n	SAVE
+		LDR	lr,[r10]
+		LDR	r12,[lr,#p_zapwsblk]
+		LDR	lr,[r12]
+		ADD	r3,lr,r3
+		MOV	lr,pc
+		MOV	pc,r3
+		RTS VC
+		PULL
+		B	throw
+
+
+		LOCAL
+
+
+;  Veneer to call Zap routine from C. In r0-r2, out r0-r3, r8-r10 use and update current
+;  __value_in_regs lowregs callzap3c(int r0,int r1,int r2,int off);
+
+		EXPORT	callzap3c_I_I_I_I_I
+callzap3c_I_I_I_I_I
+		EXPORT	callzap3c_I_CCP_I_I_I
+callzap3c_I_CCP_I_I_I
+		EXPORT	callzap3c_I_I_zapupdatecoordsP_I_I
+callzap3c_I_I_zapupdatecoordsP_I_I
+		EXPORT	callzap3c_zapofflinecolret_I_I_I_I
+callzap3c_zapofflinecolret_I_I_I_I
+		EXPORT	callzap3c
+callzap3c	SAVE	r4,r8-r10
+		LDR	r10,[r10]
+		LDR	r12,[r10,#p_zapwsblk]
+		ADD	r4,r10,#p_windowblk
+		LDR	r9,[r12]
+		ADD	r3,r9,r3
+		LDMIA	r4,{r8-r10}
+		MOV	lr,pc
+		MOV	pc,r3
+		STMVCIA	r4,{r8-r10}
+		RTS VC
+		PULL
+		B	throw
+
+
+		LOCAL
+
+
+;  Veneer to call Zap routine from C. In r0-r7, out r0-r3, r8-r10 use and update current
+;  __value_in_regs lowregs callzapvc(int r0,int r1,int r2,int r3,int off,int r4,int r5,int r6,
+;                                    int r7);
+
+		EXPORT	callzapvc_I_I_I_I_I_I_I_I_I
+callzapvc_I_I_I_I_I_I_I_I_I
+		EXPORT	callzapvc_I_I_VP_CVP_I_I
+callzapvc_I_I_VP_CVP_I_I
+		EXPORT	callzapvc_I_I_I_I_CCP_I
+callzapvc_I_I_I_I_CCP_I
+		EXPORT	callzapvc_I_I_I_CCP_I_I
+callzapvc_I_I_I_CCP_I_I
+		EXPORT	callzapvc_I_I_I_VP_I_I
+callzapvc_I_I_I_VP_I_I
+		EXPORT	callzapvc
+callzapvc	SAVE	r4-r11
+		ADD	r11,sp,#9*4			;  Keep with stack
+		LDR	r10,[r10]
+		LDR	r12,[r10,#p_zapwsblk]
+		ADD	r10,r10,#p_windowblk
+		STMFD	sp!,{r10}
+		LDMIB	r11,{r4-r7}
+		LDMIA	r10,{r8-r10}
+		LDR	r11,[r11]
+		LDR	lr,[r12]
+		ADD	r11,lr,r11
+		MOV	lr,pc
+		MOV	pc,r11
+		LDMFD	sp!,{lr}
+		STMVCIA	lr,{r8-r10}
+		RTS VC
+		PULL
+		B	throw
+
+
+		LOCAL
+
+
+;  Veneer to call Zap routine from C. In r0-r10, out r0 with r0-r10 in out if !=0
+;  int lowregs callzapa(int r0,int r1,int r2,int r3,int off,fullregs *out,int r4,int r5,int r6,
+;                       int r7,int r8,int r9,int r10);
+
+		EXPORT	callzapa
+callzapa	SAVE	r4-r11
+		ADD	r11,sp,#11*4			;  Keep with stack
+		LDR	r10,[r10]
+		LDR	r12,[r10,#p_zapwsblk]
+		LDMIA	r11,{r4-r10}
+		LDR	r11,[r11,#-8]
+		LDR	lr,[r12]
+		ADD	r11,lr,r11
+		MOV	lr,pc
+		MOV	pc,r11
+		PULL VS
+		BVS	throw
+		LDR	r11,[sp,#10*4]
+		TEQ	r11,#0
+		STMNEIA	r11,{r0-r10}
+		RTS
+
+
+		LOCAL
+
+
+;  Veneer to call base mode entry point via Zap_BaseMode from C.
+;  In r0-r7, out r0-r3, r8-r10 use and update current
+;  __value_in_regs lowregs callzapbm(int r0,int r1,int r2,int r3,int r4,int r5,int r6,int r7,
+;                                    int entry);
+
+		EXPORT	callzapbm_I_I_I_I_I_I_I_I_I
+callzapbm_I_I_I_I_I_I_I_I_I
+		EXPORT	callzapbm_I_I_I_I_I_I_I_I_CCP
+callzapbm_I_I_I_I_I_I_I_I_CCP
+		EXPORT	callzapbm
+callzapbm	SAVE	r4-r11
+		ADD	lr,sp,#9*4			;  Keep with stack
+		LDR	r11,[r10]
+		LDR	r12,[r11,#p_zapwsblk]
+		ADD	r11,r11,#p_windowblk
+		LDMIA	r11,{r8-r10}
+		LDMIA	lr,{r4-r7,r9}
+		BL	callbasemode
+		STMVCIA	r11,{r8-r10}
+		RTS VC
+		PULL
+		B	throw
+
+
+		LOCAL
+
+
+;  Throw error in r0
+;  void throw(const error *err);
+
+
+;  *** Write this!!!
+
+		EXPORT	throw
+throw		MOV	pc,lr
+
+
+		LOCAL
+
+
+;  Get display format word, either default or for current window, into r0
+
+		EXPORT	getformat
+getformat	TEQ	windowblk,#0
+		LDRNE	r0,w_format
+		MOVNE	pc,lr
+		STMFD	sp!,{r1,lr}
+		LDR	r1,=v_optformat
+		CALL	Zap_ReadVar
+		LDMFD	sp!,{r1,pc}
+
+
+		LOCAL
+
+
+;  Set display format word from r0, either default or for current window
+
+		EXPORT	setformat
+setformat	TEQ	windowblk,#0
+		STRNE	r0,w_format
+		MOVNE	pc,lr
+		STMFD	sp!,{r1,lr}
+		LDR	r1,=v_optformat
+		CALL	Zap_WriteVar
+		LDMFD	sp!,{r1,pc}
+
+
+		LOCAL
+
+
+;  Get flag word, either default or for current window, into r0
+
+		EXPORT	getflags
+getflags	TEQ	windowblk,#0
+		LDRNE	r0,w_flags
+		MOVNE	pc,lr
+		STMFD	sp!,{r1,lr}
+		LDR	r1,=v_optflags
+		CALL	Zap_ReadVar
+		LDMFD	sp!,{r1,pc}
+
+
+		LOCAL
+
+
+;  Set flag word from r0, either default or for current window
+
+		EXPORT	setflags
+setflags	TEQ	windowblk,#0
+		STRNE	r0,w_flags
+		MOVNE	pc,lr
+		STMFD	sp!,{r1,lr}
+		LDR	r1,=v_optflags
+		CALL	Zap_WriteVar
+		LDMFD	sp!,{r1,pc}
+
+
+		LOCAL
+
+
+;  Gets either default or current window mode word, for Zap mode given in r1, into modeblk
+
+		EXPORT	getmodeblk
+getmodeblk	SAVE
+		CALL	Zap_GetModeWord,r0
+		MOV	modeblk,r0
+		RTS
+
+
+		LOCAL
+
+
+;  Sets mode word from modeblk, either default or for current window
+
+		EXPORT	setmodeblk
+setmodeblk	SAVE	r1,r2
+		LDR	r1,m_info
+		LDR	r1,[r1,#i_mode]
+		MOV	r0,modeblk
+		CALL	Zap_PutModeWord,r2
+		RTS
+
+
+		END
