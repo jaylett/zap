@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: StartCode,fff,v 2.2 2000/09/12 23:06:32 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -520,6 +520,8 @@ a$l
  B a$l
 end$l
  FNLDR R1,wimp_buffer
+ MVN R0,#0
+ STR R0,[R1,#28]		; pre-poll setup for DeepKeys
  CMP R2,#0
  BMI wait$l			; wait indefinitely
  MOV R0,#(1<<22)
@@ -1174,6 +1176,8 @@ localmodeptr$l
 key_event
  FNJSR
  MOV R11,R1			; data block
+ LDR R0,[R1,#28]
+ FNSTR R0,key_modifiers		; post-poll for DeepKeys
  LDR R0,[R1]			; input focus window
  BL convert_wind_handle
  BCC text$l			; a text window
@@ -1219,6 +1223,8 @@ wind$l				; in the correct window
  MOV R1,R11
  B gotakey$l			; after a key read
 loop$l
+ MVN R0,#0
+ STR R0,[R1,#28]		; pre-poll setup for DeepKeys
  MOV R0,#&30			; DO NOT MASK OUT NULL EVENTS
  ORR R0,R0,#1<<22		; no matter.
  ADD R3,R12,#wimp_poll_word
@@ -1229,6 +1235,8 @@ loop$l
  BNE notakey$l			; if not then carry on
 gotakey$l			; R1=wimp block of read key
  LDRVC R0,[R1,#24]		; get key
+ LDRVC R14,[R1,#28]
+ FNSTR R14,key_modifiers,VC
  BLVC process_key		; perform action/buffer
  FNRTS VS
  CMP R0,#0
