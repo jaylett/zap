@@ -3,7 +3,7 @@
 
 chapters 	= $(wildcard src/Chapter*,fff)
 appendices	= $(wildcard src/Appendix*,fff)
-controlfiles	= $(wildcard src/Control*,fff)
+controlfiles	= $(wildcard src/Manual*,fff)
 
 buttress	= $(HOME)/projects/tartarus/buttress/build/buttress
 butt_options	=
