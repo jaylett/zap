@@ -31,12 +31,12 @@ given in the Copyright file.
 In general the recommended naming convention is as follows:
 
  <size>.<name><style><ctrl>
- 
+
 where:
 
  <name> is the name of the font. Usually the first 3 letters of the author
 	or "X" for X windows style fonts or "C" for `clean' fonts.
-	
+
  <style> is the font style: Eg
 	""	  = Default
 	"Bold"	  = Bold
@@ -123,6 +123,7 @@ from pubic domain sources, and creating font mainipulation utilities:
  Nick Craig-Wood	(see 08x16.NCW / PC)
  Martin Ebourne		(see 08x14 - also bdf->zap)
  Dave Lawrence		(see the Teletext fonts and 08x17.DavePixel)
+ Christian Ludlam	(see bdf2zap and the UCS fonts)
  George Saliaris	(see 08x16.Sal)
  Darren Salt		(see 08x16.FBoldDS and sub-styles)
  Dominic Symes		(see 08x08.SysDom etc)
@@ -134,31 +135,82 @@ If you'd like your fonts included then please send them in. Please make it
 clear who owns the copyright on the fonts and what the conditions are for
 including them.
 
+
 *****************************************************************
 * Format of Zap font file					*
 *****************************************************************
 
-This format has be designed to make it easy for Zap to read so it
-doesn't need to contain any conversion code.
+There are two font formats in use: the original format, used for fonts of up
+to 256 glyphs, and the new fonrmat where up to 4 billion glyphs are divided
+into chunks. Font files must be typed Data (FFD).
 
-File format:
+The origianl file format:
 
-	#&00 "ZapFont",13
-	#&08 Width of each font character in pixels
-	#&0C Height of each font character in pixels
-	#&10 First character code given (eg 0 or &20)
-	#&14 Last character code given +1 (eg &100)
-	#&18 Reserved (0)
-	#&1C Reserved (0)
-	#&20 Bitmaps (starting at character code given in #&10)
+	 +0 "ZapFont",13
+	 +8 Width of each font character in pixels
+	+12 Height of each font character in pixels
+	+16 First character code given (eg 0 or &20)
+	+20 Last character code given +1 (eg &100)
+	+24 Reserved (0)
+	+28 Reserved (0)
+	+32 Bitmaps (starting at character code given in #&10)
 	     Format of bitmaps is as for ZapRedraw documentation.
-	     Characters >=256 used for cursors - see ZapRedraw docs.
+	     Characters >=256 are used for cursors - see ZapRedraw docs.
+	     Any glyphs above 256 in the file are ignored.
+
+
+The big file format:
+
+	 +0 magic word 'ZRUF' (ZapRedraw UCS Font)
+	 +4 reserved SBZ
+	 +8 width of glyphs in px
+	+12 height of glyphs in px
+	+16 size of chunk directory
+	+20 offset to null glyph / 0
+	+24 reserved SBZ
+	+32 reserved SBZ
+
+Immediately following this is the chunk directory, which is !(header+16)
+bytes long. Font files are split into chunks of 256 glyphs each as specified
+by the directory. Each chunk directory entry consists of 4 words with the
+following format:
+
+	 +0 chunk number (eg a chunk containing glyph &2A3F puts &2A00 here)
+	 +4 number of glyphs in this chunk
+	 +8 file offset from start of header of glyph data
+	+12 reserved, must be 0
+
+(+12 is used internally by ZapRedraw to point to the glyph data in memory
+once loaded).
+
+The glyph data is in the same format as held by ZapRedraw in 1 bpp modes (see
+the ZapRedraw documentation). However, if the chunk contains less than 256
+glyphs, the data is preceded by a 256 byte translation table: for each glyph
+in the chunk, the table gives the character offset into the data + 1, or 0 if
+the glyph is not defined. The table must not be present for chunks containing
+all 256 glyphs.
+
+Chunk 0 is currently assumed to be present and full (including control
+character glyphs). Where possible, fonts should use the Acorn Extended Latin
+1 encoding for chunk 0.
+
+The null glyph offset gives the file offset from the start of the header to
+the glyph to be rendered where a glyph not otherwise defined in the file is
+requested. If 0, the null glyph is not present and the dotted box cursor
+character is used instead.
+
+The translation table is there to avoid padding chunks to 256 glyphs - in
+some of the fonts I had there were 2 glyphs in some chunks, and the format
+overhead rocketed to 80%; reducing the chunk size didn't help. bdf2zap
+outputs some statistics on the format overhead when it converts fonts.
+
 
 *****************************************************************
 * Format of Zap font link file					*
 *****************************************************************
 
-This format was designed to be simple, self-explanatory and short.
+This format was designed to be simple, self-explanatory and short. Link
+files must be typed Text (FFF).
 
 File format:
 
