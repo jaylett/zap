@@ -1,0 +1,169 @@
+                                ZapJRF
+                                ======
+
+Introduction
+------------
+This module began life as 'ZapDecimal' because of a minor bug in version 1.20
+of Zap. The bug was fixed in 1.30, but the name sort of stuck. However, any
+copies of that module should be deleted and this version used instead.
+
+In this module are a few useful commands:
+   JRF_IF          Conditional execution based on the text at the cursor
+   RUNSCRIPT       Execute a 'script' file
+   JRF_MENUFORMODE
+
+Note that ZapJRF is no longer being maintained. The remaining functionality
+will be moved into other extensions.
+
+JRF_IF
+------
+Syntax:  JRF_IF <break><compare><break><then clause>
+    or:  JRF_IF <break><compare><break><break><else clause>
+    or:  JRF_IF <break><compare><break><then clause><break><else clause>
+Purpose: Conditional execution based on the text at the cursor
+Description:
+  Whilst working in the HTML modes I found it useful to be able to do things
+  depending on what was already at the cursor. JRF_IF allows you to check the
+  text at the cursor and execute one of two different sets of instructions
+  depending on whether the text and your string are the same.
+  Comparison is case insensitive and control characters can be checked by
+  using |<character> in the same way as the *Echo command.
+  A large stack is installed when you execute this command because depths
+  of around 6 JRF_IF's mean that there is no longer any stack space to run
+  commands.
+  Remember that such a depth results in 64 consecutive " symbols appearing
+  consecutively. Whilst this is allowable, and I have safely executed
+  commands with over 1024 consecutive "'s in them, this is NOT recommended.
+  Special checks are present in this code to extend the stack as at this level
+  of complexity the standard stack is not large enough.
+  If you wish to write such complex commands, do it as an extension module,
+  or use RUNSCRIPT.
+
+
+RUNSCRIPT
+---------
+Syntax:  RUNSCRIPT "<filename>"
+Purpose: Execute a 'script' file (or from memory)
+Description:
+  This is arguably the most powerful Zap command I've written. At least I
+  argue it. The file (or memory) you specify will be read in, a line at a
+  time, and each command executed. There are also special functions available
+  in script files :
+    #IfText "<text>"
+      Like JRF_IF, this will perform a comparisson on the text at the cursor
+      and, if they are the same, execute the next block of code. In addition
+      to the escaped characters in JRF_IF, you can also use |" to escape a "
+      symbol.
+    #IfMode <mode>[{,<mode>}]
+      Like MJE_IFMODE, this will perform a check on the current mode before
+      executing the next block of code.
+    #IfModeN <mode name>[{,<mode>}]
+      This is identical to #IfMode, except that it requires mode names.
+    #Else
+      Inverts the execution state (if we are executing this block).
+    #EndIf
+      Ends the current If statement.
+    |<anything>
+      Is ignored.
+    #Stop
+      Stops execution at the current point (obeying 'if's)
+    #ScriptEnd
+      Marks the end of a script (only really useful in JRF_SCRIPTADDR where
+      it MUST be used).
+
+  If statements can be nested up to 256 levels - this is still poorly managed
+  but should be adequate for most uses. Lines in scripts MUST NOT exceed 255
+  characters currently.
+
+
+Scripting directive additions
+-----------------------------
+You can write modules which provide their own scripting directives to
+supplement the built in ones. To do this you should recognise the following
+service calls :
+
+Service_ZapJRFScripts &90480 (not officially allocated and picked at random)
+  => r0 = reason
+          (0 = starting, 1 = dying)
+     r1 = &90480
+  
+  This service is issued as ZapJRF starts and shuts down. You should call
+  ZapJRF_RegisterScriptDirectives or ZapJRF_DeRegisterScriptDirectives 
+  respectively.
+  You should not claim this service. 
+  
+ZapJRF_RegisterScriptDirectives
+  => r0-> table of directives, of the form :
+          <zero-terminated capitalised string>
+          <offset>
+          repeated, and terminated with a null string (ie 0 byte)
+     r1-> base of offsets (ie, where the offsets are from)
+     r2 = private word
+  
+  You should call this to register your script directives table. This should
+  be done on initialisation and when receiving Service_ZapJRFScripts with
+  reason = 0.
+
+ZapJRF_DeRegisterScriptDirectives
+  => r0-> table of directives, of the form :
+          <zero-terminated capitalised string>
+          <offset to routine>
+          repeated, and terminated with a null string (ie 0 byte)
+     r1-> base of offsets (ie, where the offsets are from)
+     r2 = private word
+  
+  You should call this to deregister your script directives table. This
+  should be done on finalisation and when receiving Service_ZapJRFScripts
+  with reason = 1. The registers passed should all be the same as when
+  originally passed.
+
+Routines will be called with the following parameters :
+  => r0-> first valid character (if any)
+     r2 = character we stopped on (32 for params, 0 if none)
+     r3 = private word
+     r4-> 'if structure'
+     r5 = 'if structure' offset (depth)
+     r6-> start of line buffer (add 256 for a temporary buffer)
+     r7 reserved for future update
+     r8-> window block (as for Zap)
+     r9-> file block (as for Zap)
+     r10-> cursor block (as for Zap)
+     r11 = 1 if command should be done ('if' state)
+     r12-> zap workspace
+     r13-> full descending stack (of unspecified length)
+     r14-> return address
+
+  <= r7,r12 preserved
+     r8,r9,r10 preserved or updated
+     r5 preserved or incremented/decremented by 1
+     r11 preserved, or toggled for 'if's, or set to 2 to stop
+     r0-r4,r6 corrupt
+     Do NOT restore flags on return
+
+  You will be able to call any Zap routine with the standard FNcall()
+  code. Try not to write code which dies :-)
+
+
+History (Note, Justin: You must assemble this with BasicVExt installed)
+-------
+Version 1.24 : 28 Feb 2000
+               Most commands have now been moved into other extensions.
+Version 1.20 : 07 May 1997
+               Bug in JRF_SCRIPTADDR fixed (ValidateAddress).
+Version 1.19 : 03 Apr 1997
+               Multiple script directive tables now supported.
+Version 1.18 : 02 Apr 1997
+               Renamed JRF_INSERTFILE to INSERTFILE and JRF_DOFILE to
+               RUNSCRIPT. JRF_SCRIPTADDR written.
+               Scripts should now use | as comments. #ScriptEnd and #Stop
+               added.
+Version 1.17 : 19 Mar 1997
+               Scripting added using JRF_DOFILE.
+Version 1.15 : 12 Mar 1997
+               Insertion of lumps of text with JRF_INSERTFILE implemented
+               JRF_UPDATEWINDOW killed - use TMT_UPDATEWINDOW in preference.
+               (As of 23 May 1997, use UPDATEWINDOW in preference)
+Version 1.13 : 05 Dec 1996
+               Renamed to ZapJRF and other changes.
+Older versions : Sometime long ago
+                 Who cares what happened to them... they're dead and buried.
