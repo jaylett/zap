@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 1.1.2.7 1999/02/17 18:00:39 dj Exp $
+; $Id: CreateWind,fff,v 1.1.2.8 1999/03/10 11:28:06 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -45,6 +45,7 @@
  EXPORT new_window_status
  EXPORT alter_window
  EXPORT find_window
+ EXPORT command_swap_window
  EXPORT swap_window
  EXPORT scroll_request
  EXPORT test_open_dir
@@ -2220,16 +2221,65 @@ fi12
  BL create_window_block
  LDMFD R13!,{R1-R2,PC}
 
+; If you don't want this, change it back. It *may* become an option in the future,
+; but until then we'll do it this way. I may alter find_last_window to do something
+; else if that seems more useful - for instance, reverse trace the window stack or
+; something (although that's quite painful to do).
+YES		* 1
+NO		* 0
+NEW_SWAP_WINDOW	* 1
+
+ [ NEW_SWAP_WINDOW = YES
 ;E R8-R10=caret to move
 ;X goto last marker offset in another window #
-
 swap_window
+ FNJSR "R8-R9"
+ BL find_last_window		; find posn in last window
+ FNRTS VS
+ CMP R0,#0
+ BLPL goto_offset
+ FNRTS
+ ]
+
+;E R8-R10=caret to move
+;X goto last marker offset in another window #
+ [ NEW_SWAP_WINDOW = NO
+swap_window
+ ]
+command_swap_window
  STMFD R13!,{R8-R9,R14}
  BL find_next_window		; find posn in next window
  LDMVSFD R13!,{R8-R9,PC}
  CMP R0,#0
  BLPL goto_offset		; perform goto
  LDMFD R13!,{R8-R9,PC}
+
+ [ NEW_SWAP_WINDOW = YES
+	LOCAL
+;E R8/R9
+;X R8/R9=last window as if you wanted to swap to it R0=offset/-1#
+find_last_window
+ FNJSR "R1,R2"
+ BL get_wind_off
+ MOV R1,R0			; window to avoid getting back to
+loop$l
+ CMP R0,#0
+ FNLDR R0,wind_num,EQ
+ SUB R0,R0,#1
+ CMP R1,R0
+ BEQ quit$l
+ BL conv_wind_off
+ CMP R8,#0			; this should never happen ...
+ BEQ loop$l			; keep going
+ LDR R2,[R8,#w_handle]
+ CMP R2,#-1			; window is unused ...
+ BEQ loop$l
+ LDR R0,[R8,#w_poff]		; point of cursor ...
+ FNRTS				; success!
+quit$l				; failed
+ MOV R0,#-1
+ FNRTS
+ ]
 
 ;E R8/R9
 ;X R8/R9=next window as if you wanted to swap to it R0=offset/-1#

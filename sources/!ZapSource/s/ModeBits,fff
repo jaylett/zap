@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.15 1999/02/27 12:45:37 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.16 1999/03/10 11:28:09 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -2238,53 +2238,54 @@ checkforautosoftwrap
  MOVEQ PC,R14
  FNJSR "R0-R12"
  LDR R0,[R8,#w_format]		; format
- TST R0,#1 << 22
+ TST R0,#format_AutoSoftWrap
  FNRTS EQ
  LDRB R0,[R8,#w_format]		; mode
  BL read_mode
  LDR R0,[R1,#2*e_mode]		; mode num + flags
- TST R0,#1<<11
+ TST R0,#emode_BinaryMode
  FNRTS NE			; it's not a textual mode
- MOV R0,#2			; sw?
+ MOV R0,#einterrogate_SoftWrap	; sw?
  MOV R11,#e_interrogate
  BL call_mode
- CMP R0,#2
+ CMP R0,#einterrogate_SoftWrap
  FNRTS NE
  LDR R0,[R8,#w_format]		; format
- BIC R0,R0,#bit_softwrap ; (1 << 27)
+ BIC R0,R0,#format_SoftWrap
  STR R0,[R8,#w_format]		; find the bit
  LDR R1,[R9,#f_ptr]		; file start (file can't move on testing)
  LDR R3,[R9,#f_len]
  ADD R3,R1,R3			; file end
+ LDRB R4,[R8,#w_cr]
 a2$l
- MOV R2,#0			; flags b0=CRLF (Dos) b1=LFCR (Spool)
+ MOV R2,#0			; length of line ...
 b2$l				; file check loop
  LDRB R0,[R1],#1
- TEQ R0,#&0A
- BEQ lf2$l
+
+ TEQ R0,R4
+ BEQ lf2$l			; found a line end
+
+ MOV R14,R0,LSR #4
+ TEQ R14,#1			; test for control character (16-31)
+ FNRTS EQ			; if found then *no* softwrap
+
  ADD R2,R2,#1
  CMP R1,R3
- BCC b2$l				; no good
+ BCC b2$l			; no good
+
+ CMP R2,#100
+ BCS d2$l			; check last line in file
  FNRTS
 
 lf2$l
  CMP R2,#100
  BCC a2$l
-
- LDR R1,[R9,#f_ptr]		; file start (file can't move on testing)
-a3$l
- LDRB R0,[R1],#1
- MOV R14,R0,LSR #4		; lose low bits...
- TEQ R14,#&1			; test for control character...
- FNRTS EQ ;			; if found one then *no* softwrap
- CMP R1,R3
- BCC a3$l
 d2$l
  LDR R0,[R8,#w_format]		; find the bit
- ORR R0,R0,#bit_softwrap	; (1 << 27)
+ ORR R0,R0,#format_SoftWrap
  STR R0,[R8,#w_format]		; find the bit
  LDR R0,[R8,#w_flags]		; find the bit
- BIC R0,R0,#(1 << 26)		; slear linewrap
+ BIC R0,R0,#flags_LineWrap	; clear line wrap
  STR R0,[R8,#w_flags]		; find the bit
  FNRTS
 
