@@ -94,6 +94,8 @@ statemask	EQU	(1<<7)-1	;  Mask for state bits 0-6
 preprocflag	EQU	1<<7		;  In preprocessor line
 reset		EQU	1<<8		;  Reset state
 slasheol	EQU	1<<9		;  '\' before CR
+tempflag	EQU	1<<29		;  temporary flag
+prewhitespace	EQU	1<<30		;  Only whitespace since last '#'
 whitespace	EQU	1<<31		;  Only whitespace so far this line
 
 ;  Flags in crtab
@@ -111,6 +113,9 @@ javakeyword	EQU	1<<15		;  Keyword valid in Java mode
 ckeyword	EQU	1<<23		;  Keyword valid in C mode
 longkeyword	EQU     1<<31           ;  Keyword is longer than 8 chars & is hence 4 + address
                                         ;  Don't move from bit 31
+
+;  Preprocessor reserved words, first word
+sharedkeyword	EQU	1<<7		;  Keyword shared with C keyword
 
 ;  Preprocessor reserved words, second word
 specialkeyword	EQU	1<<23		;  Keyword is a special preprocessor word (1)
@@ -528,20 +533,20 @@ notcomment$L	TEQ	char,crtab,LSR #24
 ;  Numbers
 
 number$L	TEQ	char,#'0'
-		ANDNE	state,state,#preprocflag
+		BICNE	state,state,#statemask
 		ORRNE	state,state,#decnumber
 		BNE	numberloop$L
-		AND	state,state,#preprocflag
+		BIC	state,state,#statemask
 		ORR	state,state,#somenumber
 findnumtype$L	BL	getchar$L
-		AND	state,state,#preprocflag
+		BIC	state,state,#statemask
 		ORR	state,state,#decnumber
 		AND	lr,char,#&DF
 		TEQ	lr,#'X'
-		ANDEQ	state,state,#preprocflag
+		BICEQ	state,state,#statemask
 		ORREQ	state,state,#hexnumber
 		TEQ	lr,#'B'
-		ANDEQ	state,state,#preprocflag
+		BICEQ	state,state,#statemask
 		ORREQ	state,state,#binnumber
 		AND	lr,state,#statemask
 		TEQ	lr,#decnumber
@@ -572,9 +577,11 @@ checkdec$L	AND	lr,char,#&DF
 		CMP	lr,#'F'
 		RSBLSS	lr,lr,#'A'
 		BLS	numberloop$L
-endcolour$L	TST	state,#preprocflag
+endcolour$L	AND	lr,state,#prewhitespace
+		TST	state,#preprocflag
 		MOVEQ	state,#other
 		MOVNE	state,#preproc+preprocflag
+		ORR	state,state,lr
 		B	gotchar$L
 checkexponent$L	AND	lr,state,#statemask
 		TEQ	lr,#hexnumber
@@ -623,7 +630,7 @@ commentstart$L	BL	getchar$L
 		SUB	state,state,#1<<4
 commentloop$L	BL	getchar$L
 		TEQ	char,crtab,LSR #24
-		ANDEQ	state,state,#whitespace
+		BICEQ	state,state,#statemask
 		ORREQ	state,state,#comment
 		AND	lr,state,#statemask
 		TEQ	lr,#endcomment
@@ -685,7 +692,7 @@ cpploop$L
 
 ;  Strings
 
-quotes$L	AND	state,state,#preprocflag
+quotes$L	BIC	state,state,#statemask
 		ORR	state,state,#string
 quoteloop$L	BL	getchar$L
 		BIC	state,state,#whitespace
@@ -693,7 +700,7 @@ quoteloop$L	BL	getchar$L
 		BEQ	normal$L
 		TEQ	state,#stringignore
 		TEQNE	state,#stringignore+preprocflag
-		AND	state,state,#preprocflag
+		BIC	state,state,#statemask
 		ORR	state,state,#string
 		BEQ	quoteloop$L
 		TEQ	char,#'\'
@@ -704,7 +711,7 @@ quoteloop$L	BL	getchar$L
 
 ;  Character constants
 
-singlequotes$L	AND	state,state,#preprocflag
+singlequotes$L	BIC	state,state,#statemask
 		ORR	state,state,#charconst
 singquoteloop$L	BL	getchar$L
 		BIC	state,state,#whitespace
@@ -712,7 +719,7 @@ singquoteloop$L	BL	getchar$L
 		BEQ	normal$L
 		TEQ	state,#charconstign
 		TEQNE	state,#charconstign+preprocflag
-		AND	state,state,#preprocflag
+		BIC	state,state,#statemask
 		ORR	state,state,#charconst
 		BEQ	singquoteloop$L
 		TEQ	char,#'\'
@@ -743,6 +750,7 @@ checkpreproc$L	TST	crtab,#javaext
 		TST	state,#whitespace
 		TSTNE	crtab,#cext+cppext		;  :NOT:javaext
 		MOVNE	state,#preproc+preprocflag
+		ORRNE	state,state,#prewhitespace
 		B	mainloop$L
 checkprejava$L
 ; SJA: nasty hack because r7 (normally modeblk) is already in use.
@@ -753,6 +761,7 @@ checkprejava$L
 ; SJA: nasty hack over. Go home.
 		TSTNE	state,#whitespace
 		MOVNE	state,#preproc+preprocflag
+		ORRNE	state,state,#prewhitespace
 		B	mainloop$L
 
 ;  Get next character
@@ -914,8 +923,8 @@ longstring$L	PUSH	"char,ptr,splito"
 name$L		PUSH	"char,ptr,crtab,width,splito"
 		MOV	width,#0
 		MOV	lr,#0
-		FNJSR	"width"
-		FNJSR	"width"
+		PUSH	"width,lr"			; get 16 bytes of ZI workspace
+		PUSH	"width,lr"
 		MOV	width,#16
 namesearchlp$L	SUBS	width,width,#1
 		STRPLB	char,[sp,width]
@@ -941,10 +950,10 @@ whitespacelp$L	TEQ	char,#'/'
 		BL	getahead$L
 morewhitespc$L	BCC	whitespacelp$L
 nameendfound$L	TEQ	char,#'('
-		ANDEQ	state,state,#preprocflag
+		BICEQ	state,state,#statemask
 		ORREQ	state,state,#function
 		BEQ	isfunction$L
-isvariable$L	AND	state,state,#preprocflag
+isvariable$L	BIC	state,state,#statemask
 		ORR	state,state,#variable
 isfunction$L	CMP	width,#0
 		BLT	notreserved$L
@@ -957,6 +966,10 @@ searchpreloop$L	ADD	lr,char,crtab
 		MOV	lr,lr,LSR #1
 		ADRL	lastchar,preprocstart$L  ;L
 		LDR	lastchar,[lastchar,lr,LSL #3]
+		TST	lastchar,#sharedkeyword			; invert flag2 into state
+		BICNE	state,state,#tempflag
+		ORREQ	state,state,#tempflag
+		BIC	lastchar,lastchar,#sharedkeyword	; clear out flag2
 		CMP	lastchar,width
 		MOVHI	crtab,lr
 		ADDLO	char,lr,#1
@@ -984,9 +997,17 @@ searchpreloop$L	ADD	lr,char,crtab
 		BIC	crtab,crtab,#dupkeyword
 		TEQ	char,crtab
 		BNE	notpreword$L
-preword$L	TST	lastchar,#specialkeyword
+
+preword$L	TST	state,#tempflag
+		TSTEQ	state,#prewhitespace
+		BIC	state,state,#tempflag+prewhitespace
+		BEQ	notpreword$L
+
+		AND	lr,state,#prewhitespace
+		TST	lastchar,#specialkeyword
 		MOVEQ	state,#preprocword+preprocflag
 		MOVNE	state,#preprocincwd+preprocflag
+		ORR	state,state,lr
 		B	notreserved$L
 
  LTORG
@@ -1082,9 +1103,11 @@ nameloop$L	BL	getchar$L
 		CMP	char,#'9'
 		RSBLSS	lr,char,#'0'
 		BLS	nameloop$L
-		TEQ	state,#preprocincwd+preprocflag
+		BIC	lr,state,#prewhitespace
+		TEQ	lr,#preprocincwd+preprocflag
 		BNE	endcolour$L
-		MOV	state,#preprocinc+preprocflag
+		AND	state,state,#prewhitespace
+		ORR	state,state,#preprocinc+preprocflag
 		B	gotchar$L
 
 namecomment$L	BL	getahead$L
@@ -1156,7 +1179,7 @@ $label		=	'$lt3'+($flag2<<7),'$lt2'+($flag3<<7),'$lt1','$lt0'
 
 ;  Columns:
 ;    1 - Special preprocessor word (see above)
-;    2 - Unused; MUST be 0
+;    2 - is also a C keyword and thus must be preceded by #
 ;    3 - Unused; MUST be 0
 ;    4 - Shares first 4 chars with another reserved word
 ;    5 - Unused
@@ -1167,10 +1190,10 @@ preprocstart$L
 		RWORD	1 , 0 , 0 , 1 ,          , d,e,f,i,n,e
 		RWORD	0 , 0 , 0 , 1 ,          , d,e,f,i,n,e,d
 		RWORD	0 , 0 , 0 , 0 ,          , e,l,i,f
-		RWORD	0 , 0 , 0 , 0 ,          , e,l,s,e
+		RWORD	0 , 1 , 0 , 0 ,          , e,l,s,e
 		RWORD	0 , 0 , 0 , 0 ,          , e,n,d,i,f
 		RWORD	0 , 0 , 0 , 0 ,          , e,r,r,o,r
-		RWORD	0 , 0 , 0 , 0 ,          , i,f
+		RWORD	0 , 1 , 0 , 0 ,          , i,f
 		RWORD	0 , 0 , 0 , 0 ,          , i,f,d,e,f
 		RWORD	0 , 0 , 0 , 0 ,          , i,f,n,d,e,f
 		RWORD	1 , 0 , 0 , 0 ,          , i,n,c,l,u,d,e
