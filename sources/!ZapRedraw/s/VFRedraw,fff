@@ -1,0 +1,769 @@
+; Contains code for redraw via ViewFinder
+; $Id: VFRedraw,fff,v 1.1.2.1 2001/07/15 22:22:53 ds Exp $
+
+	GET	h.ZapRedHdr
+	GET	h.ZapRedraw
+	GET	h.Cache
+	GET	h.DSARedraw
+	GET	h.SWIs
+
+	EXPORT	vf_redraw_area
+	EXPORT	vf_redraw_raster
+	EXPORT	vf_plot_rect
+
+
+;E Called from redraw_area_dsa
+;X as for redraw_area_dsa
+
+vf_redraw_area
+	FNJSR	"R1-R12"
+	MVN	R0,#0
+	STR	R0,a_vf_ctrl
+	LDR	R0,[R1,#r_caddr]
+	CMP	R0,#&8000		; font handle?
+	BLLO	handle_to_redraw	; yes - update r_cbpl r_cbpc r_charw r_charh
+					; and possibly r_flags b1 (if b5 set)
+	LDR	R9,[R1,#r_bpl]		; bytes per raster line
+	LDR	R7,[R1,#r_cbpl]		; bytes per cache line
+	LDR	R5,[R1,#r_miny]
+	LDR	R8,[R1,#r_maxy]
+	CMP	R8,R5
+	FNRTS	LE			; return if <=0 rasters to do
+	SUB	R13,R13,#256
+	STR	R13,a_vf_string_ptr
+	LDR	R10,[R1,#r_charh]	; height of a character in pixs
+	LDR	R11,[R1,#r_linesp]	; line spacing in pixs
+	ADD	R11,R10,R11		; total line height in pixs
+	MOV	R10,R10,LSL#8		; put flags in bottom bits of R10
+	LDR	R0,[R1,#r_flags]	; redraw flags
+	TST	R0,#rf_doubleheight
+	MOVNE	R10,R10,LSL#1
+	MOVNE	R11,R11,LSL#1		; double line height
+	ORRNE	R10,R10,#1		; b0 of R10=double height flag
+	LDR	R14,[R1,#r_workarea]
+	MOV	R0,R11			; actual line spacing
+	STR	R11,[R14,#a_temp1]	; store it
+	BL	calculate_dsa		; pre-calculate the x values
+	BVS	done$l
+	MOV	R12,R2			; current y offset in line
+	MOV	R2,R0			; first line to print
+	ADR	R0,a_vf_string_ptr
+	STR	R0,a_vf_string
+	ADR	R0,a_vf_colour_fg
+	STR	R0,a_vf_colour
+	MOV	R14,#0
+	STR	R14,[R0,#8]		; GCOL action 0
+	STR	R14,[R0,#12]		; No transparency
+	STR	R14,a_vf_string_0	; string list terminator
+	ADR	R0,a_vf_font_bitmaps
+	STR	R0,a_vf_font
+	LDR	R3,[R1,#r_charw]
+	LDR	R4,[R1,#r_charh]
+	LDR	R14,[R1,#r_flags]	; redraw flags
+	TST	R14,#rf_doubleheight
+	MOVEQ	R14,#2			; (byte packed)
+	MOVNE	R14,#2+8		; (byte packed, double height)
+	STMIB	R0,{R3,R4,R14}		; char width, height, packing flags
+	ADD	R0,R1,#r_minx
+	LDMIA	R0,{R0,R3,R4,R14}
+	STR	R0,a_vf_clip		; clip rect tl X
+	SUB	R4,R4,R0
+	ADR	R0,a_vf_clip
+	SUB	R14,R14,R3
+	STMIB	R0,{R3,R4,R14}		; clip rect tl Y, width, height
+	; handle the top margin, if present
+	LDR	R0,[R1,#r_scrolly]
+	CMP	R0,#0			; in the top margin?
+	BPL	nom$l			; nope
+	BL	getnullcolour$l
+	PUSH	"R2,R5"
+	RSB	R5,R0,#0		; number of rasters to fill
+	LDR	R2,a_vf_clip		; R3,R4,R14 from above useful here
+	CMP	R5,R14
+	MOVHS	R5,R14			; clip the height
+	ADD	R0,R0,R5
+	STR	R0,[R1,#r_scrolly]
+	BL	vf_plot_rect
+	PULL	"R2,R5"
+	BVS	done$l
+nom$l					; now plot the text...
+	SUB	R5,R5,R12
+	MOV	R14,#5<<29:OR:1		; initial flags for ViewFinder_Draw
+	STR	R14,a_vf_draw_flags
+nextline$l
+	LDR	R3,[R2],#4		; get the offset for this line
+	CMP	R3,#0
+	BEQ	endline$l		; run out of text to print
+	LDR	R0,[R1,#r_data]		; data start
+	ADD	R3,R0,R3		; address of start of text
+	BL	calculate_x_scroll	; find first character & R6 col
+	LDR	R0,[R1,#r_workarea]
+	LDR	R9,[R1,#r_minx]
+	LDR	R14,[R0,#a_x1]
+	LDR	R7,[R1,#r_scrollx]	; left margin
+	SUB	R14,R9,R14
+	CMP	R7,#0
+	SUBMI	R14,R14,R7
+	STR	R14,a_vf_char		; first character X
+	STR	R5,a_vf_char+4		; first character Y
+	LDR	R0,[R1,#r_palette]
+	MOV	R11,R6,LSR #16		; background
+	BIC	R10,R6,R2,LSL #16	; foreground
+	AND	R11,R11,#&FF
+	AND	R10,R10,#&FF
+	LDR	R11,[R0,R11,LSL #2]
+	LDR	R10,[R0,R10,LSL #2]	; get bit masks
+	STR	R11,a_vf_colour_bg
+	STR	R10,a_vf_colour_fg	; set initial palette
+	; deal with left margin (if there is one)
+;	CMP	R7,#0
+	BPL	nomargin$l
+	PUSH	"R2,R3,R5"
+	LDR	R2,a_vf_clip
+	MOV	R3,R5
+	RSB	R4,R7,#0
+	LDR	R5,[R1,#r_workarea]
+	LDR	R5,[R5,#a_temp1]
+	BL	vf_plot_rect
+	PULL	"R2,R3,R5"
+	BVS	done$l
+nomargin$l
+	LDR	R0,[R1,#r_caddr]
+	CMP	R0,#&8000
+	BICLO	R0,R0,#&FF
+	ORRLO	R0,R0,R6,LSR #24
+	BLLO	handle_to_caddr		; initial bitmaps addr
+ok$l	MOV	R4,R0
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#0
+	MOVNE	R9,R6			; (font style info)
+	BLNE	call_extension		; start of line call to extension
+	STR	R4,a_vf_font_bitmaps
+	MOV	R0,#0
+	STR	R0,a_vf_string_length
+nextchunk$l
+	LDR	R0,a_vf_char
+	LDR	R9,[R1,#r_maxx]
+	CMP	R0,R9			; more on this row?
+	BGE	to_nextline$l		; ... no
+	LDRB	R0,[R3],#1
+	TEQ	R0,#0
+	BEQ	to_ctrl_code$l		; handle control codes
+	LDR	R9,a_vf_string_ptr
+	LDR	R14,a_vf_string_length
+copy$l	STRB	R0,[R9,R14]		; buffer the string
+	ADD 	R14,R14,#1
+	TEQ	R14,#256
+	LDRNEB	R0,[R3],#1
+	TEQNE	R0,#0
+	BNE	copy$l
+	STR	R14,a_vf_string_length
+	TEQ	R0,#0			; ctrl code?
+	BEQ	to_ctrl_code$l
+	BL	vf_render_buffered	; buffer known to be full
+	BVC	nextchunk$l		; continue to process this line
+	B	done$l
+to_ctrl_code$l
+	LDRB	R0,[R3]
+	TEQ	R0,#2
+	BEQ	do_eol$l
+	BL	vf_control_code
+	B	nextchunk$l
+do_eol$l				; wipe the rest of this line
+	BL	vf_render_buffered
+	PUSH	"R2,R5"
+	LDR	R2,a_vf_char
+	MOV	R3,R5
+	LDR	R4,a_vf_clip_size
+	LDR	R5,a_vf_font_width
+	ADD	R4,R4,R5		; R2 may not be character-aligned
+	LDR	R5,[R1,#r_workarea]
+	LDR	R5,[R5,#a_temp1]
+	BL	vf_plot_rect
+	PULL	"R2,R5"
+	BVS	done$l
+to_nextline$l
+	BL	vf_render_buffered
+	LDR	R14,[R1,#r_workarea]	; line height
+	LDR	R5,a_vf_char+4		; Y coordinate
+	LDR	R14,[R14,#a_temp1]	; line height
+	ADD	R5,R5,R14		; update Y coordinate
+	CMP	R5,R8			; any more to display?
+	BLT	nextline$l
+	B	done$l
+endline$l				; just the bottom margin to draw...
+	BL	getnullcolour$l
+	LDR	R2,a_vf_clip
+	MOV	R3,R5
+	LDR	R4,a_vf_clip_size
+	SUB	R5,R8,R5
+	BL	vf_plot_rect
+done$l
+	BL	remove_dsa_workarea	; free workarea in in cache
+	ADD	R13,R13,#256
+	FNRTS
+
+getnullcolour$l
+	FNJSR
+	ADR	R3,null$l
+	MOV	r4,#0
+	BL	calculate_x_scroll	; find first character & R6 col
+	LDR	R14,[R1,#r_palette]
+	AND	R11,R6,#&FF0000		; background
+	LDR	R11,[R14,R11,LSR #14]
+	MOV	R10,R11
+	FNRTS
+null$l = " ",0,2,0
+
+; ViewFinder renderer parameter blocks and related data.
+; Probably better stuck elsewhere, really...
+
+a_vf_char		% 8	; x,y of top left of first char
+a_vf_clip		% 8	; x,y of top left of clip rectangle
+a_vf_clip_size		% 8	; width,height of clip rectangle
+a_vf_string		% 4	; pointer to string info block
+a_vf_colour		% 4	; pointer to colour data
+a_vf_font		% 4	; pointer to font info block
+
+a_vf_font_bitmaps	% 4	; font block
+a_vf_font_width		% 4
+a_vf_font_height	% 4
+a_vf_font_flags		% 4
+
+a_vf_string_ptr		% 4	; string block
+a_vf_string_length	% 4
+a_vf_string_0		% 4
+
+a_vf_colour_fg		% 4	; colour block
+a_vf_colour_bg		% 4
+a_vf_colour_gcol	% 4
+a_vf_colour_flags	% 4
+
+a_vf_draw_flags		% 4
+a_vf_ctrl		% 4
+
+	LOCAL
+
+vf_control_code	; need to handle some ctrl codes differently
+	FNJSR
+	LDR	R0,a_vf_ctrl
+	ADD	R0,R0,#1
+	STR	R0,a_vf_ctrl
+another_ctrl$l
+	ADR	R14,ctrl_ret$l
+	LDRB	R0,[R3],#1		; get next character
+	CMP	R0,#(control_end$l-control_start$l)/4
+	ADDCC	PC,PC,R0,LSL #2		; jump to code for this option
+	MOV	PC,R14
+control_start$l
+	B	vf_ctrl_code_0		; render a NUL
+	B	vf_ctrl_code_1		; change fg & bg colours
+	B	vf_ctrl_code_2		; line terminator
+	B	vf_ctrl_code_3		; extended (2-byte) character
+	B	vf_ctrl_code_4		; merged character
+	B	vf_ctrl_code_5		; finished merged character
+	B	vf_ctrl_code_6		; change foreground
+	B	vf_ctrl_code_7		; change background
+	B	vf_ctrl_code_8		; cursor merge character
+	B	vf_ctrl_code_9		; change substyle
+	B	vf_ctrl_code_10		; change colours & substyle
+control_end$l
+
+ctrl_ret$l
+	LDR	R14,a_vf_ctrl
+	SUB	R14,R14,#1
+	STR	R14,a_vf_ctrl
+	FNRTS
+
+vf_ctrl_code_0
+	LDR	R0,a_vf_ctrl
+	TEQ	R0,#0
+	MOV	R0,#0
+	MOVNE	PC,R14
+vf_buffer_single_char
+	FNJSR	"R2"			; buffer the NUL
+	BL	vf_flush_buffered
+	LDR	R2,a_vf_string_ptr
+	LDR	R14,a_vf_string_length
+	MOV	R0,#0
+	STRB	R0,[R2,R14]
+	ADD	R14,R14,#1
+	STRB	R14,a_vf_string_length
+	FNRTS
+
+vf_ctrl_code_1
+	FNJSR
+	LDRB	R10,[R3],#1		; new for num
+	LDRB	R11,[R3],#1		; new bac num
+	LDR	R0,[R1,#r_palette]
+	LDR	R10,[R0,R10,LSL #2]
+	LDR	R11,[R0,R11,LSL #2]
+	LDR	R4,a_vf_font_bitmaps
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#1
+	BLNE	call_extension
+	BL	vf_render_if_style_change
+	FNRTS	VS
+	STR	R4,a_vf_font_bitmaps
+	STR	R10,a_vf_colour_fg
+	STR	R11,a_vf_colour_bg
+	FNPULL
+nextctrl$l
+	LDRB	R4,[R3],#1		; get next char
+	TEQ	R4,#0
+	BEQ	another_ctrl$l		; new control code
+	SUB	R3,R3,#1
+	MOV	PC,R14
+
+vf_ctrl_code_2
+	ADR	R3,eol$l
+	MOV	R12,#0			; now at zero line offset
+	B	vf_render_buffered
+eol$l	=	0,2,0,2
+
+vf_ctrl_code_3
+	LDR	R0,a_vf_ctrl
+	TEQ	R0,#0
+	LDRB	R0,[R3],#1
+	LDRB	R4,[R3],#1
+	ORR	R0,R0,R4,LSL #8
+	MOVNE	PC,R14			; return here if we might be merging
+	CMP	R0,#256
+	BLO	vf_buffer_single_char
+	FNJSR
+	PUSH	"R0"
+	BL	vf_render_buffered	; can't buffer, so render everything
+	ADDVS	R13,R13,#4
+	FNRTS	VS
+	PULL	"R0"
+	LDR	R14,a_vf_ctrl
+	TEQ	R14,#0
+	MOVEQ	R4,#0
+	BLEQ	vf_render_single_char_and_spacing
+	FNRTS
+
+vf_ctrl_code_4
+	FNJSR	"R2,R5-R9"
+	BL	vf_render_buffered
+	BL	vf_get_merge_args
+	CMN	R6,#1
+	FNRTS	EQ			; merge aborted
+	LDR	R5,[R1,#r_workarea]
+	ADD	R5,R5,#a_stack1		; place to store data
+	STMIA	R5,{R3,R4,R10,R11}	; store data
+	; Three plots required (base, merge bg, merge fg)
+	MOV	R0,R6
+	MOV	R4,#0
+	BL	vf_render_single_char_and_spacing ; Render the base chr
+	FNRTS	VS
+	PUSH	"R10,R11"
+	MOV	R10,R9
+	MOV	R0,R7
+	MOV	R4,#2
+	BL	vf_render_single_char	; Render the merge chr fg (bg colour)
+	MOV	R0,R6
+	MOV	R4,R7
+	BL	vf_merge_chars		; Generate the ANDed bitmap
+	PUSH	"R0"
+	MOV	R10,R8
+	ADD	R0,R13,#4
+	MOV	R4,#2:OR:1<<31
+	BL	vf_render_single_char	; Render it (fg, fg colour)
+	PULL	"R10"
+	ADD	R13,R13,R10		; Discard it
+	PULL	"R10,R11"
+	LDR	R7,[R1,#r_charw]
+	LDR	R6,a_vf_char		; update the X coordinate
+	ADR	R3,cc4_string$l
+	ADD	R6,R6,R7
+	STR	R6,a_vf_char
+	FNRTS
+
+vf_ctrl_code_5
+	LDR	R3,[R1,#r_workarea]
+	ADD	R3,R3,#a_stack1
+	LDMIA	R3,{R3,R4,R10,R11}	; restore data
+	B	nextctrl$l
+
+vf_ctrl_code_6
+	FNJSR
+	LDRB	R10,[R3],#1		; new for num
+	LDR	R0,[R1,#r_palette]
+	LDR	R10,[R0,R10,LSL #2]
+	LDR	R11,a_vf_colour_bg
+	LDR	R4,a_vf_font_bitmaps
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#6
+	BLNE	call_extension
+	LDR	R11,a_vf_colour_bg
+	BL	vf_render_if_style_change
+	STRVC	R4,a_vf_font_bitmaps
+	STRVC	R10,a_vf_colour_fg
+	FNPULL	VC
+	BVC	nextctrl$l
+	FNRTS
+
+vf_ctrl_code_7
+	FNJSR
+	LDRB	R11,[R3],#1		; new bac num
+	LDR	R0,[R1,#r_palette]
+	LDR	R11,[R0,R11,LSL #2]
+	LDR	R4,a_vf_font_bitmaps
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#7
+	BLNE	call_extension
+	LDR	R10,a_vf_colour_fg
+	BL	vf_render_if_style_change
+	STRVC	R4,a_vf_font_bitmaps
+	STRVC	R11,a_vf_colour_bg
+	FNPULL	VC
+	BVC	nextctrl$l
+	FNRTS
+
+vf_ctrl_code_8
+	FNJSR	"R2,R5-R9"
+	BL	vf_render_buffered
+	BL	vf_get_merge_args
+	CMN	R6,#1
+	FNRTS	EQ			; merge aborted
+	LDR	R5,[R1,#r_workarea]
+	ADD	R5,R5,#a_stack1		; place to store data
+	STMIA	R5,{R3,R4,R10,R11}	; store data
+	; Two plots required (base, merge bg)
+	MOV	R0,R6
+	MOV	R4,#0
+	TEQ	R7,#&7F
+	MOVEQ	R10,R8
+	MOVEQ	R11,R9
+	BL	vf_render_single_char_and_spacing
+	FNRTS	VS
+	TEQ	R7,#&7F
+	BEQ	isdel$l
+	MOV	R10,R9
+	MOV	R0,R7
+	CMP	R0,#5
+	ADDLO	R0,R0,#256		; cursor base
+	MOV	R4,#2
+	BL	vf_render_single_char
+isdel$l	LDR	R7,[R1,#r_charw]
+	LDR	R6,a_vf_char		; update the X coordinate
+	ADR	R3,cc4_string$l
+	ADD	R6,R6,R7
+	STR	R6,a_vf_char
+	FNRTS
+
+vf_ctrl_code_9
+	LDR	R4,[R1,#r_caddr]
+	CMP	R4,#&8000		; are we using handles?
+	FNJSR	"R11"
+	LDRHS	R4,a_vf_font_bitmaps
+	BHS	nohandle9$l
+	LDRB	R11,[R3]		; new font style...
+	BIC	R0,R4,#&FF
+	ORR	R0,R0,R11
+	BL	handle_to_caddr
+	MOV	R4,R0
+nohandle9$l
+	ADD	R3,R3,#1
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#9
+	BLNE	call_extension
+	LDR	R10,a_vf_colour_fg
+	LDR	R11,a_vf_colour_bg
+	BL	vf_render_if_style_change
+	STRVC	R4,a_vf_font_bitmaps
+	FNPULL	VC
+	BVC	nextctrl$l
+	FNRTS
+
+vf_ctrl_code_10
+	LDRB	R10,[R3],#1		; new for num
+	LDRB	R11,[R3],#2		; new bac num
+	LDR	R0,[R1,#r_palette]
+	LDR	R10,[R0,R10,LSL #2]
+	LDR	R11,[R0,R11,LSL #2]	; change colour
+	LDR	R4,[R1,#r_caddr]
+	CMP	R4,#&8000		; are we using handles?
+	FNJSR	"R11"
+	LDRHS	R4,a_vf_font_bitmaps
+	BHS	nohandle10$l
+	BIC	R0,R4,#&FF
+	LDRB	R11,[R3,#-1]		; new font style...
+	ORR	R0,R0,R11
+	BL	handle_to_caddr
+	MOV	R4,R0
+nohandle10$l
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#10
+	BLNE	call_extension
+	BL	vf_render_if_style_change
+	STRVC	R4,a_vf_font_bitmaps
+	STRVC	R10,a_vf_colour_fg
+	STRVC	R11,a_vf_colour_bg
+	FNPULL	VC
+	BVC	nextctrl$l
+	FNRTS
+
+
+;E R3=pointer to first merge arg
+;X R3=pointer to start of next code
+;  R8/R9=palette entries for mask characters
+;  R6/R7=base/mask character or R6=-1 if already done
+;  R0,R3-R4,R10-R11 set up to new vals if already done
+
+vf_get_merge_args
+	FNJSR
+	LDRB	R8,[R3],#1		; alt for num
+	LDRB	R9,[R3],#1		; alt bac num
+	LDR	R0,[R1,#r_palette]
+	LDR	R8,[R0,R8,LSL #2]
+	LDR	R9,[R0,R9,LSL #2]	; alt cols
+	LDRB	R0,[R3],#1		; get next char
+	TEQ	R0,#0
+	BLEQ	vf_control_code		; get base character
+	ADR	R14,cc4_string$l
+	TEQ	R14,R3
+	BEQ	gma_1$l
+	MOV	R6,R0			; base character
+	LDRB	R0,[R3],#1		; get mask character
+	TEQ	R0,#0
+	BLEQ	vf_control_code
+	MOV	R7,R0			; mask character
+	ADR	R14,cc4_string$l
+	TEQ	R14,R3
+	MVNEQ	R6,#0			; set to -1 if this was a merge
+	FNRTS
+gma_1$l
+	PUSH	"R0-R4"			; save the vals
+	LDR	R4,[R1,#r_workarea]
+	LDR	R1,[R4,#a_stack1]	; string we were on
+	LDRB	R0,[R1],#1
+	TEQ	R0,#0
+	BLEQ	to_skip_control_char
+	STR	R1,[R4,#a_stack1]	; skipped the second argument
+	PULL	"R0-R4"			; restore vals
+	MVN	R6,#0			; abort
+	FNRTS
+cc4_string$l
+	=	0,5			; string to restore pointers
+	ALIGN
+
+
+vf_render_single_char_and_spacing
+	FNJSR
+	BL	vf_render_single_char
+	MOVVC	R0,#1
+	BLVC	vf_render_linespacing
+	FNRTS
+
+
+; E R0 = char code (may be >=255) R1 = redraw block
+;   R4 = transparency flags + b31 set if R0 points at the bitmap
+;   R10/R11 = colour masks
+; X character rendered; char pos *not* updated
+
+vf_render_single_char
+	FNJSR	"R1,R5-R9"
+	LDR	R6,a_vf_font_bitmaps
+	LDR	R7,a_vf_string_ptr
+	LDR	R8,a_vf_colour_fg
+	LDR	R9,a_vf_colour_bg
+	STR	R10,a_vf_colour_fg
+	STR	R11,a_vf_colour_bg
+	LDR	R14,a_vf_string_ptr
+	PUSH	"R0,R6-R7,R14"
+	TST	R4,#1<<31
+	BIC	R4,R4,#1<<31
+	LDREQ	R7,[R1,#r_cbpc]
+	BICEQ	R1,R0,#255		; VF requires an 8-bit charset
+	MLAEQ	R6,R1,R7,R6		; font base address + offset
+	STREQ	R6,a_vf_font_bitmaps
+	STRNE	R0,a_vf_font_bitmaps	; ... or R0 points at a bitmap
+	MOVNE	R0,#0
+	STRNE	R0,[R13]
+	STR	R4,a_vf_colour_flags
+	STR	R13,a_vf_string_ptr
+	ADRL	R1,a_vf_char
+	MOV	R0,#1
+	STR	R0,a_vf_string_length	; string ptr, length
+	LDR	R0,a_vf_draw_flags
+	SWI	XViewFinder_Draw	; draw it
+	PULL	"R1,R6-R7,R14"		; restore things...
+	LDR	R1,[R13]
+	STR	R6,a_vf_font_bitmaps
+	STR	R7,a_vf_string_ptr
+	STR	R8,a_vf_colour_fg
+	STR	R9,a_vf_colour_bg
+	STR	R14,a_vf_string_ptr
+	MOV	R6,#0
+	STR	R6,a_vf_colour_flags
+	STR	R6,a_vf_string_length
+	FNRTS
+
+
+	LOCAL
+;E R0 = base char  R4 = merge char  R1 = redraw block
+;  font pointer read from VF data area
+;X characters merged (on *stack*) - base AND merge
+;  R0 = value to add to R13 to restore stack
+vf_merge_chars
+	PUSH	"R14"
+	LDR	R14,[R1,#r_cbpc]
+	ADD	R14,R14,#3
+	BIC	R14,R14,#3
+	SUB	R13,R13,R14
+	LDR	R14,[R13,R14]
+	ADD	R13,R13,#4		; SP lowered by r_cbpc
+	FNJSR	"R2-R5"
+	LDR	R2,a_vf_font_bitmaps
+	LDR	R14,[R1,#r_cbpc]
+	MLA	R0,R14,R0,R2		; base character bitmap
+	MLA	R2,R14,R4,R2		; merge character bitmap
+	ADD	R3,R13,#20		; POINT PAST STACKED REGISTERS
+mge$l	LDRB	R4,[R0],#1
+	LDRB	R5,[R2],#1
+	SUBS	R14,R14,#1
+	AND	R4,R4,R5
+	STRB	R4,[R3],#1
+	BNE	mge$l
+	LDR	R0,[R1,#r_cbpc]
+	ADD	R0,R0,#3
+	BIC	R0,R0,#3
+	FNRTS
+
+
+	LOCAL
+;X buffered string & linespacing rendered, buffer flushed
+;  X coordinate updated #
+vf_flush_buffered
+	LDR	R0,a_vf_string_length
+	TEQ	R0,#256
+	MOVNE	PC,R14			; buffer not full - don't render yet
+vf_render_buffered
+	LDR	R0,a_vf_string_length
+	TEQ	R0,#0
+	MOVEQ	PC,R14			; trivial case (nothing to render)
+	FNJSR	"R1,R4,R11"
+	ADRL	R1,a_vf_char
+	LDR	R0,a_vf_draw_flags
+	SWI	XViewFinder_Draw	; render it
+	FNRTS	VS
+	LDR	R1,[R13]
+	MOV	R14,#2<<30:OR:1
+	STR	R14,a_vf_draw_flags
+	LDR	R0,a_vf_string_length
+	LDR	R4,a_vf_char
+	LDR	R14,[R1,#r_charw]
+	MLA	R4,R0,R14,R4		; update character X coordinate
+	LDR	R11,a_vf_colour_bg
+	BL	vf_render_linespacing
+	STR	R4,a_vf_char		; update character X coordinate
+	MOV	R14,#0
+	STR	R14,a_vf_string_length	; flush the buffer
+	FNRTS
+
+;E R4=new font, R10=new fg, R11=new bg
+;X vf_render_buffer called if current values differ
+vf_render_if_style_change
+	FNJSR	"R4-R7,R10,R11"
+	LDR	R5,a_vf_font_bitmaps
+	LDR	R6,a_vf_colour_fg
+	LDR	R7,a_vf_colour_bg
+	TEQ	R5,R4
+	TEQEQ	R6,R10
+	TEQEQ	R7,R11
+	BLNE	vf_render_buffered
+	FNRTS
+
+
+	LOCAL
+;E R0 = width (chars); a_vf_* variables
+;X line spacing rendered
+vf_render_linespacing
+	FNJSR	"R2-R5"
+	LDR	R5,[R1,#r_linesp]	; any line spacing to render?
+	TEQ	R5,#0
+	FNRTS	EQ
+	LDR	R4,a_vf_font_width
+	LDR	R2,[R1,#r_flags]
+	MUL	R4,R0,R4		; width of line spacing
+	TST	R2,#rf_doubleheight
+	MOVNE	R5,R5,LSL #1		; allow for double height
+	LDR	R2,[R1,#r_workarea]
+	LDR	R3,a_vf_char+4		; top Y of first char
+	LDR	R2,[R2,#a_temp1]	; line height (inc. line spacing)
+	SUB	R3,R3,R5
+	ADD	R3,R3,R2		; top Y of line spacing
+	LDR	R2,a_vf_char		; left X of first char
+	BL	vf_plot_rect
+	FNRTS
+
+
+	LOCAL
+;E R1 = redraw block
+;  R2-R5 = top left x,y, width, height
+;  R11 = colour
+;X rectangle rendered (clipped)
+vf_plot_rect
+	FNJSR	"R1,R6-R9"
+	ADRL	R6,a_vf_clip
+	LDMIA	R6,{R6-R9}
+	ADD	R8,R8,R6	; convert br from w,h to x,y
+	ADD	R9,R9,R7
+	ADD	R4,R4,R2
+	ADD	R5,R5,R3
+	CMP	R2,R8		; check for tl outside clip rect
+	CMPLT	R3,R9
+	FNRTS	GE		; return if so
+	CMP	R4,R6		; check for br outside clip rect
+	CMPGE	R5,R7
+	FNRTS	LT		; return if so
+	CMP	R2,R6		; it's at least partly within, so clip it
+	MOVLT	R2,R6
+	CMP	R3,R7
+	MOVLT	R3,R7
+	CMP	R4,R8
+	MOVGT	R4,R8
+	CMP	R5,R9
+	MOVGT	R5,R9
+	SUB	R4,R4,R2	; convert br from x,y to w,h
+	SUB	R5,R5,R3
+	MOV	R6,#0
+	MOV	R14,#-1
+	MOV	R0,#2:OR:9<<28	; render the rectangle
+	STMFD	R13!,{R2-R6,R11,R14}
+	MOV	R1,R13
+	SWI	XViewFinder_Draw
+	ADD	R13,R13,#7*4
+	FNRTS
+
+
+	LOCAL
+
+;E R1=redraw block
+;  R3=address of text to use for this line (from first vis char)
+;  R4=character defn table offset so use top row of character
+;     or 0 to clear the raster to background colour
+;  R5=screen address of start of raster line
+;  R6=start col b0-b15=for b16-b23=bac b24-31=substyle
+;  r_workarea a_x1 to a_x4 and a_ext1,a_ext2 setup.
+;X Raster line redrawn using ViewFinder |
+
+	IMPORT	messages_error
+vf_redraw_raster
+	FNJSR
+	ADR	R0,error$l
+	BL	messages_error
+	FNRTS
+error$l	&	err_notimpl
+	=	"NotImpl",0
+	ALIGN
+
+
+	END
