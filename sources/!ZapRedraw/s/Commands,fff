@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.10 2004/04/15 11:52:14 christian Exp $
+; $Id: Commands,fff,v 1.11 2004/11/03 23:00:15 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -316,7 +316,7 @@ count_font_block
 
 		LDR	R0,[R11,#-4]			; mem used by font block itself
 
-		LDR	R1,[R11,#fb_name]
+		LDR	R1,[R11,#fb_name]		; and by the name
 		TEQ	R1,#0
 		LDRNE	R1,[R1,#-4]
 		ADD	R0,R0,R1
@@ -329,8 +329,11 @@ count_font_block
 		MOV	R3,#0
 		ADD	R11,R11,#fb_data		; count the substyle blocks
 
-loop$l		LDR	R1,[R11,R3,LSL #2]
-		MOV	R4,#0
+loop$l		LDR	R1,[R11,R3,LSL #2]		; the substyle data
+		TEQ	R1,#0
+		BEQ	next$l
+
+		MOV	R4,#0				; check it's not a duplicate
 loop1$l		TEQ	R4,R3
 		BEQ	ok$l
 
@@ -340,13 +343,22 @@ loop1$l		TEQ	R4,R3
 		ADD	R4,R4,#1
 		B	loop1$l
 
-ok$l		TEQ	R1,#0
-		LDRNE	R1,[R1,#-4]
-		ADD	R0,R0,R1
-next$l		ADD	R3,R3,#1
-		TEQ	R3,R2
-		BLO	loop$l
+ok$l		LDR	R5,[R1,#-4]			; count the chunk directory block
+		ADD	R0,R0,R5
+		ADD	R1,R1,#fd_chunk_dir
+chunk$l		LDR	R5,[R1]
+		CMP	R5,#-1
+		BEQ	next$l
+		LDR	R5,[R1,#cde_data]		; count each chunk's data
+		TEQ	R5,#0
+		LDRNE	R5,[R5,#-4]
+		ADDNE	R0,R0,R5
+		ADD	R1,R1,#cde_len
+		B	chunk$l
 
+next$l		ADD	R3,R3,#1
+		CMP	R3,R2
+		BLO	loop$l
 		FNRTS
 
 
