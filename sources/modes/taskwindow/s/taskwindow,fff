@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.14 2003/02/08 14:11:25 christian Exp $
+; $Id: taskwindow,fff,v 1.15 2003/08/24 18:29:49 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -152,7 +152,9 @@ twmode_init
 	B	taskwindow_diesilently	; Deleting altered owned file
 	B	cols$l			; Creating colours submenu
 
-other$l	TEQ	R1,#15			; Reuest pathname
+other$l	TEQ	R1,#18			; building title bar
+	BEQ	title$l
+	TEQ	R1,#15			; Reuest pathname
 	MOVNE	PC,R14
 	TEQ	R9,#0
 	MOVEQ	PC,R14
@@ -165,6 +167,17 @@ other$l	TEQ	R1,#15			; Reuest pathname
 
 cols$l	ADR	R1,twmode_cols
 	MOV	PC,R14
+
+; Zap is building the title bar
+title$l	LDR	R1,[R9,#f_source]
+	LDR	R1,[R1,#52]		; flags
+	TST	R1,#1			; suspended
+	ADRNE	R1,sus$l
+	MOVEQ	R1,#18
+	MOV	PC,R14
+
+sus$l	=	"(Suspended)",0		; FIXME: i18n
+	ALIGN
 
 ; Zap is deleting a file we own
 taskwindow_diesilently
@@ -347,6 +360,8 @@ TaskWindow_Control
 	MOV	R0,#17
 	LDR	R2,[R7]
 	SWI	XWimp_SendMessage	; resume task
+
+	FNcall	Zap_NewFileTitle,R0
 	FNRTS
 
 tickq0$l
@@ -422,6 +437,8 @@ TaskWindowSuspend$l
 	MOV	R0,#17
 	LDR	R2,[R7]
 	SWI	XWimp_SendMessage	; suspend task
+
+	FNcall	Zap_NewFileTitle,R0
 	FNRTS
 
 suspend$l	DCD	&808C6			; TaskWindow_Suspend
