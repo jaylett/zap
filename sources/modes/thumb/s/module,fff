@@ -1,5 +1,5 @@
 ; Thumb mode
-; $Id: module,fff,v 1.1 2002/11/27 18:18:04 christian Exp $
+; $Id: module,fff,v 1.2 2005/02/15 15:18:52 christian Exp $
 
  GET h.ThumbH
 
@@ -24,7 +24,7 @@ mod_header	DCD	0				; start offset
 
 mod_title	=	"ZapThumb",0
 
-mod_help	=	"ZapThumb",9,"0.01 (00 Jan 0000) © Zap Developers",0
+mod_help	=	"ZapThumb",9,"0.02 (00 Jan 0000) © Zap Developers",0
 		ALIGN
 
 module_flags	DCD	1				; 32 bit compatible
@@ -63,7 +63,7 @@ thumb_modetable	DCD	thumb_modetable			; offset of mode table
 		DCD	thumb_end			; mode_end
 		DCD	thumb_width			; mode_width
 		DCD	0				; mode_linecol
-		DCD	0				; mode_lineoff
+		DCD	thumb_lineoff			; mode_lineoff
 		DCD	thumb_clnphy			; mode_clnlog
 		DCD	thumb_clnphy			; mode_clnphy
 		DCD	thumb_clnoff			; mode_clnoff
@@ -240,7 +240,16 @@ thumb_redrawline
 		ADDHS	R11,R11,#1			;
 		FNRTS	HS				;
 
-		BL	getc$l				; get the two byte instruction
+		SUB	R1,R7,R5			; disassemble previous instruction
+		SUBS	R1,R1,#2			;   for BL prefix
+		BMI	n$l				;
+		MOV	R0,R1				;
+		BL	read_halfword			;
+		LDR	R12,[R8,#w_addr]		;
+		ADD	R1,R1,R12			;
+		SWI	&60381				; XDebugger_DisassembleThumb
+
+n$l		BL	getc$l				; get the two byte instruction
 		MOV	R2,R0				; + b31 set if only half in file
 		STRB	R2,[R6]				;
 		BL	getc$l				;
@@ -525,6 +534,18 @@ geto$l		ADD	R0,R0,R6			; check it's in the output
 		LOCAL
 
 
+; ------------- e_lineoff -------------
+
+		FNAME	"thumb_lineoff"
+thumb_lineoff	LDRB R1,[R8,#w_format]			; mode number
+		ADD R0,R8,#w_mode0			;
+		LDR R1,[R0,R1,LSL #2]			;
+		MOV R0,#0				; always column 0
+		AND R1,R1,#255				; read our width
+		ADD R1,R1,#12				; add hex chars
+		MOV PC,R14
+
+
 ; ------------- e_clnphy -------------
 
 		FNAME	"thumb_clnphy"
@@ -667,9 +688,20 @@ thumb_plus	FNJSR
 		AND	R1,R0,#&F800			;
 		TEQ	R1,#&E000			;
 		BEQ	unconditional$l			;
+		AND	R1,R0,#&F800			; LDR Rd,[PC,#off]
+		TEQ	R1,#&4800			;
+		BEQ	ldr$l				;
 nothing$l	MOV	R1,R11				; not a branch
 		MOV	R2,#-1				;
 		FNRTS					;
+
+; LDR Rd,[PC,#offset]
+; 0100 1rrr oooo oooo
+ldr$l		AND	R0,R0,#&FF			;
+		MOV	R1,R0,LSL #2			;
+		TST	R11,#2				; PC bits 1:0 always read 0 here
+		SUBNE	R1,R1,#2			;
+		B	common$l			;
 
 ; unconditional branch
 ; 1110 0ooo oooo oooo
@@ -711,7 +743,7 @@ bl$l		MOV	R2,R0				;
 		BIC	R2,R2,#&F800			;
 		MOVEQ	R2,R2,LSL #21			; sign extend
 		MOVEQ	R2,R2,ASR #11			;
-		MOVEQ	R0,R0,LSL #1                    ;
+		MOVEQ	R0,R0,LSL #1			;
 		MOVNE	R0,R0,LSL #21			;
 		MOVNE	R0,R0,ASR #11			;
 		MOVNE	R2,R2,LSL #1			;
