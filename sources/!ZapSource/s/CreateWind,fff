@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.8 2003/02/05 17:42:06 christian Exp $
+; $Id: CreateWind,fff,v 2.9 2003/03/05 11:14:58 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -21,6 +21,7 @@
 
  IMPORT get_mode_0Box
  IMPORT getmoduleversionnumber
+ IMPORT command_string
 
  EXPORT update_wind_state
  EXPORT new_view
@@ -265,7 +266,14 @@ create_window_block
 	STRVC	R3,[R8,#w_pline]
 	MOVVC	R0,#0
 	BLVC	insert_marker		; add marker for this window
-	MOVVC	R0,R7			; return modelist block ptr
+	FNRTS	VS
+
+	LDR	R0,[R8,#w_info]		; load the Buttons extension if
+	TST	R0,#info_ButtonsEnabled	; required by executing BUTTONS_START -
+	ADRNE	R0,com$l		; this also attaches the pane
+	MOV	R1,#1<<31
+	BL	command_string
+	ADDS	R0,R7,#0		; return modelist block ptr (clv)
 	FNRTS
 
 err$l	MOV	R14,#-1			; V flag set and R0=error
@@ -275,6 +283,8 @@ err$l	MOV	R14,#-1			; V flag set and R0=error
 ext1$l  DCD	wflags_mask
 ext2$l  DCD	wformat_mask:OR:(1<<31) ; allow mode forcing here
 ext3$l  DCD	winfo_mask		; allow mode forcing here
+com$l	=	"BUTTONS_START",0
+	ALIGN
 
 
 ;E R8=window block being set up (eg new creation/new view)
