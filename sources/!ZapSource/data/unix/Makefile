@@ -49,7 +49,7 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -upper -pedantic -DASSEMBLER=AS -target ARM3 -o $@
+asmflags	= -objasm -nolocal -upper -pedantic -DASSEMBLER=AS -target ARM6 -o $@
 linkflags	= -o o/tmplink -B 0 -bin
 
 # Bits we use to grab the build parameter to make ...
