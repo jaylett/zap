@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 2.7 2004/11/03 21:19:24 christian Exp $
+; $Id: Fonts,fff,v 2.8 2004/11/21 18:29:02 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -22,13 +22,16 @@
  EXPORT Fontaspect
  EXPORT Encoding
 
-; find the font we're going to be using for redraw
+; find the font and encoding we're going to be using for redraw
 ; determine the redraw mode from w_flags and use the appropriate settings
 ; use the font named in the window block, or the defaults if not set
 ; E R8
 ; X w_font setup
 		FNAME 	find_font
 find_font	FNJSR	"R11"
+
+		MOV	R0,#0
+		STR	R0,[R8,#w_encodinghandle]	; clear this in case of error
 
 		LDR	R11,[R8,#w_flags]		; get redraw flags
 		AND	R11,R11,#redraw_font_mask
@@ -67,7 +70,7 @@ bitmapnamed$l	MOV	R1,#0				; ZapRedraw_FindFont flags
 
 notvdu$l	SWI	XZapRedraw_FindFont
 		STRVC	R0,[R8,#w_font]
-		FNRTS	VC
+		BVC	encoding$l
 
 		; font not found - use the system font
 		ADDS	R0,R0,#4			; point to message and clv
@@ -77,11 +80,24 @@ notvdu$l	SWI	XZapRedraw_FindFont
 		MOV	R0,#0
 		MOV	R1,#1
 		SWI	XZapRedraw_FindFont
-		STRVC	R0,[R8,#w_font]
-		LDRVC	R0,[R8,#w_flags]		; force system font redraw
-		BICVC	R0,R0,#redraw_font_mask
-		ORRVC	R0,R0,#redraw_vdu_system
-		STRVC	R0,[R8,#w_flags]
+		FNRTS	VS
+		STR	R0,[R8,#w_font]
+		LDR	R0,[R8,#w_flags]		; force system font redraw
+		BIC	R0,R0,#redraw_font_mask
+		ORR	R0,R0,#redraw_vdu_system
+		STR	R0,[R8,#w_flags]
+
+		; find the encoding
+encoding$l	LDR	R1,[R8,#w_encoding]
+		TEQ	R1,#0
+		MOV	R0,#0
+		SWINE	XZapRedraw_Encoding
+		STRVC	R0,[R8,#w_encodinghandle]
+		FNRTS	VC
+
+		ADDS	R0,R0,#4			; point to message and clv
+		MOV	R1,#0
+		BL	warn_user
 		FNRTS
 
 
@@ -95,6 +111,10 @@ notvdu$l	SWI	XZapRedraw_FindFont
 lose_font	LDR	R0,[R8,#w_font]
 		TEQ	R0,#0
 		SWINE	XZapRedraw_LoseFont
+		LDR	R1,[R8,#w_encodinghandle]
+		TEQ	R1,#0
+		MOVNE	R0,#1
+		SWINE	XZapRedraw_Encoding
 		MOV	PC,R14
 
 
