@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.17 2003/01/28 16:47:32 christian Exp $
+; $Id: ModeBits,fff,v 2.18 2003/02/05 14:24:34 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -86,7 +86,8 @@
  EXPORT init_kill_list
  EXPORT add_filter
  EXPORT remove_filter
-
+ EXPORT add_call_table
+ EXPORT call_extension
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Mode loading / initialisation				;
@@ -2626,6 +2627,92 @@ ret$l	ADD	R13,R13,#4
 	LDMFD	R13!,{R9-R11,PC}	; return
 
 
+	LOCAL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Extension provided functions				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; wimp_extlist contains a list of the following structure:
+
+		^	0
+ec_next		#	4		; -> next block
+ec_private	#	4		; private word for R11
+ec_entry	#	4		; routine to call
+ec_base		#	4		; base call number
+ec_length	*	@		; length of block
+
+ec_base_mask	*	&FF		; extensions get 256 call numbers
+
+; add an extension entry point to the list of call tables
+; E R0 = base number  R1 -> routine  R2 = private word for R11
+; X
+;   routine in R1 called with
+;    E R0-R6 parameters  R7 = call number offset  R8-R10 parameters  R11 private word
+;    X R0-R10 return params  R11 corruptible
+	FNAME	add_call_table
+add_call_table
+	FNJSR	"R10-R11"
+	BIC	R11,R0,#ec_base_mask	; get base number
+	MOV	R10,R1
+
+	MOV	R1,#ec_length
+	BL	heap_claim
+
+	STRVC	R11,[R0,#ec_base]
+	STRVC	R10,[R0,#ec_entry]
+	STRVC	R2,[R0,#ec_private]
+
+	FNLDR	R2,call_tables,VC
+	STRVC	R2,[R0,#ec_next]
+	FNSTR	R0,call_tables,VC
+	FNRTS
+
+
+; call an extension entry point
+; E R0-R6, R8-R10 params  R7 call number
+; X R0-R10 return params
+	FNAME	call_extension
+call_extension
+	FNJSR	"R7,R10-R11"		; careful
+	BIC	R7,R7,#ec_base_mask
+
+back$l	FNLDR	R11,call_tables
+loop$l	TEQ	R11,#0
+	BEQ	load$l
+
+	LDR	R10,[R11,#ec_base]
+	TEQ	R10,R7
+	LDRNE	R11,[R11,#ec_next]
+	BNE	loop$l
+
+	PULL	"R7,R10"
+	AND	R7,R7,#ec_base_mask	; get the call offset
+	MOV	R14,PC
+	LDMIB	R11,{R11,PC}		; call the routine
+	PULL	"R11,PC"		; return
+
+load$l	PUSH	"R0-R6"			; attempt to find the call externally
+	FNLDR	R0,ext_calls
+lloop$l	LDR	R1,[R0],#8
+	CMP	R1,#-1
+	BEQ	nope$l
+	TEQ	R1,R7
+	BNE	lloop$l
+
+	LDR	R0,[R0,#-4]		; found it - load the module
+	BL	load_mode_module
+	PULL	"R0-R6"
+	BVC	back$l
+
+nope$l	PULL	"R0-R6"
+	FNPULL
+	ADR	R0,err$l
+	B	lookup_error
+
+err$l	DCD	&5500			; special (though arbitrary) error number
+	=	"zap_e_extnotpresent",0
+	ALIGN
 
 
  END

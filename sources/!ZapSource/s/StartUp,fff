@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 2.14 2003/01/25 18:58:54 christian Exp $
+; $Id: StartUp,fff,v 2.15 2003/02/05 14:24:34 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1295,7 +1295,7 @@ start$l	LDRB	R0,[R3]			;  load the module and do a command
 ; in the file, then &80000000 is used to indicate this.
 
 ;E R10=pointer to mode/command name/message number string
-;  R3=object type (0=mode 1=command 2=message 3=clone mode)
+;  R3=object type (0=mode 1=command 2=message 3=call)
 ;  R4=pointer to name of module to load to deal with this command/mode/mess
 ;     or the clone base mode (if R3=3)
 ;X Object added #
@@ -1303,7 +1303,7 @@ start$l	LDRB	R0,[R3]			;  load the module and do a command
 add_external_object
 	FNJSR	"R1-R6,R10"
 	SYSLOGF "add_external_object %10s (type %3d) in module %4s", LOG_MINOR
-	CMP	R3,#3
+	CMP	R3,#4
 	FNRTS	CS			;  illegal type
 	ADR	R14,list$l
 	LDR	R2,[R14,R3,LSL#2]
@@ -1338,8 +1338,8 @@ found$l	SUB	R6,R1,R5		;  current list length
 	FNRTS	VS
 	STR	R0,[R12,R2]		;  new list pointer
 	ADD	R1,R0,R6		;  start of the entry
-	TEQ	R3,#2
-	BEQ	num$l
+	CMP	R3,#2
+	BHS	num$l
 
 copy$l	LDRB	R0,[R10],#1		;  copy the string (make upper case if comm)
 	TEQ	R3,#1			;  command ?
@@ -1386,6 +1386,7 @@ end$l	MOV	R14,#0
 list$l	DCD	ext_modes
 	DCD	ext_comms
 	DCD	ext_messages
+	DCD	ext_calls
 
 
 	LOCAL
@@ -1408,17 +1409,21 @@ remove_external_object
 	FNLDR	R1,ext_clones		;  remove from clones list
 	BL	sub$l
 	FNLDR	R1,ext_messages
-a$l	LDMIA	R1!,{R0,R14}
-	CMP	R0,#0
-	BLE	end$l
-	TEQ	R14,R4
-	MOVEQ	R14,#0
-	STREQ	R14,[R1,#-4]
-	B	a$l
+	BL	nsub$l
+	FNLDR	R1,ext_calls
+	BL	nsub$l
 
 end$l	MOV	R0,R4
 	BL	heap_free
 	FNRTS
+
+nsub$l	LDMIA	R1!,{R0,R2}
+	CMP	R0,#0
+	MOVLE	PC,R14
+	TEQ	R2,R4
+	MOVEQ	R2,#0
+	STREQ	R2,[R1,#-4]
+	B	nsub$l
 
 sub$l	FNJSR				;  string handling
 b$l	MOV	R0,R1
