@@ -1,5 +1,5 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.16 2004/11/10 13:04:48 christian Exp $
+; $Id: VDURedraw,fff,v 1.17 2004/11/10 13:56:03 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1351,12 +1351,15 @@ vrc_1n
 vrc_2
  PUSH "R1-R5"
  MOV R5,R0
- MOV R0,#4
  MOV R1,R3
+ MOV R2,R4
  TST R12,#12
- MOVEQ R2,#0
- MOVNE R2,R4
+ LDREQ R0,[R11,#a_x4]		; height
+ SUBEQ R2,R2,R0
+ MOV R0,#4
  SWI XOS_Plot			; move to bottom left of box
+ LDR R3,[R11,#a_x3]		; width
+ LDR R4,[R11,#a_x4]		; height
  SUBS R5,R5,#&100		; &100 -> 0
  BCC vrc_7F
  CMP R5,#(vrc_end-vrc_start)/4
@@ -1373,16 +1376,12 @@ vrc_start
  B vrc_106
 vrc_end
 vrc_7F
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  SUBVC R1,R3,#1
  SUBVC R2,R4,#1			; top right relative inc
  MOVVC R0,#96+1			; rectangle fill
  SWIVC XOS_Plot
  LDMFD R13!,{R1-R5,PC}
 vrc_100
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#0
  BLVC vrc_right
  MOVVC R0,#1
@@ -1391,8 +1390,6 @@ vrc_100
  BLVC vrc_right
  LDMFD R13!,{R1-R5,PC}
 vrc_101
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
  BLVC vrc_right
  MOVVC R0,#0
@@ -1401,34 +1398,37 @@ vrc_101
  BLVC vrc_left
  LDMFD R13!,{R1-R5,PC}
 vrc_102
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
  BLVC vrc_right
  BLVC vrc_up
  BLVC vrc_left
  LDMFD R13!,{R1-R5,PC}
 vrc_103
-vrc_106
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
+vrc_103_2
  BLVC vrc_right
  BLVC vrc_up
  BLVC vrc_left
  BLVC vrc_down
  LDMFD R13!,{R1-R5,PC}
 vrc_104
- LDRVC R3,[R11,#a_x3]		; width
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
  BLVC vrc_right
  LDMFD R13!,{R1-R5,PC}
 vrc_105
- LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
  BLVC vrc_up
  LDMFD R13!,{R1-R5,PC}
+vrc_106
+ PUSH "R1,R2"
+ MOVVC R0,#163			; set dot-dash pattern to default
+ MOVVC R1,#242
+ MOVVC R2,#0
+ SWI XOS_Byte
+ PULL "R1,R2"
+ MOVVC R0,#17			; dotted line
+ SUBVC R3,R3,#2			; put a gap between chars
+ B vrc_103_2
 
 ;E R0=plot code
 ;X R0 preserved if no error R1 & R2 corrupted
