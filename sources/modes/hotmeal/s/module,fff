@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.5 2003/05/13 17:13:26 ds Exp $
+; $Id: module,fff,v 1.6 2003/05/14 19:21:59 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -88,12 +88,12 @@ ModuleInit
 	BNE	RefDaterTab
 	LDRB	r0, [r3, #7]
 	CMP	r0, #'9'
-	RSBLSS	r0, r0, #'0'
+	RSBLSS	r0, r0, #'4'
 	BHI	MakeError
 	BNE	RefDaterTab
 	LDRB	r0, [r3, #8]
 	CMP	r0, #'9'
-	RSBLSS	r0, r0, #'0'
+	RSBLSS	r0, r0, #'6'
 	BHI	MakeError
 RefDaterTab
 	ADRL	r0, DaterTable
@@ -106,7 +106,7 @@ MakeError
 	SWI	OS_GenerateError
 ErrorMess
 	DCD	0
-	=	"ZapHoTMeaL requires Zap version 1.00 or greater.",0
+	=	"ZapHoTMeaL requires Zap version 1.46 or greater.",0
 	ALIGN
 
 Initialisation
@@ -2817,29 +2817,15 @@ CmdAct4
 	BL	tmt_updatewindow
 	FNcall	Zap_StopOp
 	LDMFD	sp!, {pc}
-SCstarttag
-	=	"<SCRIPT>",0
-	ALIGN
-SCendtag
-	=	"</SCRIPT>",0
-	ALIGN
-STstarttag
-	=	"<STYLE>",0
-	ALIGN
-STendtag
-	=	"</STYLE>",0
-	ALIGN
-TIstarttag
-	=	"<TITLE>",0
-	ALIGN
-TIendtag
-	=	"</TITLE>",0
-	ALIGN
-APstarttag
-	=	"<APPLET>",0
-	ALIGN
-APendtag
-	=	"</APPLET>",0
+
+SCstarttag	=	"<script>",0
+SCendtag	=	"</script>",0
+STstarttag	=	"<style>",0
+STendtag	=	"</style>",0
+TIstarttag	=	"<title>",0
+TIendtag	=	"</title>",0
+APstarttag	=	"<applet>",0
+APendtag	=	"</applet>",0
 	ALIGN
 
 	DCD	1
@@ -3515,20 +3501,14 @@ CmdTable
 	FNcom	"HTMLSTRIPTAGS", CmdAct4
 	FNcom	"HTMLLINK", CmdHTMLLink
 	FNcom	"HTMLIMAGE", CmdHTMLImage
+	FNcom	"HTMLHEADING", CmdHTMLHeading
+	FNcom	"HTMLTAGPAIR", CmdHTMLTagPair
+	FNcom	"HTMLREMARK", CmdHTMLRemark
+	FNcom	"HTMLSINGLETAG", CmdHTMLSingleTag
 	DCD	0
 
 MenuExtension
-	=	"Comments",0
-	=	"Strings",0
-	=	"Values",0
-	=	"MarkUpTags",0
-	=	"Tags",0
-	=	"Punctuation",0
-	=	"Numbers",0
-	=	"Attributes",0
-	=	"Entities",0
-	=	"Unknown",0
-	=	0
+	=	"hotmeal_colours",0,0
 	ALIGN
 
 localblkstore
@@ -5038,7 +5018,7 @@ DaterTable
 	DCD	HTMLLabeled
 	DCD	lp1	;  C-3FF0
 	DCD	0x0	;  REM = BaseMode = Text
-	DCD	0x40D + (1<<14)	;  REM mode = 13 ; bit 10 = workspace, 14 = menu
+	DCD	13 :OR: emode_ModeWordIsBlock :OR: emode_UsesMessageTrans :OR: emode_MenuFile
 	DCD	Initialisation	;  REM init
 	DCD	menu	;  MnuDta; REM &00 ; menu...extension menu
 	DCD	endofdatertable - DaterTable	;  REM size of table ; len
@@ -5568,8 +5548,8 @@ img_sprite_test
 	B	image_filetype_end
 	; Anything else and I can't help, yet!
 img_unknown_type
-	BL	img_set_v
 	ADRL	r0,err_bad_filetype
+	BL	lookup_error
 	STR	r0,[sp]
 	B	image_dims_ending
 image_filetype_end
@@ -5653,8 +5633,8 @@ jpeg_skip_mark
 	CMP	r3,R2			; Check next read is not outside.
 	MOVLT	r2,R3			; Re - instate R2
 	BLT	jpeg_examine_marker	; Look at next marker
-	BL	img_set_v
 	ADRL	r0,err_early_eof	; Give an error and bug out
+	BL	lookup_error
 jpeg_magic_end
 	LDMFD	sp!,{r2,pc}
 ; ####### !jpeg_magic ####################################################
@@ -5758,13 +5738,13 @@ gif_img
 gif_trailer
 	TEQ	r0,#0x3B		; Trailer
 	BNE	gif_other
-	BL	img_set_v
 	ADRL	r0,err_early_eof
+	BL	lookup_error
 	B	gif_magic_end		; terminate routine
 gif_other
 	; Pretty fatal. So lets clean up and bug out.
-	BL	img_set_v
 	ADRL	r0,err_corrupt_file	; Corrupt file err.
+	BL	lookup_error
 	B	gif_magic_end		; terminates routine
 gif_offset_end
 	ADD	r0,r3,#5		; The offset we want is 5
@@ -5866,8 +5846,8 @@ gif_ext_pl_text
 	ADD	r3,r2,#2		; Jump over Terminator block
 	B	gif_ext_end
 gif_ext_other
-	BL	img_set_v
 	ADRL	r0,err_corrupt_file
+	BL	lookup_error
 gif_ext_end
 	LDMFD	sp!,{pc}
 ; ####### !gif_offset_ext ################################################
@@ -5963,7 +5943,7 @@ sprite_magic
 	MOV	r1,#9			; Log2 BPP
 	SWI	XOS_ReadModeVariable
 	ADRCSL  r0,err_bad_spr_mode
-	BLCS	img_set_v
+	BLCS	lookup_error
 	MOV	r4,r4,LSR r2
 sprite_magic_end
 	LDMFD	sp!,{r1,r2,pc}
@@ -6009,19 +5989,6 @@ size_lookup
 size_lookup_end
 	LDMFD	sp!,{r2,pc}
 ; ####### !size_lookup ###################################################
-
-; ******* img_set_v *****************************************************
-; * Description; Sets the V flag in the PC, to signal an error		*
-; *									*
-; * On Entry;	No conditions						*
-; *									*
-; * On Exit;	V flag set.						*
-; ***********************************************************************
-img_set_v
-	SWI	XOS_GenerateError
-	MOV	pc, lr
-; ####### !img_set_v #####################################################
-
 
 ; **** Lookup Table data ***
 ; should be OK in ZapHTML module
@@ -6181,8 +6148,10 @@ apw_readword
 	ADRL	R2,img_scratch
 	MOV	R3,#4			; Read 4 bytes
 	SWI	XOS_GBPB		; Get first 4 bytes and put in
-	BLCS	img_set_v		; If read failed
-	ADRVSL	R0,err_early_eof	; Setup an error block
+	ADDVS	R13,R13,#4
+	LDMVSFD	R13!,{R2-R4,PC}
+	ADRCCL	R0,err_early_eof	; Setup an error block
+	BLCC	lookup_error
 	STRVS	R0,[R13]
 	LDMFD	R13!,{R0,R2-R4,PC}
 
@@ -6210,28 +6179,50 @@ apw_set_fileptr
 img_file_open	&	0
 img_scratch	&	0,0
 
-err_not_found
-err_found_dir
 err_bad_filetype
+	&	0x40000001
+	=	"hotmeal_img_badtype",0
+	ALIGN
 err_early_eof
+	&	0x40000001
+	=	"hotmeal_img_eof",0
+	ALIGN
 err_corrupt_file
+	&	0x40000001
+	=	"hotmeal_img_corrupt",0
+	ALIGN
 err_bad_spr_mode
 	&	0x40000001
-	=	"An error occurred in ImageSize", 0
+	=	"hotmeal_img_badmode",0
 	ALIGN
 
 	]
 
 
-	LOCAL
+miniprompt	FNjump	Zap_MiniPromptToken
 
-miniprompt
-	FNjump	Zap_MiniPrompt
+
+	; Common tag/element parts
+common_open	=	1,"<"
+		ALIGN
+common_close	=	2,"</"
+		ALIGN
+common_end_s	=	1,">"
+		ALIGN
+common_end_l	=	3," />"
+		ALIGN
+common_end_ql	=	4,34," />"
+		ALIGN
+common_end_qs	=	2,34,">"
+		ALIGN
+
+
+	LOCAL
 
 	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
 CmdHTMLLink
 	TEQ	r2,#6
-	ADREQ	r0,enter_link
+	ADREQ	r0,enter$l
 	BEQ	miniprompt
 	FNJSR
 	MOV	r11,r0
@@ -6240,52 +6231,175 @@ CmdHTMLLink
 	MOVCC	r6,lr
 	MOVCS	r6,#-1		; length of sel, or -1 if none
 	BLCC	cutandstoresel
-	BVS	CmdHTMLLink_fail
-	FNcall	Zap_FindInput
-	MOV	r7,r0
-	ADR	r3,a_href_pre
-	BL	Cmd_insert
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,pre$l
+	BLVC	Cmd_insert
 	BLVC	Cmd_insert_variable
-	ADRVC	r3,a_href_mid
+	ADRVC	r3,common_end_qs
 	BLVC	Cmd_insert
-	BVS	CmdHTMLLink_fail
-	MOVS	r2,r6
-	ADRPLL	r0,storedmovesel
-	MOVPL	r1,#1<<31
-	ADDPL	r7,r7,r6
-	FNcallc	Zap_CommandString,PL
-	ADRVC	r3,a_href_post
+	BLVC	Cmd_insert_sel
+	ADRVC	r3,post$l
 	BLVC	Cmd_insert
-CmdHTMLLink_fail
 	FNcall	Zap_StopOp
 	FNRTS
+enter$l	=	"hotmeal_getA",0
+pre$l	=	9,"<a href=",34
+post$l	=	4,"</a>"
+	ALIGN
+
+
+	LOCAL
 
 	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
 CmdHTMLImage
 	TEQ	r2,#6
-	ADREQ	r0,enter_src
+	ADREQ	r0,enter$l
 	BEQ	miniprompt
 	FNJSR
 	MOV	r11,r0
 	FNcall	Zap_StartOp
 	FNcallc	Zap_FindInput,VC
 	MOVVC	r7,r0
-	ADRVC	r3,img_src_pre
+	ADRVC	r3,img$l
 	BLVC	Cmd_insert
 	BLVC	Cmd_insert_variable
-	ADRVC	r3,img_src_post
+	ADRVC	r3,common_end_ql
+	BLVC	Cmd_insert
+	FNcall	Zap_StopOp
+	FNRTS
+enter$l	=	"hotmeal_getIMG",0
+img$l	=	17,"<img alt=",34,34," src=",34
+	ALIGN
+
+	LOCAL
+
+	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
+CmdHTMLHeading
+	TEQ	r2,#6
+	ADREQ	r0,enter$l
+	BEQ	miniprompt
+	FNJSR
+	MOV	r11,r0
+find$l	LDRB	r0,[r11],#1
+	CMP	r0,#32
+	BEQ	find$l
+	CMP	r0,#'1'
+	RSBHSS	r0,r0,#'6'
+	BLO	bad$l
+	FNcall	Zap_StartOp
+	BL	testsel
+	MOVCC	r6,lr
+	MOVCS	r6,#-1		; length of sel, or -1 if none
+	BLCC	cutandstoresel
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,open$l
+	BLVC	put$l
+	BLVC	Cmd_insert_sel
+	ADRVC	r3,close$l
+	BLVC	put$l
+	FNcall	Zap_StopOp
+	FNRTS
+bad$l	FNPULL
+	ERR	"hotmeal_badH"
+put$l	FNJSR
+	BL	Cmd_insert
+	MOVVC	r2,#1
+	SUBVC	r3,r11,#1
+	BLVC	Cmd_insert_common
+	ADRVC	r3,common_end_s
+	BLVC	Cmd_insert
+	FNRTS
+enter$l	=	"hotmeal_getH",0
+open$l	=	2,"<h"
+close$l	=	3,"</h"
+	ALIGN
+
+
+	LOCAL
+
+	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
+CmdHTMLTagPair
+	TEQ	r2,#6
+	ADREQ	r0,enter$l
+	BEQ	miniprompt
+	FNJSR
+	SUB	r11,r0,#1
+find$l	LDRB	r0,[r11,#1]!
+	CMP	r0,#32
+	BEQ	find$l
+	BLT	bad$l
+	FNcall	Zap_StartOp
+	BL	testsel
+	MOVCC	r6,lr
+	MOVCS	r6,#-1		; length of sel, or -1 if none
+	BLCC	cutandstoresel
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,common_open
+	BLVC	put$l
+	BLVC	Cmd_insert_sel
+	ADRVC	r3,common_close
+	BLVC	put$l
+	FNcall	Zap_StopOp
+	FNRTS
+bad$l	FNPULL			; shared by CmdHTMLSingleTag
+	ERR	"hotmeal_badtag"
+put$l	FNJSR
+	BL	Cmd_insert
+	BLVC	Cmd_insert_variable
+	ADRVC	r3,common_end_s
+	BLVC	Cmd_insert
+	FNRTS
+enter$l	=	"hotmeal_gettag",0
+	ALIGN
+
+	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
+CmdHTMLSingleTag
+	TEQ	r2,#6
+	ADREQ	r0,enter$l
+	BEQ	miniprompt
+	FNJSR
+	SUB	r11,r0,#1
+find2$l	LDRB	r0,[r11,#1]!
+	CMP	r0,#32
+	BEQ	find2$l
+	BLT	bad$l
+	FNcall	Zap_StartOp
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,common_open
+	BLVC	Cmd_insert
+	BLVC	Cmd_insert_variable
+	ADRVC	r3,common_end_l
 	BLVC	Cmd_insert
 	FNcall	Zap_StopOp
 	FNRTS
 
-enter_link	=	"Enter link URL: ",0
-enter_src	=	"Enter image URL: ",0
-a_href_pre	=	9,"<a href=",34
-a_href_mid	=	2,34,">"
-a_href_post	=	4,"</a>"
-img_src_pre	=	17,"<img alt=",34,34," src=",34
-img_src_post	=	4,34," />"
+	LOCAL
+
+	&	0
+CmdHTMLRemark
+	FNJSR
+	FNcall	Zap_StartOp
+	BL	testsel
+	MOVCC	r6,lr
+	MOVCS	r6,#-1		; length of sel, or -1 if none
+	BLCC	cutandstoresel
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,open$l
+	BLVC	Cmd_insert
+	BLVC	Cmd_insert_sel
+	ADRVC	r3,close$l
+	BLVC	Cmd_insert
+	FNcall	Zap_StopOp
+	FNRTS
+open$l	=	5,"<!-- "
+close$l	=	4," -->"
 	ALIGN
+
 
 	; R3 -> length byte + string (unterm)
 	; R7 -> insert offset
@@ -6300,16 +6414,32 @@ Cmd_insert_common
 
 	; R7 -> insert offset
 	; R11 -> string (NUL-term)
-	; R7 updated, R0-R3+R11 corrupted
+	; R7 updated, R0-R3 corrupted
 Cmd_insert_variable
 	MOV	r3,r11
 getlen	LDRB	r2,[r11],#1
 	TEQ	r2,#0
 	BNE	getlen
 	SUB	r2,r11,r3
+	MOV	r11,r3
 	SUB	r2,r2,#1
 	B	Cmd_insert_common
 
+	; R6 -> length of selection
+	; R7 -> insert offset
+	; R7 updated, R0-R1 corrupted
+Cmd_insert_sel
+	FNJSR
+	TEQ	r6,#0
+	ADRPLL	r0,storedmovesel
+	MOVPL	r1,#1<<31
+	ADDPL	r7,r7,r6
+	FNcallc	Zap_CommandString,PL
+	FNRTS
+
+lookup_error
+	MOV	r2,#0
+	FNjump	Zap_LookupError
 
 
 indexentitylist
