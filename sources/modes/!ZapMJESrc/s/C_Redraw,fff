@@ -391,9 +391,9 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 		STMHSIA	cache$L!,{ptr,state}		;  Update cache entry if on 1k boundary
 		ADD	rangeend,ptr,#128 ; 1024	;  Get next 1k boundary
 		SUBS	hourcount$L,hourcount$L,#128 ; 1024 ;  Update hourglass
-		MOVLS	r0,hourcount$L
+		MOV	r0,hourcount$L
 		BLLS	newpercent
-		MOVLS	hourcount$L,r0
+		MOV	hourcount$L,r0
 ;		TEQ	toptr$L,ptr			;  Loop if toptr not reached
 		CMP	ptr,toptr$L			;  Loop if toptr not reached
 		BLT	scanloop$L
@@ -737,10 +737,10 @@ checkpreproc$L	TST	crtab,#javaext
 		B	mainloop$L
 checkprejava$L
 ; SJA: nasty hack because r7 (normally modeblk) is already in use.
-		STMDB	sp!,{lr}
+		PUSH	"lr"
 		LDR	lr,sja_temp_flags1
 		TST	lr,#2
-		LDMIA	sp!,{lr}	; !!! Unmatched return LDM
+		PULL	"lr"
 ; SJA: nasty hack over. Go home.
 		TSTNE	state,#whitespace
 		MOVNE	state,#preproc+preprocflag
@@ -843,19 +843,19 @@ noquiteol$L	CMP	ptr,rangeend
 		CMP	rcolumn,lwidth
 		BHS	physlineend$L
 		TEQ	char,#'\'
-		MOVNES	pc,lr	; !!! ARM32 FIXME
+		MOVNE	pc,lr
 gcbackslash$L	FNJSR	"ptr,splito"
 		ADD	lr,pc,#4
 		PUSH	"lr"
 		BL	getc$L
 		TEQ	char,crtab,LSR #24
 		MOV	char,#'\'
-		FNRTSS	NE	; !!! Unmatched return LDM  !!! ARM32 FIXME
+		FNRTS	NE
 		FNPULL
 		ORR	state,state,#slasheol
 		B	getchar$L
 physlineend$L	TEQ	char,crtab,LSR #24
-		MOVEQS	pc,lr	; !!! ARM32 FIXME
+		MOVEQ	pc,lr
 		SUB	ptr,ptr,#1
 finished$L	LDR	lr,f_ptr
 		SUB	ptr,ptr,lr
@@ -863,21 +863,21 @@ finished$L	LDR	lr,f_ptr
 		CMP	ptr,splito
 		LDRHS	lr,f_splits
 		SUBHS	ptr,ptr,lr
-		LDMFD	sp!,{r4,pc}^	; !!! Unmatched return LDM
+		LDMFD	sp!,{r4,pc}
 
 
 ;  Character look ahead, CS if reached end
 
-gabackslash$L	BIC	lr,lr,#Cbit
+gabackslash$L	CLC
 		FNJSR	"ptr,splito"
 		ADD	lr,pc,#4
-		FNJSR
+		PUSH	"lr"
 		BL	getc$L
 		TEQ	char,crtab,LSR #24
 		MOVNE	char,#'\'
-		PULL	"ptr,splito,pc",NE	; !!! Unmatched return LDM
+		FNRTS	NE
 		ADD	sp,sp,#8
-		FNPULL
+		PULL	"lr"
 getahead$L	ADR	lastchar,gabackslash$L
 		PUSH	"lastchar"			; copy } aborts! :-(
 		; /why/ I don't know - this is the stack :-(
@@ -896,7 +896,7 @@ notend$L	LDRB	char,[ptr],#1
 		TEQ	char,#'\'
 		ADDNE	sp,sp,#4
 		MOVNE	pc,lr
-		FNRTS
+		PULL	"pc"
 
 ;  Long character string/char constants (eg. L"Hello" or L'!')
 
@@ -1632,7 +1632,8 @@ attempttoexit$L MOV	R11,R0
 		ADD	sp,sp,#4
 		MOV	R0,R11
 		PULL	"r1-r11,lr"	; !!! Unmatched return LDM
-		ORR 	pc,lr,#&FC000000	; sec...
+		SEC
+		MOV	PC,R14
 ;resolver1$L	MOV 	R14,#
 
 

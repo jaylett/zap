@@ -125,7 +125,6 @@ callbasemode	FNJSR	"r0,r11"
 ;    r0 - Number of bytes to scan
 ;  Exit conditions:
 ;    lr - Number to decrement to zero before incrementing percentage
-;    Flags preserved
 
 		EXPORT	startlongop
 		EXPORT	startlongnoesc
@@ -145,7 +144,7 @@ startlongnoesc	FNJSR	"wsblk"
 		STRNE	lr,ws_percount
 		MOVEQ	lr,#&7F000000
 		SWI	XHourglass_On
-		FNRTSS
+		FNRTS
 
 
 		LOCAL
@@ -164,7 +163,7 @@ nextpercent	FNJSR	"r0,wsblk"
 		STR	r0,ws_percent
 		SWI	XHourglass_Percentage
 		LDR	lr,ws_percount
-		FNRTSS
+		FNRTS
 
 
 		LOCAL
@@ -190,7 +189,7 @@ loop$L		ADD	r1,r1,#1
 		MOV	r0,r1
 		SWI	XHourglass_Percentage
 		MOV	r0,r2
-		FNRTSS
+		FNRTS
 
 
 		LOCAL
@@ -198,10 +197,12 @@ loop$L		ADD	r1,r1,#1
 
 ;  Stop long operation (hourglass off, disable & clear escape)
 ;  Exit conditions:
-;    Flags preserved
+;    V flag preserved
 
 		EXPORT	stoplongop
-stoplongop	FNJSR	"r0-r2"
+stoplongop	FNJSR	"r0-r3"
+		MOVVC	R3,#0
+		MOVVS	R3,R0
 		SWI	XHourglass_Off
 		MOV	r0,#229
 		MOV	r1,#1
@@ -209,7 +210,9 @@ stoplongop	FNJSR	"r0-r2"
 		SWI	XOS_Byte
 		MOV	r0,#124
 		SWI	XOS_Byte
-		FNRTSS
+		MOVS	R0,R3
+		FNRTS	EQ
+		FNRTV
 
 
 		LOCAL
@@ -251,14 +254,14 @@ getc		LDR	r3,[r10]
 		LDR	r3,[r3,#p_fileblk]
 		LDR	r1,[r3,#f_len-f_0]
 		CMP	r0,r1
-		MOVHSS	pc,lr	; !!! ARM32 FIXME
+		MOVHS	pc,lr
 		LDR	r1,[r3,#f_splito-f_0]
 		CMP	r0,r1
 		LDRHS	r1,[r3,#f_splits-f_0]
 		ADDHSS	r0,r0,r1
 		LDR	r1,[r3,#f_ptr-f_0]
 		LDRB	r0,[r1,r0]
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
@@ -277,7 +280,7 @@ loop$L		LDRB	r2,[r1,r0]
 		ADD	r0,r0,#1
 		CMP	r2,#' '
 		BHS	loop$L
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
@@ -295,7 +298,7 @@ strcpy		LDRB	r2,[r1],#1
 		STRB	r2,[r0],#1
 		BHS	strcpy
 		SUB	r0,r0,#1
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
@@ -308,14 +311,14 @@ strcpy		LDRB	r2,[r1],#1
 
 		EXPORT	strncpy
 strncpy		SUBS	r2,r2,#1
-		MOVMIS	pc,lr	; !!! ARM32 FIXME
+		MOVMI	pc,lr
 		LDRB	r3,[r1],#1
 		CMP	r3,#' '
 		MOVLO	r3,#0
 		STRB	r3,[r0],#1
 		BHS	strncpy
 		SUB	r0,r0,#1
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
@@ -330,7 +333,7 @@ kbhit		MOV     r0,#152
                 SWI     XOS_Byte
                 MOV     r0,#0
                 MOVCC   r0,#1
-                MOVS    pc,lr	; !!! ARM32 FIXME
+                MOV     pc,lr
 
 
 		LOCAL
@@ -358,26 +361,26 @@ kbhit		MOV     r0,#152
 
 ;  Exits with C set if start/end of line found, else Z set if a r0 is a 'filler' character
 
-		EXPORT	isfiller
-isfiller	PUSH	"r1"
-		LDRB	r1,w_cr
-		TEQ	r0,r1
-		LDMFD	sp!,{r1}
-		ORREQS	pc,lr,#Cbit	; !!! ARM32 FIXME
-		BIC	lr,lr,#Cbit
-		CMP	r0,#'0'
-		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
-		CMP	r0,#'9'+1
-		MOVLO	pc,lr
-		CMP	r0,#'A'
-		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
-		CMP	r0,#'Z'+1
-		MOVLO	pc,lr
-		CMP	r0,#'a'
-		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
-		CMP	r0,#'z'+1
-		MOVLO	pc,lr
-		ORRS	pc,lr,#Zbit	; !!! ARM32 FIXME
+;		EXPORT	isfiller
+;isfiller	PUSH	"r1"
+;		LDRB	r1,w_cr
+;		TEQ	r0,r1
+;		PULL	"r1"
+;		ORREQS	pc,lr,#Cbit	; !!! ARM32 FIXME
+;		BIC	lr,lr,#Cbit
+;		CMP	r0,#'0'
+;		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
+;		CMP	r0,#'9'+1
+;		MOVLO	pc,lr
+;		CMP	r0,#'A'
+;		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
+;		CMP	r0,#'Z'+1
+;		MOVLO	pc,lr
+;		CMP	r0,#'a'
+;		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
+;		CMP	r0,#'z'+1
+;		MOVLO	pc,lr
+;		ORRS	pc,lr,#Zbit	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -390,7 +393,7 @@ beingkilled	LDR	r0,ws_numinit
 		SUBS	r0,r0,#1
 		STR	r0,ws_numinit
 		MOVNE	r0,#-1
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
@@ -407,7 +410,7 @@ releasekeys	MOV	r0,#202
 		SWI	XOS_Byte
 		TST	r1,#2_01001000
 		BNE	releasekeys
-		MOVS	pc,lr	; !!! ARM32 FIXME
+		MOV	pc,lr
 
 
 		LOCAL
