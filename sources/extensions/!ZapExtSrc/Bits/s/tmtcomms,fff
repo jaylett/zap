@@ -1,0 +1,957 @@
+; Zap Bits Command Extension
+; $Id: tmtcomms,fff,v 1.1 1999/02/15 16:21:54 dj Exp $
+; Copyright (C) 1999 Zap Developers
+
+; Commands written by Tim Tyler
+
+	GET	h.ZapBits
+	GET	h.module
+	GET	h.utils
+
+	EXPORT	tmt_menufromfile
+	EXPORT	tmt_modemenu
+	EXPORT	tmt_event
+	EXPORT	tmt_mousetrap
+	EXPORT	tmt_powersearch
+	EXPORT	tmt_updatestatus
+	EXPORT	tmt_commandib
+
+	EXPORT	tmt_if		; temporary
+
+
+	&	7
+tmt_mousetrap ROUT
+	FNJSR
+	ADRL	r1,aqwktable
+	SWI	XWimp_GetPointerInfo
+	FNRTS	VS
+	MOV	r2,r1
+	LDMIA	r2!,{r0,lr}
+	STMIA	r2!,{r0,lr}
+	STMIA	r2!,{r0,lr}
+	STMIA	r2!,{r0,lr}
+	STMIA	r2!,{r0,lr}
+	LDR	r0,[r8,#w_handle]
+	MOV	lr,#7
+	STMIA	r1,{r0,lr}
+	MOV	r0,#0
+	ADR	r2,mt_routinename
+	FNcall	Zap_DragBox
+	FNRTS
+mt_routinename
+	MOV	pc,lr
+
+
+tablstart
+	MACRO
+	Func	$f, $p
+	=	"$f"
+ [ :LEN:"$f"<12
+	=	0
+ ]
+ [ :LEN:"$f"<11
+	%	11-:LEN:"$f"
+ ]
+ [ "$p"="0" :LOR: "$p"="1"
+	&	$p
+ |
+	&	$p-tablstart
+ ]
+	MEND
+	Func	" THEN ",	0
+	Func	" ELSE ",	1
+	Func	"SELECT ",	deccmdsel
+	Func	"MENU ",	deccmdmen
+	Func	"ADJUST ",	deccmdadj
+	Func	"BUTTONS",	deccmdbut
+	Func	"MODE ",	deccmdmod
+	Func	"SHIFT ",	deccmdshi
+	Func	"ALT ",		deccmdalt
+	Func	"CONTROL ",	deccmdco2
+	Func	"CTRL ",	deccmdcon
+	Func	"TRUE ",	deccmdtru
+	Func	"FALSE ",	deccmdfal
+	Func	"INHTMLTAG ",	deccmdiht
+	Func	"TEXTMODENAME",	deccmdtmn
+	Func	"CURSORVAL",	cursorval
+	Func	"CURSORCHAR",	cursorchr
+	Func	"SELANYWHERE",	selanywhe
+	Func	"SELHERE",	selishere
+	Func	"SELSIZE",	selhowbig
+	Func	"TICKED",	isitatick
+	Func	"GREYED",	isitagrey
+	=	"****"
+
+claimedtemp	&	0
+startofsela	&	0
+lenofsela	&	0
+endcmtoffs	&	0
+incomingdata	&	0
+strstrstr4	StrZA	"zapbitsp_p_if","If: "
+		ALIGN
+
+supplystring4
+	ADR	r0,strstrstr4
+ [ INTL=""
+	FNjump	Zap_MiniPromptToken
+ |
+	FNjump	Zap_MiniPrompt
+ ]
+
+	&	&58
+tmt_if	ROUT
+	CMP	r2,#6
+	BEQ	supplystring4
+	FNJSR	"r0-r12"
+	MOV	r5,r0
+	MOV	r1,#0
+0	LDRB	r2,[r5,r1]
+	ADD	r1,r1,#1
+	CMP	r2,#32
+	BCS	%BT0
+	ORR	r0,r1,#7
+	ADD	r0,r0,#1
+	FNcall	Zap_Claim
+	FNRTS	VS
+	STR	r0,claimedtemp
+0	LDRB	r2,[r5,r1]
+	STRB	r2,[r0,r1]
+	SUBS	r1,r1,#1
+	BPL	%BT0
+	MOV	r5,#0
+	MOV	r4,#0
+0	LDRB	r2,[r0]
+	CMP	r2,#34
+	EOREQ	r4,r4,#1
+	CMP	r4,#0
+	BLEQ	rplanythatstarthere
+	ADD	r0,r0,#1
+	LDRB	r2,[r0]
+	CMP	r2,#32
+	BCC	NoThenError
+	CMP	r1,#0
+	BEQ	%BT0
+	MOV	r1,#0
+	STRB	r1,[r0,#-1]
+	ADD	r7,r0,#5
+	BL	findandmarkandelses
+	LDR	r0,claimedtemp
+	ADRL	r1,aqwktable
+	MOV	r2,#44
+	SWI	XOS_EvaluateExpression
+	BVS	aquickreport
+	CMP	r1,#0
+	BNE	freeherup
+	CMP	r2,#0
+	BEQ	executeelse
+	PUSH	"r0-r12"
+	MOV	r0,r7
+	FNcall	Zap_CommandString
+	PULL	"r0-r12"
+freeherup
+	LDR	r0,claimedtemp
+	FNcall	Zap_Free
+	FNRTS
+executeelse
+	PUSH	"r0-r12"
+	LDR	r0,addressofanyelse
+	CMP	r0,#0
+	FNcallc	Zap_CommandString,NE
+	PULL	"r0-r12"
+	B	freeherup
+aquickreport
+	MOV	r1,#0
+	ADD	r0,r0,#4
+	FNcall	Zap_Warning
+	B	freeherup
+
+NoThenError
+ [ INTL=""
+	MOV	r1,#1<<29
+ |
+	MOV	r1,#0
+ ]
+	ADR	r0,therewasnothen
+	FNcall	Zap_Warning
+	B	freeherup
+therewasnothen
+	=	"zapbits_w_nothen",0
+	ALIGN
+
+rplanythatstarthere
+	FNJSR	"r0,r2-r4"
+	STR	r0,incomingdata
+	ADR	R1,tablstart
+	MOV	r4,#0
+0	CMP	r4,#12
+	BEQ	foundmatch
+	LDRB	r3,[r1,r4]
+	LDRB	r2,[r0,r4]
+	CMP	r3,#32
+	BCC	foundmatch
+	CMP	r2,r3
+	ADDEQ	r4,r4,#1
+	BEQ	%BT0
+	ADD	r1,r1,#16
+	LDRB	r2,[r1]
+	CMP	r2,#'*'
+	BNE	%BT0
+	MOV	r1,#0
+	FNRTS
+foundmatch
+	LDR	r2,[r1,#12]		; offset of routine address
+	CMP	r2,r5
+	BEQ	thethenatlast
+	CMP	r5,#1
+	MOVEQ	r1,#0
+	FNRTS	EQ
+	ADR	r3,tablstart
+	ADD	r2,r2,r3
+	MOV	lr,pc
+	MOV	pc,r2
+	MOV	r0,r0
+	MOV	r1,#0
+	FNRTS
+thethenatlast
+	CMP	r5,#0
+	MVNEQ	r1,#0
+	FNRTS	EQ
+	MOV	r1,#0
+	STRB	r1,[r0]
+	ADD	r1,r0,#5
+	STR	r1,addressofanyelse
+	MVN	r1,#0
+	FNRTS
+
+addressofanyelse &	0
+
+findandmarkandelses
+	FNJSR	"r0-r12"
+	MOV	r0,#0
+	STR	r0,addressofanyelse
+	MOV	r4,#0
+	MOV	r5,#1
+	MOV	r0,r7
+0	LDRB	r2,[r0]
+	CMP	r2,#34
+	EOREQ	r4,r4,#1
+	CMP	r4,#0
+	BLEQ	rplanythatstarthere
+	ADD	r0,r0,#1
+	LDRB	r2,[r0]
+	CMP	r2,#32
+	BCC	noelsefound
+	CMP	r1,#0
+	BEQ	%BT0
+noelsefound
+	FNRTS
+
+loceofcmdhre	&	0
+adrofexprhere	&	0
+
+isitatick
+	FNJSR	"r0-r9"
+	MOV	r1,#1
+isitasomething
+	BL	getflagsforcommand
+	CMN	r0,#1
+	FNRTS	EQ
+	ANDS	r1,r0,r1
+	MOVNE	r1,#-1
+	LDR	r14,loceofcmdhre
+	LDR	r2,incomingdata
+	SUB	r2,r14,r2
+	BL	wipewithspaces
+	BL	insertasnumber
+	FNRTS
+
+isitagrey
+	FNJSR	"r0-r9"
+	MOV	r1,#2
+	B	isitasomething
+
+getflagsforcommand
+	FNJSR	"r1"
+	LDR	r1,incomingdata
+	LDRB	r3,[r1,#6]!
+	CMP	r3,#'('
+	BNE	sposdtorepterr
+	MOV	r0,#0
+	STR	r0,adrofexprhere
+	STR	r0,evalexpbufr
+0	MOV	r0,#0
+	LDRB	r3,[r1],#1
+	CMP	r3,#' '
+	STREQB	r0,[r1,#-1]
+	STREQ	r1,adrofexprhere
+	CMP	r3,#' '
+	STRLEB	r0,[r1,#-1]
+	BLT	sposdtorepterr
+	CMP	r3,#')'
+	BNE	%BT0
+	MOV	r0,#0
+	STRB	r0,[r1,#-1]
+	STR	r1,loceofcmdhre
+	LDR	r1,adrofexprhere
+	CMP	r1,#0
+	BLNE	readanyparametersforcmd
+	LDR	r0,incomingdata
+	ADD	r0,r0,#7
+	FNcall	Zap_FindCommand
+	CMP	r0,#0
+	BEQ	sposdtorepterr
+	MOV	r7,r0
+	LDR	r0,[r7,#-4]
+	TST	r0,#1<<15
+	FNRTS	EQ
+	ADR	r0,evalexpbufr
+	MOV	r1,#1
+	MOV	r2,#15
+	BIC	r2,r2,#&FF000000
+	FNcall	Zap_ProcessCommand
+	FNRTS
+sposdtorepterr
+	MVN	r0,#1
+	FNRTS
+
+readanyparametersforcmd
+	FNJSR	"r1-r3"
+	MOV	r0,r1
+	ADR	r1,evalexpbufr
+	MOV	r2,#8
+	SWI	XOS_EvaluateExpression
+	FNRTS	VS
+	CMP	r1,#0
+	STREQ	r2,evalexpbufr
+	FNRTS
+
+evalexpbufr %	8
+
+generalkeyroutine
+	FNJSR
+	MOV	r3,r0
+	MOV	r2,r1
+	BL	wipewithspaces
+	MOV	r0,#129
+	MOV	r1,r3
+	MOV	r2,#255
+	SWI	XOS_Byte
+	MOVCC	r1,#0
+	MVNCS	r1,#0
+	BL	insertasnumber
+	FNRTS
+
+cursorchr
+	FNJSR	"r0-r2"
+	MOV	r2,#9
+	BL	wipewithspaces
+	FNcall	Zap_FindInput
+	BL	getcharatoffset
+	CMP	r0,#32
+	MOVCC	r0,#32
+	LDR	r1,incomingdata
+	MOV	r2,#' '
+	STRB	r2,[r1],#1
+	MOV	r2,#34
+	STRB	r2,[r1],#1
+	STRB	r0,[r1],#1
+	STRB	r2,[r1],#1
+	FNRTS
+
+generalmouseroutine
+	STR	lr,[sp,#-24]!
+	MOV	r3,r0
+	MOV	r2,r1
+	BL	wipewithspaces
+	ADD	r1,sp,#4
+	SWI	XWimp_GetPointerInfo
+	LDR	r1,[r1,#8]
+	ANDS	r1,r1,r3
+	MVNNE	r1,#0
+	BL	insertasnumber
+	LDR	pc,[sp],#24	; return
+
+deccmdtmn
+	CMP	R8,#0
+	MOVEQ	pc,lr
+	FNJSR	"r0-r2"
+	MOV	r2,#11
+	BL	wipewithspaces
+	LDRB	r0,[r8,#w_format]	; get mode number
+	FNcall	Zap_ReadMode
+	LDR	lr,[r1,#8]
+	LDR	r1,incomingdata
+	MOV	r0,#' '
+	STRB	r0,[r1],#1
+	MOV	r0,#34
+	STRB	r0,[r1],#1
+	MOV	r0,r14
+	BL	strcpy
+	MOV	r0,#34
+	STRB	r0,[r1],#1
+	MOV	r0,#' '
+	STRB	r0,[r1],#1
+	FNRTS
+
+deccmdiht
+	FNJSR	"r1,r2"
+	MOV	r2,#8
+	BL	wipewithspaces
+	PUSH	"r0,r2-r7"
+	FNcall	Zap_FindInput
+	BVS	preinsertionpoint
+	STR	r0,caretofsif
+	FNcall	Zap_ReflectCaret
+	LDR	r3,caretofsif
+	ADR	r0,ltsearch
+	MOV	r1,#2
+	MVN	r4,#0
+	MOV	r5,#1<<25:OR:1<<26:OR:1<<24
+	FNcall	Zap_Search
+	MOV	r7,r0
+	CMP	r7,#0
+	MOVMI	r1,#0
+	BMI	insertionpoint
+	LDR	r3,caretofsif
+	ADR	r0,gtsearch
+	MOV	r1,#2
+	MVN	r4,#0
+	MOV	r5,#1<<25:OR:1<<26:OR:1<<24
+	FNcall	Zap_Search
+	CMP	r0,r7
+	MOVGT	r1,#0
+	BGT	insertionpoint
+preinsertionpoint
+	MVN	r1,#0
+insertionpoint
+	PULL	"r0,r2-r7"
+	BL	insertasnumber
+	FNRTS
+
+caretofsif &	0
+gtsearch =	">",0
+ltsearch =	"<",0
+
+deccmdmod
+	FNJSR	"r1,r2"
+	MOV	r2,#3
+	BL	wipewithspaces
+	MVN	r1,#0
+	CMP	r8,#0
+	LDRNEB	r1,[r8,#w_format]
+	BL	insertasnumber
+	FNRTS
+
+deccmdbut
+	FNJSR	"r0-r2"
+	MOV	r2,#7
+	BL	wipewithspaces
+	MOV	r0,#6
+	BL	callmiscentrypt
+	MOV	r1,r0
+	BL	insertasnumber
+	FNRTS
+
+wipewithspaces
+	FNJSR	"r0-r2"
+	LDR	r0,incomingdata
+	MOV	r1,#32
+0	STRB	r1,[r0,r2]
+	SUBS	r2,r2,#1
+	BPL	%BT0
+	FNRTS
+
+insertasnumber
+	FNJSR	"r0-r2"
+	MOV	r0,r1
+	LDR	r1,incomingdata
+	MOV	r2,#6
+	SWI	XOS_ConvertInteger2
+	MOV	r2,#32
+	STRB	r2,[r1]
+	FNRTS
+
+callmiscentrypt
+	FNJSR	"r0-r12"
+	ADR	r0,buttonsamed2
+	FNcall	Zap_TestModeName
+	FNRTS	VS
+	TEQ	r0,#0
+	FNRTS	MI
+	MOV	r0,#18
+	ADR	r1,buttonsamed
+	SWI	XOS_Module
+	FNRTS	VS
+	ADD	r3,r3,#&2C
+	STR	r3,alocaljumper
+	FNPULL
+	LDR	pc,alocaljumper
+
+alocaljumper	&	0
+buttonsamed	=	"Zap"
+buttonsamed2	=	"Buttons",0
+	ALIGN
+
+
+	&	&8045F
+tmt_modemenu ROUT
+	TEQ	r2,#6
+	ADREQ	r0,nullstr
+	MOVEQ	pc,lr
+	TEQ	r2,#19
+	MOVNE	pc,lr
+	FNJSR
+	LDR	r1,[r0]
+	CMP	r0,#256
+	BCS	asuppliedmode
+	CMP	r8,#0
+	FNRTS	EQ
+	LDRB	r0,[r8,#w_format]
+	FNcall	Zap_ReadMode
+	CMP	r0,#0
+	MOVLT	r0,#0
+	LDRGT	r0,[r1,#48]
+	FNRTS
+asuppliedmode
+	FNcall	Zap_ModeNumber
+	CMN	r0,#1
+	MOVEQ	r0,#0
+	FNRTS	EQ
+	FNcall	Zap_ReadMode
+	LDR	r0,[r1,#48]
+	FNRTS
+
+nullstr	&	0
+
+
+	DCD	&401F
+tmt_event ROUT
+	FNJSR
+	LDRB	r1,[r0],#1
+	CMP	r1,#'C'
+	MOVEQ	r0,#0
+	STREQ	r0,eventdelay
+	STREQ	r0,eventtstrptr
+	FNRTS	EQ
+	CMP	r1,#'S'
+	FNRTS	NE
+	MOV	r1,r0
+	MOV	r0,#10
+	SWI	XOS_ReadUnsigned
+	FNRTS	VS
+	STR	r2,eventdelay
+0	LDRB	r0,[r1]
+	CMP	r0,#33
+	ADDCC	r1,r1,#1
+	BCC	%BT0
+	MOV	r0,r1
+	FNcall	Zap_FindCommand
+	STRVC	r0,eventtstrptr
+	BLVC	gotocallback
+	FNRTS
+
+allbackrtine
+	FNJSR	"r0-r12"
+	LDR	r1,eventdelay
+	CMP	r1,#0
+	LDRNE	r0,eventtstrptr
+	CMPNE	r0,#0
+	FNRTS	EQ
+	MOV	lr,pc
+	MOV	pc,r0
+	MOV	r0,r0
+	BL	gotocallback
+	FNRTS
+
+gotocallback
+	FNJSR
+	LDR	r1,eventdelay
+	RSB	r1,r1,#0
+	ADR	r2,allbackrtine
+	FNcall	Zap_CallBack
+	FNRTS
+
+eventdelay	&	0
+eventtstrptr	&	0
+
+
+	&	0
+tmt_updatestatus ROUT
+	FNJSR
+	FNcall	Zap_SaveWinStatus
+	FNcall	Zap_NewWinStatus
+	FNRTS
+
+
+	&	&59
+tmt_powersearch ROUT
+	FNJSR	"r0-r12"
+	CMP	r2,#6
+	BEQ	supplyastring
+	MOV	r7,r0
+	LDR	lr,[r8,#w_info]
+	STR	lr,blkedittmp
+	BIC	lr,lr,#1<<10
+	STR	lr,[r8,#w_info]
+	MOV	r0,#&100
+	FNcall	Zap_Claim
+	FNRTS	VS
+	STR	r0,memclaimed1
+	MOV	r2,#0
+	STR	r2,secondsequence
+	MOV	r4,#0
+	LDRB	r2,[r7]
+0	LDRB	r3,[r7],#1
+	CMP	r4,#2
+	MOV	r1,r3
+	BCS	nocheckzhere
+	CMP	r1,r2
+	BNE	nocheckzhere
+	ADD	r4,r4,#1
+	ADD	r1,r0,#1
+	STR	r1,secondsequence
+	MOV	r1,#0
+nocheckzhere
+	STRB	r1,[r0],#1
+	CMP	r3,#0
+	BNE	%BT0
+	LDR	r0,secondsequence
+	CMP	r0,#0
+	BEQ	problemreportA
+	CMP	r4,#2
+	BCC	problemreportB
+	MOV	r6,#1<<22:OR:1<<24:OR:1<<25:OR:1<<26:OR:1<<29
+	LDRB	r1,[r0]
+	CMP	r1,#'*'
+	ORREQ	r6,r6,#1<<30
+	ADDEQ	r0,r0,#1
+	LDRB	r1,[r0]
+	CMP	r1,#'$'
+	BICEQ	r6,r6,#1<<29
+	ADDEQ	r0,r0,#1
+	STR	r0,secondsequence
+	MOV	r10,r8
+	FNcall	Zap_GetSel
+	BCS	endofentcmdU
+	CMP	r8,r10
+	BNE	endofentcmdU
+	STR	r1,startofsela
+	SWI	XHourglass_On
+	FNcall	Zap_StartOp
+	LDR	r0,startofsela
+	FNcall	Zap_PutCaret
+0	MOV	r0,#129
+	MOV	r1,#&8F
+	MOV	r2,#255
+	SWI	XOS_Byte
+	BCS	preendofentcmdU
+	FNcall	Zap_GetSel
+	BCS	endofentcmdU
+	LDR	r1,startofsela
+	ADD	r2,r2,r1
+	STR	r2,lenofsela
+	FNcall	Zap_FindInput
+	SUB	r3,r0,#1
+	MOV	r4,#1
+	MOV	r5,r6
+	MOV	r1,#2
+	LDR	r0,memclaimed1
+	ADD	r0,r0,#1
+	FNcall	Zap_Search
+	CMP	r0,#0
+	BMI	preendofentcmdU
+	STR	r0,endcmtoffs
+	STR	r1,secondsequence+4
+	LDR	r2,lenofsela
+	CMP	r1,r2
+	BCS	preendofentcmdU
+	LDR	r3,secondsequence
+	LDRB	r2,[r3]
+	CMP	r2,#'%'
+	MOVEQ	r0,r1
+	FNcall	Zap_PutCaret
+	LDR	r3,secondsequence
+	LDRB	r2,[r3]
+	MOV	r0,r3
+	CMP	r2,#'%'
+	BEQ	skipoverpers
+	CMP	r2,#'#'
+	BNE	nocutnow
+	LDR	r3,endcmtoffs
+	LDR	r2,secondsequence+4
+	MOV	r1,r3
+	SUB	r2,r2,r3
+	MOV	r0,#&12
+	FNcall	Zap_Command
+	LDR	r0,secondsequence
+	ADD	r0,r0,#1
+	B	nocutnow
+skipoverpers
+	LDR	r3,secondsequence+4
+	MOV	r2,#0
+	MOV	r1,r3
+	MOV	r0,#&12
+	FNcall	Zap_Command
+	LDR	r0,secondsequence
+	ADD	r0,r0,#1
+nocutnow
+	FNcall	Zap_CommandString
+	B	%BT0
+preendofentcmdU
+	FNcall	Zap_StopOp
+	SWI	XHourglass_Off
+endofentcmdU
+	LDR	r0,memclaimed1
+	FNcall	Zap_Free
+	LDR	lr,blkedittmp
+	STR	lr,[r8,#w_info]
+	FNRTS
+problemreportA
+problemreportB
+	SWI	&20107
+	B	endofentcmdU
+supplyastring
+	ADR	r0,utilprstr
+	FNcall	Zap_MiniPrompt
+	FNRTS
+
+getcharatoffset
+	LDR	r1,[r9,#f_splito]
+	CMP	r0,r1
+	LDRCS	r1,[r9,#f_splits]
+	ADDCS	r0,r0,r1
+	LDR	r1,[r9,#f_ptr]
+	LDRB	r0,[r1,r0]
+	MOV	pc,lr
+
+getcurrntcursoroffset
+	FNJSR
+	MOV	r1,#10
+	FNcall	Zap_ReadVar
+	CMP	r0,#0
+	BEQ	endstrtaway2
+	MOV	r1,#5
+	CMP	r0,#2
+	CMPNE	r0,#5
+	MOVEQ	r1,#6
+	FNcall	Zap_ReadVar
+	LDR	r0,[r0,#c_off]
+	FNRTS
+endstrtaway2
+	MVN	r0,#0
+	FNRTS
+
+utilprstr	&	0
+memclaimed1	&	0
+secondsequence	%	8
+blkedittmp	&	0
+
+
+	&	&19
+tmt_menufromfile ROUT
+	FNJSR
+	MOV	r7,r0
+	LDR	r0,menuptr
+	CMP	r0,#0
+	BEQ	nodeallocationtobedone
+	FNcall	Zap_Free
+	MOV	r0,#0
+	STR	r0,menuptr
+nodeallocationtobedone
+	MOV	r1,r7
+	BL	loadandretptr
+	CMP	r0,#0
+	BMI	nomenutobemade2
+	FNcall	Zap_ReadMenu
+	STR	r0,menuptr
+	LDR	r7,[r0,#4]
+	CMP	r7,#0
+	BEQ	nomenutobemade
+	ADR	r1,aqwktable
+	SWI	XWimp_GetPointerInfo
+	LDMIA	r1,{r2,r3}
+	SUB	r2,r2,#64
+	ADD	r3,r3,#16
+	MOV	r1,r7
+	FNcall	Zap_OpenMenu
+nomenutobemade
+	LDR	r0,menutextptr
+	FNcall	Zap_Free
+nomenutobemade2
+	FNRTS
+
+loadandretptr
+	FNJSR	"r1-r5"
+	MOV	r0,#5
+	SWI	XOS_File
+	ORRVC	r0,r4,#3
+	ADDVC	r0,r0,#&1
+	STRVC	r0,menutextlen
+	ADDVC	r0,r0,#&4
+	FNcallc	Zap_Claim,VC
+	BVS	deliverwarning
+	STR	r0,menutextptr
+	MOV	r3,#0
+	MOV	r2,r0
+	MOV	r0,#255
+	SWI	XOS_File
+	BVS	deliverwarning2
+	LDR	r0,menutextptr
+	LDR	r1,menutextlen
+	MOV	r2,#0
+	STR	r2,[r0,r1]
+	FNRTS
+deliverwarning2
+	MOV	r5,r0
+	LDR	r0,menutextptr
+	FNcall	Zap_Free
+	MOV	r0,r5
+deliverwarning
+	MOV	r1,#0
+	ADD	r0,r0,#4
+	FNcall	Zap_Warning
+	MVN	r0,#0
+	FNRTS
+
+menutextptr	&	0
+menutextlen	&	0
+menuptr		&	0
+
+aqwktable %	48
+
+
+tmpptrtoends	&	0
+
+deccmdsel
+	FNJSR	"r0-r3"
+	MOV	r1,#5
+	MOV	r0,#4
+	BL	generalmouseroutine
+	FNRTS
+
+deccmdmen
+	FNJSR	"r0-r3"
+	MOV	r1,#3
+	MOV	r0,#2
+	BL	generalmouseroutine
+	FNRTS
+
+deccmdadj
+	FNJSR	"r0-r3"
+	MOV	r1,#5
+	MOV	r0,#1
+	BL	generalmouseroutine
+	FNRTS
+
+deccmdshi
+	FNJSR	"r0-r3"
+	MOV	r1,#4
+	MOV	r0,#255
+	BL	generalkeyroutine
+	FNRTS
+
+deccmdcon
+	FNJSR	"r0-r3"
+	MOV	r1,#3
+	MOV	r0,#254
+	BL	generalkeyroutine
+	FNRTS
+
+deccmdco2
+	FNJSR	"r0-r3"
+	MOV	r1,#6
+	MOV	r0,#254
+	BL	generalkeyroutine
+	FNRTS
+
+deccmdalt
+	FNJSR	"r0-r3"
+	MOV	r1,#2
+	MOV	r0,#253
+	BL	generalkeyroutine
+	FNRTS
+
+deccmdtru
+	FNJSR	"r0-r2"
+	MOV	r2,#3
+	BL	wipewithspaces
+	MVN	r1,#0
+	BL	insertasnumber
+	FNRTS
+
+deccmdfal
+	FNJSR	"r0-r2"
+	MOV	r2,#4
+	BL	wipewithspaces
+	MOV	r1,#0
+	BL	insertasnumber
+	FNRTS
+
+cursorval
+	FNJSR	"r0-r2"
+	MOV	r2,#8
+	BL	wipewithspaces
+	FNcall	Zap_FindInput
+	BL	getcharatoffset
+	MOV	r1,r0
+	BL	insertasnumber
+	FNRTS
+
+selanywhe
+	FNJSR	"r0-r2,r8,r9"
+	MOV	r2,#10
+	BL	wipewithspaces
+	FNcall	Zap_GetSel
+	MOVCS	r1,#0
+	MVNCC	r1,#0
+	BL	insertasnumber
+	FNRTS
+
+selishere
+	FNJSR	"r0-r2,r7-r9"
+	MOV	r7,r8
+	MOV	r2,#6
+	BL	wipewithspaces
+	FNcall	Zap_GetSel
+	MVNCS	r7,#0
+	CMP	r7,r8
+	MOVNE	r1,#0
+	MVNEQ	r1,#0
+	BL	insertasnumber
+	FNRTS
+
+selhowbig
+	FNJSR	"r0-r2,r7-r9"
+	MOV	r2,#6
+	BL	wipewithspaces
+	FNcall	Zap_GetSel
+	MVNCS	r1,#0
+	MOVCC	r1,r2
+	BL	insertasnumber
+	FNRTS
+
+
+	DCD	7+(3<<3)+(1<<6)
+tmt_commandib
+	FNJSR
+	CMP	r2,#6
+	BEQ	ibcprompt
+	MOV	r8,#0
+	MOV	r9,#0
+	MOV	r10,#0
+	FNcall	Zap_CommandString
+	FNRTS
+ibcprompt
+	ADR	r0,ibcmdprompt
+ [ INTL=""
+	FNcall	Zap_MiniPromptToken
+ |
+	FNcall	Zap_MiniPrompt
+ ]
+	FNRTS
+
+ibcmdprompt
+	StrZA	"zapbits_p_cmd","Command (IB): "
+
+
+	END

@@ -1,0 +1,71 @@
+# Make file for Zap Text Editor
+# using freeware tools make, AS, DRLink
+# (c) Darren Salt
+
+# For the standard build name:
+#	make -r -f MakefileAS
+# For alternative build names:
+#	make -r -f MakefileAS BUILD=foo
+#	make -r -f MakefileAS BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+# BTW, give 'make' lots of memory ;-)
+
+# To build for Zap 1.40, append "INTL=no" to the command line
+
+# Targets:
+#	ZapBits		Assemble .s, build .h, and link. This is the default
+#	ZapBitsHdrs	Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+
+# Where to get the tools:
+# 	AS:     <URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
+# 	Make:   <URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/unixtools/gnu/make.absolute>
+# 	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
+
+OBJECTS		= o.module o.commands o.dscomms o.tmtcomms o.utils
+HEADERS		= t.module t.commands t.dscomms t.tmtcomms t.utils
+
+TARGET		= ZapBits
+ZapS		= <ZapSource$$Dir>
+link		= drlink
+linkPartFlags	= -aof
+linkFlags	= -bin -b &00000000 -nounused
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic -I$(ZapS)
+
+__BUILD		= "-DBUILD=$(BUILD)"
+__INTL		= "-DINTL=$(INTL)"
+
+ZapBits:	$(OBJECTS) ZapBitsHdrs
+		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
+		Settype $(TARGET) Module
+		Run $(ZapS).data.MCopy $(TARGET) ZapModules:!ZapBits.ZapBits
+		@Echo Finished
+
+ZapBitsHdrs:	$(HEADERS)
+		@Echo Made headers
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+s.% o.%:
+	$(as) $(asFlags) $(__BUILD) s.$*
+
+s.% t.%:
+	@Run $(ZapS).data.StoH s.$* h.$*
+	Create t.$* 0
+
+# Dependencies:
+
+t.module: s.module
+t.utils: s.utils
+t.dscomms: s.dscomms
+t.commands: s.commands
+t.tmtcomms: s.tmtcomms
+
+o.module: s.module
+o.utils: s.utils
+o.dscomms: s.dscomms
+o.commands: s.commands
+o.tmtcomms: s.tmtcomms
