@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.2 2002/01/25 19:57:20 ds Exp $
+  // $Id: download.php,v 1.3 2002/01/26 09:52:42 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -11,8 +11,6 @@
 <p>The current stable release is <a href="#140">v1.40</a>. An older stable release which might still be useful for some people is <a href="#135">v1.35</a>. The current beta release is <a href="#144">v1.44</a>.</p>
 
 <p>Zap distribution sets are made as 'zipchives' - Zip-format archives, compatible with the free <a href="http://www.cdrom.com/pub/infozip/">InfoZip</a> program (which is available for most operating systems, including RISC OS) and David Pilling's SparkFS. If you don't have either of these, download <a href="http://zap.tartarus.org/ftp/pub/sparkplug.basic.bin">sparkplug.basic.bin</a>, set its type to BASIC and run it - it self-extracts into a copy of SparkPlug into the current directory, which will also read zip archives.</p>
-
-<p>Please use the ftp site if you can; ftp transfer is in general faster than http. In addition, the http-based downloads may not be up to date.</p>
 
 <p>If you need to report a bug, or want to suggest a new feature, please check the <a href="contact">contacts page</a> for the appropriate email address. You should also try to make sure that the bug/feature hasn't already been reported/proposed (the buglist is currently available via the <a href="cvs/">CVS repository</a>, and in recent beta releases).</p>
 
@@ -258,5 +256,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/01/25 19:57:20 $');
+  zap_body_end ('$Date: 2002/01/26 09:52:42 $');
 ?>
