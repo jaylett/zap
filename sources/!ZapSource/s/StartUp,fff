@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.14 1999/02/17 18:00:42 dj Exp $
+; $Id: StartUp,fff,v 1.1.2.15 1999/02/22 18:49:36 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -258,7 +258,7 @@ a$l
  FNRTS
 table$l
  DCD &100,wimp_buffer
- DCD &100,wimp_block
+ DCD &800,wimp_block
  DCD &64,car_block		; hex?
  DCD &80,wimp_dzap
  DCD &80,wimp_print
@@ -1179,6 +1179,11 @@ start$l				; load the module and do a command
 ; file to load to install that mode, command etc (zero if freed)
 ; The module file name is of the form <module name>,0,<extra file>,0
 ; The extra file will be Wimptasked before the module is loaded.
+;
+; Each mode name is followed by a flags word (the same as is stored in its
+; e_flags entry). If the word isn't specified in the file, then &80000000 is
+; used to indicate this.
+;
 ; Each command name is followed by a flags word (the same as is stored
 ; immediately before the command's entry point). If the word isn't specified
 ; in the file, then &80000000 is used to indicate this.
@@ -1208,6 +1213,8 @@ a$l
  LDRB R0,[R1],#1
  TEQ R0,#0
  BNE a$l
+ TEQ R3,#0
+ ADDEQ R1,R1,#4
  ADD R1,R1,#7
  BIC R1,R1,#3			; align + skip the address
  B findend$l
@@ -1218,7 +1225,7 @@ found$l
  MOVEQ R0,#4
  BLNE str_len			; R0=length of argument
  ADD R1,R6,R0
- ADD R1,R1,#20+63		; +term (4) +addr (4)+ listterm(4)
+ ADD R1,R1,#24+63		; +term (+modeflags) +addr +listterm
  BIC R1,R1,#63			; align to next 64 boundry
  MOV R0,R5
  BL heap_ensure
@@ -1243,18 +1250,20 @@ b$l
  STRB R0,[R1],#1		; add terminator
  TST R1,#3
  BNE b$l			; until aligned
- TEQ R3,#1			; command?
- BNE end$l			; no
+ CMP R3,#1			; mode or command?
+ BHI end$l			; no
  BL str_skip
  FNRTS VS
  BL str_readnum
  MOVVS R0,#&80000000		; if there's an error
- ADDS R0,R0,#0			; CLV
- MOVVC R2,R0
- MOVVC R3,R1
- FNLDR R0,ext_comm_flags,VC	; flags words list:
- MOVVC R1,#4
- BLVC heap_extend
+ TEQ R3,#0
+ STREQ R0,[R1],#4
+ BEQ end$l
+ MOV R2,R0
+ MOV R3,R1
+ FNLDR R0,ext_comm_flags	; flags words list:
+ MOV R1,#4
+ BL heap_extend
  FNRTS VS
  LDR R1,[R0]
  FNSTR R0,ext_comm_flags

@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.1.2.8 1999/02/10 00:33:25 ds Exp $
+; $Id: Mode4,fff,v 1.1.2.9 1999/02/22 18:49:34 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -93,7 +93,7 @@ mode_table_4
 	DCD	mode4_search
 	DCD	replace_area		; 0
 	DCD	0			; selection
-	DCD	default_click		; click
+	DCD	mode4_click		; click
 	DCD	0			; messages
 	DCD	mode4_setwidth
 	DCD	0			; list fns
@@ -408,14 +408,7 @@ localmodeword
 	&	0
 
 local_temp4r6
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-; & 0
+	%	32
 
 ; E R0 = offset (4 => -4...) / R7 = current address.
 ; X R0 -> to addr - offset (as an offset?)
@@ -551,6 +544,7 @@ local_disassemblerflags
 mode4_redrawline
 	FNJSR
 	STR	R11,local_temp4r6 + 24	; save it...
+	STR	R9,local_temp4r6 + 28	; this too...
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R2,R8,R2,LSL #2
 	LDR	R2,[R2,#w_mode0]
@@ -954,7 +948,7 @@ module$l
 ; => r0 = offset in file
 ; <= r0 = string pointer, or 0 if not known
 mode4_mod_headerstring
-	FNJSR	"R1-R3"
+	FNJSR	"R1-R5,R9"
 	CMP	R0,#(end_mod_stab - mod_stab) ;&2C
 	MOV     r1,r0                   ; r1 = offset
 	MOVCS   r0,#0                   ; if too big, it's not known
@@ -964,7 +958,10 @@ mode4_mod_headerstring
 checkoff$l			        ; check it is a valid module offset
 	MOV	R0,R2
 	BL	cln_readw		; get word
-	BIC	R0,R0,#1 << 31		; clear bit 31...
+	TEQ	R2,#4
+	TEQNE	R2,#8
+	BICEQ	R0,R0,#1 << 31		; clear bit 31 if init/final
+	MOV	R4,R0			; preserve for later...
 	BL	valid_off		; valid offset?
 	PULL	"R0",CS
 	MOVCS   r0,#0                   ; if too big, it's not known
@@ -975,10 +972,34 @@ checkoff$l			        ; check it is a valid module offset
 	PULL	"R0"			; word not now needed
 	ADR	R0,mod_stab
 	LDR	R14,[R0,R1]		; get string offset
+	TST	R14,#1<<31
+	BEQ	nostring$l
+	BIC	R14,R14,#1<<31
+	PUSH	"R14"
+	FNLDR	R2,wimp_kbdbuf
+	MOV	R5,#127			; should be enough space(!)
+	LDR	R9,local_temp4r6 + 28	; get saved R9
+	LDR	R3,[R9,#f_len]
+copy$l	CMP	R4,R3
+	FNLDR	R2,wimp_kbdbuf,HS
+	BHS	copied$l		; at or past EOF - nullify
+	MOV	R0,R4
+	BL	cln_readc
+	SUBS	R5,R5,#1
+	CMPNE	R0,#0
+	STRNEB	R0,[R2],#1		; copy while space in buffer & !NUL
+	ADDNE	R4,R4,#1
+	BNE	copy$l
+copied$l
+	MOV	R0,#0			; string terminator
+	STRB	R0,[R2]
+	PULL	"R14"
+nostring$l
 	FNLDR	R0,env_modstart		; base for indirected offsets
 	ADD	R1,R0,R14		; string address
 	FNLDR	R2,wimp_data
 	MOV	R3,#256
+	FNLDR	R4,wimp_kbdbuf
 	BL	lookup_token
 	FNLDR	R0,wimp_data,VC
 	FNRTS				; return the string
@@ -1227,14 +1248,14 @@ mod_stab
 	DCD	inito$l
 	DCD	fino$l
 	DCD	serviceo$l
-	DCD	titleo$l
-	DCD	helpo$l
+	DCD	titleo$l+1<<31
+	DCD	helpo$l+1<<31
 	DCD	commo$l
 	DCD	swichunk$l
 	DCD	swicode$l
 	DCD	switable$l
 	DCD	swideccode$l
-	DCD	msgdeccode$l
+	DCD	msgdeccode$l+1<<31
 end_mod_stab
 starto$l	= "zap_d_starto",0
 inito$l		= "zap_d_inito",0
@@ -2512,6 +2533,29 @@ failnotswi$l
 	MOV r0,r3 ; get block pointer
 	BL heap_free ; free it
 	MOV r0,r1 ; restore error pointer
+	FNRTS
+
+	LOCAL
+
+mode4_click
+	CMP	R1,#2
+	BLO	default_click	; simple drag, or single click
+	TST	R4,#3		; multiple click + drag
+	BNE	default_click
+	TST	R1,#1
+	BNE	select_buffer	; odd number of clicks -> select all
+	FNJSR
+	BL	find_offset
+	MOV	R2,R0
+	ADD	R3,R2,#4
+	LDR	R14,[R9,#f_len]
+	CMP	R3,R14
+	MOVHS	R3,R14
+	TEQ	R2,R3
+	BNE	sel$l
+	BL	clear_selection
+	FNRTS
+sel$l	BL	alter_selected_region
 	FNRTS
 
 	END

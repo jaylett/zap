@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.18 1999/02/17 18:00:36 dj Exp $
+; $Id: Commands,fff,v 1.1.2.19 1999/02/22 18:49:30 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -82,6 +82,7 @@
 	EXPORT	Cdown
 	EXPORT	Char
 	EXPORT	ClearGC
+	EXPORT	CloneCreate
 	EXPORT	Continue
 	EXPORT	Copy
 	EXPORT	Copysel
@@ -166,6 +167,7 @@ key_command_table
 	FNcom	"CLEFT",Cleft
 	FNcom	"CLI",Cli
 	FNcom	"CLONEBASE",CloneBase
+	FNcom	"CLONEBOX",Clonebox
 	FNcom	"CLONECREATE",CloneCreate
 	FNcom	"CLONEDELETE",CloneDelete
 	FNcom	"CLONEHIDE",CloneHide
@@ -1062,9 +1064,10 @@ CloneCreate
 	ADRGE	R0,cloneexists$l	; if so, error
 	FNLDR	R4,wimp_kbdbuf
 	BGE	error$l
-	BL	check_modes$l
-	ADREQ	R0,cloneexists$l
-	BEQ	error$l
+	MOV	R0,R4
+	BL	find_ext_mode
+	ADRNE	R0,cloneexists$l
+	BNE	error$l
 	FNLDR	R1,wimp_kbdbuf
 	BL	find_clone_mode_entry
 	TEQ	R0,#0
@@ -1118,23 +1121,6 @@ find$l	LDRB	R0,[R7,#1]!
 	CMP	R0,#32
 	BHI	find$l
 	MOVS	PC,R14
-
-check_modes$l
-	FNJSR
-	FNLDR	R5,ext_modes
-scan$l	LDR	R1,[R5]
-	CMP	R1,#1
-	FNRTS	LO ; ensure Z clear -> OK
-	MOV	R1,R5
-	MOV	R2,R4
-	BL	strCMP
-	FNRTS	EQ
-skip$l	LDRB	R1,[R5],#1
-	TEQ	R1,#0
-	BNE	skip$l
-	ADD	R5,R5,#7
-	BIC	R5,R5,#3
-	B	scan$l
 
 p$l	FNS	("zap_p_mkclone")
 noclone$l &	0
@@ -2254,6 +2240,7 @@ Findfile
  TEQ R2,#6
  ADREQ R0,fi_s0
  BEQ fi11
+ ; need to fix this to cope with DDEUtils...
  BL find_file ; FNcall Zap_FindFile
  MOVVC R0,#3			; bring to front
  MOVVC R1,R8

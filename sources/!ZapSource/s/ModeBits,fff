@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.13 1999/02/17 18:00:40 dj Exp $
+; $Id: ModeBits,fff,v 1.1.2.14 1999/02/22 18:49:35 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -55,6 +55,7 @@
  EXPORT issue_service
  EXPORT find_mode_number
  EXPORT test_mode_name
+ EXPORT find_ext_mode
  EXPORT get_mode_params
  EXPORT modes_start
  EXPORT modes_end
@@ -1377,24 +1378,10 @@ find_mode_number
  FNRTS VS
  CMP R0,#0
  FNRTS GE			; yes
- FNLDR R4,ext_modes		; list of externally stored modes
-loop$l
- LDR R0,[R4]
- TEQ R0,#0
- BEQ tryclones$l		; reached end of ext_modes list
- MOV R0,R4
- BL str_len			; get length of string
- MOV R1,R4			; string pointer
- MOV R2,R10			; text
- ADD R4,R4,R0
- ADD R4,R4,#8
- BIC R4,R4,#3			; skip terminator and pointer
- BL strCMPstr
- BNE loop$l			; doesn't match start
- LDRB R0,[R0]
- CMP R0,#&20
- BGT loop$l			; didn't match
- LDR R0,[R4,#-4]		; name of module to load
+ MOV R0,R10
+ BL find_ext_mode
+ BEQ tryclones$l
+ LDR R0,[R0,#-4]		; name of module to load
  BL load_mode_module
  MOVVC R0,R10
  BLVC test_mode_name		; try again!
@@ -1508,6 +1495,34 @@ next$l
  BCC loop$l
  MOV R0,#-1			; not found
  FNRTS
+
+	LOCAL
+
+;E R0=mode name
+;X R0=pointer to next mode in external list, ie. [R0,#-4]=module name
+;     or 0 (+EQ) if not found
+
+find_ext_mode
+	FNJSR	"R1-R5"
+	MOV	R5,R0
+	FNLDR	R4,ext_modes	; list of externally stored modes
+loop$l	LDR	R0,[R4]
+	TEQ	R0,#0
+	FNRTS	EQ		; reached end of ext_modes list
+	MOV	R0,R4
+	BL	str_len		; get length of string
+	MOV	R1,R4		; string pointer
+	MOV	R2,R5		; mode name being searched for
+	ADD	R4,R4,R0
+	ADD	R4,R4,#12
+	BIC	R4,R4,#3	; skip terminator and pointer
+	BL	strCMPstr
+	BNE	loop$l		; doesn't match start
+	LDRB	R0,[R0]
+	CMP	R0,#'!'
+	BHS	loop$l		; didn't match
+	MOV	R0,R4
+	FNRTS
 
  LOCAL
 
