@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.6 2002/11/10 01:43:42 christian Exp $
+; $Id: CreateFile,fff,v 2.7 2002/11/10 19:52:30 christian Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -957,8 +957,7 @@ err$l
  MOV R0,#0
  STR R0,[R9,#f_proposed_name]	; we won't be trying again ...
  MOV R0,R5
- FNPULL
- ORRS PC,R14,#Vbit		; return with the error	; !!! ARM32 FIXME
+ FNRTV
 
  LOCAL
 
@@ -1125,8 +1124,9 @@ ischanged$l
  BL new_file_title		; update all window titles ; !???
  FNRTS
 clean_exit
- FNPULL
- BICS PC,R14,#&FC000000	; !!! ARM32 FIXME
+ ;FNPULL
+ ;BICS PC,R14,#&FC000000
+ FNRTVC				; not quite the same, but all that's needed - cl
 largefile$l
 	TST	R0,#flags_Modified
 	ORR	R0,R0,#flags_Modified
@@ -1205,7 +1205,7 @@ endrapidly$l
 
 ; ADDS R14,R14,#0		; clv...?
 
- FNRTSS
+ FNRTS
 
 ; FNPULL
 ; BICS PC,R14,#&FC000000 ; Vbit	; return with NO error
@@ -1241,7 +1241,7 @@ loop$l
 endrapidly$l
  AND R0,R11,#&FF
 
- FNRTSS
+ FNRTS
 ; FNPULL
 ; BICS PC,R14,#&FC000000 ; Vbit	; return with NO error
 
@@ -1828,8 +1828,7 @@ te1
 	LDR	R0,[R9]
 	CMN	R0,#1
 	BLNE	test_changed
-	FNPULL	NE
-	ORRNES	PC,R14,#1<<29	; sec, rts	; !!! ARM32 FIXME
+	FNRTCS	NE
 	ADD	R9,R9,#file_blk
 	SUBS	R2,R2,#1
 	BHI	te1		; next file
@@ -2384,7 +2383,7 @@ write_loaded_files
    MOV     r0,#&83+(1<<2)+(1<<3)         ; mark as making errors
    ADR     r1,writefile$l                ; the filename to write to
    SWI     XOS_Find
-   FNRTSS VS           ; if error, return from call
+   FNRTVC VS           ; if error, return from call
    MOV     r5,r0                         ; r5 = file handle
 
    FNLDR   R9,file_list
@@ -2418,7 +2417,7 @@ done$l
    MOV     r0,#0                         ; close file code
    MOV     r1,r5                         ; r1 = handle
    SWI     XOS_Find                      ; close it
-   FNRTSS           ; Return from call
+   FNRTVC           ; Return from call
 
 failed$l
    MOV     r0,#0                         ; close file code
@@ -2427,7 +2426,7 @@ failed$l
    MOV     r0,#6                         ; delete file
    ADR     r1,writefile$l                ; get filename
    SWI     XOS_File
-   FNRTSS           ; Return from call
+   FNRTVC           ; Return from call
 
 writefile$l
    = "ZapGenerated:OpenFiles",0
@@ -2440,7 +2439,7 @@ load_openfiles
    MOV     r0,#&43+(1<<2)+(1<<3)         ; mark as making errors
    ADR     r1,writefile$l                ; the filename to write to
    SWI     XOS_Find
-   FNRTSS VS           ; if error, return from call
+   FNRTVC VS           ; if error, return from call
    MOV     r5,r0                         ; r5 = file handle
 
 read_all_files$l
@@ -2459,7 +2458,7 @@ read_file$l
    B       read_all_files$l              ; and get the next file
  |
 load_openfiles
-   MOVS    pc,R14                        ; do nothing	; !!! ARM32 FIXME
+   MOV    pc,R14                        ; do nothing
  ]
 ; gerph change <<<
 
