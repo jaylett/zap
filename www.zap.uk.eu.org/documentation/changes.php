@@ -1,5 +1,5 @@
 <?php
-  // $Id: changes.php,v 1.4 2002/11/07 04:07:27 christian Exp $
+  // $Id: changes.php,v 1.5 2002/11/07 11:35:53 james Exp $
 
   include "../.php/zap-std.inc";
   setroot ('documentation/changes');
@@ -30,7 +30,7 @@
   else
     $sortby = $HTTP_GET_VARS['sortby'];
 
-  $me = $root . "changes.php";
+  $me = $docroot . "changes.php";
 
 
   // output a link to ourselves with a different search order
@@ -165,5 +165,5 @@
     
     echo "</center>\n";
 
-  zap_body_end ('$Date: 2002/11/07 04:07:27 $');
+  zap_body_end ('$Date: 2002/11/07 11:35:53 $');
 ?>
