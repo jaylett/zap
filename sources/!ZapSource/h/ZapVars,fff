@@ -1,5 +1,5 @@
 ; Define the variable names for the workspace of the Zap module
-; $Id: ZapVars,fff,v 1.1.2.10 1999/02/13 01:23:20 ds Exp $
+; $Id: ZapVars,fff,v 1.1.2.11 1999/02/17 18:00:35 dj Exp $
 
 if_limit	    * 128
 
@@ -260,18 +260,81 @@ startup_command	    # 4 ; command string to execute on startup
 ;tem_offsets	    # 4			; offsets for templates string...
 ;tem_offsets2	    # 4			; offsets for templates string...
 
-		GBLA	__modenum
-__modenum	SETA	0
-
 opt_modedata	    # 4			; v Zap handled mode data
-		WHILE	__modenum<max_mode
-opt_mode$__modenum  # 4			; one word per mode
+
+; Following wonderfully odd code by Dan Ellis :-)
+; (Hacked into a slightly more readable form, with automatic dependency
+;  on correct things like max_mode, by sja.)
+;
+; None of this can cope with max_mode > 99, so don't try it.
+		ASSERT	max_mode <= 99
+
+		GBLA	__modenum
+		GBLS	__modestr
+		GBLA	max_modeFUNT
+
+; Basically, __modenum will be something like 00000015 (a hex number) when
+; we mean 15 (a decimal number). So incrementing it over the 15 -> 20 boundary
+; has to be special cased.
+		MACRO
+		inc_modenum
+		[ __modenum:AND:15 = 9
+__modenum	SETA	__modenum+7
+		|
 __modenum	SETA	__modenum+1
+		]
+		MEND
+
+; If __modenum < 00000010, just use the last digit; otherwise use the last
+; two, making the decimal number we require.
+		MACRO
+		set_modestr
+		[ __modenum < 10
+__modestr	SETS	:STR:__modenum:RIGHT:1
+		|
+__modestr	SETS	:STR:__modenum:RIGHT:2
+		]
+		MEND
+
+; Set max_modeFUNT to be the same digits as max_mode, but in hex not dec.
+; ie: max_mode = 15 => max_modeFUNT = &15
+;
+; This bit is fairly evil, so I'd better take responsibility - sja.
+; Irritatingly, I have a choice between defining another macro, or making
+; max_modeTMP global. Why can't objasm accept locals inside conditionals?
+		[ max_mode < 10
+max_modeFUNT	SETA	max_mode
+		|
+		GBLA	max_modeTMP
+max_modeTMP	SETA	0
+__modenum	SETA	max_mode
+max_modeFUNT	SETA	0
+		WHILE __modenum > 0
+max_modeFUNT	SETA	max_modeFUNT + ((__modenum - 10*(__modenum / 10)):SHL:(4*max_modeTMP))
+__modenum	SETA	__modenum / 10
+max_modeTMP	SETA	max_modeTMP+1
+		WEND
+		]
+
+opt_modebase        # 0
+__modenum	SETA	0
+		WHILE	__modenum<max_modeFUNT
+		set_modestr
+opt_mode$__modestr  # 4
+		inc_modenum
 		WEND
 
 command_store	    # 4*max_ctable	; 1 word per ctable
 
 mode_store	    # 8*max_mode	; 2 words per mode
+
+opt_TMFbase         # 0
+__modenum	SETA	0
+		WHILE	__modenum<max_modeFUNT
+		set_modestr
+opt_TMF$__modestr   # 4
+		inc_modenum
+		WEND
 
 if_bits		    # 4
 if_count	    # 4

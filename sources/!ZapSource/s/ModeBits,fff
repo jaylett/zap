@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.12 1999/02/11 01:53:55 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.13 1999/02/17 18:00:40 dj Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -129,14 +129,16 @@ find$l				; find the module in the OS list
  MOV R0,R6,LSR #2		; one byte per entry
  BL heap_claim
  FNRTS VS
- STR R0,[R7,#2*e_mode+4]
+ STR R0,[R7,#d_epointtable]
  MOV R11,R0			; mode entry point supplier table (mode nos.)
  LDR R0,[R9,#e_basemode]
  STR R0,[R7,#2*e_basemode]	; basemode number
- STR R10,[R7,#2*e_basemode+4]	; clone basemode number
+ STR R10,[R7,#d_clonebasemode]; clone basemode number
  LDR R0,[R9,#e_title]
  ADD R0,R0,R8
  STR R0,[R7,#2*e_title]		; title
+ MOV R0,#-1
+ STR R0,[R7,#d_variabletable]	; per-mode variable table
  LDR R0,[R9,#e_author]
  ADD R0,R0,R8
  STR R0,[R7,#2*e_author]	; author
@@ -456,7 +458,7 @@ a$l				; next mode
  LDR R2,[R8,#w_modedata]
  BL create_modedata_block
  MOVVC R0,R4
- ADDVC R1,R12,#opt_mode0
+ ADDVC R1,R12,#opt_modebase
  BLVC copy_a_mode_buffer
  BVC a$l
  FNRTS
@@ -824,7 +826,7 @@ add_new_mode
  FNADD R2,R12,mode_store	; mode blocks (2 words each)
  LDR R1,[R4,#e_mode]		; mode & flags
  AND R0,R1,#&FF			; mode it wants to become
- TST R1,#1<<31
+ TST R1,#emode_ForceModeNumber
  BNE end$l			; force this mode
  MOV R3,R0			; save the mode
 next$l
@@ -884,7 +886,7 @@ conv_var_number
  SUB R0,R1,#&100
  CMP R0,#max_mode
  MOVCC R0,R0,LSL #2
- ADDCC R0,R0,#opt_mode0
+ ADDCC R0,R0,#opt_modebase
  BLCS err$l
  FNRTS
 co13
@@ -1281,7 +1283,7 @@ ensure_bitmap_fonts
 get_mode_word
  FNJSR
  TEQ R8,#0
- ADDEQ R14,R12,#opt_mode0
+ ADDEQ R14,R12,#opt_modebase
  ADDNE R14,R8,#w_mode0
  LDR R0,[R14,R1,LSL #2]
  FNRTS
@@ -1291,7 +1293,7 @@ get_mode_word
 put_mode_word
  FNJSR
  TEQ R8,#0
- ADDEQ R14,R12,#opt_mode0
+ ADDEQ R14,R12,#opt_modebase
  ADDNE R14,R8,#w_mode0
  STR R0,[R14,R1,LSL #2]
  FNRTS
