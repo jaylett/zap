@@ -1,5 +1,5 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 1.1.2.5 1999/06/09 08:35:42 james Exp $
+; $Id: Macros,fff,v 1.1.2.6 1999/07/06 11:36:00 james Exp $
 
 ; count in-core storage
 	GBLA InCoreTotal
@@ -240,6 +240,83 @@ div2A$l CMP     $a,$b
 
 	LOCAL
 
+	MEND
+
+; Logging information
+;
+; Tim liked to use Zephyr - however this is really only useful for immediate debugging
+; purposes. It also relies on Wimp Messages, and so can't be used from interrupt code,
+; exception handlers and so on.
+; The advantage of SysLog is that it does priorities, and is designed for background
+; logging. This can sensibly be running constantly in any release of Zap (just set the logging
+; level really low), or turned off (if <Zap$Log> isn't set, !SysLog won't be loaded or used).
+;
+; These macros return VS on error, but it is advised to clear this before returning to the Zap
+; central loop.
+;
+; Priorities are as follows (SysLog default is 125):
+;
+;  0	exceptions
+;  10	fatal errors
+;  20	non-fatal errors
+;  50	warnings
+;  100	Zap status (eg: starting, stopping)
+;  150	Minor status (eg: loading modules)
+
+LOG_ALWAYS	*	0
+LOG_EXCEPTION	*	0
+LOG_FATAL	*	10
+LOG_ERROR	*	20
+LOG_WARNING	*	50
+LOG_STATUS	*	100
+LOG_MINOR	*	150
+
+	GBLA	LogCount
+	GBLS	LC
+LogCount SETA	0
+LC	SETS	"log$LogCount"
+
+	MACRO
+$la	SYSLOGF	$t,$p
+$la
+ [ LOGGING = SYSLOG
+        STMFD   R13!,{R0-R3,R8-R12,R14}
+        LDR	R0,[R12,#zap_logname]
+        CMP	R0,#0
+        BEQ	jump$LC
+        ADR     R1,text$LC
+        MOV     R2,#$p
+        MOV     R3,R13
+        SWI     XSysLog_LogFormatted
+        B       jump$LC
+text$LC	=       "$t",0
+        ALIGN
+jump$LC	LDMFD   R13!,{R0-R3,R8-R12,R14}
+
+LogCount SETA	LogCount+1
+LC	SETS	"log$LogCount"
+ ]
+        MEND
+
+	MACRO
+$la	SYSLOG	$t,$p
+$la
+ [ LOGGING = SYSLOG
+	STMFD	R13!,{R0-R2,R14}
+        LDR	R0,[R12,#zap_logname]
+        CMP	R0,#0
+        BEQ	jump$LC
+	ADR	R1,text$LC
+	MOV	R2,#$p
+	SWI	XSysLog_LogMessage
+	B	jump$LC
+text$LC	=	"$t",0
+	ALIGN
+jump$LC	LDMIA	R13!,{R0-R2,R14}
+
+LogCount SETA	LogCount+1
+LC	SETS	"log$LogCount"
+ ]
 	MEND
 
 ; end of macros

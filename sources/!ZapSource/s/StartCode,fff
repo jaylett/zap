@@ -1,5 +1,6 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.23 1999/06/09 08:35:51 james Exp $
+; $Id: StartCode,fff,v 1.1.2.24 1999/07/06 11:36:01 james Exp $
+; -*- armasm -*-
 
  GET h.ZapHeader
  GET h.Messages
@@ -21,6 +22,10 @@
  GET h.TMTVars
  GET h.Commands
  GET h.Execute
+
+ IMPORT title_string
+ IMPORT help_string_1
+ IMPORT Module_header
 
  IMPORT correct_font
  IMPORT open_QuitBox
@@ -65,6 +70,10 @@
 ; a module task. See Service_Memory 3-68. Must init_wimp before setting
 ; up the stack.
 
+	[ LOGGING = SYSLOG
+zap_log$l FNS (|zap$|:CC:"$Log")
+	]
+
 start_code
  LDR R12,[R12]			; R12=module workspace
  SWI XHourglass_On
@@ -79,7 +88,39 @@ start_code
  BVS main_end
  BLVC init_fixed		; claim fixed buffers
  BLVC init_heap			; set up heap and dynamic areas
- BLVC init_vars			; set up variables (and variable buffers)
+
+ [ LOGGING = SYSLOG
+ ; Set up logging (we need the heap before we can do this) ...
+ MOVVC R0,#16			; maximum size of Zap$Log
+ BLVC heap_claim
+ BVS fatal_wimp_error		; next section can be done without checking V
+ MOV R1,R0
+ ADR R0,zap_log$l
+ MOV R2,#16
+ MOV R3,#0
+ MOV R4,#4
+ SWI XOS_ReadVarVal
+ CMP R2,#0
+ MOVGT R0,#0
+ STRGTB R0,[R1,R2]		; terminate
+ STRGT R1,[R12,#zap_logname]
+ MOVLE R0,R1
+ MOVLE R1,#0
+ STRLE R1,[R12,#zap_logname]	; 0 => no logging
+ BLLE heap_free
+
+ ADRL R4,title_string
+; ADRL R5,help_string_1
+ ADRL R6,Module_header
+ ADD R5,R6,#(help_string_1 - Module_header)
+ SYSLOGF "%4s %5s now starting; module base at %6x", LOG_STATUS
+
+ BL init_vars			; set up variables (and variable buffers)
+ |
+ BLVC init_vars	
+ ]
+	
+ ; Let's go with everything else
  BLVC init_config		; load !Config file / modedata (needs bufs)
  BLVC init_templates		; read template file (before init_settings!)
  BLVC init_settings		; read <Zap$Settings>
@@ -149,6 +190,7 @@ main_exit			; unnecessary...
  BL storewkspandstack		; !
  ;TEQ R10,#0
  ;SWIEQ OS_ExitAndDie		; ???????
+ SYSLOG "Zap main_exit", LOG_STATUS
  SWI OS_Exit
 
 ;loopx				; ???????
@@ -164,6 +206,7 @@ main_end			; R10=0 to kill module - abort startup only
  ADR R3,t$l
  ;TEQ R10,#0
  ;SWIEQ OS_ExitAndDie
+ SYSLOG "Zap main_end", LOG_STATUS
  SWI OS_Exit
 t$l FNS |zap$|
 
@@ -228,6 +271,11 @@ clean_up
  LOCAL
 
 fatal_wimp_error
+	[ LOGGING = SYSLOG  
+ ADD R0,R0,#4
+ SYSLOGF "Fatal error '%0s'",LOG_FATAL
+ SUB R0,R0,#4
+	]
  MOV R1,#2
  ADR R2,t$l
  SWI XWimp_ReportError
@@ -236,6 +284,11 @@ fatal_wimp_error
 
 near_fatal_wimp_error
  FNJSR "R1,R2"
+	[ LOGGING = SYSLOG  
+ ADD R0,R0,#4
+ SYSLOGF "Near-fatal error '%0s'",LOG_ERROR
+ SUB R0,R0,#4
+	]
  MOV R1,#2
  ADR R2,t$l
  SWI XWimp_ReportError
@@ -263,6 +316,11 @@ a$l				; report the error
  LDR R2,d$l
  TEQ R1,R2
  BEQ main_loop			; don't report it
+	[ LOGGING = SYSLOG  
+ ADD R0,R0,#4
+ SYSLOGF "Error '%0s'",LOG_ERROR
+ SUB R0,R0,#4
+	]
  MOV R1,#1
  ADR R2,t$l
  SWI XWimp_ReportError
