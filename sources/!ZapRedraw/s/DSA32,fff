@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw in 32bpp modes
-; $Id: DSA32,fff,v 1.6 2004/04/15 11:52:14 christian Exp $
+; $Id: DSA32,fff,v 1.7 2004/11/08 00:39:18 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -159,17 +159,26 @@ redraw_raster_pixel
 	TEQ	R4,#0
 	BEQ	clear$l
 	BL	get_bitmap
-	FNPULL
 	CMP	R0,#-1
-	MOVEQ	PC,R14			; already plotted
+	FNRTS	EQ			; already plotted
+
+	LDR	R0,[R1,#r_charw]
+	SUBS	R0,R0,R9		; R0 = charw - off (max pixels within char)
+	MOVLT	R9,R8			;
+	BLT	none$l			; all inside margin
+	SUBS	R6,R8,R0		; R12 = plottable charsp, or -ve if none
+	MOVPL	R8,R0			; cap number to plot at charw
+	MOVMI	R6,#0
+
 	ADD	R2,R2,R9,LSR #3		; byte address of bitmap
-	ANDS	R0,R9,#7		; bit offset within byte
+	AND	R0,R9,#7		; bit offset within byte
 	MOVS	R9,R8			; number of pixels to write
-	MOVEQ	PC,R14
-	LDR	R7,[R1,#r_flags]
-	TST	R7,#rf_transparent
-	BEQ	redraw_pixels
-	B	redraw_pixels_transp
+	BLNE	redraw_pixels_choose
+
+	MOVS	R9,R6
+	FNRTS	EQ
+none$l	FNPULL
+	B	clear_pixels_choose
 
 clear$l	LDRB	R0,[R3],#1
 	TEQ	R0,#0
@@ -206,29 +215,53 @@ redraw_raster_main
 
 	LDR	R7,[R1,#r_flags]
 	TST	R7,#rf_transparent
-	ADREQ	R7,redraw_pixels
-	ADRNE	R7,redraw_pixels_transp
+	BNE	transp$l
 
 	LDR	R8,[R1,#r_charw]
-loop$l	MOV	R9,#0
+	LDR	R7,[R1,#r_linesp]
+	MOV	R7,R7,LSR #16
+	ADD	R8,R8,R7		; number of px to write in merge
+loop$l	MOV	R9,#0			; px offset
 	BL	get_bitmap
-	MOV	R9,R8			; number of pixels to write
+	SUB	R9,R8,R7		; number of pixels to write
 	CMP	R0,#-1
-	MOVNE	R0,#0
-	MOVNE	R14,PC			; call redraw_pixels[_transp]
-	MOVNE	PC,R7
-	SUBS	R6,R6,#1		; done another character
+	BEQ	next$l
+	MOV	R0,#0
+	BL	redraw_pixels
+	MOVS	R9,R7
+	BLNE	clear_pixels
+next$l	SUBS	R6,R6,#1		; done another character
 	BGT	loop$l
 	FNRTS
 
+transp$l
+	LDR	R8,[R1,#r_charw]
+	LDR	R7,[R1,#r_linesp]
+	MOV	R7,R7,LSR #16
+	ADD	R8,R8,R7		; number of px to write in merge
+tloop$l	MOV	R9,#0			; px offset
+	BL	get_bitmap
+	SUB	R9,R8,R7		; number of pixels to write
+	CMP	R0,#-1
+	BEQ	tnext$l
+	MOV	R0,#0
+	BL	redraw_pixels_transp
+	MOVS	R9,R7
+	BLNE	clear_pixels_transp
+tnext$l	SUBS	R6,R6,#1		; done another character
+	BGT	tloop$l
+	FNRTS
+
 clear$l	LDR	R8,[R1,#r_charw]
+	LDR	R7,[R1,#r_linesp]
+	ADD	R8,R8,R7,LSR #16
 	LDR	R7,[R1,#r_flags]
 	TST	R7,#rf_transparent
 	ADREQ	R7,clear_pixels
 	ADRNE	R7,clear_pixels_transp
 cloop$l	LDRB	R0,[R3],#1
 	TEQ	R0,#0
-	MOVEQ	R9,#1
+	;MOVEQ	R9,#1
 	BLEQ	redraw_control_code
 	MOV	R9,R8			; number of pixels to clear
 	CMP	R0,#-1
@@ -253,9 +286,10 @@ redraw_pixels_choose
 
 	; FALL THROUGH
 
-;E R2      = bit address of bitmap line
-;  R5      = output address
-;  R9      = number of pixels to write > 0.
+;E R0	   = bit offset to start at
+;  R2	   = address of bitmap line
+;  R5	   = output address
+;  R9	   = number of pixels to write > 0.
 ;  R10-R11 = colour masks
 ;X R0,R9 corrupted R5 updated, all else saved |
 redraw_pixels
@@ -303,12 +337,12 @@ loop$l	STR	R11,[R5],#4
 
 	LOCAL
 
-;E R2      = bit address of bitmap line
-;  R5      = output address
-;  R9      = number of pixels to write > 0.
+;E R0	   = bit offset to start at
+;  R2	   = address of bitmap line
+;  R5	   = output address
+;  R9	   = number of pixels to write > 0.
 ;  R10-R11 = colour masks
 ;X R0,R9 corrupted R5 updated, all else saved |
-
 redraw_pixels_transp
 	FNJSR
 	LDR	R12,[R1,#r_palette]	; get the background mask
@@ -381,6 +415,7 @@ control_code_4_32bpp
 	BLNE	call_extension
 
 	PULL	"R4,R14"		; number of pixels to do, pixel offset
+	MOV	R2,R14
 
 	ADD	R6,R6,R14,LSR #3
 	ADD	R7,R7,R14,LSR #3
@@ -396,6 +431,15 @@ control_code_4_32bpp
 	LDRNE	R14,[R1,#r_bac]
 	LDRNE	R14,[R0,R14,LSL #2]
 	MOVEQ	R14,#1			; an invalid colour mask
+
+	LDR	R0,[R1,#r_charw]
+	SUBS	R0,R0,R2		; R0 = charw - off (max pixels within char)
+	MOVLE	R9,R4			;
+	BLE	none$l			; all inside margin
+	SUBS	R2,R4,R0		; R12 = plottable charsp, or -ve if none
+	MOVPL	R4,R0			; cap number to plot at charw
+	MOVMI	R2,#0
+	PUSH	"R2"
 
 loop$l	LDRB	R0,[R6],#1
 	LDRB	R2,[R7],#1
@@ -424,8 +468,14 @@ next$l	ADD	R5,R5,#4
 
 clear$l	PULL	"R9,R14"		; number of pixels to do
 	BL	clear_pixels_choose
+	MOV	R0,#-1
+	FNRTS
 
-done$l	MOV	R0,#-1
+done$l	PULL	"R9"
+none$l	TEQ	R9,#0			; plot the charsp
+	BLNE	clear_pixels_choose
+
+	MOV	R0,#-1
 	FNRTS
 
 
@@ -453,6 +503,7 @@ control_code_8_32bpp
 	BEQ	cc8_1			; just swap for/bac cols
 
 	PULL	"R4,R14"		; number of pixels to do, pixel offset
+	MOV	R2,R14
 
 	ADD	R6,R6,R14,LSR #3
 	ADD	R7,R7,R14,LSR #3
@@ -468,6 +519,15 @@ control_code_8_32bpp
 	LDRNE	R14,[R1,#r_bac]
 	LDRNE	R14,[R0,R14,LSL #2]
 	MOVEQ	R14,#1			; an invalid colour mask
+
+	LDR	R0,[R1,#r_charw]
+	SUBS	R0,R0,R2		; R0 = charw - off (max pixels within char)
+	MOVLE	R9,R4			;
+	BLE	none$l			; all inside margin
+	SUBS	R2,R4,R0		; R2 = plottable charsp, or -ve if none
+	MOVPL	R4,R0			; cap number to plot at charw
+	MOVMI	R2,#0
+	PUSH	"R2"
 
 loop$l	LDRB	R0,[R6],#1
 	LDRB	R2,[R7],#1
@@ -491,18 +551,35 @@ next$l	ADD	R5,R5,#4
 	ORR	R12,R12,#1<<24		; end of shift-register marker
 	B	loop$l
 
+done$l	PULL	"R9"
+none$l	TEQ	R9,#0			; plot the charsp
+	BLNE	clear_pixels_choose
+
+	MOV	R0,#-1
+	FNRTS
+
 cc8_1	MOV	R10,R8
 	MOV	R11,R9
 	PULL	"R9,R14"
+
 	ADD	R2,R6,R14,LSR #3
+	LDR	R0,[R1,#r_charw]
+	SUBS	R0,R0,R14		; R0 = charw - off (max pixels within char)
+	BLE	none$l			; all inside margin
+	SUBS	R6,R9,R0		; R6 = plottable charsp, or -ve if none
+	MOVPL	R9,R0			; cap number to plot at charw
+	MOVMI	R6,#0
+
 	AND	R0,R14,#7
 	BL	redraw_pixels_choose
-	B	done$l
+	MOVS	R9,R6
+	BLNE	clear_pixels_choose
+	MOV	R0,#-1
+	FNRTS
 
 clear$l	PULL	"R9,R14"		; number of pixels to do
 	BL	clear_pixels_choose
-
-done$l	MOV	R0,#-1
+	MOV	R0,#-1
 	FNRTS
 
 

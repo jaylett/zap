@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.17 2004/11/05 18:48:53 christian Exp $
+; $Id: DSARedraw,fff,v 1.18 2004/11/08 00:39:18 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -90,8 +90,8 @@ gotaddr$l				; R5=screen address
 	BLE	done$l			; don't allow trivial case
 	MLA	R5,R9,R0,R5		; start of first raster
 	LDR	R10,[R1,#r_charh]	; height of a character in pixs
-	LDR	R11,[R1,#r_linesp]	; line spacing in pixs
-	ADD	R11,R10,R11		; total line height in pixs
+	LDR	R11,[R1,#r_linesp+2]	; line spacing in pixs
+	ADD	R11,R10,R11,LSR #16	; total line height in pixs
 	MOV	R10,R10,LSL#8		; put flags in bottom bits of R10
 	LDR	R0,[R1,#r_flags]	; redraw flags
 	TST	R0,#rf_doubleheight
@@ -211,10 +211,12 @@ calculate_dsa
 	MOV	R4,R1			; save redraw block
 	LDR	R5,[R4,#r_workarea]	; work area base
 	LDR	R0,[R4,#r_scrollx]	; x scroll in pixels
+	LDR	R6,[R4,#r_linesp]	; charsp
 	LDR	R1,[R4,#r_charw]	; width
-	MOV	R6,R1			; save character width
+	ADD	R6,R1,R6,LSR #16	; save character width
 	CMP	R0,#0
 	MOVMI	R0,#0			; correct for margin
+	MOV	R1,R6
 	BL	div_mod
 	STR	R0,[R5,#a_x5]		; 1st visible character number
 	STR	R2,[R5,#a_x1]		; 1st character pixel offset
@@ -307,9 +309,9 @@ calculate_x_scroll
 ;     or -1 to clear the raster to background colour
 ;  R5=screen address of start of raster line
 ;  R6=start col b0-b15=for b16-b23=bac b24-31=substyle
+;  R7 = initial chunk
 ;  r_workarea a_x1 to a_x4 and a_ext1,a_ext2 setup.
 ;X Raster line redrawn |
-
 redraw_raster_select
 	FNJSR
 	BL	viewfinder_test_text
@@ -353,6 +355,9 @@ redraw_raster
 	LDR	R8,[R1,#r_charw]
 	TEQ	R8,#8
 	MOVNE	R12,#-1			; set to -1 if not width 8 character
+	LDR	R0,[R1,#r_linesp]
+	MOVS	R0,R0,LSR #16
+	MOVNE	R12,#-1			; set to -1 if non-zero charsp
 	CMP	R4,#-1
 	ADDEQ	R12,R12,#7		; -1 -> 6 if clearing the raster
 
@@ -412,7 +417,7 @@ lastchar$l
 	MOV	R9,#0
 	BL	call_redraw_raster_pixel ; draw start of last character
 
-end$l	PULL	"R0"                    ; restore r_caddr
+end$l	PULL	"R0"			; restore r_caddr
 	STR	R0,[R1,#r_caddr]
 	TEQ	R6,#0
 	FNRTS	EQ			; finished at the start of a word
@@ -576,6 +581,13 @@ clear_raster_pixel_3
 redraw_raster_pixel_any
 	FNJSR
 	BL	get_bitmap
+	LDR	R0,[R1,#r_charw]
+	SUBS	R0,R0,R9		; R0 = charw - off (max pixels within char)
+	MOVLT	R12,R8			;
+	BLT	none$l			; all inside margin
+	SUBS	R12,R8,R0		; R12 = plottable charsp, or -ve if none
+	MOVPL	R8,R0			; cap number to plot at charw
+	MOVMI	R12,#0
 	LDR	R0,[R1,#r_bpp]
 	MOV	R8,R8,LSL R0		; number bits to write
 	MOV	R9,R9,LSL R0		; first bit offset
@@ -592,6 +604,9 @@ redraw_raster_pixel_any
 aligned$l
 	MOVS	R9,R8			; number of bits to write
 	BLNE	redraw_raster_any_write ; write these
+none$l	LDR	R0,[R1,#r_bpp]
+	MOVS	R9,R12,LSL R0		; plot the charsp
+	BLNE	redraw_raster_any_clear
 	FNRTS
 
 
@@ -827,6 +842,11 @@ loop$l	BL	get_bitmap
 	MOV	R0,R2,LSL #3		; bit addr of bitmap (no need to mask yet)
 	MOV	R9,R12			; number of bits to write
 	BL	redraw_raster_any_write
+	LDR	R9,[R1,#r_linesp]	; clear the charsp
+	MOVS	R9,R9,LSR #16
+	LDRNE	R0,[R1,#r_bpp]
+	MOVNE	R9,R9,LSL R0		; width in bits
+	BLNE	redraw_raster_any_clear
 	SUBS	R8,R8,#1		; done another character
 	BGT	loop$l
 	FNRTS
@@ -836,6 +856,8 @@ loop$l	BL	get_bitmap
 clear_raster_main_any
 	FNJSR
 	LDR	R12,[R1,#r_charw]
+	LDR	R0,[R1,#r_linesp]	; add charsp
+	ADD	R12,R12,R0,LSR #16
 	LDR	R0,[R1,#r_bpp]
 	MOV	R12,R12,LSL R0		; width in bits
 loop$l	LDRB	R0,[R3],#1		; get char
@@ -855,7 +877,7 @@ loop$l	LDRB	R0,[R3],#1		; get char
 
 	LOCAL
 
-;E R2=bit address of bitmap line
+;E R0 = bit address of bitmap line   R2 = address of bitmap line
 ;  R5-R7=output buffering
 ;  R9=number of bits to write>0. If R2 is not word aligned (ie
 ;  mult of 32) then the bitmap cannot cross a word boundry.
@@ -863,7 +885,6 @@ loop$l	LDRB	R0,[R3],#1		; get char
 ;X R0,R9 corrupted R5-R7 updated, all else saved |
 ;  If R2 not aligned on input then aligned to next word on
 ;  output (mult of 32).
-
 redraw_raster_any_write
 	FNJSR
 	ANDS	R0,R0,#&1F
@@ -1097,7 +1118,7 @@ control_code_6
 	MOV	PC,R14			; do this char
 
 control_code_7
-	LDRB	R11,[R3],#1		; new for num
+	LDRB	R11,[R3],#1		; new bac num
 	LDR	R0,[R1,#r_palette]
 	LDR	R11,[R0,R11,LSL#2]
 	LDR	R0,[R1,#r_flags]
@@ -1217,7 +1238,6 @@ control_code_11
 	BHS	nohandle$l
 
 	CMP	R4,#0
-	ADDEQ	R3,R3,#1
 	BEQ	nohandle$l
 
 	FNJSR
