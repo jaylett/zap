@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.14 2004/03/29 16:12:02 christian Exp $
+; $Id: DSARedraw,fff,v 1.15 2004/03/30 00:43:37 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -78,7 +78,6 @@ novf$l	FNJSR	"R1-R12"
 
 gotaddr$l				; R5=screen address
 	LDR	R0,[R1,#r_caddr]
-	PUSH	"R0"			; preserve caddr
 	CMP	R0,#&8000		; font handle?
 	BLLO	handle_to_redraw	; yes - update r_cbpl r_cbpc r_charw r_charh
 					; and possibly r_flags b1 (if b5 set)
@@ -173,8 +172,6 @@ done2$l	BL	remove_dsa_workarea	; free workarea in in cache
 	LDR	R0,[R1,#r_flags]
 	BIC	R0,R0,#&FF000000	; clear our temp flag bits
 	STR	R0,[R1,#r_flags]
-	PULL	"R0"
-	STR	R0,[R1,#r_caddr]	; restore caddr
 	MOVS	R0,R9
 	FNRTS	EQ
 	FNRTV
@@ -326,6 +323,8 @@ redraw_raster
 	BEQ	redraw_raster_32bpp
 
 	FNJSR	"R1-R12"
+	LDR	R0,[R1,#r_caddr]	; preserve r_caddr
+	PUSH	"R0"
 	MOV	R11,R6,LSR#16		; background
 	BIC	R10,R6,R11,LSL#16	; foreground
 	AND	R10,R10,#&FF
@@ -412,7 +411,9 @@ lastchar$l
 	MOV	R9,#0
 	BL	call_redraw_raster_pixel ; draw start of last character
 
-end$l	TEQ	R6,#0
+end$l	PULL	"R0"                    ; restore r_caddr
+	STR	R0,[R1,#r_caddr]
+	TEQ	R6,#0
 	FNRTS	EQ			; finished at the start of a word
 	LDR	R2,[R5]
 	MOV	R2,R2,LSR R6		; clear bottom R6 bits (mask)

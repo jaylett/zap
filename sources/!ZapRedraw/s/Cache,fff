@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.14 2004/03/29 16:12:02 christian Exp $
+; $Id: Cache,fff,v 1.15 2004/03/30 00:43:37 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -228,7 +228,6 @@ nomatch$l	MOV	R11,R0
 		STR	R7,[R1,#fb_flags]		; keep substyle flag
 
 		BL	install_base_font
-
 done$l		BLVC	tidy_cache			; tidy up
 		MOVVC	R0,R9,LSL #8			; generate handle
 		FNRTS	VC
@@ -1041,6 +1040,9 @@ load_old_font_file
 		LDR	R5,[R12,#buffer+ff_firstchar]	;
 		LDR	R6,[R12,#buffer+ff_lastchar]	;
 
+		CMP	R6,#256				; limit number of glyphs
+		MOVHS	R6,#256				;
+
 		MLA	R2,R5,R3,R10			; get address of first char
 		MLA	R3,R6,R3,R10			; end of file
 		SUB	R3,R3,R2			; number of bytes to read
@@ -1056,55 +1058,8 @@ load_old_font_file
 		PULL	"R0"
 		FNRTV
 
-;		MOV	R2,#0				; create the control characters if missing
-;		LDR	R3,[R12,#buffer+ff_firstchar]	;
-;		TEQ	R2,R3				;
-;		MOVNE	R4,R10				;
-;		BLNE	add_vdu_bitmaps			;
-;		BVS	err$l				;
-;
-;		LDR	R0,[R12,#r_bpp]			; check whether it needs converting
-;		TEQ	R0,#0				;
-;		TEQNE	R0,#5				;
-;		MOVEQ	R0,R10				;
-;		FNRTS	EQ				;
-;
-;		LDR	R5,[R12,#buffer+ff_charw]	;
-;		LDR	R6,[R12,#buffer+ff_charh]	;
-;		MOV	R2,R5				;
-;		MOV	R3,R6				;
-;		BL	cached_char_size		; r2, r3 = cbpl, cbpc
-;
-;		ADD	R4,R12,#r_charw			; r_charw r_charh r_cbpl r_cbpc
-;		STMIA	R4!,{R5,R6}			;
-;		STMIB	R4,{R2,R3}			;
-;
-;		MOV	R0,R3,LSL #8			; claim block
-;		ADD	R0,R0,#4			;
-;		BL	cache_alloc			;
-;		MOVVC	R11,R0				;
-;		BVS	err$l				;
-;
-;		STR	R0,[R12,#r_caddr]		; convert them
-;		MOV	R1,R12				;
-;		MOV	R2,#0				;
-;		MOV	R3,#&FF				;
-;		MOV	R4,R10				;
-;		BL	convert_bitmap			;
-;		BVS	err$l
-;
-;		MOV	R0,R10				; free the 1bpp source
-;		BL	cache_free			;
-;		LDR	R0,[R12,#r_caddr]		; done
-;		FNRTS					;
-;
-; err$l		MOV	R9,R0
-;		MOVS	R0,R11
-;		BLNE	cache_free
-;		MOVS	R0,R10
-;		BLNE	cache_free
-;		MOV	R0,R9
-;		FNRTV
+
+		LOCAL
 
 ; create a fake chunk directory for an old-style font
 ; E r2 -> glyphs for this font, including cursors  r7 = charw  r8 = charh
@@ -1173,8 +1128,6 @@ load_font_file  FNJSR	"R1,R2,R5-R11"
 
 		LDR	R1,ufont$l
 		TEQ	R0,R1
-		ADRNE	R14,err$l
-		BNE	notfont$l
 		ADRNE	R0,notfont$l
 		BLNE	messages_error			; sets V
 		BVS	err$l
