@@ -12,7 +12,7 @@
 # Passing the input and output files through sdiff is recommended.
 
 
-$version = '$Id: macrofy.pl,v 1.1 2001/04/25 19:27:44 ds Exp $';
+$version = '$Id: macrofy.pl,v 1.2 2001/04/26 01:02:52 ds Exp $';
 
 $version =~ /^.*?,v (.*?) (.*?) .*$/;
 $version = $1.', '.$2;
@@ -37,7 +37,7 @@ Getopt::Long::Configure ('bundling');
 die unless GetOptions ('help|h', 'version|v', 'verbose|V+') or die; # hmm :-)
 $opt_verbose = 0 unless defined $opt_verbose;
 
-print if defined $opt_help || defined $opt_version; # used once only? no :-)
+print '' if defined $opt_help || defined $opt_version; # used once only? no :-)
 
 if (defined $opt_help) {
   print <<EOF;
