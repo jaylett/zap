@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.26 2004/11/01 09:38:31 christian Exp $
+; $Id: ZapRedraw,fff,v 1.27 2004/11/08 21:18:42 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -1192,7 +1192,6 @@ pdlws_getchar	#	4				; -> code to get the next character
 
 prepare_data_line
 		FNJSR	"R1-R4,R6-R11"
-
 		STR	R0,[R12,#pdlws_ctl_col]		; keep control colour
 		MOV	R0,#&20				; init highest char
 		STR	R0,[R12,#pdlws_max]
@@ -1201,6 +1200,9 @@ prepare_data_line
 
 		MOV	R0,#0				; start in chunk 0
 		STR	R0,[R12,#pdlws_chunk]		;
+
+		LDRB	R8,[R1,#r_for]			; read initial colours
+		LDRB	R9,[R1,#r_bac]
 
 		LDR	R10,[R1,#r_flags]		; sort out the encoding
 		TST	R10,#rf_extend			;
@@ -1221,7 +1223,7 @@ prepare_data_line
 		BNE	notutf$l			; sort out get char code in UTF mode
 		TEQ	R1,#1				;
 		ADREQ	R0,getchar8_utf$l		;
-		ADRNE	R0,getchar16_utf$l		;
+		ADRNEL	R0,getchar16_utf$l		;
 		TST	R10,#rf_char32			;
 		ADRNE	R0,getchar32$l			;
 		STR	R0,[R12,#pdlws_getchar]		;
@@ -1234,10 +1236,7 @@ notutf$l	ADR	R0,getchar8$l			; sort out get char code in non-UTF mode
 		ADRNE	R0,getchar32$l			;
 		STR	R0,[R12,#pdlws_getchar]		;
 
-ok$l		LDRB	R8,[R1,#r_for]			; read initial colours
-		LDRB	R9,[R1,#r_bac]
-
-		TST	R10,#rf_substyles		; add initial style if present
+ok$l		TST	R10,#rf_substyles		; add initial style if present
 		MOVEQ	R7,#0
 		MOVEQ	R10,#0
 		BEQ	loop$l
@@ -1277,14 +1276,19 @@ chunk$l		LDR	R0,[R12,#pdlws_chunk]		; see if we've changed chunk
 gotchar$l	LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
 		CMN	R0,#0				; and ctl colour > -1
 		CMPGE	R1,#&20				;
-		LDRGEB	R0,[R3],#1			; check fg colour same
-		ADDLT	R3,R3,#1
+		BLT	cc$l				; use ctl colour
+		TEQ	R3,#0
+		LDRNEB	R0,[R3]				; check fg colour same
+		MOVEQ	R0,R8
+cc$l		TEQ	R3,#0
+		ADDNE	R3,R3,#1
 		TEQ	R0,R8
 		MOVNE	R8,R0
 		BNE	new_fg$l
 
-		LDRB	R0,[R4],#1			; check bg colour same
-		TEQ	R0,R9
+		TEQ	R4,#0
+		LDRNEB	R0,[R4],#1			; check bg colour same
+		TEQNE	R0,R9
 		MOVNE	R9,R0
 		BNE	new_bg$l
 
@@ -1336,8 +1340,9 @@ new_fg$l	TEQ	R7,#0
 		MOVNE	R10,R0
 		BNE	new_fg_and_style$l
 
-		LDRB	R0,[R4],#1			; cehck bg same
-		TEQ	R0,R9
+		TEQ	R4,#0
+		LDRNEB	R0,[R4],#1			; check bg same
+		TEQNE	R0,R9
 		MOVNE	R9,R0
 		BNE	new_fg_and_bg$l
 
@@ -1374,7 +1379,8 @@ new_bg$l	TEQ	R7,#0
 
 ; new fg and style, and possibly bg
 new_fg_and_style$l
-		LDRB	R9,[R4],#1
+		TEQ	R4,#0
+		LDRNEB	R9,[R4],#1
 
 ; new fg, bg and style
 new_style$l	MOV	R0,#0				; use 0,10,f,b,s
