@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.12 1999/01/25 17:37:30 dj Exp $
+; $Id: Commands,fff,v 1.1.2.13 1999/02/02 19:32:00 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -29,6 +29,7 @@
 	GET	h.TMTVars
 	GET	h.Execute
 	GET	h.Boxes
+	GET	h.ModeBits
 
 	IMPORT	Countmatches
 	IMPORT	TotalSel
@@ -162,6 +163,8 @@ key_command_table
 	FNcom	"CLEARGC",ClearGC
 	FNcom	"CLEFT",Cleft
 	FNcom	"CLI",Cli
+	FNcom	"CLONECREATE",CloneCreate
+	FNcom	"CLONEDELETE",CloneDelete
 	FNcom	"CLOSEFILE",Deletefile
 	FNcom	"CLOSELIST",Closelist
 	FNcom	"CLOSEOTHER",Closeother
@@ -1009,6 +1012,127 @@ tick$l
 	MOVEQ	R0,#2
 	MOVNE	R0,#0
 	MOV	PC,R14
+
+	LOCAL
+
+	DCD	7+(3<<3)+(1<<6)+(1<<14)
+CloneCreate
+	FNJSR
+	TEQ	R2,#6
+	BEQ	prompt$l
+	SUB	R6,R0,#1
+	BL	str$l			; get clone name
+	SUBS	R3,R7,R6
+	ADREQ	R0,noclone$l
+	BEQ	error$l
+	CMP	R3,#15
+	ADRHI	R0,badclone$l
+	BHI	error$l
+	FNLDR	R1,wimp_kbdbuf		; copy clone name
+	MOV	R2,R6
+	ADD	R3,R3,#1
+	MOV	R4,#32
+	BL	strmove
+	FNLDR	R0,wimp_kbdbuf
+	BL	test_mode_name		; does a mode of this name exist?
+	CMP	R0,#0
+	ADRGE	R0,cloneexists$l	; if so, error
+	FNLDR	R4,wimp_kbdbuf
+	BGE	error$l
+	BL	check_modes$l
+	ADREQ	R0,cloneexists$l
+	BEQ	error$l
+	FNLDR	R1,wimp_kbdbuf
+	BL	find_clone_mode_entry
+	TEQ	R0,#0
+	ADRNE	R0,cloneexists$l
+	BNE	error$l
+	MOV	R6,R7			; get clone base name
+	BL	str$l
+	SUBS	R3,R7,R6
+	ADREQ	R0,noclonebase$l
+	BEQ	error$l
+	FNLDR	R1,wimp_kbdbuf		; copy clone base name
+s$l	LDRB	R0,[R1],#1
+	TEQ	R0,#0
+	BNE	s$l
+	MOV	R2,R6
+	MOV	R3,#48
+	MOV	R4,#32
+	BL	strmove
+	FNLDR	R1,wimp_kbdbuf
+	BL	add_clone_mode_entry
+	FNLDR	R0,wimp_kbdbuf,VC
+	BLVC	find_mode_number	; create the clone mode
+	FNRTS	VS
+	TEQ	R0,#0
+	FNRTS	PL
+	ADR	R0,clonefail$l
+error$l	FNPULL
+	B	lookup_error
+
+prompt$l
+	ADR	R0,p$l
+	BL	minibuffer_prompt_token
+	FNRTS
+
+str$l	LDRB	R0,[R6,#1]!
+	TEQ	R0,#32
+	BEQ	str$l
+	SUB	R7,R6,#1
+find$l	LDRB	R0,[R7,#1]!
+	CMP	R0,#32
+	BHI	find$l
+	MOVS	PC,R14
+
+check_modes$l
+	FNJSR
+	FNLDR	R5,ext_modes
+scan$l	LDR	R1,[R5]
+	CMP	R1,#1
+	FNRTS	LO ; ensure Z clear -> OK
+	MOV	R1,R5
+	MOV	R2,R4
+	BL	strCMP
+	FNRTS	EQ
+skip$l	LDRB	R1,[R5],#1
+	TEQ	R1,#0
+	BNE	skip$l
+	ADD	R5,R5,#7
+	BIC	R5,R5,#3
+	B	scan$l
+
+p$l	FNS	("zap_p_mkclone")
+noclone$l &	0
+	FNS	("zap_e_noclone")
+badclone$l &	0
+	FNS	("zap_e_badclone")
+noclonebase$l &	0
+	FNS	("zap_e_noclonebase")
+cloneexists$l &	0
+	FNS	("zap_e_cloneexists")
+clonefail$l &	0
+	FNS	("zap_e_clonefail")
+
+	LOCAL
+
+	DCD	7+(3<<3)+(1<<6)+(1<<14)
+CloneDelete
+	FNJSR
+	TEQ	R2,#6
+	BEQ	prompt$l
+	SUB	R1,R0,#1
+s$l	LDRB	R0,[R1,#1]!
+	TEQ	R0,#32
+	BEQ	s$l
+	BL	remove_clone_mode_entry
+	FNRTS
+
+prompt$l
+	ADR	R0,p$l
+	BL	minibuffer_prompt_token
+	FNRTS
+p$l	FNS	("zap_p_delclone")
 
 	DCD	0
 Closeother

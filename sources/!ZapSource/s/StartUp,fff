@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.9 1999/02/02 00:53:33 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.10 1999/02/02 19:32:05 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -21,6 +21,8 @@
  EXPORT init_fixed
  EXPORT init_config
  EXPORT read_given_config_block
+ EXPORT write_config_block
+ EXPORT find_config_block
  EXPORT init_envstring
  EXPORT init_load
  EXPORT Saveoptions
@@ -539,9 +541,7 @@ read_config_block
  ADD R9,R5,R0
  TEQ R11,#2
  BEQ type2$l
- ADD R0,R9,#9			; clone name ***NYI
- ; We'll need to do mode clone handling here later:
- ; - call test_mode_name, and accept the block if (VS | (VC & R0==R8))
+ ADD R0,R9,#9			; clone name
  BL str_len
  ADD R9,R9,R0
  ADD R9,R9,#1			; skip extra NUL
@@ -596,6 +596,7 @@ end$l				; finished - delete the block
 
 ;E R6=address of config file, R7=length
 ;  R0=mode number to add block for / -1 for main global block
+;    if b30 set then R1 = mode name (for cloning purposes)
 ;X Block added to end of config file & R6,R7,wimp_con* updated
 
 write_config_block
@@ -604,6 +605,7 @@ write_config_block
  SUB R5,R5,#4			; start for this block
  ADDS R8,R0,#0			; R8=save mode number
  BMI opt$l			; do main block
+ BIC R0,R0,#1<<30		; (the later LSL#2s on R8 are OK - b30 lost)
  BL read_mode			; R1=linked mode table
  CMP R1,#0			; was this a valid mode?
  FNRTS LE			; Mode not valid so exits
@@ -631,12 +633,16 @@ a$l				; R4=opt_moden R10=flags R11=mode blk len
  FNRTS VS
  MOV R0,#3
  STR R0,[R5]			; block code
- LDR R2,[R1,#e_title*2]		; address of mode name
+ TST R8,#1<<30
+ LDREQ R2,[R1,#e_title*2]	; address of mode name
+ LDRNE R2,[R13]			; or mode name from stack
+ LDR R0,[R1,#e_basemode*2+4]	; clone base number
+ BL read_mode
  PUSH "R1"
  ADD R1,R5,#8
  BL strcopy			; copy in mode name
- PULL "R14"
- LDR R2,[R14,#e_title*2]	; address of clone name ***NYI [+4]
+ PULL "R2"
+ LDR R2,[R2,#e_title*2]		; clone base name
  BL strcopy			; copy in clone name
  ADD R1,R1,#3
  BIC R9,R1,#3			; next place to write (Zap block)
@@ -700,6 +706,27 @@ ensure_config_block
  MOVVC R6,R0
  ADDVC R5,R6,R5			; new posn in block
  FNRTS
+
+;E wimp_kbdbuf contains mode name
+;X R0 = pointer to type 3 block / 0
+
+find_config_block
+	FNJSR	"R1-R3"
+	FNLDR	R3,wimp_config
+	MOV	R0,#4
+scan$l	LDR	R0,[R3,R0]!
+	TEQ	R0,#0
+	FNRTS	EQ
+	TEQ	R0,#3
+	LDRNE	R0,[R3,#4]
+	BNE	scan$l
+	ADD	R1,R3,#8
+	FNLDR	R2,wimp_kbdbuf
+	BL	strCMP
+	LDRNE	R0,[R3,#4]
+	BNE	scan$l
+	MOV	R0,R3
+	FNRTS
 
 ;E R3=pointer to mode data block R9=pointer to output buffer
 ;X Block copied, R9 updated #
@@ -1277,9 +1304,10 @@ findend$l
 find_clone_mode_entry
 	FNJSR	"R1-R3"
 	FNLDR	R3,ext_clones
-loop$l	LDR	R1,[R3],#4
-	TEQ	R1,#0
+loop$l	LDR	R0,[R3],#4
+	TEQ	R0,#0
 	FNRTS	EQ
+	MOV	R1,R0
 	LDR	R2,[R13]
 	BL	strCMP
 	BNE	loop$l
@@ -1297,12 +1325,13 @@ skip$l	LDRB	R2,[R0],#1
 ;X if found in the clones list:
 ;    mode removed from clones list, config block deleted if not already read
 ;    if instantiated then mode is marked as deleted (but remains available)
+;  error if not a clone or not found
 
 remove_clone_mode_entry
 	FNJSR	"R1-R7"
 	BL	find_clone_mode_entry
 	TEQ	R0,#0
-	FNRTS	EQ
+	BEQ	nodel$l
 	FNLDR	R3,ext_clones
 	MOV	R4,R3
 loop$l	LDR	R2,[R3],#4
@@ -1312,24 +1341,31 @@ loop$l	LDR	R2,[R3],#4
 	BNE	loop$l
 	LDR	R0,[R13]
 	BL	test_mode_name
-	TEQ	R0,#0
+	MOVS	R5,R0
 	BMI	notinstantiated$l
 	BL	read_mode
-	LDR	R0,[R1,#2*e_basemode+4]!
-	ORR	R0,R0,#1<<31
-	STR	R0,[R1]
+	LDRB	R0,[R1,#2*e_basemode+4]!
+	TEQ	R0,R5
+	BEQ	nodel$l
+	MOV	R0,#128
+	STRB	R0,[R1,#3]
+	FNRTS
 notinstantiated$l
-	FNLDR	R5,wimp_config
-	MOV	R0,#4
-loop2$l	LDR	R0,[R5,R0]!
-	TEQ	R0,#0
-	FNRTS	EQ			; return if no more blocks
-	TEQ	R0,#3
-	BNE	loop$l			; not type 3
-	ADD	R1,R5,#8		; mode name
+	FNLDR	R1,wimp_kbdbuf
 	LDR	R2,[R13]
-	BL	strCMP
-	BNE	loop2$l
+	MOV	R3,#256
+	MOV	R4,#32
+	BL	strmove			; copy clone name into wimp_kbdbuf
+	BL	find_config_block	; is there a config block for it?
+	MOVS	R5,R0
+	BEQ	nodel$l
+	ADD	R1,R5,#8
+	MOV	R2,R1
+s1$l	LDRB	R0,[R2],#1
+	TEQ	R0,#0
+	BNE	s1$l
+	BL	strcmp			; do the names match?
+	BEQ	nodel$l			; if so, then not a clone -> error
 	FNLDR	R6,wimp_config
 	FNLDR	R7,wimp_conlen
 	LDR	R4,[R5,#4]
@@ -1343,5 +1379,11 @@ loop2$l	LDR	R0,[R5,R0]!
 	SUB	R7,R7,R0
 	FNSTR	R7,wimp_conlen
 	FNRTS
+nodel$l	ADR	R0,nodelmsg$l
+	LDR	R4,[R13]
+	BL	lookup_error
+	FNRTS
+nodelmsg$l &	0
+	FNS	("zap_e_delclone")
 
  END

@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.8 1999/02/02 00:53:30 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.9 1999/02/02 19:32:03 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -61,6 +61,7 @@
  EXPORT put_mode_word
  EXPORT read_conf_mode_data
  EXPORT create_modedata
+ EXPORT create_modedata_block
  EXPORT mode_colour_num
  EXPORT make_default_mode
  EXPORT post_load
@@ -131,7 +132,7 @@ find$l				; find the module in the OS list
  MOV R11,R0			; mode entry point supplier table (mode nos.)
  LDR R0,[R9,#e_basemode]
  STR R0,[R7,#2*e_basemode]	; basemode number
- STR R0,[R7,#2*e_basemode+4]	; clone basemode number
+ STR R10,[R7,#2*e_basemode+4]	; clone basemode number
  LDR R0,[R9,#e_title]
  ADD R0,R0,R8
  STR R0,[R7,#2*e_title]		; title
@@ -298,7 +299,7 @@ err2$l ERR "zap_e_badbase"
 ;  (don't do for windows until after e_init 2!)
 
 init_mode_config
- FNJSR "R1,R8-R10"
+ FNJSR "R1,R6-R10"
  MOV R0,#2			; mode block
  MOV R1,R10
  BL read_given_config_block	; read the block if it exists
@@ -310,7 +311,7 @@ init_mode_config
  FNLDR R0,opt_modedata
  LDR R0,[R0,R10,LSL#2]
  CMP R0,#0
- FNRTS GT			; mode block adready set up
+ FNRTS GT			; mode block already set up
  MOV R8,R10			; mode
  ADR R9,default$l		; default block
  MOV R10,#12			; length (old format)
@@ -380,6 +381,28 @@ next$l
  ; SUBS R14,R14,R14		; clv...? (????)
  BLVC init_mode_menu		; initialise the menus - a problem?
  FNRTS
+
+;E R0=clone mode number
+;X Mode initialised if necessary
+
+init_mode
+	FNJSR	"R1,R9-R10"
+	MOV	R10,R0
+	BL	read_mode
+	FNRTS	VS
+	CMP	R0,#0
+	FNRTS	LE			; no mode loaded in this slot
+	CMP	R1,#0
+	FNRTS	GT			; mode already set up and running
+	ORR	R0,R10,#&FF00
+	STR	R0,init_mode_list	; this is a new mode
+	BL	init_a_mode		; create dispatch table for this mode
+	BLVC	init_mode_config	; read the config block (or default)
+	BLVC	init_modes_init		; call e_init with R1=2 to init options
+	ADRVC	R10,init_mode_window
+	BLVC	do_allwindow		; update open windows options blocks
+	BLVC	init_mode_menu		; initialise the menus - a problem?
+	FNRTS
 
 ;init_modes2			; /the/ problem routine...
 ;; FNJSR "R1,R9-R10"
@@ -757,6 +780,7 @@ comloop$l
 
 ;E R0=address of mode table (probably in SVC mode)
 ;X mode table added to list #
+;  (Internal: returns the mode number in R0)
 
 add_new_mode
  FNJSR "R1-R4"
@@ -1309,7 +1333,7 @@ next$l
 ;  (loads the mode if need be)
 
 find_mode_number
- FNJSR "R1-R4,R10"
+ FNJSR "R1-R7,R10"
  MOV R10,R0			; save mode name
  BL test_mode_name		; is it already loaded?
  FNRTS VS
@@ -1338,22 +1362,33 @@ loop$l
  BLVC test_mode_name		; try again!
  FNRTS
 tryclones$l ; warning: horrible
- SWI 256+4
- SWI 256+26
- SWI 256+'A'
 	MOV	R1,R10
 	BL	find_clone_mode_entry
 	TEQ	R0,#0
 	MOVEQ	R0,#-1		; return if not found
 	FNRTS	EQ
-	MOV	R10,R1		; case-correct name
+	MOV	R10,R1		; case-correct clone name
 	BL	find_mode_number ; load the clone base mode (recursion!)
 	FNRTS	VS
 	TEQ	R0,#0
 	FNRTS	MI		; return if failed to load the base mode
 	MOV	R4,R0		; save base mode number
 	BL	read_mode
+	LDR	R3,[R0,#e_mode]
+	TST	R3,#emode_MayBeCloned
+	BEQ	notcloneable$l
 	MOV	R3,R0		; unlinked table address
+	BL	find_config_block
+	TEQ	R0,#0
+	BNE	hasblock$l
+noblock$l
+	FNLDR	R6,wimp_config
+	FNLDR	R7,wimp_conlen
+	ORR	R0,R4,#1<<30
+	LDR	R1,[R13]
+	BL	write_config_block ; clone & no mode block -> make from base
+	FNRTS	VS
+hasblock$l
 	MOV	R0,R10
 	BL	str_len
 	LDR	R1,[R3,#e_len]
@@ -1361,8 +1396,6 @@ tryclones$l ; warning: horrible
 	ADD	R0,R0,#1
 	BL	heap_claim
 	FNRTS	VS
- MOV R14,#&8000
- STR R0,[R14]
 	LDR	R1,[R3,#e_len]
 copy$l	SUBS	R1,R1,#4	; copy the unlinked table
 	LDR	R14,[R3,R1]
@@ -1380,20 +1413,33 @@ copy$l	SUBS	R1,R1,#4	; copy the unlinked table
 	BL	strcopy		; copy the name
 	PULL	"R0"
 	BL	add_new_mode
-	BLVC	init_modes
+	BLVC	init_mode
 	FNRTS	VS
- SWI 256+'B'
 	MOV	R0,R10
 	BL	test_mode_name
 	CMP	R0,#0
-	MOVLT	R0,R4
-	FNRTS	LT		; not initialised? return base mode (erk!)
+	MOVLT	R0,#-1
+	FNRTS	LT		; not initialised? return :-(
 	MOV	R3,R0
 	BL	read_mode
- SWI 256+'C'
-	STR	R4,[R1,#2*e_basemode+4] ; write the clone base mode number
+	MOV	R2,R1
+	MOV	R0,R4
+base$l	BL	read_mode
+	LDR	R0,[R1,#2*e_basemode+4]
+	TEQ	R0,R4
+	MOVNE	R4,R0
+	BNE	base$l
+	STR	R4,[R2,#2*e_basemode+4] ; write the clone base mode number
 	MOV	R0,R3		; return clone mode number
 	FNRTS
+notcloneable$l
+	ADR	R0,badclonebase$l
+	LDR	R4,[R1,#e_title*2]
+	BL	lookup_error
+	FNRTS
+badclonebase$l
+	&	0
+	FNS	("zap_e_badclonebase")
 
  LOCAL
 
