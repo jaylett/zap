@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.5 2002/02/04 19:21:46 ds Exp $
+  // $Id: zap-std.inc,v 1.6 2002/03/01 00:16:45 ds Exp $
 
   $stable = 'zr-0.39';
   $ftproot = '/usr/data/ftp/zap/pub/';
@@ -36,6 +36,8 @@
       include str_repeat ('../', strlen (ereg_replace ('[^/]+', '', $me))).'404.php';
       exit;
     }
+
+    header ('Content-Type: text/html; charset=iso-8859-1');
 
     global $expire;
     // Document is valid for $expire seconds from now (default null)
