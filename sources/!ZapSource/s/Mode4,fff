@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.14 2003/09/03 13:21:05 christian Exp $
+; $Id: Mode4,fff,v 2.15 2003/09/06 16:14:34 christian Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -1246,8 +1246,14 @@ code$l
 	AND	R14,R0,#3		; word aligned?
 	CMP	R14,#1
 	FNRTS	CS			; not word aligned
-; does CS need  ^^ to be set here ?
 string$l
+	PUSH	"R0"			; skip this check if compressed
+	MOV	R0,#4
+	BL	cln_readw
+	MOVS	R0,R0,LSR #31		; move b31 into b0, and (effectively) clear C
+	PULL	"R0"
+	FNRTS	NE			; module is compressed
+
 	LDR	R14,[R9,#f_len]
 	CMP	R0,R14			; in file range?
 	FNRTS
@@ -1565,7 +1571,8 @@ mode4_end
 ;  If R1=4 return R1=0 R2=file off of match end
 
 mode4_search
-	STR R14,local_temp4r6 + 16	; blat cache...
+	ADRL R14,local_temp4r6
+	STR R14,[R14,#16]		; blat cache...
 	TEQ R1,#3
 	BEQ next$l			; find match offset and next line
 	TEQ R1,#4
