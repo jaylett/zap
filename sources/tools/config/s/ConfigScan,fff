@@ -20,7 +20,7 @@ regs	SETS	"$r"
 
 	MACRO
 	FNRET	$c
-	LDM$c.FD sp!,{$regs,pc}^
+	LDM$c.FD sp!,{$regs,pc}
 	MEND
 
 	MACRO
@@ -88,7 +88,7 @@ strlen	ROUT
 	teq	a3,#0
 	bne	%BT0
 	sub	a1,a1,a2
-	movs	pc,lr
+	mov	pc,lr
 
 
 ; char *strcpy(char *, const char *)
@@ -98,7 +98,7 @@ strcpy	ldrb	a3,[a2],#1
 	teq	a3,#0
 	bne	strcpy
 	sub	a1,a1,#1
-	movs	pc,lr
+	mov	pc,lr
 
 
 ; flags stricmp(const char *, const char *)
@@ -216,8 +216,9 @@ write	ROUT
 	FNJSR	"v1-v4"
 	mov	v1,a1
 	movs	v2,a2
+	subne	a1,v2,#1
 	bleq	strlen
-	addeq	v2,a1,#1
+	add	v2,a1,#1
 	ldr	v3,=outcache
 	ldr	v4,=oc_ptr
 	ldr	ip,=oc_len
@@ -336,7 +337,7 @@ setfound ROUT
 	subhs	a2,a3,#1 ; found bits 0..(n-1) set for n leafnames
 	sublo	a1,a3,#1 ; found bits 0..(n-1) set for n leafnames
 	movlo	a2,#0
-	movs	pc,lr
+	mov	pc,lr
 
 
 ; long long check(leaflist)
@@ -446,16 +447,17 @@ main	ROUT
 	swi	XOS_ReadVarVal
 	movvs	a3,#-1
 	adds	a1,a3,#1
-	ldrne	a4,=cty_len
-	strne	a3,[a4]
-	movne	a4,#0
-	strneb	a4,[a2,a3]
-	blne	malloc
-	ldrne	a2,=country
-	strne	a1,[a2]
-	ldrne	a2,=wksp
-	blne	strcpy
-	bl	get_dirs
+	beq	cl0
+	ldr	a4,=cty_len
+	str	a3,[a4]
+	mov	a4,#0
+	strb	a4,[a2,a3]
+	bl	malloc
+	ldr	a2,=country
+	str	a1,[a2]
+	ldr	a2,=wksp
+	bl	strcpy
+cl0	bl	get_dirs
 	adr	a1,zaptemp
 	mov	a2,#-1
 	mov	a3,#-1
