@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.13 2004/09/23 20:31:07 christian Exp $
+; $Id: ModuleBits,fff,v 2.14 2004/09/23 22:58:09 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -355,21 +355,38 @@ core_save
 ; *******************************************************************
 
 Zap_StringCommand
-	FNJSR	"R0-R5"
+	FNJSR
 	LDR	R12,[R12]		; get our workspace
-	FNLDR	R2,exception_buffer	; will do for now.
-	; er strcopy?
-loop$l	LDRB	r3,[r0],#1
-	STRB	r3,[r2],#1
-	CMP	r3,#32
-	BGE	loop$l			; string copied to our block
-	MOV	r3,#0
-	STRB	r3,[r2],#1
+	MOV	R4,R0
+
+count$l	LDRB	R3,[R0],#1		; find length of string
+	CMP	R3,#32
+	BHS	count$l
+	SUB	R3,R0,R4
+
+	MOV	R0,#6			; allocate a suitable block
+	ADD	R3,R3,#5
+	SWI	XOS_Module
+	FNRTS	VS
+
+	MOV	R5,R2			; keep it
+	ADD	R1,R2,#4
+	MOV	R2,R4			; command string
+	BL	strcopy
+
+	ADD	R0,R12,#star_commands	; add to list in order
+find$l	LDR	R1,[R0]
+	TEQ	R1,#0
+	MOVNE	R0,R1
+	BNE	find$l
+
+	STR	R5,[R0]			; link in
+	STR	R1,[R5]			; zero next pointer
 
 	FNLDR	R0,wimp_poll_word
-	ORR	R0,R0,#1		; set it...
+	ORR	R0,R0,#1		; request attention
 	FNSTR	R0,wimp_poll_word
-	FNRTS				; exit command routine
+	FNRTS
 
 
 ; *******************************************************************
@@ -401,24 +418,36 @@ poll_word_changed
 
 poll_word_command
 	FNJSR
-	FNLDR	r10,car_cursor		; r10=cursor block
-	LDR	r0,[r10]		; r0=window offset
-	BL	conv_wind_off		; get r8,r9...
-	FNLDR	R0,exception_buffer
-	LDRB	r1,[r0]			; get first byte
-	CMP	r1,#'*'			; if * this is configuration
-	ADDEQ	r0,r0,#1		; ... so increment start pointer
-	MOVEQ	r8,#0			; ... set wind to 0
-	MOVEQ	r9,#0			; ... and file to 0
-	MOV	R1,#command_DontLearn
-	BL	command_string		; corrupts...?
-	FNRTS	VC
+	FNLDR	R11,star_commands
+loop$l	FNLDR	R10,car_cursor		; get current cursor
+	LDR	R0,[R10,#c_wind]
+	BL	conv_wind_off		; get r8,r9
 
-error$l
-	ADDS	R0,R0,#4		; also CLV...
-	MOV	R1,#0
-	BL	warn_user
+	ADD	R0,R11,#4
+	LDRB	R1,[R0]
+	TEQ	R1,#'*'			; if * this is configuration
+	ADDEQ	R0,R0,#1		;  so increment start pointer
+	MOVEQ	R8,#0			;  set wind to 0
+	MOVEQ	R9,#0			;  and file to 0
+	MOV	R1,#command_DontLearn
+	BL	command_string
+	BVS	error$l
+
+n$l	MOV	R0,#7			; free this block
+	MOV	R2,R11
+	LDR	R11,[R11]		; next block
+	SWI	XOS_Module
+
+	TEQ	R11,#0
+	BNE	loop$l
+
+	FNSTR	R11,star_commands
 	FNRTS
+
+error$l	ADDS	R0,R0,#4		; also CLV...
+	MOV	R1,#0
+	ADR	R14,n$l
+	B	warn_user
 
 
 
