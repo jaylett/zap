@@ -1,5 +1,5 @@
 ; Zap Util Command Extension
-; $Id: dwcomms,fff,v 1.5 2002/11/24 02:46:39 christian Exp $
+; $Id: dwcomms,fff,v 1.6 2003/06/20 21:16:40 ds Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 ; SETNAME		- Sets the filename from parameter or in-core
 ; CLOSETASKWINDOWS	- The obvious
 ; CLOSETHROWBACKS	- Ditto
+; REVERT		- Revert to saved (if the name is a full pathname)
 
 ; Includes
 		GET	h.ZapUtil
@@ -30,6 +31,7 @@
 		EXPORT	dw_setname
 		EXPORT	dw_discardtaskwindows
 		EXPORT	dw_discardthrowbacks
+		EXPORT	dw_revert
 
 		LOCAL
 ; DISCARDTASKWINDOWS
@@ -163,6 +165,60 @@ copy_loop$l	LDRB	r2,[r5],#1
 		FNRTVC						; don't report errors from Zap_Free
 
 miniprompt$l	StrZA	"zaputil_p_setname", "Set name to: "
+
+
+	LOCAL
+
+	&	0
+dw_revert
+	FNJSR
+	FNcall	Zap_TestChanged
+	FNRTS	EQ
+	MOV	r0,#17
+	LDR	r1,[r9,#f_name]
+	SWI	XOS_File
+	FNRTS	VS
+	TST	r0,#1
+	MOVEQ	r2,r0
+	MOVEQ	r0,#19
+	SWIEQ	XOS_File
+	FNRTS	VS		; if not a file, return now with an error
+	ADR	r0,revert_q$l
+	MOV	r1,#0
+	MOV	r2,#0
+	MOV	r3,#0
+	FNcall	Zap_Query
+	FNRTS	VS
+	FNRTS	NE
+	LDR	r4,[r9,#f_name]
+	MOV	r5,r4
+len$l	LDRB	r0,[r5],#1
+	CMP	r0,#32
+	BHI	len$l
+	SUB	r0,r5,r4
+	FNcall	Zap_Claim
+	FNRTS	VS
+	MOV	r6,r0
+copy$l	LDRB	r1,[r4],#1
+	CMP	r1,#32
+	MOVLS	r1,#0
+	STRB	r1,[r0],#1
+	BHI	copy$l
+	FNcall	Zap_DiscardFile	; don't care about errors
+	MOV	r0,r6
+	FNcall	Zap_FindFile
+	MOVVS	r4,r0
+	MOVVC	r4,#0
+	MOV	r0,r6
+	FNcall	Zap_Free
+	MOVS	r0,r4
+	SWINE	XOS_GenerateError
+	FNRTS
+
+revert_q$l
+	&	0
+	=	"zaputil_q_revert",0
+	ALIGN
 
 ; That's it
 		END
