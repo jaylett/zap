@@ -671,7 +671,7 @@ NotatStart
 	;TEQ	r0, #'.'		; &.Dir Testing
 	;TEQNE	r0, #'/'		;  REM Fish & Chips Testing??
 	;BEQ	testampersand		; if prev char is "&", colour as fg
-					; THIS DOES ENTIRELY THE WRONG THING
+					; this does entirely the wrong thing
 
 afterteststop
 	AND	r1, r2, #0xFF
@@ -712,10 +712,10 @@ TisANumber
 		;     LDR     1,[1]
 		;     AndS    1,1,#(1 << 19)
 		;     BEQ     notkeynumberprob
-	LDR	r1, adrofrsix
-	ADD	r1, r1, #5
-	CMP	r6, r1
-	BCC	BeforeColour
+	;LDR	r1, adrofrsix
+	;ADD	r1, r1, #5		; don't allow number colour before
+	;CMP	r6, r1			; column 6 - why??
+	;BCC	BeforeColour
 notkeynumberprob
 	BIC	r2, r2, #0xFF
 	ORR	r2, r2, #col_numbers
@@ -790,6 +790,7 @@ SymbolChecking				; check for misc punctuation
 	TEQNE	r0, #'<'
 	TEQNE	r0, #'>'
 	TEQNE	r0, #'\'
+	TEQNE	R0, #'@'		; new cl
 	MOVEQ	r1, #col_punct
 	STREQB	r1, [r6, r3]
 	BEQ	AfterColour
@@ -826,6 +827,7 @@ BeginOfEnd
 	AND	r1, r12, #0xFF		;
 	TEQ	r0, r1			; cr?
 	BEQ	tocheckbackwardsnow	; yes - ceck for commands at EOL
+
 	ORRNE	r2, r2, #0x0400
 backcheckbackwardsnow
 	BIC	r1, r12, #0xFF000000	;  REM if not width...
@@ -853,7 +855,6 @@ fromslash
 	STRB	r1, [r6, r3]
 	B	AfterColour
 					;  REMB	      BeforeColour%
-
 ComCodeRestart
 	TEQ	r0, #'_'
 	BEQ	AfterCmdCntChk
@@ -894,33 +895,34 @@ r6version
 	MOV	r1, #' '
 	B	AfterCmdCntChk	;  REM 13/10
 
-ErrEchConf
-	CMP	r6, #0
-	BLE	AfterColour
-	AND	r1, r2, #0xFF
-	CMP	r1, #col_numbers
-	BEQ	BeforeColour
-	CMP	r1, #col_punct
-	MOVEQ	r1, #col_fg
-	STREQB	r1, [r6, r3]
-	TEQ	r0, #' '
-	TEQNE	r0, r12, LSR #24	;  REM = tab?
-	BEQ	TabbingSub
-	B	AfterColour
+;ErrEchConf
+;	CMP	r6, #0
+;	BLE	AfterColour
+;	AND	r1, r2, #0xFF
+;	CMP	r1, #col_numbers
+;	BEQ	BeforeColour
+;	CMP	r1, #col_punct
+;	MOVEQ	r1, #col_fg
+;	STREQB	r1, [r6, r3]
+;	TEQ	r0, #' '
+;	TEQNE	r0, r12, LSR #24	;  REM = tab?
+;	BEQ	TabbingSub
+;	B	AfterColour
 
-NotANum2
-	CMP	r6, #0
-	BLE	NotANumber
-	CMP	r0, #'%'
-	BGT	NotANumber
-	SUB	r1, r3, #1
-	LDRB	r1, [r6, r1]
-	AND	r1, r1, #0xFF
-	CMP	r1, #col_numbers
-	BNE	NotANumber
-	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #col_fg
-	B	NotANumber
+;NotANum2
+;	CMP	r6, #0
+;	BLE	NotANumber
+;	CMP	r0, #'%'
+;	BGT	NotANumber
+;	SUB	r1, r3, #1
+;	LDRB	r1, [r6, r1]
+;	AND	r1, r1, #0xFF
+;	CMP	r1, #col_numbers
+;	BNE	NotANumber
+;	BIC	r2, r2, #0xFF
+;	ORR	r2, r2, #col_fg
+;	B	NotANumber
+
 BranchNL
 	AND	r1, r2, #0xFF
 	TEQ	r1, #col_comments
@@ -999,18 +1001,18 @@ TryNextA
 	STRB	r1, [r6, r3]
 	B	AfterColour
 
-pointinnum
-	LDRB	r1, [r7, #-2]
-	CMP	r1, #'9'
-	BGT	NotANumber
-	CMP	r1, #'/'
-	BLE	NotANumber
-	LDRB	r1, [r7]
-	CMP	r1, #'9'
-	BGT	NotANumber
-	CMP	r1, #'/'
-	BLE	NotANumber
-	B	TisANumber		;  REM in a number...
+;pointinnum
+;	LDRB	r1, [r7, #-2]
+;	CMP	r1, #'9'
+;	BGT	NotANumber
+;	CMP	r1, #'/'
+;	BLE	NotANumber
+;	LDRB	r1, [r7]
+;	CMP	r1, #'9'
+;	BGT	NotANumber
+;	CMP	r1, #'/'
+;	BLE	NotANumber
+;	B	TisANumber		;  REM in a number...
 
 ;testampersand				; obsolete, redundant and broken
 ;	CMP	r6, #0       	        ; doing this line?
@@ -1378,7 +1380,8 @@ fullstopspeccase
 	MOV	r1, #'.'
 	BEQ	tcloop
 	B	notanumberbackedonto
-splchkforminus
+
+splchkforminus				; called from table search
 	SUB	r11, r11, #1
 	ADD	r4, r8, r11
 	LDR	r1, [r9, #f_ptr]
@@ -1396,8 +1399,8 @@ inbothalfTC2a
 	CMP	r4, r1
 	BCC	notANYone
 	LDRB	r1, [r4]
-	CMP	r1, #32	;  make sure ' ' before any '-'
-	BGT	notANYone
+	CMP	r1, #32			; make sure ' ' before any '-'
+	BGT	tcloop	;notANYone
 	MOV	r1, #'-'
 		;     ADD     11,11,#1
 	B	notanumberbackedonto
@@ -1415,18 +1418,18 @@ TableChk2
 	MOV	r8, r7			; r8 = current input
 	LDR	r1, [r9, #f_ptr]
 	LDR	r12, [r9, #f_splito]
-	ADD	r12, r1, r12		; r12 = end of section
+	ADD	r12, r1, r12
 	CMP	r8, r12
 	BCC	ploughonin
 	LDR	r12, [r9, #f_splite]
-	ADD	r12, r1, r12		; r12 = end of section
+	ADD	r12, r1, r12
 	CMP	r8, r12
-	LDRCC	r1, [r9, #f_splits]
+	LDRCC	r1, [r9, #f_splits]	; skip the split if we're inside it
 	ADDCC	r8, r8, r1
 ploughonin
-	MVN	r11, #0
+	MVN	r11, #0			; -1
 tcloop
-	SUB	r11, r11, #1
+	SUB	r11, r11, #1		; -2
 	ADD	r4, r8, r11
 	LDR	r1, [r9, #f_ptr]
 		;     CMP     4,1
@@ -1444,7 +1447,7 @@ inbothalfTC2
 	LDR	r1, [r9, #f_ptr]
 	CMP	r4, r1
 	BCC	notanumberbackedonto
-	LDRB	r1, [r4]
+	LDRB	r1, [r4]		; return bug: this gives us cr on first try
 	CMP	r1, #'|'
 	CMPNE	r1, #']'
 	CMPNE	r1, #'['
@@ -1454,29 +1457,31 @@ inbothalfTC2
 	BGT	tcloop
 		; CMP	  R1,#ASC"-" ; for what...?
 		; BEQ	  loop ; for what...?
-rightatverystart
+rightatverystart			; check first char is acceptable
 	TEQ	r1, #'.'
 	BEQ	fullstopspeccase
 	TEQ	r1, #'+'
 	BEQ	tcloop
 	TEQ	r1, #'@'
-	TEQNE	r1, #':'	;  REM ok as in C:h.foo
+	TEQNE	r1, #':'		;  REM ok as in C:h.foo
 	BEQ	notanumberbackedonto
 	TEQ	r1, #'-'
-	BEQ	splchkforminus
+	BEQ	splchkforminus		; make sure there's a ' ' before a '-'
 	CMP	r1, #'0'
 	BCC	notanumberbackedonto
 	CMP	r1, #':'
-	BCC	tcloop
+	BCC	tcloop			; keep going...
 		; .gothrough
 	CMP	r1, #' '
 	BGT	notANYone
+
 notanumberbackedonto
 	STR	r1, beginnchar		; keep first char to look up
-	ADD	r11, r11, #1
+	ADD	r11, r11, #1		; return bug: -1
 	ADD	r4, r8, r11		; r4 = start address
-	ADD	r11, r11, #1
-	RSB	r1, r11, #0		; r11 is number of chars gone back
+	ADD	r11, r11, #1		; return bug: 0
+	RSBS	r1, r11, #0		; r1 is number of chars gone back ( =0 )
+	BEQ	notANYone		; 0 chars to check in table...
 	STR	r1, cntcharback
 	LDR	r1, [r9, #f_ptr]
 	CMP	r4, r1
@@ -1504,12 +1509,15 @@ notanumberbackedonto
 		; in the middle of the split. We subtract the split size to cater for that.
 		; CC is right because we're going /backwards/ through the split.
 	LDR	r12, [r9, #f_splite]
-	ADD	r12, r1, r12		; point to new end of section
-	CMP	r4, r12
-	LDRCC	r1, [r9, #f_splits]
-	SUBCC	r4, r4, r1
-	CMP	r4, r12
-	BCS	notANYone		; off the end of the file (we didn't go back at all, or
+	ADD	r12, r1, r12
+	CMP	r4, r12			; in the split?
+	LDRCC	r5, [r9, #f_splits]
+	SUBCC	r4, r4, r5
+;	LDR	R5,[R9,#f_bufl]
+;	ADD	R1,R1,R5
+;	CMP	R4,R1
+;	SWIEQ	&107
+;	BEQ	notANYone		; off the end of the file (we didn't go back at all, or
 					; split was last thing in file)
 inbothalfTC3
 		; LDR	  1,[9,#f_ptr]
@@ -1531,7 +1539,8 @@ inbothalfTC3
 	ADD	r12, r12, r1
 ;	TST	r2, #0x04000000	; this bit never gets set
 ;	ADRNEL	r12, TableEval
-lpa2
+
+lpa2					; main loop per table entry
 	MOV	r8, #0	;  REM tablepointer
 	;LDRB	r1, [r12]
 	;CMP	r1, #'#'	;  no longer needed.
@@ -1539,11 +1548,11 @@ lpa2
 	;MVNEQ	r1, #0
 	;ADDEQ	r12, r12, #1
 	;STR	r1, locssforcase
-lpa1
-	LDRB	r1, [r12, r8]
+lpa1					; main loop per table char
+	LDRB	r1, [r12, r8]		; load char from table
 	CMP	r1, #'z'
 	MOVGT	r10, r8
-	BGT	gotexactmatch
+	BGT	gotexactmatch		; table finished - found it
 	MOV	r7, r1
 	ADD	r5, r4, r8
 	LDR	r1, [r9, #f_ptr]
@@ -1556,46 +1565,47 @@ lpa1
 	CMP	r5, lr
 	LDRCC	r1, [r9, #f_splits]
 	ADDCC	r5, r5, r1
-	CMP	r5, lr			; gone past the end of the file
-	BCS	notANYone		; (split was last thing in file)
+	;CMP	r5, lr			; gone past the end of the file
+	;BCS	notANYone		; (split was last thing in file)
 inbothalfTC4
 	;ADRL	r1, w_formmb
 	;LDR	r1, [r1, #0x08]
 	;ANDS	r1, r1, #1 << 24
-	LDRB	r1, [r5]
+	LDRB	r1, [r5]		; load char from file
 	;BEQ	dothatupper
 	;LDR	lr, locssforcase
 	;CMP	lr, #0
 	;BNE	noupperheren
 ;dothatupper
-	FNupper	r1
+	FNupper	r1			; case insensitive
 ;noupperheren
 ;	TEQ	r7, #' '
 ;	BEQ	skiptabovr1     ; ha ha ha ha
 skiptabovr1
-	CMP	r1, #':'	;  was 'COLON' / 64...
-	CMPNE	r1, #'<'	;  was 64...
+	CMP	r1, #':'		;  was 'COLON' / 64...
+	CMPNE	r1, #'<'		;  was 64...
 	CMPNE	r1, #'='
 	CMPNE	r1, #'>'
 	CMPNE	r1, #'/'
 	CMPNE	r1, #'-'
 	MOVLE	r1, #' '
 tabovr1
-	ADD	r8, r8, #1
-	CMP	r7, r1
-	BGT	bigger1
+	ADD	r8, r8, #1		; next table entry
+	CMP	r7, r1			; same?
+	BGT	bigger1			; no -
 	BEQ	lpa1
 maybenot
-	ADD	r12, r12, r8
+	ADD	r12, r12, r8		; skip to current table char
 	SUB	r12, r12, #1
 _altered_0
-	LDRB	r1, [r12], #1
+	LDRB	r1, [r12], #1		; skip to next table entry
 	CMP	r1, #'z'
 	BLE	_altered_0
 	LDRB	r1, [r12]
-	CMP	r1, #'*'
+	CMP	r1, #'*'		; exhausted table?
 	BNE	lpa2
-couldnotfindit
+
+couldnotfindit				; not found in table
 		; TST	  2,#&1C000000
 		; LDMNEFD 13!,{R4-R12,PC}
 	RSB	r8, r11, #0
@@ -1604,13 +1614,13 @@ couldnotfindit
 		; LDRB	  1,[5] ; REM ??? V DUBIOUS...
 		;     CMP     1,#ASC"."
 		;     ADDEQ   8,8,#1
-	LDR	r1, beginnchar
+	LDR	r1, beginnchar		; first char to find
 		;     TEQ     1,#ASC"-"
 		;     TEQNE   1,#ASC"!"
 		;     MovEQ   1,#&02 ; was &12
 		;     BICEQ   2,2,#&40000000 ; a command yet flags...
 		;     BEQ     ChooseColour2
-	TEQ	r1, #'-'	; option/switch
+	TEQ	r1, #'-'		; option/switch
 	MOVEQ	r1, #col_switches
 	BEQ	ChooseColour2
 		;     MOV     1,#&12
@@ -1626,7 +1636,7 @@ bigger1
 	B	maybenot
 
 ChooseYerColour
-	AND	r9, r2, #0xFF	; extract current colour number
+	AND	r9, r2, #0xFF		; extract current colour number
 	CMP	r9, #col_numbers
 	CMPNE	r9, #col_strings
 	BEQ	notANYone
@@ -1654,7 +1664,9 @@ dontputitonsc
 	CMP	r9, r8
 	BLT	lasdwAO
 	MOV	r1, #0xEA00
-	LDMFD	sp!, {r4-r12, pc}
+	;LDMFD	sp!, {r4-r12, pc}
+	FNRTS
+
 Prefixbit
 	RSB	r10, r11, #0
 		; STR	  10,cntcharback
@@ -1728,7 +1740,7 @@ gotexactmatch
 	;BICEQ	r2, r2, #0x40000000	;  a command yet flags...
 
 ChooseColour2
-	LDRB	r9, beginnchar
+;	LDRB	r9, beginnchar		; this doesn't seem to be used...
 		;     CMP     9,#&0A
 		;     BNE     everythingsfinerightnow
 		;     FNlong_adr("  ",9,w_formmb)
@@ -1740,13 +1752,14 @@ ChooseColour2
 	CMP	r9, #0
 	BLE	notANYone
 	ANDS	r9, r2, #0xFF
-	CMP	r9, #col_numbers
+	CMP	r9, #col_numbers	; don't colour commands if in strings or comments
 	CMPNE	r9, #col_strings
 	BEQ	notANYone
 	ADD	r9, r6, r3
 	LDRB	r9, [r9, r11]		;  REM QUICK FIX...
 	CMP	r9, #col_strings	;
-	LDMEQFD	sp!, {r4-r12, pc}
+	;LDMEQFD sp!, {r4-r12, pc}
+	FNRTS	EQ
 	MOV	r9, #0
 	ADD	r7, r6, r11
 		; ADD	  7,7,#1 ; REM ??? TT
@@ -1754,14 +1767,15 @@ ChooseColour2
 	ADD	r6, r7, r3
 	LDRB	r5, [r6, r9]
 	CMP	r5, #col_strings
-	LDMEQFD	sp!, {r4-r12, pc}
+	;LDMEQFD sp!, {r4-r12, pc}
+	FNRTS	EQ
 	LDR	r11, adrofrsix
-	ADRL	r5, w_formmb
-	LDR	r5, [r5, #0x08]
+	;ADRL	r5, w_formmb
+	;LDR	r5, [r5, #0x08]
 lasdwA
 	ADD	r4, r7, r9
 	CMP	r4, r11
-	BCC	beforesolhereargh
+	BCC	beforesolhereargh	; off the start of the line
 	LDRB	lr, [r7, r9]
 	LDRB	r4, [r12, r9]
 		; TST	  5,#1 << 27
@@ -1776,7 +1790,8 @@ beforesolhereargh
 	ADD	r9, r9, #1
 	LDR	r4, cntcharback
 	CMP	r9, r4
-	BCS	colouringrapidexit
+	;BCS	colouringrapidexit
+	FNRTS	CS
 	CMP	r9, r8
 	BLT	lasdwA
 	CMP	r9, r10
@@ -2535,8 +2550,9 @@ maker0upper
 
 
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-tohaveajollygoodtime
-	STMFD	sp!, {lr}
+
+tohaveajollygoodtime			; called when we've finished a physical line, but
+	STMFD	sp!, {lr}		; we're mid-way through a logical one
 	BL	checkbackwardsnow
 	LDR	lr, [r9, #f_ptr]
 	LDR	r0, [r9, #f_splito]
@@ -2548,9 +2564,9 @@ tohaveajollygoodtime
 	LDR	r1, [r9, #f_bufl]
 	ADD	r1, lr, r1
 	CMP	r0, r1
-	LDRCCB	r0, [r0]	;  Hmm...(Beyond end...?)
-	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
-	TEQ	r0, r1	; INSTR(degiewCHR$ l R EM  ! the same ength as the width
+	LDRCCB	r0, [r0]		;  Hmm...(Beyond end...?)
+	AND	r1, r12, #0xFF		;  REM end character... yes! At last...
+	TEQ	r0, r1			; INSTR(degiewCHR$ l R EM  ! the same ength as the width
 	ADDEQ	r7, r7, #1
 	ADDEQ	r11, r11, #1
 	LDMFD	sp!, {lr}
@@ -2558,6 +2574,7 @@ tohaveajollygoodtime
 
 
 tocheckbackwardsnow			; check backwards from cr to find a command
+					; at this point r7 -> after cr char
 	ADD	r11, r11, #1		; inc logical line number
 	BIC	r2, r2, #0xCF000000	;  REM START OF LINE FLAGS...xxx
 	BIC	r2, r2, #0x00F00000
@@ -2579,11 +2596,11 @@ checkbackwardsnow
 	CMP	r0, #'{'
 	BCS	endcheckbackontoent	; not A-Za-z etc
 alltizfine
-	ADD	r7, r7, #1
+	ADD	r7, r7, #1		; (return bug: this puts us 2 into the split)
 	BL	TableChk2
 	SUB	r7, r7, #1
 endcheckbackontoent
-	ADD	r7, r7, #1
+	ADD	r7, r7, #1		; update input pointer for next line
 	TEQ	r1, #col_comments
 	BEQ	secondendofGSTB
 	MOV	r1, #1
@@ -2859,6 +2876,10 @@ changeLFto00
 	BICEQ	r1, r1, #0xFF000000
 	STR	r1, [r0], #4
 	B	changeLFto00
+
+
+; -------- FLAGSTOGGLE command ----------
+
 	DCD	0x8017
 Cmdhtmlflagstoggle
 	STMFD	sp!, {lr}
@@ -2985,9 +3006,13 @@ sortbuttonsout
 	BL	gotoopenwindow	;  REM twice - due to the first such
 		;  REM call after an open is ignored.
 	LDMFD	sp!, {r5, pc}
+
+
+;---------- e_interrogate ----------
+
 mode_interrogate
-	CMP	r0, #25
-	MOVEQ	r0, #0
+	CMP	r0, #25			; default SAVEANDRUN behaviour?
+	MOVEQ	r0, #0			; yes please
 	MOVEQ	pc, lr
 	STMFD	sp!, {r9, r11, lr}
 	MOV	r11, #e_interrogate
@@ -2996,7 +3021,9 @@ mode_interrogate
 ;TableEval					; what's /this/ doing here?
 ;	=	"AND }", "VAL }", "**"
 
-	; mus make sure the followinf text is at least 26*4 bytes long!
+
+
+	; must make sure the following text is at least 26*4 bytes long!
 AlphaIndex
 	=	10, "Greetings from The Mandala Centre.", 10, "Please feel free place any additional commands in the space provided"
 	ALIGN
@@ -3005,6 +3032,7 @@ AlphaIndex
 
 	DCD	0x2A2A0A2E
 TableHere
+	=	"AS ",		com_commands
 	=	"AUTOINDENT ",	com_commands
 	=	"AUX ",		com_commands
 	=	"BLOCKID ",	com_commands
@@ -3022,6 +3050,7 @@ TableHere
 	=	"DECAOF ",	com_commands
 	=	"DELETE ",	com_morecmds
 	=	"DIFF ",	com_commands
+	=	"DRLINK ",	com_commands
 	=	"ECHO ",	com_morecmds
 	=	"FIND ",	com_commands
 	=	"GCC ",		com_commands
