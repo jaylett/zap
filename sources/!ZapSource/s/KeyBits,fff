@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.9 2002/11/10 14:09:55 christian Exp $
+; $Id: KeyBits,fff,v 2.10 2002/11/10 22:29:51 christian Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -31,7 +31,6 @@
  EXPORT do_allfiles
  EXPORT do_eachleaf
  EXPORT do_linked_files
- EXPORT do_in_svc
  EXPORT init_settings
  EXPORT init_keys
  EXPORT add_key_table
@@ -503,10 +502,12 @@ test_shiftctrl_internal
 special_test_forkey
 	TEQ	R1,#0
 	BMI	test_forkey
+	CLC
 	MOV	R0,R0,LSR #8
 	TEQ	R0,R1,LSR #16
-	BICNES	PC,R14,#1<<29	; !!! ARM32 FIXME
-	ORRS	PC,R14,#1<<29	; !!! ARM32 FIXME
+	MOVNE	PC,R14
+	SEC
+	MOV	PC,R14
 
 ;E R0=inkey number (not eored)
 ;X CS if key pressed |
@@ -891,20 +892,6 @@ do14
  MOV PC,R10			; call the sub
  ADD R7,R7,#16			; next block
  B do14
-
-;E R0-R9=args R10=address of # sub
-;X sub at R10 called in svc mode. R0-R9=output #
-
-do_in_svc
- FNJSR
- SWI XOS_EnterOS		; Enter SVC mode
- MOVS R14,PC			; return address
- MOV PC,R10			; call the sub
- MOVS R14,PC			; get PC with flags
- BIC R14,R14,#3			; user mode
- TEQP R14,#0			; update flags	; !!! ARM32 FIXME
- MOV R0,R0			; Nop instruction
- FNRTS
 
  LOCAL
 
@@ -2089,7 +2076,7 @@ setmap$l
 	STRB	R0,[R8,#w_currentmap]
 	STRB	R0,[R8,#w_helpmap]
 	STRB	R0,[R8,#w_defaultmap]
-	FNRTSS
+	FNRTS
 warn$l	FNJSR	"R8-R10"
 	MOV	R8,R11
 	BL	bad_keymap
