@@ -1,7 +1,11 @@
 ; Diff colouring mode
-; $Id: module,fff,v 1.3 2001/04/24 04:17:55 ds Exp $
+; $Id: module,fff,v 1.4 2001/04/24 12:47:56 james Exp $
 ;
 ; (c) Zap Developers 2001
+;
+; This is a reasonably simple colouring mode. It should serve
+; as a good tutorial example - reasonably well-commented, and
+; generally accurate and safe about how it does things.
 
 	GET	h.Diff
 	GET	h.Version
@@ -91,7 +95,7 @@ finalise_code
 mode_name
 	=	"Diff", 0
 mode_author
-	=	"James Aylett", 0
+	=	"James Aylett and Darren Salt", 0
 	ALIGN
 
 mode_table
@@ -153,6 +157,22 @@ mode_table
 	DCD	mode_prevline
 mode_table_end
 
+; initialise our mode. Various things happen here, and it's one
+; of the more complex entry points as a result. Some reason codes,
+; aren't anything to do with initialisation at all.
+;
+; Important things to note here are how we never rely on a static notion
+; of our mode number - it's always figured out dynamically (allowing us to
+; be cloned successfully), and that we need to be careful about UPGRADING
+; options and colours, not just setting them up in the first place. Of
+; course, if a mode never gets extended, we don't win anything by being
+; careful (but this mode was extended by two colours within hours of being
+; written, so ... :-).
+;
+; FIXME: we don't currently upgrade clone modes properly. I think we
+; know how to do it, but we need to be sure. Until then, your clone modes
+; won't upgrade smoothly (best solution is to delete them then recreate).
+	
 	LOCAL
 mode_init
 	CMP	r1, #einit_ModeMenu
@@ -171,7 +191,6 @@ mode_init
 	MOVNE	pc, lr
 
 	FNJSR	"r1-r3, r7, r8"
-
 	MOV	r8, #0
 	LDR	r1, [r11, #ws_modenumber]
 	BL	init_colours
@@ -184,19 +203,27 @@ mode_init
 	LDR	r7, [r0, #0]
 	CMP	r7, #mb_size
 	FNRTS	EQ
-	; Config block is wrong size!
-	; Note that currently this is irrelevant ...
+	; Config block is wrong size! We must resize it ...
 	MOV	r1, #mb_size
 	FNcall	Zap_Ensure
 	FNRTS	VS
 	MOV	r7, #mb_size
 	STR	r7, [r0, #mb_sizestore]
+	; ... and then set useful defaults for any new options.
+	; (Not done because we don't yet have any options at all.)
+
+	; Store the mode word back as our default.
 	FNcall	Zap_PutModeWord
 	FNRTS
 colsmenu$l
 	=	"diff_colours", 0
 	ALIGN
 
+; We don't have an entry in the config file at all.
+; Grab a mode word block (first word is the size of the block, so Zap can
+; handle things automatically for new windows), and write useful defaults
+; into it. Also set up the ModeData variables into useful default states
+; (these are the defaults for w_format et al).
 init_config
 	MOV	r0, #mb_size
 	FNcall	Zap_Claim
@@ -217,18 +244,23 @@ setupvars$l
 	CMP	r2, r7
 	BLT	setupvars$l
 	FNRTS
-
 vardata$l
 	DCD	2		; total vars to write
 	DCD	0x77 :OR: (tab_DisplayAsSpaces :SHL: tab_DisplayFormat_config_shift)
 	DCD	0x7 :OR: modeconfig_LineNumberColon :OR: modeconfig_CursorSmart
 
+	
+; Store our real mode number. We want to know the base mode number, so
+; we can supply commands and similar that will do meaningful things
+; in our base mode and all clones, but exit gracefully in others.
+	LOCAL
 init_modestarting
-	LDR	r1, [r11, #ws_modenumber]
-	CMP	r1, #-1
-	STREQ	r0, [r11, #ws_modenumber]
+	LDR	r1, [r11, #ws_modenumber] ; first init?
+	CMP	r1, #-1		; if it isn't, this is a clone init (ignore)
+	STREQ	r0, [r11, #ws_modenumber] ; hang onto it so we know our base
 	MOV	pc, lr
 
+; Load our mode menu
 	LOCAL
 init_modemenu
 	FNJSR
@@ -249,6 +281,9 @@ menu_path$l
 	=	"<ZapDiff$Menus>", 0
 	ALIGN
 
+
+; Check to see if we have enough colours allocated to this mode yet.
+; If not, change the allocation and write some useful defaults.
 	LOCAL
 init_colours
 	FNJSR	"r1-r5"
@@ -256,11 +291,15 @@ init_colours
 	FNcall	Zap_ModeColourNum
 	CMP	r0, #colour_max
 	FNRTS	GE
+	MOV	r2, r0		; current number of colours
 
 	MOV	r0, #colour_max
 	FNcall	Zap_ModeColourNum
-	MOV	r2, #colour_base
+	CMP	r2, #colour_base
+	MOVLT	r2, #colour_base ; don't overwrite system colours
 	ADR	r3, cols$l
+	ADD	r3, r3, r2, LSL #2
+	SUB	r3, r3, #(4*colour_base) ; find data for our first colour
 set_col$l
 	LDR	r0, [r3], #4
 	FNcall	Zap_ModeColour
@@ -276,6 +315,10 @@ cols$l
 	DCD	0xFFBB0010	; cyan
 
 
+; Called immediately before redraw. We figure out what
+; type of diff this file is, and save it in our workspace.
+; We know that no other redraw request will happen until
+; our e_redrawline has been called following this.
 	LOCAL
 init_redrawstart
 	FNJSR	"r0-r5,r11"
@@ -356,6 +399,7 @@ maybe_rcs$l
 	B	unknowndiff$l
 
 
+; e_start / e_end must get Zap to save & restore all mode options
 mode_start
 	FNJSR
 	LDRB	r0, [r8, #w_format] ; mode number
@@ -368,7 +412,9 @@ mode_end
 	FNcall	Zap_SaveModeWord
 	FNRTS
 
-
+; First, let text mode draw the line without colouring, and then
+; recolour as necessary based on the diff type (detected at
+; e_init #13).
 	LOCAL
 mode_redrawline
 	FNJSR	"r11"
@@ -461,6 +507,15 @@ loop$l	STRB	r1, [r6],#1
 done$l
 	FNRTS
 
+; If e_prevline (which is called before here) was told that we're
+; redrawing based on an edit action which includes the first character
+; of the file (ie it starts at offset 0) then redraw the entire file
+; rather than just the line surrounding the change. This is because
+; the redraw code always checks the first character of the file to see
+; whether this is a 'normal' or unified diff - if that character changes
+; we may need to update the entire file. We could be more cautious, and
+; check the actual character to see if we need to bother, but our redraw
+; isn't too expensive, and the code starts getting very messy at that point
 	LOCAL
 mode_nextline
 	FNJSR	"r2, r9, r11"
@@ -479,6 +534,10 @@ just_nextline$l
 	FNcall	Zap_BaseMode
 	FNRTS
 
+; Remember the start of this edit action
+; (zealous, since some f_docom's aren't relevant here) - but
+; diff redraw is reasonably cheap. 'Proper' modes would want to be
+; more cautious
 	LOCAL
 mode_prevline
 	STR	r0, [ws, #ws_lastprevline]
