@@ -1,6 +1,6 @@
 ; makefile.s
 ; converted from makefile.bas by bas2asm.pl
-; $Id: module,fff,v 1.9 2002/02/23 14:32:56 christian Exp $
+; $Id: module,fff,v 1.10 2002/02/24 19:15:36 christian Exp $
 
 	GET	h.Makefile
 
@@ -706,6 +706,8 @@ SymbolChecking				; check for misc punctuation
 	TEQNE	r0, #'>'
 	TEQNE	r0, #'\'
 	TEQNE	R0, #'@'		; new cl
+	TEQNE	R0, #'%'		; new 0.07
+	TEQNE	R0, #'-'		; new 0.07
 	MOVEQ	r1, #col_punct
 	STREQB	r1, [r6, r3]
 	BEQ	AfterColour
@@ -1173,6 +1175,10 @@ cntcharback
 	DCD	0
 fullstopsofar
 	DCD	0
+storedR8
+	DCD	0
+storedR9
+	DCD	0
 
 fullstopspeccase
 	LDR	r1, fullstopsofar
@@ -1184,8 +1190,8 @@ fullstopspeccase
 	B	notanumberbackedonto
 
 splchkforminus				; called from table search
-	SUB	r11, r11, #1
 	ADD	r4, r8, r11
+	SUB	R4,R4,#1
 	LDR	r1, [r9, #f_ptr]
 	LDR	r12, [r9, #f_splito]
 	ADD	r12, r1, r12
@@ -1202,7 +1208,7 @@ inbothalfTC2a
 	BCC	notANYone
 	LDRB	r1, [r4]
 	CMP	r1, #32			; make sure ' ' before any '-'
-	BGT	tcloop	;notANYone
+	BGT	tcloop
 	MOV	r1, #'-'
 	B	notanumberbackedonto
 
@@ -1210,6 +1216,8 @@ inbothalfTC2a
 ;
 TableChk2
 	STR	r6, storedr6flu
+	STR	R8,storedR8
+	STR	R9,storedR9
 	FNJSR	"R4-R12"
 	MOV	r1, #0
 	STR	r1, fullstopsofar
@@ -1271,7 +1279,7 @@ rightatverystart			; check first char is acceptable
 	BGT	notANYone
 
 notanumberbackedonto
-	STR	r1, beginnchar		; keep first char to look up
+	STR	r1, beginnchar		; keep char /before/ first char to look up
 	ADD	r11, r11, #1		; return bug: -1
 	ADD	r4, r8, r11		; r4 = start address
 	ADD	r11, r11, #1		; return bug: 0
@@ -1312,18 +1320,16 @@ notanumberbackedonto
 inbothalfTC3
 	LDRB	r1, [r4]
 	FNupper	r1
-	CMP	r1, #'-'
-	MOVEQ	r1, #'Z'
-	CMP	r1, #'A'
-	BLT	notANYone
-	CMP	r1, #'Z'
-	BGT	notANYone
-	SUB	r1, r1, #'A'
-	ADRL	r12, AlphaIndex
-	ADD	r1, r12, r1, LSL #2
-	LDR	r1, [r1]
-	ADRL	r12, TableHere
-	ADD	r12, r12, r1
+	CMP	r1, #'A'		; check first char is in table
+	BLT	notANYone               ;
+	CMP	r1, #'Z'                ;
+	BGT	notANYone               ;
+	SUB	r1, r1, #'A'		; point to first entry in table starting with
+	ADRL	r12, AlphaIndex         ; this letter
+	ADD	r1, r12, r1, LSL #2     ;
+	LDR	r1, [r1]                ;
+	ADRL	r12, TableHere          ;
+	ADD	r12, r12, r1            ;
 
 lpa2					; main loop per table entry
 	MOV	r8, #0
@@ -1333,34 +1339,29 @@ lpa1					; main loop per table char
 	MOVGT	r10, r8
 	BGT	gotexactmatch		; table finished - found it
 	MOV	r7, r1
-	ADD	r5, r4, r8
-	LDR	r1, [r9, #f_ptr]
-	LDR	lr, [r9, #f_splito]
-	ADD	lr, r1, lr
-	CMP	r5, lr
-	BCC	inbothalfTC4
-	LDR	lr, [r9, #f_splite]
-	ADD	lr, r1, lr
-	CMP	r5, lr
-	LDRCC	r1, [r9, #f_splits]
-	ADDCC	r5, r5, r1
+	ADD	r5, r4, r8              ; rather inefficient skipping of split
+	LDR	r1, [r9, #f_ptr]        ; which doesn't corrupt r4
+	LDR	lr, [r9, #f_splito]     ;
+	ADD	lr, r1, lr              ;
+	CMP	r5, lr                  ;
+	BCC	inbothalfTC4            ;
+	LDR	lr, [r9, #f_splite]     ;
+	ADD	lr, r1, lr              ;
+	CMP	r5, lr                  ;
+	LDRCC	r1, [r9, #f_splits]     ;
+	ADDCC	r5, r5, r1              ;
 inbothalfTC4
 	LDRB	r1, [r5]		; load char from file
 	FNupper	r1			; case insensitive
-skiptabovr1
-	CMP	r1, #':'		;  was 'COLON' / 64...
-	CMPNE	r1, #'<'		;  was 64...
-	CMPNE	r1, #'='
-	CMPNE	r1, #'>'
-	CMPNE	r1, #'/'
-	CMPNE	r1, #'-'
-	MOVLE	r1, #' '
+	CMP	R1,#' '			; allow any ctrls as the command terminator
+	MOVLO	R1,#' '                 ;
 tabovr1
 	ADD	r8, r8, #1		; next table entry
 	CMP	r7, r1			; same?
-	BGT	bigger1			; no -
+	;BGT	bigger1			; no -
+	BGT	couldnotfindit
 	BEQ	lpa1
-maybenot
+;maybenot
 	ADD	r12, r12, r8		; skip to current table char
 	SUB	r12, r12, #1
 _altered_0
@@ -1375,42 +1376,24 @@ couldnotfindit				; not found in table
 	RSB	r8, r11, #0
 	ORR	r2, r2, #0x10000000	;  SOL ...? no brackets...!
 	BIC	r2, r2, #0x40000000	;  a command yet flags...
+
 	LDR	r1, beginnchar		; first char to find
 	TEQ	r1, #'-'		; option/switch
+	SUBEQ	R11,R11,#1
+	LDREQ	R1,cntcharback
+	ADDEQ	R1,R1,#1
+	STREQ	R1,cntcharback
 	MOVEQ	r1, #col_switches
 	BEQ	ChooseColour2
 	;  deliberate fall through...
 notANYone
 	FNRTS
 
-bigger1
-	CMP	r8, #1
-	BEQ	couldnotfindit
-	B	maybenot
+;bigger1
+;	CMP	r8, #1
+;	BEQ	couldnotfindit
+;	B	maybenot
 
-ChooseYerColour
-	AND	r9, r2, #0xFF		; extract current colour number
-	CMP	r9, #col_numbers
-	CMPNE	r9, #col_strings
-	BEQ	notANYone
-	LDR	r9, storedr6flu
-	CMP	r9, #0
-	BLE	notANYone
-	MOV	r9, #0
-	ADD	r7, r6, r11
-	ADD	r6, r7, r3
-	LDR	r11, adrofrsix
-lasdwAO
-	ADD	r4, r7, r9
-	CMP	r4, r11
-	BCC	dontputitonsc
-	STRB	r1, [r6, r9]	;  REM CS
-dontputitonsc
-	ADD	r9, r9, #1
-	CMP	r9, r8
-	BLT	lasdwAO
-	MOV	r1, #0xEA00
-	FNRTS
 
 Prefixbit
 	RSB	r10, r11, #0
@@ -1435,35 +1418,34 @@ gotexactmatch
 	TEQNE	r9, #com_object
 	TEQNE	r9, #com_assembler
 	BEQ	Prefixbit
-	LDR	r1, beginnchar
-	TEQ	r1, #'-'	; option/switch
-	MOVEQ	r1, #col_switches
-	BEQ	ChooseColour2
 
 	LDR	R1,beginnchar		; commands only coloured as such
+        TEQ	R1,#'-'			;
+        BEQ	minusfirst$l		;
 	TEQ	R1,#9			; if preceeded by ' ' '->' or '@'
 	TEQNE	R1,#' '			; consider !Run
 	TEQNE	R1,#'@'			;
+	TEQNE	R1,#'%'			; for aliases
 	FNRTS	NE
 	TEQ	r9, #com_morecmds
 	MOVEQ	r1, #col_morecmds	;  gerph style...
 	MOVNE	r1, #col_commands
 
 ChooseColour2
-	LDR	r9, storedr6flu
-	CMP	r9, #0
-	BLE	notANYone
-	AND	r9, r2, #0xFF
-	CMP	r9, #col_numbers	; don't colour commands if in strings or comments
-	CMPNE	r9, #col_strings
-	BEQ	notANYone
+	LDR	r9, storedr6flu         ; before the start of the physical line
+	CMP	r9, #0                  ;
+	BLE	notANYone               ;
+	AND	r9, r2, #0xFF		; don't colour commands if in strings or comments
+	CMP	r9, #col_numbers	;
+	CMPNE	r9, #col_strings        ;
+	BEQ	notANYone               ;
 	ADD	r9, r6, r3
 	LDRB	r9, [r9, r11]		;  REM QUICK FIX...
 	CMP	r9, #col_strings	;
-	FNRTS	EQ
+	FNRTS	EQ                      ;
 	MOV	r9, #0
-	ADD	r7, r6, r11
-	ADD	r6, r7, r3
+	ADD	r7, r6, r11             ; r6 = output buffer, r11 = number of chars back (-ve)
+	ADD	r6, r7, r3		; r3 = w_txtw
 	LDRB	r5, [r6, r9]
 	CMP	r5, #col_strings
 	FNRTS	EQ
@@ -1472,8 +1454,6 @@ lasdwA
 	ADD	r4, r7, r9
 	CMP	r4, r11
 	BCC	beforesolhereargh	; off the start of the line
-	LDRB	lr, [r7, r9]
-	LDRB	r4, [r12, r9]
 lasdwA1
 	ADD	r4, r7, r9
 	CMP	r4, r11
@@ -1490,6 +1470,56 @@ beforesolhereargh
 	MOV	r1, #0xEA00
 colouringrapidexit
 	FNRTS
+
+; ---- checking for - before commands ----
+					; we had a minus first - check it's
+minusfirst$l			        ; preceeded by whitespace or ';'
+	PUSH	"R8,R9"			; keep current colour
+	LDR	R8,storedR8
+	LDR	R9,storedR9
+	LDR	R14,[R8,#w_cr]		;
+	AND	R14,R14,#&FF            ;
+        SUB	R4,R4,#1
+minusloop$l
+        SUB	R4,R4,#1
+	LDR	r1, [r9, #f_ptr]
+	CMP	r4, r1
+	BCC	iscommand$l		; off the start of the file - it is a command
+	LDR	r12, [r9, #f_splito]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	BCC	bothalfminus$l
+	LDR	r12, [r9, #f_splite]
+	ADD	r12, r1, r12
+	CMP	r4, r12			; in the split?
+	LDRCC	r5, [r9, #f_splits]
+	SUBCC	r4, r4, r5
+bothalfminus$l
+        LDRB	R1,[R4]
+        TEQ	R1,#' '
+        TEQNE	R1,#9
+        BEQ	minusloop$l
+        TEQ	R1,R14
+        TEQNE	R1,#';'
+        BNE	isntcommand$l
+
+iscommand$l
+	PULL	"R8,R9"
+	TEQ	R9,#com_morecmds
+	MOVEQ	R1,#col_morecmds
+	MOVNE	R1,#col_commands
+	B	ChooseColour2
+
+isntcommand$l
+	LDR	R1,cntcharback		; colour the '-' as well
+	ADD	R1,R1,#1                ;
+	STR	R1,cntcharback          ;
+	SUB	R11,R11,#1		;
+	MOV	R1,#col_switches
+	PULL	"R8,R9"
+	B	ChooseColour2
+
+
 
 
 CheckRoutine
@@ -1524,7 +1554,7 @@ D2	=	27,0," provides support for",27,2,"Zap editor.",13
 	ALIGN
 
 ModHelpString
-	=	"ZapMakeFile",9,"0.06 (00 Jan 0000) © Tim Tyler",0
+	=	"ZapMakeFile",9,"0.07 (00 Jan 0000) © Tim Tyler",0
 	ALIGN
 
 lp1	=	"Tim Tyler",0
@@ -2567,22 +2597,25 @@ AlphaIndex
 
 ;------------ command table -----------
 
+; now in aphabetical order!
+
 	DCD	0x2A2A0A2E
 TableHere
 	=	"AS ",		com_commands
 	=	"AUTOINDENT ",	com_commands
 	=	"AUX ",		com_commands
-	=	"BLOCKID ",	com_commands
 	=	"BISON ",	com_commands
-	=	"CC ",		com_commands
+	=	"BLOCKID ",	com_commands
 	=	"C++ ",		com_commands
+	=	"C++.",		com_cfile
+	=	"C.",		com_cfile
+	=	"CC ",		com_commands
+	=	"CDIR ",	com_commands
 	=	"CFRONT ",	com_commands
 	=	"CMHG ",	com_commands
-	=	"C++.",		com_cfile
-	=	"CPP.",		com_cfile
-	=	"C.",		com_cfile
+	=	"CMUNGE ",	com_commands ; new 0.07
 	=	"COPY ",	com_morecmds
-	=	"CDIR ",	com_commands
+	=	"CPP.",		com_cfile
 	=	"CREATE ",	com_morecmds
 	=	"DECAOF ",	com_commands
 	=	"DELETE ",	com_morecmds
@@ -2592,22 +2625,24 @@ TableHere
 	=	"FIND ",	com_commands
 	=	"GCC ",		com_commands
 	=	"H.",		com_header
+        =	"IFTHERE ",	com_morecmds ; new 0.07
 	=	"LIBFILE ",	com_commands
 	=	"LINK ",	com_commands
 	=	"MV ",		com_morecmds
+	=	"O.",		com_object
 	=	"OBJASM ",	com_commands
 	=	"OBJSIZE ",	com_commands
-	=	"O.",		com_object
+	=	"REMOVE ",	com_commands
 	=	"RM ",		com_morecmds
 	=	"RUN ",		com_morecmds
-	=	"REMOVE ",	com_commands
-	=	"SED ",		com_commands
-	=	"SQUEEZE ",	com_commands
 	=	"S.",		com_assembler
+	=	"SED ",		com_commands
 	=	"SETTYPE ",	com_morecmds
+	=	"SQUEEZE ",	com_commands
 	=	"STOH ",	com_morecmds
-	=	"TOANSI ",	com_commands
-	=	"TOPCC ",	com_commands
+	;=	"TOANSI ",	com_commands ; removed 0.07
+	;=	"TOPCC ",	com_commands ;
+	=	"WIPE ",	com_morecmds ; new 0.07
 	=	"WORDSTR ",	com_commands
 	=	"Yum ",		com_commands ; these are never matched because we search for an
 	=	"Zen ",		com_commands ; upper case command
