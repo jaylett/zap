@@ -1,5 +1,5 @@
 ; Contains mode entry points for text mode.
-; $Id: SoftWrap,fff,v 2.2 2001/07/06 15:04:36 james Exp $
+; $Id: SoftWrap,fff,v 2.3 2002/11/11 13:21:13 christian Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -48,7 +48,6 @@ local_zapwkspace
 ;    VS if eot before eol
 
 findnextphysl
- BIC R14,R14,#1 << 29			; I think this should be Cbit?
  FNJSR "R1,R2,R3,R8-R12"
 
  LDRB R10,[R8,#w_tabc]
@@ -107,8 +106,8 @@ swchar_dontdoathing
  TEQ R14,R10
  ;STRNE R0,local_addrofpreviousone
  ; STRNE R14,local_arecenttab
- BLEQ fnpl_tab
  ADDNE R11,R11,#1
+ BLEQ fnpl_tab
  CMP R11,R12
  BLT fnpl_lp			; max r12 characters on the line
  ;BICS R14,R14,#&FF		; just been to a sub?
@@ -122,7 +121,7 @@ swchar_dontdoathing
  TEQ R8,R9
  MOVNE R0,R8
 
- FNRTSS
+ FNRTCC				; this also clears V, so that's alright
 
 dft_str_for_sw
  = " -",0
@@ -142,11 +141,10 @@ fnpl_tab
  ORRNE R11,R11,#7
  ADD R11,R11,#1
  ;STR R14,local_arecenttab
- MOVS PC,R14	; !!! ARM32 FIXME
+ MOV PC,R14
 
 fnpl_eolchar
- FNPULL
- ORRS PC,R14,#1 << 29		; I think this should be Cbit?	; !!! ARM32 FIXME
+ FNRTCS
 
 fnpl_eolchar2
  LDRB R14,[R0],#1
@@ -154,15 +152,13 @@ fnpl_eolchar2
  ADDEQ R0,R0,R5
  CMP R0,R6
  BCS fnpl_eot
- FNPULL
- ORRS PC,R14,#1 << 29		; I think this should be Cbit?	; !!! ARM32 FIXME
+ FNRTCS
 
 fnpl_eot
  MOV R0,R6
  TEQ R14,R7
  BEQ fnpl_eolchar		; if last char of the file is ';n'
- FNPULL
- ORRS PC,R14,#1 << 28		; I think this should be Vbit?	; !!! ARM32 FIXME
+ FNRTV				; warning: now unpredictable C state
 
 ;;;;;;;;;;;;;;;;;;;;; compute_column ///////////////////////
 ; ;E r8/r9, r0,r1
@@ -174,13 +170,13 @@ compute_column
  CMP R1,R0
  MOVEQ R2,#0
  MVNMI R2,#0
- MOVLES PC,R14	; !!! ARM32 FIXME
+ MOVLE PC,R14
  FNJSR "R0-R1,R3-R6,R11"
  LDR R14,[R8,#w_format]
  TST R14,#format_TabDisplayFormat
 
  SUBEQ R2,R1,R0
- FNRTSS EQ
+ FNRTS EQ
 
  LDR R3,[R9,#f_ptr]
  LDR R4,[R9,#f_splito]
@@ -207,7 +203,7 @@ cc_lp
  ADDEQ R0,R0,R5
  CMP R0,R1
  BCC cc_lp
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;; mode_clnoff /////////////////////////
 
@@ -228,11 +224,12 @@ modesw_clnoff
  MOV R12,#0
  LDR R14,[R8,#w_coff]
  CMP R0,R14
- BLGE mcl_forward
- BGE mclno_done
+ ADRGE R14,mclno_done
+ BGE mcl_forward
  CMP R0,R14,LSR #1
- BLGE mcl_backward
- BLLT mcl_forward
+ ADR R14,mclno_done
+ BGE mcl_backward
+ BLT mcl_forward
 mclno_done
 ; STR R1,mcl_reprint_service_0 ; ? for mode_nextline, to correctly find eot
 ; STR R0,mcl_reprint_service_1 ; ?? HERE ?? MAYBE...
@@ -249,7 +246,7 @@ mclno_done
 ; CMP R2,R14
 ; MOVLT R2,R14 ; none of this helps with sof problem...
 
- FNRTSS
+ FNRTS
 
 mcl_forward
 ; don't change stack structure without looking!
@@ -288,7 +285,7 @@ mcl_fwd_lp
 mcl_noproblem
  ADD R1,R1,#1
  ADDCS R2,R2,#1			; IF END OF LOG.LINE
- MOV R11,PC			; PRESERVE V FLAG
+ MRS R11,CPSR			; preserve V
  BL selfmod_check
  BGT mcl_restore_done
 
@@ -306,7 +303,7 @@ mcl_eot_no_eol
  CMP R0,R4
  SUBCS R0,R0,R5
  SUB R0,R0,R3
- FNRTSS
+ FNRTS
 
 selfmod_reg
  DCD 0
@@ -323,7 +320,7 @@ mcl_done
  CMP R0,R4
  SUBCS R0,R0,R5
  SUB R0,R0,R3
- FNRTSS
+ FNRTS
 
 mcl_backward
 ; don't change stack structure without looking!
@@ -403,8 +400,8 @@ mcl_bwd_before
 
 findnextlogl
  CMP R0,R6
- ORRCSS PC,R14,#Vbit	; !!! ARM32 FIXME
- CMP R0,R0			; CLV
+ RTV CS
+ CLV
  FNJSR
  CMP R0,R6
  MOVCS R0,R6
@@ -419,18 +416,18 @@ fnll_lp
  TEQ R14,R7
  BNE fnll_lp			; search for eol
 fnll_return
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;; findsologl ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 findsologl
  CMP R0,R3
  MOVLS R0,R3
- ORRLSS PC,R14,#Vbit	; !!! ARM32 FIXME
+ RTV LS
 ; CMP R0,R3
 ; MOVLO R0,R3
 ; ORRLOS PC,R14,#Vbit ; no better...
- CMP R0,R0			; CLV
+ CLV
  FNJSR "R4"
  ADD R4,R4,R5
 
@@ -451,7 +448,7 @@ fpll_lp
  TEQ R0,R4
  ADDEQ R0,R0,R5                 ; skip split forward, if nec.
 fsll_return
- FNRTSS
+ FNRTS
 ;fpll_lp
 ; TEQ R0,R4
 ; SUBEQ R0,R0,R5			; skip split if appropriate
@@ -480,13 +477,14 @@ modesw_clnlog
  MOV R12,#2
  LDR R14,[R8,#w_clogl]
  CMP R10,R14
- BLGE mcl_forward
- BGE mclnl_done
+ ADRGE R14,mclnl_done
+ BGE mcl_forward
  CMP R10,R14,ASR #1
- BLGE mcl_backward
- BLLT mcl_forward
+ ADR R14,mclnl_done
+ BGE mcl_backward
+ BLT mcl_forward
 mclnl_done
- FNRTSS
+ FNRTS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;; mode_clnphy /////////////////////////
@@ -500,14 +498,15 @@ modesw_clnphy
  MOV R12,#1
  LDR R14,[R8,#w_cline]
  CMP R10,R14
- BLGE mcl_forward
- BGE mclnp_done
+ ADRGE R14,mclnp_done
+ BGE mcl_forward
  CMP R10,R14,ASR #1
- BLGE mcl_backward
- BLLT mcl_forward
+ ADR R14,mclnp_done
+ BGE mcl_backward
+ BLT mcl_forward
 mclnp_done
  MOV R1,R2
- FNRTSS
+ FNRTS
 ;simplecasetoavoidbug$l
 ; MOV R0,#0
 ; LDR R1,[R8,#w_stline]
@@ -546,7 +545,7 @@ modesw_nextline
  LDR R1,mcl_reprint_service_1	; R1 = LINE # (MAY BE TOO HIGH, AT EOT)
 ; ADD R1,R1,#1			; plus one!
  LDR R14,[R9,#f_len]		; ????!
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;; mode_prevline ////////////////////////
 
@@ -584,7 +583,7 @@ modesw_prevline
  LDR R14,[R9,#f_docom]
  CMP R14,#0
  CMPNE R14,#7 ; was 5
- FNRTSS CS	; exit if r14=0 or r14>=7
+ FNRTS CS	; exit if r14=0 or r14>=7
 
  LDR R3,[R9,#f_ptr]
  LDR R4,[R9,#f_splito]
@@ -618,7 +617,7 @@ modesw_prevline
 ; ADD R1,R1,#1			; plus one!
  PULL "R0"
 
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;; mode_linestart ////////////////////////
 
@@ -636,7 +635,7 @@ modesw_lineprev
  ;FNDBG_HEX8 0
  ;FNDBG_DELIM
  MOVMI R0,#0			;-)
- FNRTSS
+ FNRTS
 
 mls_lowlevel
  FNJSR
@@ -675,7 +674,7 @@ mls_stop
 				; is too far, then use the
  ;FNdbg_string "mls_stop r0="
  ;FNdbg_hex8 0
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;; mode_lineend //////////////////////////
 
@@ -692,7 +691,7 @@ modesw_lineend
  SUBHI R0,R0,R5
  SUBS R0,R0,R3
  SUBGT R0,R0,R12
- FNRTSS
+ FNRTS
 
 ; mln_letsdoit2
 ;  CMP R0,R4
@@ -723,7 +722,7 @@ mln_letsdoit
  ; FNdbg_string "exit r0="
  ; FNdbg_hex8 0
  ; ADD R13,R13,#4
- FNRTSS
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;; mode_plus //////////////////////////////
 local_rtwo
@@ -739,7 +738,7 @@ modesw_plus
  MOV R11,R0
 
  CMP R1,R14
- FNRTSS GE ; can't go beyond eot
+ FNRTS GE ; can't go beyond eot
  STR R2,local_rtwo
  LDR R3,[R9,#f_ptr]
  LDR R4,[R9,#f_splito]
@@ -755,7 +754,7 @@ modesw_plus
  CMP R0,R4
  ADDCS R0,R0,R5
  BL findnextphysl
- MOV R12,PC			; store flags...	; !!! ARM32 FIXME
+ MRS R12,CPSR
  CMP R0,R4
  SUBCS R0,R0,R5
  SUB R14,R0,R3
@@ -767,10 +766,10 @@ modesw_plus
  TST R12,#Cbit
  BNE mp_doit
  TST R12,#Vbit
- FNRTSS NE
+ FNRTS NE
  CMP R1,R11
  MVNGT R2,#0			; return r2=-1 if onto next physical line
- FNRTSS GT
+ FNRTS GT
  ;SWI &107
  LDR R14,local_rtwo
  ;ADD R14,R14,#1		; nice but doesn't work...
@@ -778,13 +777,13 @@ modesw_plus
  ; SWIEQ &107			; at -> next line...
  MVNEQ R2,#0			; return r2=-1 if onto next physical line
  ADDEQ R1,R1,#1
- FNRTSS
+ FNRTS
 
 mp_doit				; not interesting case (\n)
  ; SWI &107 ;
  CMP R1,R11
  MVNGE R2,#0			; return r2=-1 if onto next physical line
- FNRTSS
+ FNRTS
 
 ;///////////////////////////////////
 
@@ -894,11 +893,11 @@ mrl_nologline
 mrl_copychars
  LDRB R14,[R7],#1		; TT
  TEQ R14,R11			; TT
- BLEQ mrl_tab			; TT
- ;BEQ dontdostoring		; TT
  ADDNE R12,R12,#1		; TT
  ADDNE R3,R3,#1
  ADDNE R6,R6,#1
+ BLEQ mrl_tab			; TT
+ ;BEQ dontdostoring		; TT
  ;LDRB R0,[R6],#1		; TT
  ;CMP R0,#' ';			; TT ; has someone else done this...?
  ;STREQB R14,[R6,#-1];		; TT
@@ -942,7 +941,7 @@ mrl_cc_end
  ADDEQ R7,R7,R1
  ADDEQ R5,R5,R1
 mrl_nonewlogl
- FNRTSS
+ FNRTS
 
 ;mrl_nospacestodo
 ; LDMFD R13!,{R12}
@@ -1008,7 +1007,7 @@ mrlt_none
 modesw_redrawlnum
  ;BIC R14,R14,#Cbit
  SUBS R0,R7,#1
- BICMIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC MI
  FNJSR "R0-R4"
  ; LDMCCFD R13!,{R3-R6,PC}^	  ; IF AT EOT...
 
@@ -1028,7 +1027,7 @@ modesw_redrawlnum
  LDRB R1,[R8,#w_cr]
  TEQ R0,R1			; LAST LINE TERMINATED BY ';N'?
  FNPULL
- BICEQS PC,R14,#Cbit	; !!! ARM32 FIXME
- ORRNES PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC EQ
+ RTCS
 
  END
