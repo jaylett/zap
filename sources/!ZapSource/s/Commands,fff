@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.4 1999/01/14 14:46:24 dj Exp $
+; $Id: Commands,fff,v 1.1.2.5 1999/01/15 01:10:03 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -1077,7 +1077,7 @@ Command					; R1=number of times (inc uni arg)
 	FNRTS
 m$l
 	CMP	r0,#0
-	ADREQ	r0,mt$l			; menu title
+	ADREQ	r0,s$l			; menu title
 	FNRTS	EQ
 	CMP	r0,#1
 	MOVEQ	r0,#0			; clear entry
@@ -1089,7 +1089,6 @@ p$l
 	ADR	R0,s$l
 	BL	minibuffer_prompt_token
 	FNRTS
-mt$l	=	"Command", 0
 s$l	FNS	("zap_p_command")
 
 ; This command seems to suffer from severe theoretical problems.
@@ -2100,7 +2099,11 @@ Findfile
 fi11
  BL minibuffer_prompt_token		; insert prompt
  FNRTS VS
- TEQ R9,#0
+ BL find_current_directory_dde
+ TEQVC R0,#0
+ TEQVS R0,R0
+ BNE fi13
+ CMP R9,#0
  BEQ fi12
  LDR R0,[R9,#f_name]
  BL check_file_name		; does name contain path
@@ -2120,11 +2123,9 @@ fi11
  STRB R4,[R3]			; restore name
  FNRTS
 fi12
- BL find_current_directory_dde
+ BL find_current_directory
  FNRTVC VS			; cope with things like "disk not present"
- TEQ R0,#0
- BLEQ find_current_directory
- FNRTVC VS			; cope with things like "disk not present"
+fi13
  BL minibuffer_write 		; write name into buffer (default)
  MOVVC R0,#'.'
  BLVC minibuffer_writec		; insert current dir as prompt
@@ -5540,6 +5541,7 @@ noskip$l
 	FNSTR	R2,if_count,LO
 	FNRTS	LO
 	ADR	R0,toomanyIFs_etc
+	BL	lookup_error
 	FNRTV
 skip$l	FNLDR	R0,if_skip
 	ADD	R0,R0,#1
@@ -5547,7 +5549,7 @@ skip$l	FNLDR	R0,if_skip
 	FNRTS
 toomanyIFs_etc
 	&	0
-	=	"Too many nested structures",0
+	=	"zap_e_deepstruct",0
 	ALIGN
 
 

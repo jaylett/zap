@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.4 1999/01/14 14:46:53 dj Exp $
+; $Id: StartCode,fff,v 1.1.2.5 1999/01/15 01:10:09 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -128,18 +128,9 @@ main_loop
  TEQ R0,R14
  FNSTR R0,wimp_pollnum,NE	; if new poll number then store this
  BL dispatch_wimp_poll
- ;BL clrerror
- BVS wimp_error
-; SWI &107
- B main_loop
+ BVC main_loop
+ B wimp_error
 
-;clrerror
-; TSTP R14,#0
-; BIC PC,R14,#&3F<<26		; call the sub
-
- ;FNJSR
- ;ADD R14,R14,#0
- ;FNRTS
 
  LOCAL
 
@@ -303,38 +294,55 @@ are_we_initialising
 ;X All registers corrupted. Poll dealt with.
 
 dispatch_wimp_poll
- PUSH "R14"
-; CMP R0,#6
-; BLCS dbgbeep
- BL dispatch$l
- PULL "R14"
- B call_null_events
-dispatch$l
- CMP R0,#(end$l-start$l)/4
- ADDCC PC,PC,R0,LSL#2		; dispatch
- B wimp_passon			; out of range
+ FNJSR
+ CMP R0,#(end$l-start$l)/8
+ ADDCC PC,PC,R0,LSL #3		; dispatch
+ BL wimp_passon			; out of range
 start$l
- MOVS PC,R14 ; call_null_events
- B redraw_request
- B open_request
- B close_request
- B wimp_passon
- B wimp_passon
- B mouse_event
- B drag_box_event
- B key_event
- B menu_selection		; menu select
- B scroll_event			; scroll request
- B lose_caret
- B regain_caret
- B poll_word_changed
- B wimp_passon
- B wimp_passon
- B wimp_passon
- B user_message			; messages
- B user_message
- B user_message_reply
+ B end$l
+  & 0
+ BL redraw_request
+  FNRTS
+ BL open_request
+  FNRTS
+ BL close_request
+  FNRTS
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL mouse_event
+  FNRTS
+ BL drag_box_event
+  FNRTS
+ BL key_event
+  B end$l
+ BL menu_selection		; menu select
+  B end$l
+ BL scroll_event		; scroll request
+  FNRTS
+ BL lose_caret
+  B end$l
+ BL regain_caret
+  B end$l
+ BL poll_word_changed
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL user_message		; messages
+  B end$l
+ BL user_message
+  B end$l
+ BL user_message_reply
+  MOV R0,R0
 end$l
+ FNRTS VS
+ FNPULL
+ B call_null_events
 
 ;E R0=message number (0-19) R1=message block
 ;X message passed on to extension modes and command tables #
