@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.8 1999/03/04 16:08:53 james Exp $
+; $Id: Boxes,fff,v 1.1.2.9 1999/03/04 19:20:31 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -4052,21 +4052,24 @@ get_SaveSCBox
 
 	DCD	1 + (1<<16) + (1<<15)	; No R10, but opens a window + shade.
 TotalSel
-	STMFD	R13!,{R14}
+	FNJSR
 	MOV	R7,R2			; Remember R2.
 	MOV	R4,R8
 	MOV	R5,R9
 	BL	shade_no_sel		; ...?
 	BCS	WCError
 	BL	findtotal$l
+	FNRTSS	VS			; don't report an error, just stop ...
 ;	MOV	R5,#&100		; the value...
 	MOV	R2,R7
 ;	MOV	R7,#16 ; don't close menu...?!?!?
 	MOV	R11,#2
-	B	WCOutput
+	B	WCOutput		; this wants R14 stacked for it ...
 
+; \X VS if user pressed escape
 findtotal$l
 	FNJSR	"R7,R11" ;R1=sel off R2=sel len R8/R9=sel
+	BL	long_op_on		; hourglass, enable escape
 	SUB	R6,R1,#1
 	ADD	R7,R1,R2
 	MOV	R5,#0			; returned total...
@@ -4076,9 +4079,11 @@ start$l
 	FNLDR	R4,wimp_block		; Where to write string.
 ;	LDR R2,[R9,#f_len]		; len
 totalloop$l
+	SWI	XOS_ReadEscapeState	; does the user want to break out? - on error, ignore
+	BCS	stop$l
 	ADDS	R6,R6,#1		; clv here!
 	CMP	R6,R7
-	FNRTS	CS			; exit
+	BCS	exit$l
 	MOV	R0,R6
 	BL	cln_readc
 ;	TEQ R11,#0
@@ -4124,6 +4129,10 @@ nofullstops$l
 	MOVNE	R2,#0
 	ADD	R5,R5,R2		; hopefully...
 	B	start$l
+exit$l	BL	long_op_off		; hourglass off, disable escape
+	FNRTSS				; exit, resetting flags to entrance ...
+stop$l	BL	long_op_off
+	FNRTV				; exit, setting V
 
 	DCD	1 + (1<<16) + (1<<15)	; No R10, but opens a window + shade.
 WCSel
