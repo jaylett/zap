@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.6.2.2 2001/07/01 04:25:48 ds Exp $
+; $Id: DSARedraw,fff,v 1.6.2.3 2001/07/02 20:52:15 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -348,25 +348,6 @@ end$l
  STR R7,[R5]			; write back last word
  FNRTS
 
-; This code makes sure that the start of the line is redrawn properly
-; even if there is a margin.
-; It *tries* to clear the margin so that selections don't /appear/ to go
-; into it :(
-
-;startoflbug
-; PUSH "R0,R2,R3,R9,R10,R11,R12"
-; LDR R14,[R1,#r_bac]
-; ;LDR R10,[R1,#r_palette]
-; ;LDR R11,[R10,R14,LSL #2]
-; ;MOV R10,R11
-; ADR R3,unplottmp
-; ;MOV R12,#6
-; BL call_redraw_raster_pixel	; draw end of first character
-; PULL "R0,R2,R3,R9,R10,R11,R12"
-; B aligned$l
-;unplottmp
-; = "    "
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of part of a character raster		    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -397,107 +378,6 @@ call_redraw_raster_pixel
  B clear_raster_pixel_3		;	10  (clear 256 colours - width 8 pixels)
  B clear_raster_pixel_any	;	11  (clear 32k colours - width 8 pixels)
  B clear_raster_pixel_any	;	12  (clear 16M colours - width 8 pixels)
-
-;redraw_raster_pixel_0
-; FNJSR
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; LDR R12,[R1,#r_charh]
-; MUL R0,R12,R0
-; LDRB R0,[R4,R0]		; get bitmap
-; AND R2,R10,R0			; R2=foreground bit
-; BIC R0,R11,R0,LSL#24		; R0=background bit in top byte
-; ORR R0,R2,R0,LSR#24		; R0=end bitmap with top bits clr
-; MOV R2,#1
-; MOV R2,R2,LSL R8
-; SUB R2,R2,#1			; mask of num of bits to write
-; MOV R0,R0,LSR R9		; shift to first pixel
-; AND R0,R0,R2			; bits to put in
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,R8
-; CMP R6,#32
-; FNRTS CC			 ; finished
-; STR R7,[R5],#4
-; SUB R6,R6,R8
-; RSB R6,R6,#32			; number of bits written
-; MOV R7,R0,LSR R6
-; RSB R6,R6,R8
-; FNRTS
-;
-;clear_raster_pixel_0
-; FNJSR
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; MOV R2,#1
-; MOV R2,R2,LSL R8
-; SUB R2,R2,#1			; mask of num of bits to write
-; AND R0,R11,R2			; bits to put in
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,R8
-; CMP R6,#32
-; FNRTS CC			 ; finished
-; STR R7,[R5],#4
-; SUB R6,R6,R8
-; RSB R6,R6,#32			; number of bits written
-; MOV R7,R0,LSR R6
-; RSB R6,R6,R8
-; FNRTS
-;
-;redraw_raster_pixel_1
-; FNJSR
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; LDR R12,[R1,#r_charh]
-; MUL R0,R12,R0
-; TST R4,#2
-; BIC R14,R4,#3
-; LDR R0,[R14,R0,LSL#1]		; get bitmap
-; MOVEQ R0,R0,LSL#16
-; MOV R0,R0,LSR#16		; get in bottom 16 bits
-; AND R2,R10,R0			; R2=foreground bit
-; BIC R0,R11,R0,LSL#16		; R0=background bit in top bytes
-; ORR R0,R2,R0,LSR#16		; R0=end bitmap with top bits clr
-; MOV R8,R8,LSL#1
-; MOV R9,R9,LSL#1		; convert from pixels -> bits
-; MOV R2,#1
-; MOV R2,R2,LSL R8
-; SUB R2,R2,#1			; mask of num of bits to write
-; MOV R0,R0,LSR R9		; shift to first pixel
-; AND R0,R0,R2			; bits to put in
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,R8
-; CMP R6,#32
-; FNRTS CC			 ; finished
-; STR R7,[R5],#4
-; SUB R6,R6,R8
-; RSB R6,R6,#32			; number of bits written
-; MOV R7,R0,LSR R6
-; RSB R6,R6,R8
-; FNRTS
-;
-;clear_raster_pixel_1
-; FNJSR
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; MOV R8,R8,LSL#1
-; MOV R2,#1
-; MOV R2,R2,LSL R8
-; SUB R2,R2,#1			; mask of num of bits to write
-; AND R0,R11,R2			; bits to put in
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,R8
-; CMP R6,#32
-; FNRTS CC			 ; finished
-; STR R7,[R5],#4
-; SUB R6,R6,R8
-; RSB R6,R6,#32			; number of bits written
-; MOV R7,R0,LSR R6
-; RSB R6,R6,R8
-; FNRTS
 
 redraw_raster_pixel_2
  FNJSR
@@ -700,145 +580,6 @@ dispatch$l
  B redraw_raster_main_16_3	; 256 cols
  B redraw_raster_main_16_4
  B redraw_raster_main_16_5
-
-
-; LOCAL
-;
-;redraw_raster_main_0
-; FNJSR
-; ADR R9,addr$l
-; ADR R12,subs$l
-; BL redraw_modify
-;loop$l
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-;addr$l
-; LDRB R0,[R4,R0,LSL#3]		; get bitmap DON'T MOVE!
-; AND R2,R10,R0			; R2=foreground bit
-; BIC R0,R11,R0,LSL#24		; R0=background bit in top byte
-; ORR R0,R2,R0,LSR#24		; R0=end bitmap with top bits clr
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,#8
-; CMP R6,#32
-; BCS overflow$l
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;overflow$l
-; STR R7,[R5],#4			; save word
-; RSB R6,R6,#40			; num of bits written
-; MOV R7,R0,LSR R6		; start of new buffer
-; RSB R6,R6,#8			; amount in buffer
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;subs$l
-; LDRB R0,[R4,R0,LSL#3]
-; LDRB R0,[R4,R0,LSL#4]
-; LDR R12,[R1,#r_charh]
-; MUL R0,R12,R0
-; LDRB R0,[R4,R0]
-; MOV PC,R14
-;
-; LOCAL
-;
-;clear_raster_main_0
-; FNJSR
-;loop$l
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; AND R0,R11,#&FF		; background mask
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,#8
-; CMP R6,#32
-; BCS overflow$l
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;overflow$l
-; STR R7,[R5],#4			; save word
-; RSB R6,R6,#40			; num of bits written
-; MOV R7,R0,LSR R6		; start of new buffer
-; RSB R6,R6,#8			; amount in buffer
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;
-; LOCAL
-;
-;redraw_raster_main_1
-; FNJSR
-; ADR R9,addr$l
-; ADR R12,subs$l
-; BL redraw_modify
-;loop$l
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; TST R4,#2
-; BIC R9,R4,#3
-;addr$l
-; LDR R0,[R9,R0,LSL#4]		; get bitmap DON'T MOVE!
-; MOVEQ R0,R0,LSL#16
-; MOV	R0,R0,LSR#16		; bottom 2 bytes are bitmap
-; AND R2,R10,R0			; R2=foreground bit
-; BIC R0,R11,R0,LSL#16		; R0=background bit in top bytes
-; ORR R0,R2,R0,LSR#16		; R0=end bitmap with top bits clr
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,#16
-; CMP R6,#32
-; BCS overflow$l
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;overflow$l
-; STR R7,[R5],#4			; save word
-; RSB R6,R6,#48			; num of bits written
-; MOV R7,R0,LSR R6		; start of new buffer
-; RSB R6,R6,#16			; amount in buffer
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;subs$l
-; LDR R0,[R9,R0,LSL#4]
-; LDR R0,[R9,R0,LSL#5]
-; LDR R12,[R1,#r_charh]		; NB Note importance of flags and fact
-; MUL R0,R12,R0			; that bitmap may not be half word aligned!
-; ADD R9,R4,R0,LSL#1
-; LDRB R0,[R9],#1
-; LDRB R9,[R9]
-; ADD R0,R0,R9,LSL#8
-; ADD R0,R0,R0,LSL#16		; duplicate so flags don't matter
-; MOV PC,R14
-;
-; LOCAL
-;
-;clear_raster_main_1
-; FNJSR
-; MOV R9, #&FF00
-; ORR R9,R9,#&FF			; set up mask
-;loop$l
-; LDRB R0,[R3],#1		; get next char
-; TEQ R0,#0
-; BLEQ redraw_control_code
-; AND R0,R11,R9
-; ORR R7,R7,R0,LSL R6		; mask in
-; ADD R6,R6,#16
-; CMP R6,#32
-; BCS overflow$l
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
-;overflow$l
-; STR R7,[R5],#4			; save word
-; RSB R6,R6,#48			; num of bits written
-; MOV R7,R0,LSR R6		; start of new buffer
-; RSB R6,R6,#16			; amount in buffer
-; SUBS R8,R8,#1
-; BGT loop$l
-; FNRTS
 
  LOCAL
 
@@ -1473,18 +1214,6 @@ control_code_9
  LDR R11,[R1,#r_workarea]
  ADD R11,R11,#a_spr1
  SWP R14,R0,[R11]		; get old caddr and store new
-
-;  PUSH		"R1,R2,R12"
-;  BL		get_r12
-;  FNLDR		R1,cache_addr
-;  FNLDR		R2,cache_size
-;  ADD		R2,R2,R1
-;  CMP		R0,R1
-;  CMPLO		R2,R0
-;  DEBUG		R0,LO
-;  BEEP		HS
-;  PULL		"R1,R2,R12"
-
  SUB R14,R4,R14			; current cache offset
  ADD R4,R0,R14			; new cache address
  FNPULL
@@ -1532,16 +1261,6 @@ nohandle$l
  TEQ R0,#0
  BEQ redraw_control_code	; new control code
  MOV PC,R14			; do this char
- ;LDRB R0,[R3],#1		; new font style... discarded...!
- ;ADD R3,R3,#1
- ;LDR R0,[R1,#r_flags]
- ;TST R0,#1<<2
- ;MOVNE R0,#9
- ;BNE call_extension_plus
- ;LDRB R0,[R3],#1		; get next char
- ;TEQ R0,#0
- ;BEQ redraw_control_code	; new control code
- ;MOV PC,R14			; do this char
 
 ;E R3=pointer to first merge arg
 ;X R3=pointer to start of next code
@@ -1625,12 +1344,10 @@ call_extension
 
 cached_char_size
  MOV R2,R2,LSL R0		; width in pixels
- CMP R2,#8
- MOVLE R2,#1
- BLE ccs_0
  CMP R2,#16
- MOVLE R2,#2
- BLE ccs_0
+ ADDLS R2,R2,#7
+ MOVLS R2,R2,LSR #3
+ BLS ccs_0
  ADD R2,R2,#31			; round up
  MOV R2,R2,LSR#5		; number of words
  MOV R2,R2,LSL#2		; number of bytes
@@ -1728,10 +1445,9 @@ convert_bitmap_1
 cb1_loop
  MOVS R10,R10,LSR#1
  ORRCS R0,R0,R6
- MOV R0,R0,ROR#2
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6			; do two pixels
- MOV R0,R0,ROR#2
+ ORRCS R0,R0,R6,LSL #2		; do two pixels
+ MOV R0,R0,ROR#4
  SUBS R12,R12,#2
  BGT cb1_loop
  MOV R0,R0,ROR#16		; done 16 bits
@@ -1750,10 +1466,9 @@ convert_bitmap_2
 cb2_loop
  MOVS R10,R10,LSR#1
  ORRCS R0,R0,R6
- MOV R0,R0,ROR#4
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6			; do two pixels
- MOV R0,R0,ROR#4
+ ORRCS R0,R0,R6,LSL #4		; do two pixels
+ MOV R0,R0,ROR#8
  SUBS R12,R12,#2
  BGT cb2_loop
  SUBS R9,R9,#4			; done 4 bytes
@@ -1769,16 +1484,12 @@ cb3_loop
  MOV R0,#0			; clear buffer
  MOVS R10,R10,LSR#1
  ORRCS R0,R0,R6
- MOV R0,R0,ROR#8
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6
- MOV R0,R0,ROR#8
+ ORRCS R0,R0,R6,LSL #8
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6
- MOV R0,R0,ROR#8
+ ORRCS R0,R0,R6,LSL #16
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6
- MOV R0,R0,ROR#8		; do 4 pixels = 1 word
+ ORRCS R0,R0,R6,LSL #24
  SUBS R9,R9,#4			; done 4 bytes
  BMI cbc_not_full_word		; save various bytes
  STR R0,[R5],#4			; write next word
@@ -1794,10 +1505,8 @@ cb4_loop
  MOV R0,#0			; clear buffer
  MOVS R10,R10,LSR#1
  ORRCS R0,R0,R6
- MOV R0,R0,ROR#16
  MOVS R10,R10,LSR#1
- ORRCS R0,R0,R6
- MOV R0,R0,ROR#16
+ ORRCS R0,R0,R6,LSL #16
  SUBS R9,R9,#4			; done 4 bytes
  BMI cbc_not_full_word		; save various bytes
  STR R0,[R5],#4			; write next word
@@ -1809,12 +1518,12 @@ cb4_loop
 convert_bitmap_5
  LDRB R10,[R11],#1		; get next 8 pixels
  MOV R12,#8			; pixel count (1 fills a word)
+ MOV R0,#0
 cb5_loop
  MOVS R10,R10,LSR#1
- MOVCC R0,#0
- MOVCS R0,R6
+ STRCC R0,[R5],#4		; write next word
+ STRCS R6,[R5],#4		; write next word
  SUBS R9,R9,#4			; done 4 bytes
- STR R0,[R5],#4			; write next word
  MOVLE PC,R14			; finished
  SUBS R12,R12,#1		; done 1 pixel
  BGT cb5_loop
