@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.1.2.4 1999/01/14 14:46:38 dj Exp $
+; $Id: MiniBuff,fff,v 1.1.2.5 1999/01/25 17:37:43 dj Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -304,7 +304,7 @@ wn$l
  MOV R0,#1
  STR R0,local_callbackflag
  FNLDR R0,opt_switches
- ORR R0,R0,#1<<7		; mark closable
+ ORR R0,R0,#switch_MinibufferCloseable
  FNSTR R0,opt_switches
  BICS R1,R1,#&FF000000
  MOVEQ R1,#110			; 1s default to wait
@@ -325,7 +325,7 @@ sub$l
  MOV R0,#0
  STR R0,local_callbackflag
  FNLDR R0,opt_switches
- TST R0,#1<<7		; still closable (hasn't been opened)
+ TST R0,#switch_MinibufferCloseable
  BLNE minibuffer_close
  FNRTS
 
@@ -352,7 +352,7 @@ minibuffer_open
  MOV R14,#0
  STR R14,local_callbackflag
  FNLDR R14,opt_switches
- TST R14,#1 << 16		; autoload line editor switch
+ TST R14,#switch_Autoload_lineeditor
  BLNE loadlineeditor		; load it if needed/possible.
  LDMFD R13!,{R1-R7,PC}
 
@@ -410,14 +410,14 @@ mi11
 minibuffer_start
  FNJSR "R7"
  FNLDR R0,opt_switches
- BIC R0,R0,#1<<7
+ BIC R0,R0,#switch_MinibufferCloseable
  FNSTR R0,opt_switches
  FNSTR R7,mini_command
  BL minibuffer_ensure_open
  BLVC get_MiniBuf
  BLVC minibuffer_setcaret	; put caret in minibuffer
  FNLDR R0,opt_switches,VC
- ORRVC R0,R0,#1<<15		; save what's in buffer on a recall
+ ORRVC R0,R0,#switch_MinibufferStatus	; save what's in buffer on a recall
  FNSTR R0,opt_switches,VC
  FNLDR R0,mini_lineed,VC	; handle
  BLVC lineeditor_reset		; reset minibuffer pointer
@@ -1108,7 +1108,7 @@ close$l
 
 ;X Current contents of minibuffer appended to the history buffer,
 ;  Buffer pointer set to this line.
-;  b15 of opt_switches flag cleared.
+;  b15 of opt_switches flag cleared (MinibufferStatus)
 
 minibuffer_addline
  FNJSR "R1"
@@ -1122,7 +1122,7 @@ minibuffer_addline
  BLVC lineeditor_append		; add line to history
  FNSTR R0,mini_lineed,VC
  FNLDR R0,opt_switches,VC
- BICVC R0,R0,#1<<15
+ BICVC R0,R0,#switch_MinibufferStatus
  FNSTR R0,opt_switches,VC
  FNRTS
 
@@ -1217,7 +1217,7 @@ data$l = 0,"/*#-+",13,"."
  ALIGN
 send$l				; R0=character to write
  FNLDR R14,opt_switches
- ORR R14,R14,#1<<15		; the line has been changed
+ ORR R14,R14,#switch_MinibufferStatus	; the line has been changed
  FNSTR R14,opt_switches
  BL minibuffer_writec
  FNRTS
@@ -1232,7 +1232,7 @@ tab$l
  FNRTS
 arrow$l				; R1=bottom byte of key number
  FNLDR R0,opt_switches
- TST R0,#1<<15
+ TST R0,#switch_MinibufferStatus
  BLNE minibuffer_addline	; the line has been changed so save
  FNRTS VS
  TEQ R1,#&8E
@@ -2044,7 +2044,7 @@ lineeditor_setpos
 checkfortextop
 	STMFD	R13!,{R14}
 	FNLDR	R14,opt_switches
-	TST	R14,#1<<27
+	TST	R14,#switch_MinibufferAntialiased
 	FNLDR	R14,wimp_realver,NE
 	MOVEQ	R14,#0
 	SUB	R14,R14,#320

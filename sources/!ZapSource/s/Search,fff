@@ -1,5 +1,5 @@
 ; Contains Zap search/replace code and throwback generation
-; $Id: Search,fff,v 1.1.2.4 1999/01/14 14:46:51 dj Exp $
+; $Id: Search,fff,v 1.1.2.5 1999/01/25 17:37:49 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -667,14 +667,14 @@ default_search
  MOV R4,#1			; positive direction
  MOV R3,#-1			; start offset of file (1 gets added)
  FNLDR R0,opt_switches
- TST R0,#1<<13
+ TST R0,#switch_SearchToBuffer
  MOVEQ R1,#0
  MOVNE R1,#1			; search to buffer
- ANDS R0,R0,#3<<11
+ ANDS R0,R0,#switch_SearchDirAndExtent
  BEQ end$l
- TEQ R0,#3<<11
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
  BEQ all$l
- TEQ R0,#2<<11
+ TEQ R0,#(search_Backwards :SHL: search_DirAndExtent_shift)
  MOVEQ R4,#-1			; reverse search
  FNLDR R10,car_cursor
  BL test_cblk
@@ -703,20 +703,20 @@ default_replace
  MOV R4,#1			; positive direction
  MOV R3,#-1			; start offset of file (1 gets added)
  FNLDR R0,opt_switches
- TST R0,#1<<14
+ TST R0,#switch_SearchGlobalReplace
  MOVEQ R1,#0			; selective
  MOVNE R1,#1			; global
- ANDS R0,R0,#3<<11
+ ANDS R0,R0,#switch_SearchDirAndExtent
  BEQ end$l
- TEQ R0,#3<<11
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
  BEQ all$l
  FNLDR R10,car_cursor
  BL test_cblk
  MOVNE R3,#-1			; not in this window so cursor at start
  LDREQ R3,[R10,#c_off]		; start at cursor
  FNLDR R0,opt_switches		; as R0 corrupted by above BL :-(
- AND R0,R0,#3<<11
- TEQ R0,#2<<11
+ AND R0,R0,#switch_SearchDirAndExtent
+ TEQ R0,#(search_Backwards :SHL: search_DirAndExtent_shift)
  MOVEQ R4,#-1			; reverse search
  B end$l
 all$l				; search all windows
@@ -738,12 +738,12 @@ default_search_flags
  TST R0,#1<<19
  ORRNE R5,R5,#1<<29		; don't expand search macros
  FNLDR R0,opt_switches
- TST R0,#1<<9
+ TST R0,#switch_SearchRawSearch
  ORRNE R5,R5,#1<<31		; raw search
- TST R0,#1<<10
+ TST R0,#switch_SearchUseCommands
  ORRNE R5,R5,#1<<28		; don't use \commands
- AND R0,R0,#3<<11
- TEQ R0,#3<<11
+ AND R0,R0,#switch_SearchDirAndExtent
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
  ORREQ R5,R5,#1<<27		; all files mode
  MOV PC,R14
 
