@@ -674,7 +674,14 @@ void reindentline(char brack)
   }
 }
 
+/* break */
+bool chkforwds_break(char c, int i)
+{
+  if (((c=='b') && (getc(i+1)=='r') && (getc(i+2)=='e') && (getc(i+3)=='a') && (getc(i+4)=='k') && (!alphanum(getc(i+5))))) return true;
+  return false;
+}
 
+/* case or default */
 bool chkforwds0(char c, int i)
 {
   // "quick" 'n' dirty search for private, public, protected...
@@ -684,19 +691,24 @@ bool chkforwds0(char c, int i)
   return false;
 }
 
-
-bool chkforwds1(char c, int i)
+/* if, else, for or while */
+bool chkforwds1_only(char c, int i)
 {
   // "quick" 'n' dirty search for if, for, else, case, default, while...
   if ((((c=='i') && (getc(i+1)=='f') && (!alphanum(getc(i+2)))) ||
      ((c=='e') && (getc(i+1)=='l') && (getc(i+2)=='s') && (getc(i+3)=='e') && (!alphanum(getc(i+4)))) ||
      ((c=='f') && (getc(i+1)=='o') && (getc(i+2)=='r') && (!alphanum(getc(i+3)))) ||
      ((c=='w') && (getc(i+1)=='h') && (getc(i+2)=='i') && (getc(i+3)=='l') && (getc(i+4)=='e')) && (!alphanum(getc(i+5))))) return true;
-
-  return chkforwds0(c,i);
+  return false;
 }
 
+/* if, else, for or while OR case or default */
+bool chkforwds1(char c, int i)
+{
+  return chkforwds1_only(c,i) || chkforwds0(c,i);
+}
 
+/* private:, public: or protected: */
 bool chkforwds2(char c, int i)
 {
   // "quick" 'n' dirty search for private, public, protected...
@@ -707,6 +719,15 @@ bool chkforwds2(char c, int i)
   return false;
 }
 
+
+/*
+ * returns true if we've had one of:
+ *   if, for, else, case, default, while
+ * without being followed by {} or a statement.
+ * case or default followed by a statement will
+ * still return true (because case 9: foo; should
+ * still indent).
+ */
 
 static bool needtochkprev(int offset)
 {
@@ -719,6 +740,7 @@ static bool needtochkprev(int offset)
   char inquotes = 0;
   bool foundlevelchanger = false;
   bool foundsemicolon = false;
+  bool caseordefault = false;
 
   if (offset <= 0) return false;
   i=realstartofline;
@@ -734,6 +756,9 @@ static bool needtochkprev(int offset)
         if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
           iflevel = true;
         }
+        if (chkforwds0(c,i)) { /* case, default */
+          caseordefault=true;
+        }
       }
 
       if (((c=='{') || (c=='}') || (c==';')) && (!(escaped(i-1))) && (!(ischarincomment(i-1)))) {
@@ -747,11 +772,19 @@ static bool needtochkprev(int offset)
 
   } while ((i++ <= realendofline) && (c!=(window->cr.byte))); // offset);
 
-  if (foundsemicolon || foundlevelchanger) iflevel = false;
+  if ((foundsemicolon && !caseordefault) || foundlevelchanger) iflevel = false;
 
   return iflevel;
 }
 
+/* SJA:
+ * (I *think*) this knocks off bracket depth in the case of
+ * if (foo)
+ *  bar;
+ * It may now also find case: break; okay. I hope so.
+ * Then it does some horrendous stuff which I can't figure out
+ * at the end ...
+ */
 
 static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
 {
@@ -760,8 +793,8 @@ static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
 //  int oldsol = 0;
   int newstartofline;
   int i;
-  int iflevel = 0;
-  int oldiflevel = 0;
+  int iflevel = 0, caselevel = 0;
+  int oldiflevel = 0, oldcaselevel = 0;
   char c,b;
 
   char inquotes = 0;
@@ -770,6 +803,8 @@ static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
   bool foundopening = false;
   bool activity_reqd = false;
   bool flag  = false;
+  bool foundbreak = false;
+  bool foundcase = false;
 
 //  offset = zap_basemode_e_lineend(offset); // make sure it's all checked...
 //  indentsize size_of_indent2;
@@ -788,10 +823,19 @@ static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
     if (inquotes==0) {
       // "quick" 'n' dirty search for if, for, else, case, default, while...
       flag = chkforwds2(c,i);
-      if (chkforwds1(c,i) || flag) {
+      foundbreak = chkforwds_break(c,i);
+      if (chkforwds1_only(c,i) || flag) {
         if (i>0) b = getc(i-1); else b = 0;
         if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
           iflevel = oldiflevel + 1; // hmm...
+        }
+      }
+      // SJA: check for case, and track separately from if
+      if (chkforwds0(c,i)) {
+        if (i>0) b = getc(i-1); else b = 0;
+        if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
+          caselevel = oldcaselevel + 1;
+          foundcase = true;
         }
       }
 
@@ -809,6 +853,11 @@ static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
 
 //  i = iflevel;
   if (foundsemicolon || foundlevelchanger) iflevel = 0;
+
+  // SJA: if we had a break;, then case: has been closed ...
+  if (foundbreak) caselevel = 0;
+  // SJA: if and case both count (or something ... don't entirely understand this bit)
+  iflevel += caselevel;
 
 //  if (flag) return size_of_indent;
 
@@ -887,7 +936,7 @@ static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
 
   do {
     c=getc(i);
-    if (inquotes==0 && (chkforwds2(c,i) || chkforwds0(c,i))) return size_of_indent;
+    if (inquotes==0 && (chkforwds_break(c, i) || chkforwds2(c,i) || chkforwds0(c,i))) return size_of_indent;
 
     if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
 
@@ -1212,15 +1261,15 @@ void C_return(unsigned int wflags,
           tempdelay = mode->shared.matchdelay;
           mode->shared.matchdelay = 0;
           unlearntzap_commandstring("RIGHT");
-          C_char(0,1,wformat,&c);
+          C_char(0,1,wformat,&c); // INSERT "B"
           unlearntzap_commandstring("LEFT");
-          unlearntzap_commandstring("DELETE");
-          C_char(0,1,wformat,&a); // was 'a' (after this ignored?)
+          unlearntzap_commandstring("DELETE"); // Delete the '}'
+          C_char(0,1,wformat,&a); // put the '}' back in (with autoindent)
 //          unlearntzap_commandstring("BEEP");
           unlearntzap_commandstring("RIGHT");
-          unlearntzap_commandstring("DELETE");
+          unlearntzap_commandstring("DELETE"); // Delete the 'B'
 //          unlearntzap_commandstring("DELETENEXT");
-          unlearntzap_commandstring("LEFT");
+          unlearntzap_commandstring("LEFT"); // Back to where we started
           mode->shared.matchdelay = tempdelay;
         }
 
@@ -1285,7 +1334,7 @@ void C_reindent(const char *data,   /* Pointer to string parameter */
   char c='A';
   unsigned int atemp;
 
-  if (lineisacomment(cursor->off))
+  if (lineisacomment(cursor->off) && 0) /* personally want my comments to follow */
   {
     unlearntzap_commandstring("CRIGHT");
     unlearntzap_commandstring("DOWN");
@@ -1446,6 +1495,7 @@ void C_parencallback(int handle)
 
 /* Miscellaneous commands */
 
+#if 0
 /* Provide MJE_IFMODE command */
 void C_ifmode(const char *data,    /* Pointer to string parameter */
               unsigned int count,  /* Number of times pressed */
@@ -1497,3 +1547,4 @@ void C_ifmode(const char *data,    /* Pointer to string parameter */
     zap_commandstring(data);
   }
 }
+#endif

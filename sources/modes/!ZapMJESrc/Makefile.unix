@@ -1,0 +1,58 @@
+# Make file for ZapMJE under unix
+# ZapMJE (c) Martin Ebourne
+# Additional work Tim Tyler and others
+
+# For the standard build name:
+#	make -r -f data/unix/Makefile
+# For alternative build names:
+#	make -r -f data/unix/Makefile BUILD=foo
+#	make -r -f data/unix/Makefile BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+
+# Targets:
+#	ZapMJE (default)	Build ZapMJE
+#	clean			Wipe .o and .t files, and auto-gen headers
+
+SOBJECTS	= so/Assembler so/CMode so/C_Redraw so/Commands so/Common \
+		  so/Header so/Support so/Tables
+COBJECTS	= co/Routines
+
+asm		= as_ro
+asmflags	= -nolocal -objasm -upper -pedantic -I$(ZapSource_Dir) -o $@
+link		= link_ro
+linkflags	= -o tmplink -B 0 -bin
+cc		= gcc_ro
+ccflags		= -c -ffa -J -apcd 3/32bit -zM -zps1
+
+__BUILD		= "-DBUILD=$(BUILD)"
+
+makehdr		= $(ZapSource_Dir)/data/unix/makehdr
+timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'/"
+rm		= rm -f
+
+t/%:		s/%,fff
+		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
+
+co/%:		c/%,fff h/Defns,fff
+		$(cc) $(ccflags) $<
+
+# Always rebuild when Main changes!
+so/%:		s/%,fff h/Main,fff
+		$(asm) $(__BUILD) $(asmflags) $<
+
+# Main target
+
+ZapMJE:		objdirs tmplink
+		$(timestamp) < tmplink > ZapMJE,ffa
+		$(rm) tmplink
+		
+objdirs:
+		mkdir -p so
+		mkdir -p co
+		mkdir -p t
+		
+tmplink:	$(subst so/,t/,$(SOBJECTS)) $(SOBJECTS) $(COBJECTS)
+		$(link) $(linkflags) $(SOBJECTS) $(COBJECTS)
+
+clean:
+		$(rm) so/* co/* t/* $(subst so/,h/,$(SOBJECTS)) tmplink ZapMJE,ffa

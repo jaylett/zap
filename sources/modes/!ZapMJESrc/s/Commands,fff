@@ -14,9 +14,8 @@
 
 		GET	h.Main
 		GET	h.Assembler
-		GET	h.C
+		GET	h.CMode
 		GET	h.Header
-		GET	h.Help
 		GET	h.Routines
 		GET	h.Support
 		GET	h.Tables
@@ -62,20 +61,20 @@ extracmdtable	DCD	extracmdtable		;  Offset of table from start of module
 
 ;  Help commands
 
-		CMD	"MJE_HELPCONTEXT",helpcontext$H
-		CMD	"MJE_HELPLAST",helplast$H
-		CMD	"MJE_HELPTOPIC",helptopic$H
+;		CMD	"MJE_HELPCONTEXT",helpcontext$H
+;		CMD	"MJE_HELPLAST",helplast$H
+;		CMD	"MJE_HELPTOPIC",helptopic$H
 
 ;  Generic commands
 
-		CMD	"MJE_ALTERSEL",altersel
-		CMD	"MJE_IFMODE",ifmode
+;		CMD	"MJE_ALTERSEL",altersel
+;		CMD	"MJE_IFMODE",ifmode
 
-		[	$debug
-		CMD	"MJE_COREDUMP",coredump
-		CMD	"MJE_COREDUMPD",coredumpd
-		CMD	"MJE_CTEST",callctest
-		]
+;		[	$debug
+;		CMD	"MJE_COREDUMP",coredump
+;		CMD	"MJE_COREDUMPD",coredumpd
+;		CMD	"MJE_CTEST",callctest
+;		]
 
 		=	0
 
@@ -794,41 +793,41 @@ checkforgrey$L	BL	maybe_grey
 
 		LOCAL
 
-
+		[ {FALSE}
 ;  Alter selection (equivalent to clicking adjust)
 
-		DCD	x_noparams			;  Flags for command
-
-altersel	STMFD	sp!,{windowblk,fileblk,lr}
-		CALL	Zap_GetSel,r6
-		LDMFD	sp!,{r0,fileblk}
-		TEQ	r0,windowblk
-		SUBNES	windowblk,r0,#0
-		ADD	r4,r1,r2,LSR #1
-		ADD	r3,r1,r2
-		MOV	r2,r1
-		LDR	r0,c_off
-		ADDCS	r3,r0,#1
-		CMPCC	r4,r0
-		MOVHS	r2,r0
-		MOVLO	r3,r0
-		LDMFD	sp!,{lr}
-		JMP	Zap_Select,r6
-
-
-		LOCAL
+;		DCD	x_noparams			;  Flags for command
+;
+;altersel	STMFD	sp!,{windowblk,fileblk,lr}
+;		CALL	Zap_GetSel,r6
+;		LDMFD	sp!,{r0,fileblk}
+;		TEQ	r0,windowblk
+;		SUBNES	windowblk,r0,#0
+;		ADD	r4,r1,r2,LSR #1
+;		ADD	r3,r1,r2
+;		MOV	r2,r1
+;		LDR	r0,c_off
+;		ADDCS	r3,r0,#1
+;		CMPCC	r4,r0
+;		MOVHS	r2,r0
+;		MOVLO	r3,r0
+;		LDMFD	sp!,{lr}
+;		JMP	Zap_Select,r6
+;
+;
+;		LOCAL
 
 ;  Execute command string if in certain mode(s)
 
-		DCD	x_stringparam			;  Flags for command
-
-ifmode		TEQ	R8,#0
-		MOVEQ	PC,R14
-		ADRL	r6,C_ifmode
-		B	callc
-
-		LOCAL
-
+;		DCD	x_stringparam			;  Flags for command
+;
+;ifmode		TEQ	R8,#0
+;		MOVEQ	PC,R14
+;		ADRL	r6,C_ifmode
+;		B	callc
+;
+;		LOCAL
+		]
 
 ;  Re-indent line
 
@@ -850,87 +849,87 @@ reindentthisline MOV	r2,r0 ; was R7
 		LOCAL
 
 
-		[	$debug
-
-;  Generate window on mode blocks
-
-count$L		RN	r5
-window$L	RN	r6
-
-		REGS
-
-		DCD	x_noparams			;  Flags for command
-
-coredumpd	PUSH
-		BL	getws
-		MOV	window$L,#-1
-		MOV	count$L,#-1
-		B	loop$L
-
-		DCD	x_noparams
-
-coredump	PUSH
-		BL	getws
-		CALL	Zap_GetWindOff,r0
-		RTS VS
-		MOV	window$L,r0
-		LDR	count$L,=nummodes-1
-loop$L		TST	count$L,#1<<31
-		BNE	moduleblk$L
-		MOV	r0,window$L
-		CALL	Zap_ConvWindOff,r1
-		LDRVC	r1,[wsblk,count$L,LSL #2]
-		BLVC	getmodeblk
-moduleblk$L	LDRVC	r0,=&FFD			;  Data
-		MOVVC	r1,#0
-		MOVVC	r2,#0
-		MOVVC	r3,#0
-		MOVVC	r4,#0
-		CALL	Zap_CreateFile,cursorblk,VC
-		MOVVC	r0,#2				;  Word mode
-		CALL	Zap_NewMode,r1,VC
-		RTS VS
-		TST	count$L,#1<<31
-		LDREQ	r0,m_info
-		LDREQ	r0,[r0,#i_modetitle]
-		ADRNEL	r0,titletext
-		CALL	Zap_NewFileName,r1
-		MOVVC	r0,#1				;  Insert
-		MOVVC	r1,#0				;  Offset
-		TST	count$L,#1<<31
-		LDREQ	r2,m_length
-		MOVEQ	r3,modeblk
-		MOVNE	r2,#ws_size
-		MOVNE	r3,wsblk
-		CALL	Zap_Command,r4,VC
-		LDRVC	r0,f_flags
-		BICVC	r0,r0,#1<<3			;  Clear file altered
-		STRVC	r0,f_flags
-		CALL	Zap_NewFileTitle,r0,VC
-		RTS	VS
-		TST	count$L,#1<<31
-		LDRNE	count$L,=nummodes-1
-		BNE	loop$L
-		SUBS	count$L,count$L,#1
-		BPL	loop$L
-		RTS
-
-
-		LOCAL
-
-
-; Call C test function
-
-		DCD	x_noparams			;  Flags for command
-
-callctest	SAVE
-		BL	checkmode
-		RTS NE
-		PULL
-		ADRL	r6,C_test
-		B	callc
-
-		]
+;		[	$debug
+;
+;;  Generate window on mode blocks
+;
+;count$L		RN	r5
+;window$L	RN	r6
+;
+;		REGS
+;
+;		DCD	x_noparams			;  Flags for command
+;
+;coredumpd	PUSH
+;		BL	getws
+;		MOV	window$L,#-1
+;		MOV	count$L,#-1
+;		B	loop$L
+;
+;		DCD	x_noparams
+;
+;coredump	PUSH
+;		BL	getws
+;		CALL	Zap_GetWindOff,r0
+;		RTS VS
+;		MOV	window$L,r0
+;		LDR	count$L,=nummodes-1
+;loop$L		TST	count$L,#1<<31
+;		BNE	moduleblk$L
+;		MOV	r0,window$L
+;		CALL	Zap_ConvWindOff,r1
+;		LDRVC	r1,[wsblk,count$L,LSL #2]
+;		BLVC	getmodeblk
+;moduleblk$L	LDRVC	r0,=&FFD			;  Data
+;		MOVVC	r1,#0
+;		MOVVC	r2,#0
+;		MOVVC	r3,#0
+;		MOVVC	r4,#0
+;		CALL	Zap_CreateFile,cursorblk,VC
+;		MOVVC	r0,#2				;  Word mode
+;		CALL	Zap_NewMode,r1,VC
+;		RTS VS
+;		TST	count$L,#1<<31
+;		LDREQ	r0,m_info
+;		LDREQ	r0,[r0,#i_modetitle]
+;		ADRNEL	r0,titletext
+;		CALL	Zap_NewFileName,r1
+;		MOVVC	r0,#1				;  Insert
+;		MOVVC	r1,#0				;  Offset
+;		TST	count$L,#1<<31
+;		LDREQ	r2,m_length
+;		MOVEQ	r3,modeblk
+;		MOVNE	r2,#ws_size
+;		MOVNE	r3,wsblk
+;		CALL	Zap_Command,r4,VC
+;		LDRVC	r0,f_flags
+;		BICVC	r0,r0,#1<<3			;  Clear file altered
+;		STRVC	r0,f_flags
+;		CALL	Zap_NewFileTitle,r0,VC
+;		RTS	VS
+;		TST	count$L,#1<<31
+;		LDRNE	count$L,=nummodes-1
+;		BNE	loop$L
+;		SUBS	count$L,count$L,#1
+;		BPL	loop$L
+;		RTS
+;
+;
+;		LOCAL
+;
+;
+;; Call C test function
+;
+;		DCD	x_noparams			;  Flags for command
+;
+;callctest	SAVE
+;		BL	checkmode
+;		RTS NE
+;		PULL
+;		ADRL	r6,C_test
+;		B	callc
+;
+;		]
 
 
 		END
