@@ -1,5 +1,5 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.3 1999/06/10 17:23:20 ds Exp $
+; $Id: BASIC,fff,v 1.4 1999/06/26 19:30:01 ds Exp $
 
  GET h.ZapBasHdr
  GET h.ZapBasic
@@ -3823,8 +3823,8 @@ basic_prevline
 ; Perform line alteration					;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;E R1=buf_detoken start R2=string len (exc 0D) R3=line col R5=num bytes
-;  R6 = Flags R7=address data
+;E R1=buf_detoken start R2=string len (exc 0D) R3=line col R4=w_flags
+;  R5=num bytes R6 = Flags R7=address data
 ;X line in buf_detoken altered R0=new length (exc 0D) #
 
 change_line_insert
@@ -3856,7 +3856,6 @@ change_line_insert
  MOV R2,R3			; new end offset
  ADD R10,R10,#1
 ch1
- LDR R4,[R8,#w_flags]
  TST R4,#2			; overwrite?
  BNE ch2			; overwrite
  ADD R1,R10,R3			; place to start shifting
@@ -6113,6 +6112,7 @@ insert_the_tab
  MOV R1,R7
  MOV R2,R5
  BL strstr			; fill buffer with spaces
+ LDR R4,[R8,#w_flags]
  BL basic_char			; insert
  FNRTS ; LDMFD R13!,{R1-R11,PC}
 
@@ -6239,10 +6239,11 @@ do_up_to_here
  BL prepare_line_speshally	; set up R1-R4,R6
  FNRTS VS
 
- PUSH "R6"
+ PUSH "R4,R6"
+ LDR R4,[R13,#12]		; stacked w_flags
  MOV R6,#0
  BL change_line_insert		; insert R7,R5 data
- PULL "R6"
+ PULL "R4,R6"
 
  BLVC count_dots			; get tokenise flag in R2
  ADDVC R7,R3,R5			; new cursor column offset
@@ -7079,13 +7080,11 @@ postco1
  MOV R3,R5
  BL copy_and_detokenise ;FNcall Zap_MoveBytes
  MOV R5,R0 ; new length...
- LDR R14,[R8,#w_flags]
- PUSH "R7,R14"
- BIC R14,R14,#2
- STR R14,[R8,#w_flags]
+ LDR R4,[R8,#w_flags]
+ PUSH "R7"
+ BIC R4,R4,#2
  BL basic_char_no_spaces ; like basic_char...
- PULL "R7,R14"
- STR R14,[R8,#w_flags]
+ PULL "R7"
  BVS veesetreturn
  MOV R0,R7
  FNcall Zap_Free ; done...! leak...?
@@ -8140,7 +8139,7 @@ openwindowroutine
  LDMFD	 R13 !,{R1-R11}
 
  TST	 R0,#1 << 17
- TSTEQ	 R0,#1 << 30
+;ww TSTEQ	 R0,#1 << 30
  BEQ	 bas_justcallthebasemode
 
  STR	 R0,bas_ModeWordFlags
@@ -8161,14 +8160,17 @@ openwindowroutine
  STR	 R3,bas_LocalJump
  LDMFD	 R13 !,{R0-R12,R14}
 
- ADRL	 R3,basic_clnoff  ; REM pointer to custom
- ADRL	 R4,basic_clnphy
- LDR	 R2,bas_ModeWordFlags
- ANDS	 R2,R2,#1 << 30
- MOVNE	 R2,#&FF		; REM use window wrap flag...
- ORRNE	 R2,R2,#&FF00		; REM use custom e_clnoff
- ORRNE	 R2,R2,#&FF000000	; REM use custom e_clnphy
- ORRNE	 R2,R2,#&40000
+ MOV	 R2,#0
+ MOV	 R3,#0
+ MOV	 R4,#0
+;ww ADRL	 R3,basic_clnoff  ; REM pointer to custom
+;ww ADRL	 R4,basic_clnphy
+;ww LDR	 R2,bas_ModeWordFlags
+;ww ANDS	 R2,R2,#1 << 30
+;ww MOVNE	 R2,#&FF		; REM use window wrap flag...
+;ww ORRNE	 R2,R2,#&FF00		; REM use custom e_clnoff
+;ww ORRNE	 R2,R2,#&FF000000	; REM use custom e_clnphy
+;ww ORRNE	 R2,R2,#&40000
  ; LDMFD R13,{R0-R12,R14}
  ;MOV	 R14,PC
  LDR	 PC,bas_LocalJump
@@ -8829,9 +8831,11 @@ quitelyexit$l
 insert_it_comment
  MOV R0,R6
  FNcall Zap_JumptoOffset
+ LDR R4,[R8,#w_flags]
  MOV R5,#3			; 3
  ADR R7,namedremark
  ADRL R11,local_wkspace_ptr
+ LDR R4,[R8,#w_flags]
  LDR R11,[R11]
  BL basic_char			; eek R11 not set up...!
  FNRTS
