@@ -16,6 +16,9 @@ rm		= rm -f
 # Final target:
 zapdocs:		manual
 
+debug:		$(chapters) $(appendices) $(controlfiles)
+		$(buttress) -d $(butt_options) $(chapters) $(appendices) $(controlfiles)
+
 manual:		$(chapters) $(appendices) $(controlfiles)
 		$(buttress) $(butt_options) $(chapters) $(appendices) $(controlfiles)
 
