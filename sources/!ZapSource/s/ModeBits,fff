@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.14 2003/01/22 21:40:16 christian Exp $
+; $Id: ModeBits,fff,v 2.15 2003/01/25 18:58:54 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -85,6 +85,8 @@
  EXPORT getmoduleversionnumber
  EXPORT kill_if_on_kill_list
  EXPORT init_kill_list
+ EXPORT add_filter
+ EXPORT remove_filter
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -500,6 +502,9 @@ do_call_mode
 	FNAME	call_mode
 call_mode
 	FNJSR				; save return address
+	BL	call_pre_filters
+	FNRTS	EQ
+	PUSH	"R11"
 	PUSH	"R0-R2,R14,PC"		; save args and two blanks
 	TEQ	R8,#0
 	FNLDRB  R0,opt_format,EQ	; default mode
@@ -507,7 +512,6 @@ call_mode
 	ADD	R1,R12,#(mode_store+4):AND:&FF00
 	ADD	R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
 	LDR	R0,[R1,R0,LSL #3]	; mode dispatch table in R0
-call_mode_common
 	LDR	R2,[R0,#2*e_mode+4]
 	LDRB	R2,[R2,R11,LSR #2]	; mode supplying the entry point
 	LDR	R1,[R0,R11,LSL #1]!	; address of the sub + save
@@ -515,6 +519,10 @@ call_mode_common
 	STR	R1,[R13,#12]		; overwrite the blanks with the address
 	STR	R2,[R13,#16]		;   and the mode number
 	BL	do_call_mode		; restore args and call the sub (R14=ret)
+	PUSH	"R11"
+	LDR	R11,[R13,#12]
+	BL	call_post_filters
+	PULL	"R11,R14"
 	PULL	"R14,PC"		; return
 
 
@@ -528,9 +536,15 @@ call_given_mode
 	ADD	R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
 	LDR	R0,[R1,R10,LSL #3]	; mode dispatch table in R0
 	CMP	R0,#0			; do nothing if mode blank
-	BGT	call_mode_common
-	PULL	"R0-R2,R14"
-	PULL	"R14,PC"
+	PULL	"R0-R2,R14",EQ
+	LDRNE	R2,[R0,#2*e_mode+4]
+	LDRNEB	R2,[R2,R11,LSR #2]	; mode supplying the entry point
+	LDRNE	R1,[R0,R11,LSL #1]!	; address of the sub + save
+	LDRNE	R11,[R0,#4]		; workspace pointer to use
+	STRNE	R1,[R13,#12]		; overwrite the blanks with the address
+	STRNE	R2,[R13,#16]		;   and the mode number
+	BLNE	do_call_mode		; restore args and call the sub (R14=ret)
+	PULL	"R14,PC"		; return
 
 
 	LOCAL
@@ -2504,6 +2518,134 @@ flashcarpath	 FNS	("Obey ZapExtensions:BootFlash")
 lineeditorpath	 FNS	("Obey ZapExtensions:BootLineEd")
 hidepointerpath  FNS	("Obey ZapExtensions:BootHide")
 iclearpath	 FNS	("Obey ZapExtensions:BootIClear")
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Filtering mode entry points				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+
+; filter block
+		^	0
+ft_next		#	4		; next filter in chain
+ft_code		#	4		; code to call
+ft_private	#	4		; private word
+ft_mode		#	4		; mode to filter
+ft_length	*	@
+
+; add a new filter
+; E r0 = filter type:  0 = pre filter  1 = post filter
+;   r1 -> code to call  r2 = private word  r3 = mode (-1 for all modes)  r4 = entry point
+; X r0-r4 corrupt
+; filter called before the mode with:
+;   E  r0-r10 as on entry point  r11 = private word
+;   X  r0-r10 updated  r11 == 0 => claim the entry
+; filters are only called for Zap_CallMode, NOT CallGivenMode or BaseMode
+	FNAME	add_filter
+add_filter
+	FNJSR	"R11"
+	TEQ	R0,#0
+	FNLDR	R11,pre_filters,EQ
+	FNLDR	R11,post_filters,NE
+
+	MOV	R0,#ft_length		; claim a new filter block
+	BL	heap_claim
+	STMVCIB	R0,{R1-R3}
+	LDRVC	R2,[R11,R4]		; stick it at the head of the list
+	STRVC	R2,[R0]
+	STRVC	R0,[R11,R4]
+	FNRTS
+
+
+	LOCAL
+
+; remove a filter
+; E r0 = filter type:  0 = pre filter  1 = post filter
+;   r1 -> code to call  r2 = private word  r3 = mode (-1 for all modes)  r4 = entry point
+; X r0 corrupt
+	FNAME	remove_filter
+remove_filter
+	FNJSR	"R7-R11"
+	TEQ	R0,#0
+	FNLDR	R11,pre_filters,EQ
+	FNLDR	R11,post_filters,NE
+	ADD	R7,R11,R4
+	LDR	R11,[R11,R4]
+
+loop$l	TEQ	R11,#0			; filter not found - maybe should be an error?
+	FNRTS	EQ
+
+	LDMIB	R11,{R8-R10}		; compare the spec
+	TEQ	R8,R1
+	TEQEQ	R9,R2
+	TEQEQ	R10,R3
+	MOVNE	R7,R11			; keep this filter
+	LDRNE	R11,[R11]
+	BNE	loop$l
+
+	LDR	R0,[R11]		; remove it from the list
+	STR	R0,[R7]
+	MOV	R0,R11
+	BL	heap_free
+	FNRTS
+
+
+	LOCAL
+
+; call the pre-filters
+; E as call_mode
+; X EQ if entry point claimed, all registers preserved
+	FNAME	call_pre_filters
+call_pre_filters
+	FNJSR	"R8-R11"		; save r9-r11 + 1 blank
+
+	FNLDR	R11,current_filter
+	FNLDR	R10,pre_filters
+	LDR	R10,[R10,R11]
+	B	loop$l
+
+; call the post-filters
+; E as call_mode
+; X all preserved
+	FNAME	call_pre_filters
+call_post_filters
+	FNJSR	"R8-R11"		; save r9-r11 + 1 blank
+
+	FNLDR	R11,current_filter
+	FNLDR	R10,post_filters
+	LDR	R10,[R10,R11]
+
+loop$l	LDRB	R9,[R8,#w_format]
+loop2$l	TEQ	R10,#0			; no more?
+	BEQ	nret$l
+
+	LDR	R14,[R10,#ft_mode]	; check it's the right mode
+	CMP	R14,#-1
+	CMPNE	R14,R9
+	LDREQ	R10,[R10]
+	BEQ	loop2$l
+
+	LDR	R11,[R10,#ft_private]	; call it
+	LDR	R14,[R10,#ft_code]
+	STR	R10,[R13]		; keep filter block
+	LDMIB	R13,{R9-R10}
+	PUSH	"R14"
+	MOV	R14,PC
+	PULL	"PC"
+
+	TEQ	R11,#0
+	BEQ	ret$l
+
+	LDR	R10,[R13]		; restore it
+	LDR	R10,[R10]		; next
+	B	loop$l
+
+nret$l	CLRZ				; not claimed
+ret$l	ADD	R13,R13,#4
+	LDMFD	R13!,{R9-R11,PC}	; return
+
 
 
 
