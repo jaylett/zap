@@ -53,6 +53,7 @@ asmvarcol$L	EQU	1<<4 + opercol$L		;  To be used for {PC} etc
 nextfieldflag$L	EQU	1<<8
 charconstflag$L	EQU	1<<9				;  Usually in miscreg, stored in colour
 newlflag$L	EQU	1<<10				;    between calls...
+bslashflag$L	EQU	1<<11				;
 colour$L	RN	r2
 width$L		RN	r3
 format$L	RN	r4
@@ -66,7 +67,7 @@ column$L	RN	r14
 
 ;  Usage of miscreg:
 ;  bits 0-7  : cr
-;       9    : charconstflag
+;       9-15 : flags
 ;       16-23: bpl
 ;       24-31: tabchar
 
@@ -262,7 +263,12 @@ storenoqs$L	CMP	output$L,#0
 storenocolour$L	CMP	output$L,#0
 		STRGTB	r0,[output$L],#1
 		ADD	column$L,column$L,#1
-nextchar$L	CMP	output$L,#0
+
+nextchar$L	TEQ	r0,#'\'
+		EOREQ	miscreg$L,miscreg$L,#bslashflag$L
+		BICNE	miscreg$L,miscreg$L,#bslashflag$L
+
+		CMP	output$L,#0
 		ADDLTS	output$L,output$L,#1
 		BMI	mainloop$L
 		LDMEQFD	sp,{output$L}
@@ -324,6 +330,8 @@ checkstring$L	TEQ	colour$L,#commentcol$L
 		BEQ	storechar$L
 		TEQ	colour$L,#stringcol$L
 		MOVNE	colour$L,#stringcol$L
+		BNE	storechar$L
+		TST	miscreg$L,#bslashflag$L
 		BNE	storechar$L
 stringstore$L	CMP	output$L,#0
 		ANDGT	r1,colour$L,#15
