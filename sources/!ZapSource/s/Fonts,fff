@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 1.1.2.5 1999/01/19 18:44:49 dj Exp $
+; $Id: Fonts,fff,v 1.1.2.6 1999/03/11 18:11:27 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -201,10 +201,6 @@ kill_font_block
 
 minimise_font_memory
  FNJSR "R7-R10"
-; FNLDR R7,opt_switches		; failed test code...
-; TST R7,#1<<26			; temp font disable...
-; FNRTS NE
-; BL clear_font_flag_bits
 
  ADR R10,sub$l
  BL do_allwindow
@@ -231,10 +227,9 @@ loop$l
 
  LDRB R0,[R7,#&14]
  TST R0,#1			; that flag bit...
- BICNE R0,R0,#1
- STRNEB R0,[R7,#&14]
+ BIC R0,R0,#1
+ STRB R0,[R7,#&14]
  BLEQ kill_font_block		; don't need this block any more
-
  FNRTS VS
 next$l
  ADD R7,R7,#32
@@ -257,8 +252,8 @@ loop2$l
 setthebit$l
  FNJSR
  LDR R14,[R8,#w_flags]		; get flags
- ANDS R14,R14,#&00320000	; font bits
- TEQ R14,#&00200000
+ ANDS R14,R14,#redraw_font_mask
+ TEQ R14,#redraw_fast_font
  FNRTS EQ
 
  BL conv_font_off		; R7=block used by this window
@@ -266,31 +261,6 @@ setthebit$l
  ORR R14,R14,#1			; keep
  STRB R14,[R7,#&14]
  FNRTS
-
-; this code not needed...
-;
-;clear_font_flag_bits
-; FNJSR
-; FNLDR R7,font_list
-; FNLDR R8,font_num
-; ADD R8,R7,R8,LSL#5		; end of list
-;loop3$l
-; CMP R7,R8
-; FNRTS CS
-; LDRB R14,[R7,#&14]
-; BIC R14,R14,#1			; discard...
-; STRB R14,[R7,#&14]
-; ADD R7,R7,#32
-; B loop3$l
-
-;clearthebit$l
-; FNJSR
-; BL conv_font_off		; R7=block used by this window
-; LDRB R0,[R7,#&14]
-; ORR R0,R0,#1			; keep
-; STRB R0,[R7,#&14]
-; MOVS R14,#-1
-; FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Ensure red_workarea sufficiently large for the font	;
@@ -619,6 +589,7 @@ check_file_exists
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;X font blk blatted with -1s
+; FIXME: why isn't this using Zap_FillWords?
 
 clear_font_block
  FNJSR "R1,R2" ; ,R3"
@@ -640,6 +611,9 @@ loop$l
 
  LOCAL
 
+;E r0 = font name
+;X knowfontexists = -1 unless the fontname is a directory, or was a default ("<some stuff>.0")
+;  ie: knowfontexists = -1 unless we can add substyle suffices for this font.
 pre_add_font_suffix
  FNJSR "R0-R2,R7,R11"
  MOV R11,R0
@@ -649,40 +623,41 @@ wasaspecialcase
  MOV R1,R11
  BL check_file_exists		; eeek - filing system operation...?
  CMP R0,#0
- FNRTS EQ			; just a file :(
- CMP R0,#1
-; BEQ notdirectory
- STRNE R0,knowfontexists
+ FNRTS EQ			; doesn't exist at all ...
+ CMP R0,#1			; is it a file?
+ STRNE R0,knowfontexists	; no, so directory or image - that's okay, it might have styles
  FNRTS NE
 
-notdirectory
+notdirectory			; it's a file ...
  MOV R0,R1
  BL str_len
- ADD R7,R1,R0
+ ADD R7,R1,R0			; end of filename
  LDRB R14,[R7,#-1]
- TEQ R14,#'0'
+ TEQ R14,#'0'			; is the last character '0'?
  LDREQB R14,[R7,#-2]
- TEQEQ R14,#'.'
- FNRTS NE
- MOV R14,#0
+ TEQEQ R14,#'.'			; and the one before that '.'?
+ FNRTS NE			; ie: "<some stuff>.0". This is the same as "<some stuff>"
+ MOV R14,#0			; so kill off the last two characters
  STRB R14,[R7,#-2]
- B wasaspecialcase
+ B wasaspecialcase		; and try again ...
 
 knowfontexists
  DCD -1
 
 ;E R11=pointer to font name
-;  R10=0/8/16/24-124 depending...
+;  R10=0/8/16/24-124 depending on the substyle
 ;  R1=pointer to after 0 at end of font name...
 ;X R0=style word (based on R10)...?
 ;  R1=pointer to the correct font name (probably in wimp_data)
+;
+; ... seems to only do the first substyle. Hence 'quick', I guess.
 
 quick_add_font_suffix
  FNJSR "R2,R5-R7,R11"
  MOV R7,R1
  MOV R1,R11
 
- LDR R0,knowfontexists
+ LDR R0,knowfontexists		; are substyles possible?
  CMP R0,#0
  FNRTS MI
 
@@ -722,21 +697,15 @@ quick_add_font_suffix
  MOV R0,R5,LSL #3		; ???
  FNRTS
 
+; Like quick, but does all suffices required.
 add_font_suffix
  FNJSR "R2,R5-R7,R11"
-;wasaspecialcase
  MOV R7,R1
  MOV R1,R11
-; BL check_file_exists		; eeek - filing system operation...?
-; CMP R0,#0
-; FNRTS EQ			; just a file :(
-; CMP R0,#1
-; BEQ notdirectory
 
  LDR R0,knowfontexists
  CMP R0,#0
  FNRTS MI
-; SWI &107
 
  MOV R2,R1
  FNLDR R11,wimp_data		; buffer
@@ -747,7 +716,6 @@ add_font_suffix
 
  MOV R0,#'.'
  STRB R0,[R1,#-1]
-; MOV R7,R1
  MOV R6,#0
 loop$l
  ADR R5,masks$l
@@ -1070,7 +1038,6 @@ end$l				; R2=charh R3=charh+linesp R4=charw
 
 choose_fontm
  FNJSR "R1,R7,R10,R11"
-
  FNLDR R0,scn_magy		; get Y Eig
  CMP R0,#1
  FNLDR R0,font_namehigh,LE
@@ -1079,15 +1046,13 @@ choose_fontm
  BL change_bmf_core
 
  BLVC minimise_font_memory
-;;; SWIVC XHourglass_Off
  FNRTS VC				; clear V
-;;; SWI XHourglass_Off
+ FNPULL
  ERR "zap_NoFont"		; should do much better than this and
 				; revert to using the system font in VDU
  LOCAL				; redraw, or /something/...
 
- ; Tim's additional font commands...
-
+;E r0 = font name to set to
  DCD &19
 Bitmapfont			; R3=address of prev item start R10=text
  FNJSR
@@ -1106,6 +1071,22 @@ error_cantfinfthat$l
 err_nofontfound$l
  FNS ("zap_NoFont")
 
+ LOCAL
+BeepAndPause
+ FNJSR "R0-R3"
+ SWI &20107
+ SWI XOS_ReadMonotonicTime
+ ADD R3,R0,#&10
+loop$l
+ MOV R0,#19
+ SWI XOS_Byte				; vsync
+ SWI XOS_ReadMonotonicTime
+ CMP R0,R3
+ BLT loop$l
+ FNRTS
+
+ LOCAL
+;E r0 font name to change to
 change_bmf_core
  FNJSR "R10,R11"
  MOV R11,R0
@@ -1131,7 +1112,7 @@ loop$l
 ; MOV R0,R7			; who cares what the error is...?
  FNRTV
 
-;\E R10,R11
+;\E R1 -> after 0 at end of fontname, R10 substyle, R11 fontname
 ;\X none?
 do_one_font_pass
  FNJSR

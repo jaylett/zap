@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.14 1999/03/11 10:26:15 james Exp $
+; $Id: Menus,fff,v 1.1.2.15 1999/03/11 18:11:27 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -305,8 +305,8 @@ build$l
 ; FNJSR "R1-R3"
  LDR R14,[R6,#8]
 ; BIC R14,R14,#(1<<3)+(1<<6)+(1<<7)	; possibly a flags problem...?
- TEQ R9,#0
- ORREQ R14,R14,#1<<22
+ TEQ R9,#0			; grey if no file
+ ORREQ R14,R14,#1<<22		; (ie: off iconbar)
  STR R14,[R6,#8]
 loop$l
  FNLDR R1,wimp_version
@@ -324,15 +324,6 @@ loop$l
 
  MOVVC R8,R2			; new count
  MOVVC R0,R2			; return as index
-;  FNRTS VC
-; ; a problem...
-;  ADDS R2,R2,#1			; CLV...
-;  MOV R14,#'?'
-;  STRB R14,[R0],#1
-;  MOV R14,#0
-;  STRB R14,[R0],#1
-;  MOV R8,#-1			; last one...
-;  MOV R0,#-1			; new count
  FNRTS				; ridiclous if gets here...
 
 create$l
@@ -342,18 +333,21 @@ create$l
  CMP R0,#&20
  FNRTS CC			; none
   LDRB R0,[R6]
+; To deal with font id's / territories, we need to parse a
+; string in the form "\Ffont_id" -> "font_id" or
+; "\Ffont_id\fterritory fontname" -> "fontname"
   TEQ R0,#'\'
-  BNE gotname$l			; no initial '\'; no extra processingqd
+  BNE gotname$l			; just font name
   MOV R7,R6
-find_bs$l
+find_bs$l			; skip to second '\' or NUL
   LDRB R0,[R7,#1]!
   TEQ R0,#'\'
   TEQNE R0,#0
   BNE find_bs$l
   TEQ R0,#0
-  ADDEQ R6,R6,#2
+  ADDEQ R6,R6,#2		; no second '\', so first form
   BEQ gotname$l
-find_spc$l
+find_spc$l			; second '\', so skip to after space (danger: no NUL detection!)
   LDRB R0,[R7,#1]!
   TEQ R0,#32
   BNE find_spc$l
@@ -365,9 +359,9 @@ a$l
  MOV R2,R6			; font name
  BL strCMP
  LDR R0,[R5]
- ORREQ R0,R0,#1
+ ORREQ R0,R0,#1			; tick if menu item is current font name
  BICNE R0,R0,#1
- STR R0,[R5],#24
+ STR R0,[R5],#24		; skip to next menu item
  TST R0,#1<<7			; at end yet
  BEQ a$l
  FNRTS
@@ -388,7 +382,7 @@ exec_gotname$l
 exec3$l
  FNJSR "R1,R2"			; must be same as in exec$l (above)
  SUB R1,R2,R0,LSL #4
- SUB R1,R1,R0,LSL #3
+ SUB R1,R1,R0,LSL #3		; * (16+8) = size of menu entries
  SUB R1,R1,#28			; point at start of menu
  MOV R0,#0
  SUB R2,R11,#4
@@ -1424,7 +1418,8 @@ mwbml_execsub			; R3=address of prev item start R10=text
 ;  Other registers preserved!
 
 font_path_name
- = "ZapFonts:"
+ = |zap$|,"Fonts:"
+; = "ZapFonts:"
 font_path_leaf
  FNS ("00x00zzzzz.NameOfFont.Style+ForGoodMeasure")
 
@@ -1537,20 +1532,19 @@ execsub$l			; R3=address of prev item start R10=text
  CMP R8,#0			; IB friendly...
  MOVEQ PC,R14			; IB friendly...
  FNJSR "R0-R12"
- FNLDR R1,wimp_data		; buffer
- ADRL R2,font_path_leaf
- ;LDR R2,[R3,#12]		; text
+ FNLDR R1,wimp_data		; buffer for final font name
+ ADRL R2,font_path_leaf		; where we've got to so far ...
  BL strcpy
  MOV R0,#'.'
- STRB R0,[R1],#1
- MOV R5,R1			; temp...
+ STRB R0,[R1],#1		; got the path up to now
+ MOV R5,R1
  MOV R2,R10
  ADD R1,R5,#&30
- BL strcopy
+ BL strcopy			; copy the leaf in
  ADD R2,R5,#&30
- BL shortenname
- MOV R1,R5			; temp...
- BL strcopy
+ BL shortenname			; translate into a short name
+ MOV R1,R5
+ BL strcopy			; copy substyle file leaf onto the current path
 
  FNLDR R0,wimp_data		; text for this item = font name
  PUSH "R0-R12"
@@ -1670,8 +1664,6 @@ plus$l
 
 shortenname
  FNJSR "R0-R1,R3-R6"
- ;FNLDR R4,wimp_data
- MOV R1,R0
  ADR R4,local_verytemp
  MOV R6,R4
  MOV R3,R2
@@ -1703,8 +1695,8 @@ enditnow$l
  CMP R4,R6
  MOVNE R14,#0
  STRNEB R14,[R4]
- MOVNE R2,R6
- MOVEQ R2,R3
+ MOVNE R2,R6					; shortened name
+ MOVEQ R2,R3					; null string
  FNRTS
 
 local_verytemp
@@ -1713,15 +1705,17 @@ local_verytemp
 
 matched$l
  FNJSR
- BL lookup_token_R0
+ BL lookup_token_R0				; \X r0 = string or token
+ MOV R1,R0
  MOV R2,R3
  BL strcmpstr
  STREQB R5,[R4],#1
- MOVEQ R3,R1
+ MOVEQ R3,R0
  FNRTS
 
-; EQ if end found.
-;X R3 updated to nexr non ' '/'+'
+;E R3 text to check
+;X EQ if end found.
+;  R3 updated to nexr non ' '/'+'
 skipon$l
  FNJSR
 threeloop$l

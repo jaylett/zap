@@ -75,7 +75,8 @@ timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
 t/%:		s/%,fff
 		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
 
-o/%:		s/%,fff
+# Always rebuild when ZapHeader changes ...
+o/%:		s/%,fff h/ZapHeader,fff
 		$(asm) $(asmflags) $(__BUILD) $<
 
 # Final target:
