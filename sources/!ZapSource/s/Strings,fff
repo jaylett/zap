@@ -1,5 +1,5 @@
 ; Contains misc string handling subs
-; $Id: Strings,fff,v 2.1 2000/03/09 01:54:22 ds Exp $
+; $Id: Strings,fff,v 2.2 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -81,7 +81,7 @@ strcopy
  BCS strcopy
  MOV R0,#0
  STRB R0,[R1],#1
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;E R1=dest R2=source (copy till <32 and add no zero)
 ;X R0=terminatior R1=end of dest R2=char after terminator |
@@ -331,7 +331,7 @@ strdefault
  LDRNEB R1,[R0]
  TEQNE R1,#0
  MOVEQ R0,R2			; null string? use default
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Long op subs						       ;
@@ -341,10 +341,10 @@ strdefault
 ;X R0-R9=returned args & sub executed with long_op on/errors handled #
 
 do_longop
- STMFD R13!,{R11,R14}
+ FNJSR "R11"
  MOV R11,R0
  BL long_op_on
- LDMVSFD R13!,{R11,PC}
+ FNRTS VS
  MOV R0,R11
  MOVS R14,PC
  MOV PC,R10			; call the sub
@@ -352,29 +352,28 @@ do_longop
  MOV R11,R0			; save output
  BL long_op_off
  MOVVC R0,R11			; output
- LDMFD R13!,{R11,PC}
+ FNRTS
 do10
  ADDS R11,R0,#0			; save error and clv
  BL long_op_off			; switch off hourglass
  MOV R0,R11
- LDMFD R13!,{R11,R14}
- ORRS PC,R14,#Vbit		; return with error
+ FNRTV
 
 ;X Hourglass on and escape enabled #
 
 long_op_on
- STMFD R13!,{R1,R2,R14}
+ FNJSR "R1,R2"
  SWI XHourglass_On
  MOVVC R0,#229
  MOVVC R1,#0			; new escape state
  MOVVC R2,#0
  SWIVC XOS_Byte			; enable escape
- LDMFD R13!,{R1,R2,PC}
+ FNRTS
 
 ;X Hourglass off and escape disabled #
 
 long_op_off
- STMFD R13!,{R1,R2,R14}
+ FNJSR "R1,R2"
  SWI XHourglass_Off
  MOVVC R0,#229
  MOVVC R1,#1
@@ -382,26 +381,26 @@ long_op_off
  SWIVC XOS_Byte			; disable escape
  MOVVC R0,#124
  SWIVC XOS_Byte			; clear escape condition
- LDMFD R13!,{R1,R2,PC}
+ FNRTS
 
 ;E R0=numerator R1=denominator
 ;X percentage shown on hourglass #
 
 long_op_display
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R2,#100
  MUL R0,R2,R0
  SWI XZapRedraw_Divide ; BL div_mod
  CMP R0,#99
  MOVCS R0,#99
  SWI XHourglass_Percentage
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;E R1=pointer to string of hex digits
 ;X R1=first non hex digit found & R0=value of those found |
 
 hex_read
- STMFD R13!,{R2,R14}
+ FNJSR "R2"
  MOV R2,#0			; accumulated value
  SUB R1,R1,#1
 he1
@@ -410,7 +409,7 @@ he1
  ORRCC R2,R0,R2,LSL#4
  BCC he1			; next digit
  MOV R0,R2
- LDMFD R13!,{R2,PC}
+ FNRTS
 
  LOCAL
 
@@ -418,21 +417,17 @@ he1
 ;X R0=hex value (0-15) / CS if not valid |
 
 hex_char
-; CMP R0,#'f'
-; ORRHIS PC,R14,#Cbit
  CMP R0,#'a'
- SUBHS R0,R0,#32
- CMP R0,#'F'
- ORRHIS PC,R14,#Cbit
- CMP R0,#'A'
- SUBCS R0,R0,#'A'-10
- BICCSS PC,R14,#Cbit
- CMP R0,#'9'
- ORRHIS PC,R14,#Cbit
- CMP R0,#'0'
- SUBCS R0,R0,#'0'
- BICCSS PC,R14,#Cbit
- ORRS PC,R14,#Cbit
+ SUBHS R0,R0,#32		; be case insensitive
+ SUB R0,R0,#'0'
+ CMP R0,#'F'-'0'		; catch chrs <'0' or >'F'
+ MOVHI PC,R14
+ CMP R0,#10
+ ADDHS R0,R0,#32		; catch chrs >=':'
+ CMP R0,#'A'+32-'0'
+ SUBHS R0,R0,#32+'A'-'0'-10	; and compensate for letters
+ CMP R0,#16
+ MOV PC,R14
 
 ;E R0=value (bottom 8 bits) R6=buffer
 ;X 2 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
@@ -449,13 +444,13 @@ hex2
  ADDCC R1,R1,#'0'
  ADDCS R1,R1,#'A'-10
  STRB R1,[R6],#1
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;E R0=value (bottom 8 bits) R6=buffer
 ;X 8 digit bin of value put in buffer R0 saved (R1 corrupted/R6 inc)
 
 bin8
- STMFD R13!,{R14}
+ FNJSR
  MOV R1,#'0'
  MOV R14,#'1'
  TST R0,#&80
@@ -482,7 +477,7 @@ bin8
  TST R0,#&1
  STRNEB R14,[R6],#1
  STREQB R1,[R6],#1
- LDMFD R13!,{PC}^
+ FNRTSS
 
 ;E R0=value (all 32 bits) R6=buffer
 ;X 8 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
@@ -541,7 +536,7 @@ str_skip
  TEQNE R0,#9
  BEQ str_skip			; skip following spaces/tabs
  SUB R10,R10,#1
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
  LOCAL
 
@@ -556,26 +551,26 @@ a$l
  LDRB R0,[R10,#1]!
  TEQ R0,#0
  TEQNE R0,#&0A
- MOVEQS PC,R14			; reached end of line so can't continue
+ MOVEQS PC,R14			; reached end of line so can't continue	; !!! ARM32 FIXME
  TEQ R0,#&20			; space
  TEQNE R0,#9			; tab
  BEQ str_skip
  CMP R0,#'!'
  BLT a$l
  CMP R0,#'/'
- MOVLES PC,R14
+ MOVLES PC,R14	; !!! ARM32 FIXME
  CMP R0,#':'
  BLT a$l
  CMP R0,#'?'
- MOVLES PC,R14
+ MOVLES PC,R14	; !!! ARM32 FIXME
  CMP R0,#'['
  BLT a$l
  CMP R0,#'^'
- MOVLES PC,R14
+ MOVLES PC,R14	; !!! ARM32 FIXME
  CMP R0,#'{'
  BLT a$l
  CMP R0,#'}'
- MOVLES PC,R14
+ MOVLES PC,R14	; !!! ARM32 FIXME
  B a$l
 
 	LOCAL
@@ -592,19 +587,19 @@ a$l	LDRB	R0,[R10,#1]!
 	BEQ	skip$l
 	CMP	R0,#'0'
 	RSBHSS	R1,R0,#'z'
-	MOVLOS	PC,R14
+	MOVLOS	PC,R14	; !!! ARM32 FIXME
 	CMP	R0,#'9'
 	RSBHIS	R1,R0,#'A'
-	MOVHIS	PC,R14
+	MOVHIS	PC,R14	; !!! ARM32 FIXME
 	CMP	R0,#'_'
 	CMPNE	R0,#'Z'
 	RSBHIS	R1,R0,#'a'
 	BLS	a$l
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 skip$l	LDRB	R0,[R10,#1]!
 	TEQ	R0,#32
 	BEQ	skip$l
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
  LOCAL
 

@@ -1,5 +1,5 @@
 ; Contains mode entry points for word and similar modes.
-; $Id: Mode1+2,fff,v 2.3 2000/10/11 15:29:07 james Exp $
+; $Id: Mode1+2,fff,v 2.4 2001/05/30 17:21:26 ds Exp $
 
 ; Note that use of LSR #mode1_Type_shift is OK, since mode1_Type is at the
 ; top of the relevant config word. If this changes, then this file will need
@@ -739,56 +739,6 @@ red_c2_l6
 	BHI	red_c2_l1
 	B	red_c2_l3_pre
 
-red_c2_eow				; inc r6 and do word groups
-	STMFD	R13!,{R0,R1,R14}	; store the ones we corrupt
-	ADD	R6,R6,#1
-
-	; groups
-	SUB	R4,R4,#1		; one done
-	CMP	R4,#0
-	MOVLT	R4,#-1			; so it doesn't underflow
-	LDMNEFD	R13!,{R0,R1,PC}
-
-	LDR	R0,[R8,#w_txtw]
-	ADD	R0,R6,R0,LSL#1		; background position
-	MOV	R4,#0			; background colour 0
-
-	TST	R11,#format_BigEndian
-	STRNEB	R4,[R0,#-1]		; overwrite bg col 1 trailing
-	BNE	red_c2_eow_done
-
-	LDR	R1,localmodeword
-	ANDS	R14,R1,#mode1_Type
-	BEQ	red_c2_eow_byte
-	TEQ	R14,#mode1_Type_HalfWord
-	BEQ	red_c2_eow_halfword
-	TEQ	R14,#mode1_Type_DoubleWord
-	BEQ	red_c2_eow_doubleword
-	; not byte, halfword; must be word
-red_c2_eow_word
-	TST	R1,#mode1_BinaryNumberDump
-	STREQB	R4,[R0,#5]		; hex (6 out from -1)
-	STRNEB	R4,[R0,#23]		; binary (24 out from -1)
-	B	red_c2_eow_done
-red_c2_eow_doubleword
-	TST	R1,#mode1_BinaryNumberDump
-	STREQB	R4,[R0,#13]		; hex (14 out from -1)
-	STRNEB	R4,[R0,#55]		; binary (56 out from -1)
-	B	red_c2_eow_done
-red_c2_eow_byte
-	STRB	R4,[R0,#-1]		; byte
-	B	red_c2_eow_done
-red_c2_eow_halfword
-	TST	R1,#mode1_BinaryNumberDump
-	STREQB	R4,[R0,#1]		; hex (2 out from -1)
-	STRNEB	R4,[R0,#7]		; binary (8 out from -1)
-
-red_c2_eow_done
-	ADD	R6,R6,#1		; " " - group separator
-	LDR	R4,localmoden		; reset
-
-	LDMFD	R13!,{R0,R1,PC}
-
 red_c2_l3_pre
 	LDR	R6,localmode_colon	; simplest way of getting there
 
@@ -866,6 +816,56 @@ red_c2_l4
 	LDR	R6,localmode_colon	; move to place to put colon
 	ADDS	R6,R6,#0		; clv
 	B	red_c2_l3		; ascii bit
+
+red_c2_eow				; inc r6 and do word groups
+	FNJSR	"R0,R1"			; store the ones we corrupt
+	ADD	R6,R6,#1
+
+	; groups
+	SUB	R4,R4,#1		; one done
+	CMP	R4,#0
+	MOVLT	R4,#-1			; so it doesn't underflow
+	FNRTS	NE
+
+	LDR	R0,[R8,#w_txtw]
+	ADD	R0,R6,R0,LSL#1		; background position
+	MOV	R4,#0			; background colour 0
+
+	TST	R11,#format_BigEndian
+	STRNEB	R4,[R0,#-1]		; overwrite bg col 1 trailing
+	BNE	red_c2_eow_done
+
+	LDR	R1,localmodeword
+	ANDS	R14,R1,#mode1_Type
+	BEQ	red_c2_eow_byte
+	TEQ	R14,#mode1_Type_HalfWord
+	BEQ	red_c2_eow_halfword
+	TEQ	R14,#mode1_Type_DoubleWord
+	BEQ	red_c2_eow_doubleword
+	; not byte, halfword; must be word
+red_c2_eow_word
+	TST	R1,#mode1_BinaryNumberDump
+	STREQB	R4,[R0,#5]		; hex (6 out from -1)
+	STRNEB	R4,[R0,#23]		; binary (24 out from -1)
+	B	red_c2_eow_done
+red_c2_eow_doubleword
+	TST	R1,#mode1_BinaryNumberDump
+	STREQB	R4,[R0,#13]		; hex (14 out from -1)
+	STRNEB	R4,[R0,#55]		; binary (56 out from -1)
+	B	red_c2_eow_done
+red_c2_eow_byte
+	STRB	R4,[R0,#-1]		; byte
+	B	red_c2_eow_done
+red_c2_eow_halfword
+	TST	R1,#mode1_BinaryNumberDump
+	STREQB	R4,[R0,#1]		; hex (2 out from -1)
+	STRNEB	R4,[R0,#7]		; binary (8 out from -1)
+
+red_c2_eow_done
+	ADD	R6,R6,#1		; " " - group separator
+	LDR	R4,localmoden		; reset
+
+	FNRTS
 
 
 mode1_clnphy
@@ -956,7 +956,7 @@ modes_linecol_breaks
 	LDRB	R4,[R8,#w_format]
 	ADD	R4,R8,R4,LSL #2
 	LDR	R4,[R4,#w_mode0]	; get mode word
-	STMFD	R13!,{R0,R4}
+	PUSH	"R0,R4"
 	LDR	R7,[R8,#w_bpl]		; bytes per line (NOT columns)
 
 	TST	R4,#mode1_BinaryNumberDump
@@ -1276,7 +1276,7 @@ in32_got_atom
 	MOV	R11,#0			; no caret change
 
 in33					; do alteration
-	STMFD	R13!,{R0,R6}
+	PUSH	"R0,R6"
 	LDR	R14,[R8,#w_format]
 	AND	R6,R6,#mode1_Type
 	TST	R14,#format_BigEndian
@@ -1492,8 +1492,15 @@ mode1_interrogate
 
 	SUB	R1,R1,#2			; colon
 	FNJSR	"R4"			; store our R14, R4
-	ADR	R14,return$l		; where we come back to
-	STMFD	R13!,{R1-R3,R5-R7,R14}	; stack for procedure
+	BL	go_interrogate_width
+return$l
+	LDRB	R14,[R8,#w_format]
+	ADD	R14,R8,R14,LSL	#2
+	STR	R4,[R14,#w_mode0]		; store result
+	FNRTS
+
+go_interrogate_width
+	FNJSR	"R1-R3,R5-R7"	; stack for procedure
 	LDRB	R14,[R8,#w_format]
 	ADD	R14,R8,R14,LSL #2
 	LDR	R14,[R14,#w_mode0]
@@ -1592,14 +1599,8 @@ done$l
 	ORR	R4,R4,R0		; put the value in
 	MOV	R0,R6			; returned width...
 
-	LDMFD	R13!,{R1-R3,R5-R7,PC}	; return result
+	FNRTS	; return result
 
-
-return$l
-	LDRB	R14,[R8,#w_format]
-	ADD	R14,R8,R14,LSL	#2
-	STR	R4,[R14,#w_mode0]		; store result
-	FNRTS
 
 whatwidthplease			; \E R1=w_bpl, \X R0=width to send to e_setwidth
 	FNJSR
@@ -1629,18 +1630,20 @@ modes_click
 0	CMP	R1,#5			; click depth
 	SUBHS	R1,R1,#3
 	BHS	%BT0
-	STMFD	R13!,{R1,R14}
+	FNJSR	"R1"
 	MOV	R0,#3
 	BL	isthisaclonebase	; ASCII mode or a clone?
 	TEQEQ	R1,#2
-	BEQ	tomode3_line
+	FNPULL	EQ
+	BEQ	mode0_click		; for ASCII mode
 	BL	find_offset
-	LDMFD	R13!,{R14}
+	PULL	"R14"
+	PUSH	"R1"
 	CMP	R14,#3			; can only be 2,3,4
 	BLT	sel_char$l
 	BEQ	sel_line$l
 ;sel_all$l
-	LDMFD	R13!,{R14}
+	FNPULL
 	B	select_buffer
 sel_char$l
 	MOV	R2,R0
@@ -1652,15 +1655,12 @@ sel_doit$l
 	ADD	R3,R2,R3
 	CMP	R3,R14
 	MOVHS	R3,R14
-	LDMFD	R13!,{R14}
+	FNPULL
 	B	select_region
 sel_line$l
 	MOV	R2,R1
 	LDR	R3,[R8,#w_bpl]
 	B	sel_doit$l
-tomode3_line
-	LDMFD	R13!,{R1,R14}
-	B	mode0_click
 
 
 	END

@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.6 2001/04/24 02:21:48 ds Exp $
+; $Id: KeyBits,fff,v 2.7 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -72,7 +72,7 @@ MENUSHORTS	* LONG
 convert_key
  TEQ R0,#&7F
  BEQ ck_delete			; delete key
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  CMP R0,#(ck_end-ck_start)/4
  BCS ck_std_or_fn		; standard character or fn key
  BL special_test_shiftctrl	; read sc status in R1
@@ -140,10 +140,10 @@ ck_start
 ck_end
 
 ck_null
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_delete
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  BL special_test_shiftctrl	; read sc status
  TST R1,#2
  MOVNE R0,#&1F			; ctrl delete
@@ -152,7 +152,7 @@ ck_delete
 ck_ctrl
  TST R1,#1			; and return
  ADDNE R0,R0,#&100
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_space
  TST R1,#2			; ctrl key?
@@ -171,16 +171,16 @@ ck_shift
  ADD R0,R0,#&100		; and return
  TST R1,#1
  ADDNE R0,R0,#&20
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_num
- STMFD R13!,{R0}		; save ctrl letter
+ PUSH "R0"		; save ctrl letter
  ADR R14,ck_num_table		; inkey numbers
  LDR R0,[R14,R0,LSL #1]
 ; MOV R0,R0,LSL #16
  MOV R0,R0,LSR #16
  BL special_test_forkey		; is digit 0-9 pressed?
- LDMFD R13!,{R0}
+ PULL "R0"
  ADDCS R0,R0,#&30		; yes
  BCS ck_shift
  B ck_ctrl
@@ -224,7 +224,7 @@ ck_back
 ; MOVCC R0,#&1C
 ; BCC ck_shctrl			; backspace
 ; MOV R0,#-1
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_tab
 	MOV	R0,#38		; inkey "9"
@@ -245,7 +245,7 @@ ck_tab
 	MOVCS	R0,#&8A
 	BCS	ck_shctrll	; ctrl I
 
-	LDMFD	R13!,{R1,PC}
+	FNRTS
 
 ck_ret
  MOV R0,#60			; inkey "kEnter"
@@ -269,7 +269,7 @@ ck_shctrl
  ADDEQ R0,R0,#&120
  TEQ R1,#3
  ADDEQ R0,R0,#&140
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_shctrlk
  ADD R0,R0,#&100		; for s/c/sc
@@ -280,7 +280,7 @@ ck_shctrlk
  SUBEQ R0,R0,#&40
  TEQ R1,#3
  SUBEQ R0,R0,#&20
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_shctrll
  ADD R0,R0,#&100		; for s/c/sc
@@ -291,7 +291,7 @@ ck_shctrll
  ADDEQ R0,R0,#&20
  TEQ R1,#3
  ADDEQ R0,R0,#&30
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ck_escape
  MOV R0,#56			; inkey "["
@@ -371,13 +371,13 @@ ck_kslash
 
 ck_digit
  SUB R0,R0,#&30			; reduce to 0-9
- STMFD R13!,{R0}
+ PUSH "R0"
  ADR R14,ck_knum_table
  LDR R0,[R14,R0,LSL #1]		; keypad inkey number
 ; MOV R0,R0,LSL #16
  MOV R0,R0,LSR #16
  BL special_test_forkey
- LDMFD R13!,{R0}
+ PULL "R0"
  ADDCC R0,R0,#&30
  ADDCS R0,R0,#&C0
  BCS ck_shctrll			; do keypad keys
@@ -412,23 +412,23 @@ ck_std_or_fn
 	BLO	ck_page_keys
 	; only have &1C0-&1FF to check; last digit must be one of 01ABCD
 	ANDS	R14,R0,#14
-	LDMEQFD	R13,{R0,PC} ; 0 or 1
+	PULL	"R0,PC",EQ ; 0 or 1
 	CMP	R14,#10
 	RSBHSS	R14,R14,#13
 	MOVLO	R0,#-1
-	LDMFD	R13!,{R1,PC}
+	FNRTS
 
 ck_logo_menu
 	ANDS	R14,R0,#1
 	BNE	ck_menu
-	STMFD	R13!,{R0}
+	PUSH	"R0"
 ;	MOV	R1,#-1
 	MOV	R0,#125		; left Logo inkey
 	ORR	R0,R0,#104<<8	; scan code
 	BL	special_test_forkey
 	MOVCS	R1,#0
 	MOVCC	R1,#2
-	LDMFD	R13!,{R0}
+	PULL	"R0"
 ck_menu
 	ADD	R1,R14,#&168
 	TST	R0,#16
@@ -436,28 +436,28 @@ ck_menu
 	TST	R0,#32
 	ADDNE	R1,R1,#16
 	MOV	R0,R1
-	LDMFD	R13!,{R1,PC}
+	FNRTS
 
 ck_page_keys
 	AND	R14,R0,#&F
 	CMP	R14,#&E
-	LDMLOFD	R13!,{R1,PC}
-	STMFD	R13!,{R0}
+	FNRTS	LO
+	PUSH	"R0"
 	TST	R0,#1
 	MOVEQ	R0,#79
 	ORREQ	R0,R0,#54<<8	; Page Down
 	MOVNE	R0,#64
 	ORRNE	R0,R0,#33<<8	; Page Up
 	BL	special_test_forkey
-	LDMFD	R13!,{R0}
+	PULL	"R0"
 	EORCS	R0,R0,#&50
-	LDMFD	R13!,{R1,PC}
+	FNRTS
 
 
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
 
 special_test_shiftctrl
-	STMFD	R13!,{R0,R2-R3,R14}
+	FNJSR	"R0,R2-R3"
 	FNLDR	R0,key_modifiers
 	CMN	R0,#1
 	BEQ	test_shiftctrl_internal
@@ -472,12 +472,12 @@ special_test_shiftctrl
 	ORRNE	R1,R1,#4
 	MOV	R0,R0,LSR #16
 	ORR	R1,R1,R0,LSL #16
-	LDMFD	R13!,{R0,R2-R3,PC}
+	FNRTS
 
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
 
 test_shiftctrl
-	STMFD	R13!,{R0,R2-R3,R14}
+	FNJSR	"R0,R2-R3"
 test_shiftctrl_internal
 	MOV	R3,#0			; flags
 	MOV	R0,#&81			; shift either inkey = 0
@@ -493,7 +493,7 @@ test_shiftctrl_internal
 	CMP	R1,#&FF
 	ORREQ	R3,R3,#2
 	ORR	R1,R3,#1<<31
-	LDMFD	R13!,{R0,R2-R3,PC}
+	FNRTS
 
 ;E R0=inkey number (not eored) + (internal key code)<<8
 ;  R1=mod state + (key code)<<8, else -1
@@ -505,20 +505,20 @@ special_test_forkey
 	BMI	test_forkey
 	MOV	R0,R0,LSR #8
 	TEQ	R0,R1,LSR #16
-	BICNES	PC,R14,#1<<29
-	ORRS	PC,R14,#1<<29
+	BICNES	PC,R14,#1<<29	; !!! ARM32 FIXME
+	ORRS	PC,R14,#1<<29	; !!! ARM32 FIXME
 
 ;E R0=inkey number (not eored)
 ;X CS if key pressed |
 
 test_forkey
-	STMFD	R13!,{R1-R2,R14}
+	FNJSR	"R1-R2"
 	EOR	R1,R0,#&FF
 	MOV	R2,#&FF
 	MOV	R0,#&81
 	SWI	XOS_Byte
 	CMP	R1,#&FF
-	LDMFD	R13!,{R1-R2,PC}
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Menu show key subs					       ;
@@ -727,18 +727,18 @@ sh6
 ;X R0=pointer to a 0 term string in WB of string for this key #
 
 get_key_string
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  ADR R1,ge_s0
  MOV R2,#12
  BL show_key
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  FNLDR R0,wimp_block
 ge17
  LDRB R14,[R0]
  TEQ R14,#&20
  ADDEQ R0,R0,#1
  BEQ ge17
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 ge_s0 % 12
 
  LOCAL
@@ -806,36 +806,36 @@ c$l				; got a match
 do_ntimes
  TEQ R11,#0
  MOVEQ PC,R14
- STMFD R13!,{R9,R11,R14}
+ FNJSR "R9,R11"
  MOV R9,R0			; save arg R0
 do1
  MOV R0,R9
  MOVS R14,PC			; return addr
  MOV PC,R10			; branch to sub
- LDMVSFD R13!,{R9,R11,PC}
+ FNRTS VS
  SUBS R11,R11,#1
  BGT do1
- LDMFD R13!,{R9,R11,PC}
+ FNRTS
 
 ;E R0-R8=args R10=address of sub with # format
 ;X Sub at R10 executed with R9 set up for each (valid) file #
 
 do_allfiles
- STMFD R13!,{R9,R11,R14}
+ FNJSR "R9,R11"
  MOV R11,R0			; save arg R0
  FNLDR R9,file_list
 do15
  BL get_file_off
  FNLDR R14,file_num
  CMP R0,R14
- LDMCSFD R13!,{R9,R11,PC}	; no more files left
+ FNRTS CS	; no more files left
  LDR R14,[R9,#f_ptr]
  CMN R14,#1
  BEQ do16			; file deleted
  MOV R0,R11			; arg R0
  MOVS R14,PC			; return addr
  MOV PC,R10			; branch to the sub
- LDMVSFD R13!,{R9,R11,PC}
+ FNRTS VS
 do16
  ADD R9,R9,#file_blk ; ? wind_blk ; next file
  B do15
@@ -844,17 +844,17 @@ do16
 ;X sub at R10 executed for each leaf window with R7 set up #
 
 do_eachleaf
- STMFD R13!,{R7,R11,R14}
+ FNJSR "R7,R11"
  MOV R11,R0			; save arg R0
  FNLDR R7,tem_list
 do4
  LDR R0,[R7]
  TEQ R0,#0
- LDMEQFD R13!,{R7,R11,PC}
+ FNRTS EQ
  MOV R0,R11
  MOVS R14,PC
  MOV PC,R10			; call the sub
- LDMVSFD R13!,{R7,R11,PC}
+ FNRTS VS
  ADD R7,R7,#32
  B do4				; next window
 
@@ -863,7 +863,7 @@ do4
 ;  R7 is set up to the link entry giving the original file #
 
 do_linked_files
- STMFD R13!,{R6-R11,R14}
+ FNJSR "R6-R11"
  MOV R11,R0			; save arg R0
  FNLDR R0,file_list
  SUB R6,R9,R0
@@ -873,7 +873,7 @@ do_linked_files
 do13
  ADD R9,R9,#file_blk
  SUBS R8,R8,#1
- LDMMIFD R13!,{R6-R11,PC}
+ FNRTS MI
  LDR R0,[R9,#f_ptr]
  CMP R0,#0
  BMI do13			; not a valid file
@@ -902,7 +902,7 @@ do_in_svc
  MOV PC,R10			; call the sub
  MOVS R14,PC			; get PC with flags
  BIC R14,R14,#3			; user mode
- TEQP R14,#0			; update flags
+ TEQP R14,#0			; update flags	; !!! ARM32 FIXME
  MOV R0,R0			; Nop instruction
  FNRTS
 
@@ -960,27 +960,27 @@ str4$l = "<",|zap$|,"$ClickSend>",0 ; ...
  LOCAL
 
 pre_read_keys
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  BL null_macros			; clear macro defns & link (out of date)
  MOV R1,#0
  FNLDR R0,wimp_modelist
  STR R1,[R0]			; clear the modelist entries
  FNLDR R0,wimp_clicksend
  STR R1,[R0]			; clear the clicksend entries
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R10=pointer to keys file terminated by a 0
 ;X variables stored in keys file read #
 
 read_keys
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  ; BL null_macros			; clear macro defns & link (out of date)
  ; MOV R1,#0
  ; FNLDR R0,wimp_modelist
  ; STR R1,[R0]			; clear the modelist entries
  ; MOV R3,#0
 cr10
- LDMVSFD R13!,{R1-R11,PC}	; error returned by a keys sub
+ FNRTS VS	; error returned by a keys sub
  LDRB R0,[R10],#1
  TEQ R0,#0
  BEQ cr12			; reached file end
@@ -1044,11 +1044,11 @@ cr11
  BGE rk_key
  ;B cr10				; not a valid code???
 ret$l
- LDMVSFD R13!,{R1-R11,PC}	; return in case of error
+ FNRTS VS	; return in case of error
  BL str_next			; start of next line
  BCC cr10			; start of a new line
 cr12
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
  LOCAL
 
@@ -1313,7 +1313,7 @@ loop$l
  FNRTS VS
  CMP R0,#0
  FNRTS LE			; not found
- STMFD R13!,{R6}
+ PUSH "R6"
  LDMIA R0,{R2,R3,R6}		; cmd, param, param type
  MOV R0,R5			; keymap
  MOV R1,R8			; key number
@@ -1437,7 +1437,7 @@ tmt_offsets
 ; clear macro buffer |
 
 null_macros
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  BL get_MacroBox
  LDR R6,[R7]
  MOV R2,#3
@@ -1455,7 +1455,7 @@ nu1
  ADD R2,R2,#2
  CMP R2,#35
  BCC nu1
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
  LOCAL
 
@@ -1740,7 +1740,7 @@ g$l	TEQ	R1,#0
 	STRNE	R1,[R5,#8]		; only store if some types specified
 	B	z$l
 strleft$l
-	STMFD	R13!,{R14}		; partial match code
+	FNJSR		; partial match code
 	MOV	R14,#0
 sa$l	LDRB	R3,[R0],#1
 	TEQ	R3,#0			; end of match?
@@ -1756,7 +1756,7 @@ sa$l	LDRB	R3,[R0],#1
 	BIC	R7,R7,#32		; upper case
 	TEQ	R7,R3
 	BEQ	sa$l
-	LDMFD	R13!,{PC}		; match failed
+	FNRTS		; match failed
 sb$l	ADD	R10,R10,R14
 	ORR	R1,R1,R2		; got match, so set flag
 	ADD	R13,R13,#4		; dump return address
@@ -1821,7 +1821,7 @@ read_cmd$l
 ;X key table added to list (or ensured if already there)
 
 add_key_table
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  MOV R3,R1			; min key num
  MOV R4,R0			; table num
  FNLDR R1,key_maplist
@@ -1834,7 +1834,7 @@ ad10
  SUB R1,R1,#20
  LDR R0,[R1,#4]
  BL heap_free			; free old keymap table
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  B ad12				; add this map
 ad11
  STR R4,[R1,#-20]!		; save table number
@@ -1842,7 +1842,7 @@ ad11
  SUB R4,R1,R0			; current length of table
  ADD R1,R4,#32			; add entry + terminator
  BL heap_ensure
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  FNSTR R0,key_maplist
  ADD R1,R0,R4			; entry to complete
  MVN R0,#0
@@ -1862,7 +1862,7 @@ ad12
  MOVVC R2,R0			; buffer
  MOVVC R1,#0
  BLVC fill_words			; clear keytable to zeros
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 
 ;E R0=table number R1=key number R2=command R3=parameter R6=param type
 
@@ -2160,7 +2160,7 @@ notwimp$l
 	MOVVC R0,#-1			; don't wait any more
 	FNRTS				; (or wimp gets confused)
 test_exec$l
-	STMFD	R13!,{R14}
+	FNJSR
 	BICS	R14,R7,#15<<28
 	LDRNE	R14,[R14,#-4]	; get flags for current command
 	TSTNE	R14,#1<<28	; immediate exec?
@@ -2170,18 +2170,19 @@ test_exec$l
 	FNLDR	R14,wimp_kbdbuf,EQ; command data (if needed)
 	LDREQ	R14,[R14]	; command data word
 	TEQEQ	R14,#0		; no parameter?
-	LDMNEFD	R13!,{PC}	; no - return
+	FNRTS	NE	; no - return
 go_exec$l
-	STMFD	R13!,{R1-R5}
+	PUSH	"R1-R5"
 	BL	exec$l
-	LDMFD	R13!,{R1-R5,PC}
+	PULL	"R1-R5"
+	FNRTS
 exec$l
-	STMFD	R13!,{R0,R14}
+	FNJSR	"R0"
 	MOVS	R1,R6		; number of times pressed
-	LDMEQFD	R13!,{R0,PC}
+	FNRTS	EQ
 	BL	minibuffer_clear; wipe minibuffer before new command
 	BLVC	minibuffer_close; close minibuffer if it was open
-	LDMVSFD	R13!,{R14,PC}
+	PULL	"R14,PC",VS
 	MOV	R2,R7,LSR #4	; call normal reason code
 	AND	R2,R2,#15<<24
 	BIC	R7,R7,#15<<28
@@ -2194,8 +2195,8 @@ exec$l
 	BL	process_command	; perform the action
 	MOV	R6,#0
 	MOV	R7,#0
-	LDMVCFD	R13!,{R0,PC}
-	LDMFD	R13!,{R14,PC}
+	FNRTS	VC
+	PULL	"R14,PC"
 null$l				; default null entry
 	DCD	0,0			; command,arg
 
@@ -2203,13 +2204,13 @@ null$l				; default null entry
 ;X Key processed as if typed and sent to process key KB #
 
 process_a_key
-	STMFD	R13!,{R1-R7,R14}
+	FNJSR	"R1-R7"
 	MOV	R6,#0			; none buffered
 	MOV	R7,#0			; no command buffered
 	BL	process_converted_key
 	MVNVC	R5,#0			; R5=-1 => no more keys
 	BLVC	process_converted_key
-	LDMFD	R13!,{R1-R7,PC}
+	FNRTS
 
 	LOCAL
 
@@ -2406,7 +2407,7 @@ sendacharzerototw
 ;  R0=0/1 if minibuffer will be needed |
 
 buffer_key
- STMFD R13!,{R1-R4,R7,R14}
+ FNJSR "R1-R4,R7"
  FNSTR R3,key_last		; save last buffered keynumber
  BIC R7,R7,#15<<28
  LDR R1,[R7,#-4]		; get command flags
@@ -2424,27 +2425,27 @@ buffer_key
  STREQ R2,[R14]			; data block
  ADD R6,R6,#1			; inc R6
  MOV R0,#0			; no minibuffer needed
- LDMFD R13!,{R1-R4,R7,PC}
+ FNRTS
 bu10
  STR R2,[R14]			; save string parameter
  ADD R6,R6,#1
  TEQ R2,#0
  MOVEQ R0,#1			; minibuffer
  MOVNE R0,#0			; none
- LDMFD R13!,{R1-R4,R7,PC}
+ FNRTS
 
 	LOCAL
 
 	&	2<<3
 Passthrough
-	STMFD	R13!,{R0,R14}
+	FNJSR	"R0"
 	MOV	R2,R0
 	MOV	R3,R1
 	MOV	R0,#14
 	MOV	R11,#e_interrogate
 	BL	call_mode
 	TEQ	R0,#3
-	LDMNEFD	R13!,{R14,PC}
+	PULL	"R14,PC",NE
 loop$l	LDR	R0,[R2],#4
 	CMP	R0,#0
 	CMPNE	R0,#&100
@@ -2458,12 +2459,12 @@ loop$l	LDR	R0,[R2],#4
 	LDR	R6,[R8,#w_format]
 	MOV	R7,R13
 	MOV	R11,#e_char
-	STMFD	R13!,{R2,R3}
+	PUSH	"R2,R3"
 	BL	call_mode
-	LDMVSFD	R13!,{R2,R3,R14,PC}
-	LDMFD	R13!,{R2,R3}
+	PULL	"R2,R3"
+	PULL	"R14,PC",VS
 	SUBS	R3,R3,#1
 	BGT	loop$l
-	LDMFD	R13!,{R14,PC}
+	PULL	"R14,PC"	; !!! Unmatched return LDM
 
  END

@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 2.1 2000/10/11 15:29:07 james Exp $
+; $Id: Mode11,fff,v 2.2 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -465,7 +465,7 @@ mode11_killingfile
 ;X task claimed throwback |
 
 init_throwback
- STMFD R13!,{R0,R1,R8,R14}
+ FNJSR "R0,R1,R8"
  FNLDR R0,wimp_task
  SWI XDDEUtils_ThrowbackRegister; &62585
  MOV R8,#0
@@ -475,17 +475,17 @@ init_throwback
  CMP R0,#MODE11_COLNUMBS
  BLNE mode11_UnkPreColBit	; define them
 mode11_dontchangeathing
- LDMFD R13!,{R0,R1,R8,PC}^	; return no error
+ FNRTSS	; return no error
 
 kill_throwback
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  FNLDR R0,wimp_task
  TEQ R0,#0
  CMNNE R0,#1
- LDMEQFD R13!,{R1,PC}		; task dead
+ FNRTS EQ		; task dead
  SWI XDDEUtils_ThrowbackUnRegister ; &62586
  MVN R0,#0			; don't kill module yet
- LDMFD R13!,{R1,PC}^
+ FNRTSS
 
 mode11_UnkPreColBit
  FNJSR "R1-R4"
@@ -517,35 +517,35 @@ mode11_DefaultColours		; Colour Numbers :
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 mode11_linenext
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R2,R0
  LDR R3,[R9,#f_len]
 li10
  CMP R2,R3
  MOVCS R0,R3
- LDMCSFD R13!,{R1-R3,PC}
+ FNRTS CS
  MOV R0,R2
  BL cln_readc
  ADD R2,R2,#1
  TEQ R0,#&0A
  BNE li10
  MOV R0,R2
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 mode11_lineprev
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  SUB R2,R0,#1			; first char to look at
 li11
  CMP R2,#0
  MOVMI R0,#0
- LDMMIFD R13!,{R1-R2,PC}
+ FNRTS MI
  MOV R0,R2
  BL cln_readc
  TEQ R0,#&0A
  SUBNE R2,R2,#1
  BNE li11
  ADD R0,R2,#1
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
  LOCAL
 
@@ -618,7 +618,7 @@ mode11_adjfname			; delete the whole entry
  FNRTS VS
  ADR R14,mode11_locstsp1
  LDMIA R14,{R0,R8,R9}
- STMFD R13!,{R0,R8,R9}		; copy mode11_locstsp{1,2,3} to stack
+ PUSH "R0,R8,R9"		; copy mode11_locstsp{1,2,3} to stack
 loop0$l
  LDMFD R13,{R0,R8,R9}
  ADD R0,R0,#1
@@ -687,9 +687,9 @@ mode11_minus
 ;  to file offsets if not already done, point jumped to #
 
 jump_to_match
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  BL check_if_tb_file
- LDMMIFD R13!,{R1-R11,PC}
+ FNRTS MI
  STR R0,mode11_locstsp1
  STR R8,mode11_locstsp2
  STR R9,mode11_locstsp3
@@ -698,35 +698,21 @@ jump_to_match
  BMI throwback_afilename	; if not on a sensible line...
  BL get_links_entry		; set up R6-R7
  CMP R7,#0			; valid click ?
- LDMMIFD R13!,{R1-R11,PC}
+ FNRTS MI
  BL get_linked_file		; set up R8-R9
  BLVC convert_links		; convert lines to offsets
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  BL offset_to_match
  CMP R6,#0			; invalid offset?
- LDMMIFD R13!,{R1-R11,PC}
+ FNRTS MI
  FNLDR R10,car_cursor
  MOV R0,R6
  BL goto_file_offset
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  LDR R0,[R7,#12]		; flags
  TST R0,#2
  BLNE dospell
- LDMFD R13!,{R1-R11,PC}
-
-check_if_tb_file		; works by checking for /any/ links...
- FNJSR
- LDR R14,[R9,#f_cmode]
- CMP R14,#11
- MOVNES R14,#-1
  FNRTS
-
-dospell
- ADR R0,spellcmdnamed
- B command_string
-
-spellcmdnamed
- = "SPELL",0,0,0
 
 throwback_afilename
  LDR R0,mode11_locstsp1
@@ -746,11 +732,25 @@ throwback_afilename
  BL get_linked_file		; set up R8-R9
  BLVC convert_links		; convert lines to offsets
  BLVC offset_to_match
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 throwback_beep_then
  BL Beep
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
+
+check_if_tb_file		; works by checking for /any/ links...
+ FNJSR
+ LDR R14,[R9,#f_cmode]
+ CMP R14,#11
+ MOVNES R14,#-1
+ FNRTS
+
+dospell
+ ADR R0,spellcmdnamed
+ B command_string
+
+spellcmdnamed
+ = "SPELL",0,0,0
 
 ;E R0=file offset of click R8/R9
 ;X File contents looked at and R0=file offset (in links list) (or -1 - TT)
@@ -760,7 +760,7 @@ throwback_beep_then
 ;  R4=start of line after click
 
 get_to_match
- STMFD R13!,{R5-R6,R14}
+ FNJSR "R5-R6"
  MOV R6,#0			; file header offset
  MOV R4,#0			; file count
  MOV R5,#0			; line count
@@ -787,7 +787,7 @@ ge11
  B ge11
 ge12
  MVN R0,#0
- LDMFD R13!,{R5-R6,PC}
+ FNRTS
 ge13
  TEQ R1,#0
  BEQ ge12			; in header
@@ -799,14 +799,14 @@ ge13
  BLE ge12			; in empty line
  MOV R0,R4
  MOV R4,R14			; line after
- LDMFD R13!,{R5-R6,PC}
+ FNRTS
 
 ;E R0=file offset in links R1=line offset in file
 ;X R7=links entry address/-1 if not valid
 ;  R6=match off in list (not validated) |
 
 get_links_entry
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R7,[R9,#f_links]		; start of table
 va1
  LDR R14,[R7]
@@ -817,10 +817,10 @@ va1
  BPL va1			; not reached our file yet
  LDRB R0,[R7,#13]		; flags
  SUBS R6,R1,R0			; offset in list
- LDMPLFD R13!,{R1,PC}
+ FNRTS PL
 va2
  MVN R7,#0
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R7=links entry address
 ;X R8/R9=assosiated file #
@@ -847,7 +847,7 @@ convert_links
  LDR R0,[R7,#12]		; get flags
  TST R0,#1
  MOVEQ PC,R14			; already as offsets
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  LDR R6,[R7,#4]			; links table
 co13
  LDR R0,[R6]
@@ -857,30 +857,30 @@ co13
  MOVMI R0,#0			; line offset starting from 0
  MOV R11,#e_clnlog
  BL call_mode
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  STR R0,[R6],#4
  B co13
 co14
  LDR R0,[R7,#12]
  BIC R0,R0,#1			; links are as offset
  STR R0,[R7,#12]
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R7=links table entry (converted) R6=entry offset
 ;X R6=file offset of match / -1 if invalid |
 
 offset_to_match
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R1,[R7,#4]			; list of offsets
 of1
  LDR R0,[R1],#4
  CMP R0,#0
  MVNMI R6,#0			; invalid
- LDMMIFD R13!,{R1,PC}
+ FNRTS MI
  SUBS R6,R6,#1
  BPL of1
  MOV R6,R0
- LDMFD R13!,{R1,PC}
+ FNRTS
 
  LOCAL
 
@@ -889,18 +889,18 @@ of1
 ;  R0=0 if nothing deleted, 1 if one entry deleted, 2 if buffer auto-deleted
 
 delete_match
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  BL get_to_match		; find match file and set R1-R5
  CMP R0,#0			; valid file?
  MOVMI R7,#-1
  BLPL get_links_entry		; set R6=match offset in list R7
  CMP R7,#0			; valid offset?
  MOVMI R0,#0
- LDMMIFD R13!,{R1-R11,PC}	; return 0
+ FNRTS MI	; return 0
  BL delete_link
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  CMP R0,#1			; invalid?
- LDMLOFD R13!,{R1-R11,PC}	; return 0
+ FNRTS LO	; return 0
  MOVEQ R1,R3
  MOVEQ R2,R4			; start/end for link
  MOVHI R1,R2
@@ -914,7 +914,7 @@ delete_match
  SUB R2,R2,R1			; length
  MOV R0,#&12			; delete block
  BL command_primative
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  LDRB R0,[R8,#w_format]
  STR R0,[R9,#f_cmode]		; claim the file so deletes ok
  ADD R0,R8,R0,LSL #2
@@ -925,10 +925,10 @@ delete_match
  LDRNE R0,[R0]
  CMP R0,#0			; +ve if there are, or not auto-deleting
  MOVPL R0,#1
- LDMPLFD R13!,{R1-R11,PC}	; return NE
+ FNRTS PL	; return NE
  BL discard_file
  MOVVC R0,#2			; return 2
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R7=pointer to link entry R6=link offset (not validated)
 ;X R0=0 => Link was invalid
@@ -936,13 +936,13 @@ delete_match
 ;  R0=2 => Link deleted and link entry also deleted
 
 delete_link
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  LDR R1,[R7,#4]			; links list
 de18
  LDR R0,[R1],#4
  CMP R0,#0
  MOVMI R0,#0			; link was invalid
- LDMMIFD R13!,{R1-R3,PC}
+ FNRTS MI
  SUBS R6,R6,#1
  BPL de18			; not reached it yet
 de19
@@ -954,12 +954,12 @@ de19
  LDR R0,[R1]
  CMP R0,#0
  MOVPL R0,#1			; some links left
- LDMPLFD R13!,{R1-R3,PC}
+ FNRTS PL
  LDR R0,[R7]
  BL heap_free
  LDRVC R0,[R7,#4]
  BLVC heap_free
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  ADD R1,R7,#16			; source
  MOV R2,R7			; dest
  MOV R3,R7
@@ -971,7 +971,7 @@ de32
  ADD R3,R3,#4			; amount to move
  SWI XZapRedraw_MoveBytes
  MOV R0,#2
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 local_insdelmsgflg
  DCD 0
@@ -1011,7 +1011,7 @@ DDEutils_ErrorsIn
 ;X filename save in throw_name
 
 dde_fname
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R2,R0			; save string
  BL str_len
  ADD R1,R0,#1
@@ -1020,7 +1020,7 @@ dde_fname
  FNSTR R0,throw_name,VC
  MOVVC R1,R0
  BLVC strcopy			; copy in name
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
  LOCAL
 
@@ -1151,11 +1151,11 @@ exists$l
 ;  file if there is already one.
 
 find_throwback_file
- STMFD R13!,{R1,R10,R14}
+ FNJSR "R1,R10"
  MOV R1,R11			; workspace address
  ADR R10,find_throwback_file_sub
  BL do_allwindow
- LDMFD R13!,{R1,R10,PC}
+ FNRTS
 
 find_throwback_file_sub
  FNJSR

@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Heap,fff,v 2.1 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -546,7 +546,7 @@ heap_extend
  TEQ R0,#0
  MOVEQ R0,R1
  BEQ heap_claim
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  MOV R2,R0			; heap block
  MOV R3,R1			; extend size
 he0
@@ -560,14 +560,14 @@ he0
  CMP R0,R4			; did we have to move the block in the heap?
  BNE changed$l
  SYSLOGF "heap_extend/ensure returns %0x unmoved",LOG_MEMORY+2
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 changed$l
  SYSLOGF "heap_extend/ensure returns %0x",LOG_MEMORY+2
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 failed$l
  |
  MOVVC R0,R2
- LDMVCFD R13!,{R1-R4,PC}	; return if block enlarged ok
+ FNRTS VC	; return if block enlarged ok
  ]
  ADDS R0,R0,#0			; clv
  MOV R0,#6
@@ -575,7 +575,7 @@ failed$l
  MOV R2,R4			; block ptr
  MOV R4,R3			; save required extension
  SWI XOS_Heap			; read block size(+4)
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  SUBS R0,R3,#4			; current size of block
  ADD R0,R0,R4			; required size
  ADD R0,R0,#heap_size	       ; heap increment
@@ -585,13 +585,13 @@ failed$l
  MOVVC R3,R4			; size change
  SWIVC XOS_Heap			; try extension of block again
  [ LOGGING = SYSLOG
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  MOV R0,R2
  SYSLOGF "heap_extend/ensure returns %0x",LOG_MEMORY+2
  |
  MOVVC R0,R2
  ]
- LDMFD R13!,{R1-R4,PC}		; error if it fails this time
+ FNRTS		; error if it fails this time
 
 ;E R0=heap block/-ve
 ;X returns if -ve and frees heap block o/w #
@@ -637,7 +637,7 @@ minimise_memory
 ;  Entries in block initialised to -1's #
 
 claim_list_block
- STMFD R13!,{R4,R10,R14}
+ FNJSR "R4,R10"
  SYSLOGF "claim_list_block size %2x (list %0x, num %1d)",LOG_MEMORY
  MOV R10,R2			; size of objects
  MOV R2,R0			; current list pointer
@@ -655,7 +655,7 @@ cl2
  MOV R4,R1			; save num in list
  MOV R1,R10
  BL heap_extend			; increase list by one entry
- LDMVSFD R13!,{R4,R10,PC}
+ FNRTS VS
  ADD R1,R4,#1			; new num in list
  MLA R2,R10,R3,R0		; offset of new entry
 cl3
@@ -666,7 +666,7 @@ cl4
  SUBS R10,R10,#4		; initialise to -1's
  BHI cl4
  SYSLOGF "claim_list_block returns block %3d at %2x",LOG_MEMORY
- LDMFD R13!,{R4,R10,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; MOVE BYTES FAST (FROM ANYWHERE TO ANYWHERE)			 ;
@@ -684,11 +684,11 @@ move_bytes
 ; SWI XZapRedraw_MoveBytes
 ; MOV PC,R14
  TEQ R3,#0
- MOVEQS PC,R14			; nothing to do
+ MOVEQS PC,R14			; nothing to do	; !!! ARM32 FIXME
  CMP R2,R1
  BHI up$l			; move up starting from end of data
  BCC down$l			; move down starting from start of data
- MOVS PC,R14			; data not being moved
+ MOVS PC,R14			; data not being moved	; !!! ARM32 FIXME
 up$l				; MOVE BYTES UP (from end)
  ADD R1,R1,R3			; end of source
  ADD R2,R2,R3			; end of dest
@@ -699,13 +699,13 @@ ualigned$l			; destination (R2) now word aligned
  BNE uslow$l			; source not word align so need to shift
  SUBS R3,R3,#8*4
  BLT uf32$l			; up fast less than 32 bytes
- STMFD R13!,{R4-R11}
+ PUSH "R4-R11"
 a$l
  LDMDB R1!,{R4-R11}
  STMDB R2!,{R4-R11}
  SUBS R3,R3,#8*4
  BGE a$l			; copy 32 bytes at a time
- LDMFD R13!,{R4-R11}
+ PULL "R4-R11"
 uf32$l				; copy R3+32 bytes
  ADDS R3,R3,#7*4
  BLT uf4$l			; up fast less than 4 bytes
@@ -716,24 +716,24 @@ b$l
  BGE b$l			; copy 4 bytes at a time
 uf4$l
  ADDS R3,R3,#4			; number of bytes remaining
- MOVEQS PC,R14			; none
+ MOVEQS PC,R14			; none	; !!! ARM32 FIXME
  LDR R0,[R1,#-4]!		; load next 4 (ok as R1,R2 both aligned)
 c$l
  MOV R0,R0,ROR#24
  STRB R0,[R2,#-1]!
  SUBS R3,R3,#1
  BGT c$l			; copy remaining bytes
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 ualign$l
  LDRB R0,[R1,#-1]!
  STRB R0,[R2,#-1]!
  SUBS R3,R3,#1
- MOVEQS PC,R14
+ MOVEQS PC,R14	; !!! ARM32 FIXME
  TST R2,#3
  BNE ualign$l			; copy bytes 'till dest aligned
  B ualigned$l
 uslow$l				; dest (R2) aligned, source (R1) not
- STMFD R13!,{R12,R14}
+ FNJSR "R12"
  AND R12,R1,#3			; byte offset of last read byte (1-3)
  BIC R1,R1,#3
  ADD R1,R1,#4			; address of last read word
@@ -743,7 +743,7 @@ uslow$l				; dest (R2) aligned, source (R1) not
  MOV R14,R14,LSL R0		; fill input buffer (R14)
  SUBS R3,R3,#8*4
  BLT us32$l			; up slow less than 32 bytes
- STMFD R13!,{R4-R11}
+ PUSH "R4-R11"
 d$l
  LDMDB R1!,{R4-R11}
  ORR R14,R14,R11,LSR R12	; copy 32 bytes at a time shifting
@@ -765,11 +765,11 @@ d$l
  MOV R14,R4,LSL R0
  SUBS R3,R3,#8*4
  BGE d$l
- LDMFD R13!,{R4-R11}
+ PULL "R4-R11"
 us32$l				; up slow less than R3+32 bytes
  ADDS R3,R3,#7*4
  BLT us4$l			; up slow less than 4 bytes
- STMFD R13!,{R4}
+ PUSH "R4"
 e$l
  LDR R4,[R1,#-4]!
  ORR R14,R14,R4,LSR R12
@@ -777,17 +777,17 @@ e$l
  MOV R14,R4,LSL R0
  SUBS R3,R3,#4
  BGE e$l			; copy one word at a time
- LDMFD R13!,{R4}
+ PULL "R4"
 us4$l
  ADDS R3,R3,#4			; number of bytes left
- LDMEQFD R13!,{R12,PC}^
+ FNRTSS EQ
  ADD R1,R1,R12,LSR#3		; address of last byte used
 f$l
  LDRB R14,[R1,#-1]!		; get next byte (don't read too far)
  STRB R14,[R2,#-1]!		; put next byte
  SUBS R3,R3,#1
  BGT f$l
- LDMFD R13!,{R12,PC}^
+ FNRTSS
 down$l				; MOVE BYTES DOWN (from start)
  TST R2,#3
  BNE dalign$l			; ensure output (R2) aligned
@@ -796,13 +796,13 @@ daligned$l			; R2 now aligned
  BNE dslow$l			; source not aligned
  SUBS R3,R3,#8*4
  BLT df32$l			; less than 32 to move
- STMFD R13!,{R4-R11}
+ PUSH "R4-R11"
 g$l
  LDMIA R1!,{R4-R11}
  STMIA R2!,{R4-R11}
  SUBS R3,R3,#8*4
  BGE g$l			; move 32 bytes at a time
- LDMFD R13!,{R4-R11}
+ PULL "R4-R11"
 df32$l
  ADDS R3,R3,#7*4
  BLT df4$l			; less than 4 bytes to move
@@ -813,24 +813,24 @@ h$l
  BGE h$l			; shift 4 bytes at a time
 df4$l
  ADDS R3,R3,#4			; number of bytes left
- MOVEQS PC,R14
+ MOVEQS PC,R14	; !!! ARM32 FIXME
  LDR R0,[R1],#4			; load next 4 (ok as both aligned)
 i$l
  STRB R0,[R2],#1
  MOV R0,R0,ROR#8
  SUBS R3,R3,#1
  BGT i$l			; copy the remaining bytes
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 dalign$l
  LDRB R0,[R1],#1
  STRB R0,[R2],#1
  SUBS R3,R3,#1
- MOVEQS PC,R14
+ MOVEQS PC,R14	; !!! ARM32 FIXME
  TST R2,#3
  BNE dalign$l			; word align the destination
  B daligned$l
 dslow$l				; dest (R2) aligned, source (R1) not
- STMFD R13!,{R12,R14}
+ FNJSR "R12"
  AND R12,R1,#3			; byte offset of first unread byte (1; -3)
  BIC R1,R1,#3			; address of first not fully read word
  MOV R12,R12,LSL#3		; number of bits read from !R1
@@ -839,7 +839,7 @@ dslow$l				; dest (R2) aligned, source (R1) not
  MOV R0,R0,LSR R12		; fill the input buffer (R0)
  SUBS R3,R3,#8*4
  BLT ds32$l			; less than 32 bytes left
- STMFD R13!,{R4-R11}
+ PUSH "R4-R11"
 j$l
  LDMIA R1!,{R4-R11}
  ORR R0, R0, R4, LSL R14	; copy 32 bytes at a time with shifting
@@ -861,11 +861,11 @@ j$l
  MOV R0,R11,LSR R12
  SUBS R3,R3,#8*4
  BGE j$l
- LDMFD R13!,{R4-R11}
+ PULL "R4-R11"
 ds32$l				; less than 32 bytes left
  ADDS R3,R3,#7*4
  BLT ds4$l			; less than 4 left
- STMFD R13!,{R11}
+ PUSH "R11"
 k$l
  LDR R11,[R1],#4
  ORR R0,R0,R11,LSL R14
@@ -873,17 +873,17 @@ k$l
  MOV R0,R11,LSR R12
  SUBS R3,R3,#4
  BGE k$l			; copy 4 bytes at a time
- LDMFD R13!,{R11}
+ PULL "R11"
 ds4$l
  ADDS R3,R3,#4			; number of bytes left
- LDMEQFD R13!,{R12,PC}^
+ FNRTSS EQ
  SUB R1,R1,R14,LSR#3		; address of first unused byte
 l$l
  LDRB R0,[R1],#1		; get next byte - don't read off end
  STRB R0,[R2],#1
  SUBS R3,R3,#1
  BGT l$l			; copy remaining bytes
- LDMFD R13!,{R12,PC}^
+ FNRTSS
 
 ;E R1=word R2=dest (word aligned) R3=number of bytes (word aligned)
 ;X R1-R3 corrupt |
@@ -891,7 +891,7 @@ l$l
 fill_words
  SUBS R3,R3,#16*4
  BLT fb2
- STMFD R13!,{R4-R11}
+ PUSH "R4-R11"
  MOV R4,R1
  MOV R5,R1
  MOV R6,R1
@@ -905,7 +905,7 @@ fb1
  STMIA R2!,{R4-R11}
  SUBS R3,R3,#16*4
  BGE fb1
- LDMFD R13!,{R4-R11}
+ PULL "R4-R11"
 fb2
  ADDS R3,R3,#16*4
  MOVEQ PC,R14
@@ -926,13 +926,13 @@ fb3
 ;  R3=largest free block   }
 
 heap_check
- STMFD R13!,{R4-R11,R14}
+ FNJSR "R4-R11"
  MOV R10,R0			; save heap start
  LDR R0,[R10]
  LDR R14,he_d0
  TEQ R0,R14
  MOVNE R0,R10
- LDMNEFD R13!,{R4-R11,PC}	; corrupted at start - not a heap
+ FNRTS NE	; corrupted at start - not a heap
  LDR R8,[R10,#4]		; free list start offset
  LDR R9,[R10,#8]		; heap base offset (end of used)
  LDR R2,[R10,#12]		; heap end offset
@@ -981,11 +981,11 @@ he3
 he4
  MOV R0,#0
  LDR R1,[R10,#&0C]		; size
- LDMFD R13!,{R4-R11,PC}		; finished ok
+ FNRTS		; finished ok
 he5
  LDR R1,[R10,#&0C]		; size
  MOV R0,R6			; last valid block
- LDMFD R13!,{R4-R11,PC}
+ FNRTS
 he_d0
  = "Heap"
 
@@ -994,13 +994,13 @@ he_d0
 
 heap_check_len
  CMP R0,#0
- ORRMIS PC,R14,#Cbit	      ; negative
+ MOVMI PC,R14		      ; negative
  SUB R1,R9,R11			; distance to area end
  CMP R0,R1
- ORRGTS PC,R14,#Cbit	      ; too large
- TST R0,#7
- ORRNES PC,R14,#Cbit	      ; not a multiple of 8
- BICS PC,R14,#Cbit	      ; ok
+ MOVGT PC,R14		      ; too large
+ AND R1,R0,#7
+ CMP R1,#1		      ; not a multiple of 8?
+ MOV PC,R14
 
  END
 

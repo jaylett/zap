@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.3 2000/12/17 18:17:59 ds Exp $
+; $Id: Mode4,fff,v 2.4 2001/05/30 17:21:26 ds Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -158,7 +158,7 @@ mode4_init
 	BL	put_mode_word
 ; FNcall Zap_PutModeWord
 mode4_dontchangeathing
-	LDMFD	R13!,{R0-R4,R8,PC}^	; return no error
+	FNRTSS	; return no error
 
  [ NEW_DISASM = 0
 mode4_init_13				; set up for redraw
@@ -218,14 +218,14 @@ mode4_init_14				; end of redraw data
 ;E R0,R1 as for Debugger_Disassemble
 ;X Instruction disassembled, or R0/VS
 disassemble
-	STMFD	R13!,{R0-R2,R14}
+	FNJSR	"R0-R2"
 	BL	mode4_init_13 ; shouldn't be needed
 	LDR	R2,local_disassemblerflags
 	SWI	XDebugger_DisassemblePlus
 	LDMVSFD	R13,{R0-R2}
 	SWIVS	XDebugger_Disassemble
-	ADD	R13,R13,#12
-	LDMFD	R13!,{PC}
+	STMIA	R13,{R0-R2}		; hmm...
+	FNRTS
  ]
 
 ;start$l
@@ -881,7 +881,7 @@ dontcheckthese_minimal
 	MOVNE	R11,#22			; arithmetic...
 	TST	R2,#1 << 21;1024
 	MOVNE	R11,#22			; rolls...
-	CMP	R11,#12			; !!! wtf is this doing here?
+;	CMP	R11,#12			; !!! wtf is this doing here?
 	TST	R2,#1 << 20		; undefined instructs
 	MOVNE	R11,#27
 	TST	R2,#1 << 14		; cp regs
@@ -1384,7 +1384,7 @@ mode4_minus
 ;X R0=(apparent) address to jump to / CS if none #
 
 find_branch_addr
-	STMFD	R13!,{R1-R2,R14}
+	FNJSR	"R1-R2"
  [ NEW_DISASM = 0
 	SWI	XDebugger_Disassemble
  |
@@ -1400,7 +1400,7 @@ fi2
 	CMP	R0,#&20
 	BCS	fi2
 	SUBS	R0,R0,#0			; sec
-	LDMFD	R13!,{R1-R2,PC}
+	FNRTS
 fi3
 	MOV	R2,R1			; save first digit
 	BL	hex_read
@@ -1408,7 +1408,7 @@ fi3
 	TEQ	R14,#8			; was it 8 chars
 	BNE	fi2			; if not then carry on
 	ADDS	R0,R0,#0			; clc
-	LDMFD	R13!,{R1-R2,PC}
+	FNRTS
 
 ;E R1=apparent address... R2 = 0ffset (4 or 8)
 getpreviousinstrs
@@ -1509,11 +1509,11 @@ follow_branch
 	STR	R14,local_temp4r6 + 16	; blat cache...
 	BIC	R1,R0,#3			; offset of instruction
  [ NEW_DISASM = 0
-	STMFD	R13!,{R1}
+	PUSH	"R1"
 	BL	getdisasmdata ; carefully_getdisasmdata ;
 	STR	R0,local_disassemblerflags
 	BL	carefully_readandputdisasmdata
-	LDMFD	R13!,{R1}
+	PULL	"R1"
  ]
  ; fudge
 	MOV	R2,#8

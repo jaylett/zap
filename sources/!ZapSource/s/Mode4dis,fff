@@ -1,5 +1,5 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 2.3 2000/12/17 18:17:59 ds Exp $
+; $Id: Mode4dis,fff,v 2.4 2001/05/30 17:21:26 ds Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
@@ -59,7 +59,7 @@ NAMINGTYPE    * DESCNAMES
 ; <= r1-> string
 ;    r2 = length of string
 mode4_clever_search
-   STMFD   R13 !,{R0,R3,R5,R7,R14}       ; Stack registers
+   FNJSR   "R0,R3,R5,R7"       ; Stack registers
                            ; generate r7 (= the address in memory of code)
    LDR     R5,[R9,#f_splito]             ; find split offset in buffer
    CMP     R3,R5                         ; are we in the bottom or top half?
@@ -89,15 +89,15 @@ loop$l
    SUB     R2,R3,R1                      ; the real length of the string (including terminator)
 finish$l
    ADDS    R14,R14,#0
-   LDMFD   R13 !,{R0,R3,R5,R7,PC}        ; Return from call
+   FNRTS        ; Return from call
 
    [ DISASSEMBLY=THICK
 ; this little section is for when we're in 'thick' mode
 mode4_clever_dis
      [ NEW_DISASM = 0
-   STMFD   r13!,{r14}                    ; Stack registers
+   FNJSR                    ; Stack registers
    SWI     XDebugger_Disassemble         ; do the disassembly and return
-   LDMFD   r13!,{pc}                     ; Return from call
+   FNRTS                     ; Return from call
      |
    B       disassemble		         ; do the disassembly and return
      ]
@@ -138,7 +138,7 @@ mode4_clever_dis
 localtypemarker
    DCD     FILE_NORMAL
 mode4_clever_dis
-   STMFD   r13!,{r0,r1,r3-r7,r14}        ; Stack registers
+   FNJSR   "r0,r1,r3-r7"        ; Stack registers
 ; first any kinds of identification as to the files type
    MOV     r6,#FILE_NORMAL               ; mark as a normal file
    STR     r6,localtypemarker
@@ -208,7 +208,7 @@ return$l
    BLNE    disassemble                   ; do the disassembly and return
      ]
    STR     r1,[r13,#4]                   ; stack r1 for retrieval
-   LDMFD   r13!,{r0,r1,r3-r7,pc}         ; Return from call
+   FNRTS         ; Return from call
 
 ; it might be a chunk file
 mightbechunk$l
@@ -234,7 +234,7 @@ chunk_area$l
 ; (params as described in 'newdisassemble')
    LOCAL
 dec_adr
-   STMFD   r13!,{r0,r1,r14}
+   FNJSR   "r0,r1"
 ; check it's not a long adr
    AND     r4,r0,#&0000F000              ; r4 = destination register
    AND     r14,r0,#&F0000000             ; r14 = condition code
@@ -257,7 +257,7 @@ dec_adr
 ; at this point, I'm 99.9% sure it's an ADRL
 
 ; for debugging I'll append a message to it
-   LDMFD   R13 !,{R0,R1}                 ; restore old regs
+   PULL   "R0,R1"                 ; restore old regs
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -348,22 +348,22 @@ notaligned$l
                                          ; return some valid params
 ; r2 = type (0-3), r3 = the parameter, r6 = indirection count, r4 = prefix
    MOV     r5,r2                         ; hang on to type
-   LDMFD   R13 !,{R0,R1}                 ; restore old regs
+	LDMIA	r13,{r0,r1}		; restore old regs
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
    BL      disassemble                   ; disassemble it (R1-> string)
      ]
-   MOVVS   r0,#1                         ; if failed, mark as such
-   LDRVS   pc,[r13],#4                   ;            and return safely
+	BVS	notadr$l		; if failed, mark as such & return
+	STMIA	r13,{r0,r1}
+	FNPULL
    MOV     r2,r5                         ; restore type
-   LDR     r14,[r13],#4                  ; read link from stack
    B       copytoendofdebugger
 
 notadr$l
-   LDMFD   r13!,{r0,r1}                  ; restore old regs
    MOV     r0,#1                         ; mark us as having failed
-   LDMFD   r13!,{pc}                     ; return from call
+	STR	r0,[r13]
+	FNRTS
 
 ; we call here when we find an error block
 iserror$l
@@ -377,7 +377,7 @@ iserror$l
    MOVNE   r3,r5
    BNE     notaligned$l                  ; if not, it's not an error
 ; it's pretty definately an error block
-   LDMFD   R13 !,{R0,R1}                 ; restore old regs
+   PULL   "R0,R1"                 ; restore old regs
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -418,7 +418,7 @@ ldmvalue2$l
 ;    r6 = indirection count
    LOCAL
 chk_destination
-   STMFD   r13!,{r14}                    ; Stack registers
+   FNJSR                    ; Stack registers
 
    CMP     r6,#4                         ; 4 levels of recursion ?
    BGE     toodeep$l                     ; if >, we'll just say it's too deep
@@ -481,7 +481,7 @@ isrecursing$l
    LDR     r14,[r8,#w_addr]              ; read file length
    ADD     r3,r0,r14                     ; r3 = physical address
    ADR     r4,roundandaround$l           ; prefix
-   LDMFD   r13!,{pc}                     ; return
+   FNRTS                     ; return
 
 roundandaround$l
    = "zap_d_recur",0
@@ -492,7 +492,7 @@ toodeep$l
    LDR     r14,[r8,#w_addr]              ; read file length
    ADD     r3,r0,r14                     ; r3 = physical address
    ADR     r4,toofarman$l                ; the prefix
-   LDMFD   r13!,{pc}                     ; Return from call
+   FNRTS                     ; Return from call
 
 toofarman$l
    = "zap_d_depth",0
@@ -507,7 +507,7 @@ couldbenumber$l
    MOV     r2,#1                         ; a number
    MOV     r3,r1                         ; the number
    ADR     r4,anumber$l                  ; the prefix
-   LDMFD   r13!,{pc}                     ; Return from call
+   FNRTS                     ; Return from call
 
 ;    MOV     r2,#3                         ; string literal
 ;    ADR     r3,num$l
@@ -552,7 +552,7 @@ string_done$l
    MOV     r2,#0                         ; string literal
    MOV     r3,r4                         ; start offset
    ADR     r4,string$l                   ; the prefix
-   LDMFD   r13!,{pc}                     ; Return from call
+   FNRTS                     ; Return from call
 
 string$l
    = "zap_d_str",0
@@ -576,14 +576,14 @@ iscode$l
    MOVEQ   r2,#2                         ; if so, it's a literal
                                          ; r3 already set up
    ADREQ   r4,anoncode$l                 ;        <code>
-   LDMEQFD r13!,{pc}                     ; if so, return the value
+   FNRTS EQ                     ; if so, return the value
    TST     r0,#1<<30                     ; is the code part of SCL ?
    MOVNE   r2,#3                         ; if set, literal string
    BICNE   r3,r0,#1<<30                  ;         and clear b30
    MOVEQ   r3,r0                         ; if not, it's in the file
    MOVEQ   r2,#4                         ;        explicit string in the file
    ADR     r4,codename$l                 ; they should both say 'code:'
-   LDMFD   r13!,{pc}                     ; if so, return the value
+   FNRTS                     ; if so, return the value
 
 ; it's part of the AIF header
 isaifheader$l
@@ -591,7 +591,7 @@ isaifheader$l
    MOV     r3,r0                         ; r3 = string literal to use
    MOV     r2,#3                         ; it's a string literal
    MOV     r4,#0                         ; no prefix
-   LDMFD   r13!,{pc}                     ; return the value
+   FNRTS                     ; return the value
 
 ; it's part of the module header (maybe)
 ismodheader$l
@@ -602,14 +602,14 @@ ismodheader$l
    MOV     r3,r0                         ; r3 = string literal to use
    MOV     r2,#3                         ; it's a string literal
    MOV     r4,#0                         ; no prefix
-   LDMFD   r13!,{pc}                     ; return the value
+   FNRTS                     ; return the value
 
 
 notincode$l
    MOV     r2,#1                         ; it's a number
    MOV     r3,r0                         ; parameter = offset
    ADR     r4,anumber$l                  ; the number we are using
-   LDMFD   r13!,{pc}                     ; return the value
+   FNRTS                     ; return the value
 
 anumber$l
    = "zap_hash",0
@@ -623,7 +623,7 @@ codename$l
 ; (params as described in 'newdisassemble')
    LOCAL
 dec_branch
-   STMFD   r13!,{r0,r1,r14}
+   FNJSR   "r0,r1"
 ; work out the address we are going to
    MOV     r0,r0,LSL #8                  ; shift inst up to the top
    ADD     r0,r7,r0,ASR #6               ; add on to memory offset
@@ -636,7 +636,7 @@ dec_branch
    BLE     notbranch$l                   ; if nothing, skip
 
    MOV     r3,r0                         ; r3 = offset of string
-   LDMFD   r13!,{r0,r1}                  ; restore old regs
+   PULL   "r0,r1"                  ; restore old regs
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -654,9 +654,9 @@ dec_branch
    B       copytoendofdebugger
 
 notbranch$l
-   LDMFD   R13 !,{R0-R1}                 ; restore old regs
    MOV     r0,#1                         ; mark us as having failed
-   LDMFD   R13 !,{PC}                    ; return from call
+	STR	r0,[r13]
+	FNRTS
 
 call$l
    = "zap_d_call",0
@@ -674,7 +674,7 @@ call$l
 ;       likely that this won't work.
    LOCAL
 chk_code
-   STMFD   r13!,{r2,r3,r4,r14}          ; Stack registers
+   FNJSR   "r2,r3,r4"          ; Stack registers
 ; validate it
    TST     r0,#3                         ; is it aligned ?
    BNE     notcode$l                     ; nope, so not a code label
@@ -694,7 +694,7 @@ chk_code
    TST     r14,#3                        ; is it aligned ?
    BNE     notswinv$l                    ; nope, so not a code label
    SUB     r0,r2,r14                     ; decrement pointer by that
-   LDMFD   r13!,{r2,r3,r4,pc}            ; Return from call
+   FNRTS            ; Return from call
 
 notswinv$l
    MOV     r4,#&E3000000                 ; xxxAL
@@ -709,7 +709,7 @@ notsharedc$l
    TEQ     r14,#&E0000000                ; is it an 'AL' instruction ?
    MOVEQ   r0,#-2                        ; if so, it's probably anonymous
    MOVNE   r0,#-1                        ; else return -1 to say it's invalid
-   LDMFD   r13!,{r2,r3,r4,pc}            ; Return from call
+   FNRTS            ; Return from call
 
 ; it could be an SCL routine...
 sharedc$l
@@ -743,7 +743,7 @@ scl_getstr$l
    MOV     r14,r14,LSL #16
    ADD     r0,r0,r14,LSR #16             ; and add on the string table base
    ORR     r0,r0,#1<<30                  ; set bit 30
-   LDMFD   r13!,{r2,r3,r4,pc}            ; Return from call
+   FNRTS            ; Return from call
 scl_getstr32$l
 	MOV	r0,r2
 	BL	cln_readw
@@ -762,7 +762,7 @@ scl_getstr32$l
 	MOV	r14,r14,LSL #16
 	ADD	r0,r0,r14,LSR #16
 	ORR	r0,r0,#1<<30
-	LDMFD	r13!,{r2,r3,r4,pc}
+	FNRTS
 
 gststubs_adr_scl_block
 	&	&E28F0068 ; ADR R0,...
@@ -800,7 +800,7 @@ probablynotcode$l
 
 notcode$l
    MOV     r0,#-1                        ; return -1 to say it's invalid
-   LDMFD   r13!,{r2,r3,r4,pc}            ; Return from call
+   FNRTS            ; Return from call
 
 ; The following bit of (tab-indented) code relies on another data file :-)
 ; (Darren Salt)
@@ -869,13 +869,13 @@ scl_total_count		& num1+num2	; total number of entries
 ; (params as described in 'newdisassemble')
    LOCAL
 dec_swinv
-   STMFD   r13!,{r0,r1,r14}
+   FNJSR   "r0,r1"
    AND     R14,R0,#&FF                   ; leave just the back len
    TST     R14,#3                        ; is it aligned ?
    BNE     notfunc$l                     ; nope, so not a function
    SUBS    R3,R3,R14                     ; go back that far
    BMI     notfunc$l                     ; went -ve, so not ours
-   LDMFD   R13 !,{R0,R1}                 ; restore old regs
+   PULL   "R0,R1"                 ; restore old regs
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -891,9 +891,9 @@ dec_swinv
    B       copytoendofdebugger           ; and copy string
 
 notfunc$l
-   LDMFD   R13 !,{R0-R1}                 ; restore old regs
    MOV     r0,#1                         ; mark us as having failed
-   LDMFD   R13 !,{PC}                    ; return from call
+	STR	r0,[r13]
+	FNRTS
 
 funcdef$l
    = "zap_d_func",0
@@ -904,12 +904,12 @@ funcdef$l
 ; (params as described in 'newdisassemble')
    LOCAL
 dec_chunkheader
-   STMFD   r13!,{r0,r1,r14}
+   FNJSR   "r0,r1"
    ADR     r3,null$l                     ; no name ;-)
    ADR     r4,chunkfile$l                ; r4-> the name
    MOV     r6,#0                         ; no indirection
 copystring$l
-   LDMFD   r13!,{r0,r1}                  ; unstack inst and addr
+   PULL   "r0,r1"                  ; unstack inst and addr
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -930,7 +930,7 @@ null$l = 0
 ; (params as described in 'newdisassemble')
    LOCAL
 dec_aifheader
-   STMFD   r13!,{r0,r1,r14}
+   FNJSR   "r0,r1"
    SUB     r0,r3,#4                      ; r0 = offset
    MOV     r4,#0                         ; no prefix string
    MOV     r6,#0                         ; no indirection
@@ -938,7 +938,7 @@ dec_aifheader
    BL      mode4_aif_headerstring        ; read header string
    MOV     r3,r0                         ; r3-> the name
 copystring$l
-   LDMFD   r13!,{r0,r1}                  ; unstack inst and addr
+   PULL   "r0,r1"                  ; unstack inst and addr
      [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
      |
@@ -974,11 +974,11 @@ copystring$l
 ;
    LOCAL
 copytoendofdebugger
-   STMFD   R13 !,{R0,r1,r2,R3-R4,R14}    ; Stack registers
+   FNJSR   "R0,r1,r2,R3-R4"    ; Stack registers
    CMN     r2,#1                         ; is the code -1 ?
    MOVEQ   r0,#1                         ; if so, ensure we mark as failed
-   ADDEQ   r13,r13,#4                    ;        skip r0 on stack
-   LDMEQFD r13!,{r1,r2,R3-R4,R14}        ;        and return
+	STREQ	r0,[r13]
+	FNRTS	EQ			; and return
 ; first we copy their string to the end, or to the ';'
    MOV     R0,R1                         ; R0-> string
    FNLDR   R2,wimp_buffer                ; buffer - hope OK
@@ -1176,8 +1176,8 @@ return$l
    ADD     R1,R1,#128
    SUB     R2,R2,R1                      ; length of string
    MOV     r0,#0                         ; ensure that we return a zero
-   ADD     r13,r13,#4*3                  ; skip over r0-r2
-   LDMFD   R13 !,{R3-R4,PC}     ; restore and return
+	STMIA	r13,{r0-r2}
+	FNRTS
 
 
 ; Pads spaces to r0
@@ -1187,13 +1187,13 @@ return$l
 ;    r2-> after spaces (no terminator)
    LOCAL
 addsomeextraspaces
-   STMFD   R13 !,{R14}                   ; Stack registers
+   FNJSR                   ; Stack registers
    MOV     R14,#32
 extraspace$l
    STRB    R14,[R2],#1
    SUBS    R0,R0,#1
    BPL     extraspace$l
-   LDMFD   R13 !,{PC}                    ; Return from call
+   FNRTS                    ; Return from call
 
    ] ; end of the clever bits
 
@@ -1319,7 +1319,7 @@ extraspace$l
 ; <= R1-> string
 ;    R2 = length
 ldrdecoder
-   STMFD   R13 !,{R0,R1,R3-R5,R14}       ; just in case we need 'em
+   FNJSR   "R0,R1,R3-R5"       ; just in case we need 'em
    AND     r4,r0,#&00F00000              ; r4 = instruction type
    MOV     r0,r0,LSL #20                 ; shift up
    MOV     r0,r0,LSR #20                 ; now shift down (leaves address)
@@ -1364,10 +1364,10 @@ ldrdecoder
    B       adr_cantbeinstruction         ; tell them it's a string pointer
 
 notrealldr
-   LDMFD   R13 !,{R0-R1}                 ; restore old regs
+	LDMFD	r13,{r0,r1}		; restore old regs
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
-exitldr
-   LDMFD   R13 !,{R3-R5,PC}              ; return from call
+	STMIA	r13,{r0,r1}
+	FNRTS
 
 ldr_string
    = "zap_d_pstr",0

@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.4 2001/05/25 08:48:58 james Exp $
+; $Id: ModeBits,fff,v 2.5 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -621,14 +621,14 @@ next$l
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 do_call_mode
-	LDMFD	R13!,{R0-R2,PC}
+	PULL	"R0-R2,PC"
 
 ;E R0-R10=args R8=wind block giving mode R11=entry point offset
 ;X R0-R11=as returned by the sub (R11 usually subs workspace)
 
 call_mode
- STMFD R13!,{R14}		; save return address
- STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
+ FNJSR				; save return address
+ PUSH "R0-R2,R14,PC"		; save args and two blanks
  TEQ R8,#0
  FNLDRB R0,opt_format,EQ	; default mode
  LDRNEB R0,[R8,#w_format]	; display mode
@@ -643,22 +643,22 @@ call_mode_common
  STR R1,[R13,#12]		; overwrite the blanks with the address
  STR R2,[R13,#16]		;   and the mode number
  BL do_call_mode		; restore args and call the sub (R14=ret)
- LDMFD R13!,{R14,PC}		; return
+ PULL "R14,PC"			; return
 
 ;E R0-R9=args R10=mode number to call R11=entry point offset
 ;X R0-R11=as returned by sub & mode called if valid (returns o/w)
 
 call_given_mode
- STMFD R13!,{R14}		; save return address
- STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
+ FNJSR				; save return address
+ PUSH "R0-R2,R14,PC"		; save args and two blanks
  SYSLOGF "call_given_mode %10d entry %11d",LOG_STATUS
  ADD R1,R12,#(mode_store+4):AND:&FF00
  ADD R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R0,[R1,R10,LSL #3]		; mode dispatch table in R0
  CMP R0,#0			; do nothing if mode blank
  BGT call_mode_common
- LDMFD R13!,{R0-R2,R14}
- LDMFD R13!,{R14,PC}
+ PULL "R0-R2,R14"
+ PULL "R14,PC"
 
 	LOCAL
 ; NOW OBSOLETE!!
@@ -678,8 +678,8 @@ callbasemode$l = "Zap_CallBaseMode",0
 ;  R0-R11 as returned by sub #
 
 call_given_base_mode
- STMFD R13!,{R14}		; save return address
- STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
+ FNJSR				; save return address
+ PUSH "R0-R2,R14,PC"		; save args and two blanks
  ADD R1,R12,#(mode_store+4):AND:&FF00
  ADD R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R0,[R1,R9,LSL #3]		; linked table
@@ -695,7 +695,7 @@ call_given_base_mode
  FNLDR R9,file_list
  ADD R9,R9,R0,LSL #f_shift	; create file block pointer
  BL do_call_mode		; restore args and call the sub (R14=ret)
- LDMFD R13!,{R14,PC}		; return
+ PULL "R14,PC"			; return
 
  LOCAL
 
@@ -880,16 +880,16 @@ read_var
  FNRTS
 
 write_var
- STMFD R13!,{R2,R14}
+ FNJSR "R2"
  MOV R2,R0			; save value to write
  BL conv_var_number
- LDMVSFD R13!,{R2,PC}
+ FNRTS VS
  TEQ R0,#0			; -ve if w_*
  STRPL R2,[R12,R0]
- LDMPLFD R13!,{R2,PC}
+ FNRTS PL
  TEQ R8,#0
  STRNEB R2,[R8,-R0]		; write only if R8<>0
- LDMFD R13!,{R2,PC}
+ FNRTS
 
 
  LOCAL
@@ -1111,7 +1111,7 @@ deftxt$l
 ;X block filled with default opening window for current mode |
 
 get_mode_params
- STMFD R13!,{R2-R3,R14}
+ FNJSR "R2-R3"
  FNLDR R3,wimp_sizelist
  LDRB R2,[R8,#w_format]		; current mode
 ge15
@@ -1148,7 +1148,7 @@ ge16
  MOV R0,R0,ASR #16
  STR R0,[R1,#12]
 
- LDMFD R13!,{R2-R3,PC}
+ FNRTS
 ge_d0
  DCD &2999
  DCD &4800

@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: Exceptions,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Exceptions,fff,v 2.1 2001/05/30 17:21:26 ds Exp $
 
  GET h.ModuleBits
  GET h.ZapHeader
@@ -27,7 +27,7 @@ storewkspandstack
 	MOV	PC,R14
 
 init_setup_abort_handlers
-	STMFD	R13!,{R0-R3,R8,R14}
+	FNJSR	"R0-R3,R8"
 	FNLDR	R0,wimp_task
 	STR	R0,do_dump_zapsthtemp
 	BL	storewkspandstack
@@ -59,10 +59,10 @@ init_setup_abort_handlers
 
 	BL	set_running_var
 
-	LDMFD	R13!,{R0-R3,R8,PC}^
+	FNRTSS
 
 deregister_abort_handlers
-	STMFD	R13!,{R0-R4,R8,R14}
+	FNJSR	"R0-R4,R8"
 	BL	unset_running_var
 	ADR	R8,dump_buffer
 	MOV	R0,#environ_UndefinedInstruction
@@ -78,16 +78,16 @@ deregister_abort_handlers
 	MOV	R0,#7
 	LDR	R2,ebuffer			; free it...
 	SWI	XOS_Module
-	LDMFD	R13!,{R0-R4,R8,PC}^
+	FNRTSS
 
 deregister_exit_abort_handler
-	STMFD	R13!,{R0-R4,R8,R14}
+	FNJSR	"R0-R4,R8"
 ;	BL	unset_running_var		; ! here ? NNeeded/nowork
 ;	ADR	R8,dump_buffer + (12 * 5)
 	ADR	R8,dump_store_ExitCondition
 	MOV	R0,#environ_Exit
 	BL	changeenvback
-	LDMFD	R13!,{R0-R4,R8,PC}^
+	FNRTSS
 
 ;E R0=string to alias taskwindow command to
 ;  R3 = name of os_var to be set
@@ -164,6 +164,10 @@ dump_$label
 	; Now we can return
 	; LDMFD	R13,{R0-R12,R14} ; not ! here...!
 	;MOV R0,#0
+;	CMP	PC,PC	; !=0 if 26bit
+;	MSREQ	CPSR_c,#0
+;	MOVNE	R14,#0 ; needed?
+;	TEQNEP	R14,#0	; depends on no r14 before this...?
 	MOV	R14,#0 ; needed?
 	TEQP	R14,#0	; depends on no r14 before this...?
 	MOV	R0,R0	; remove if next instr doesn't access banked regs
@@ -408,7 +412,7 @@ changeenv	; this and all following labels are local
 	MOV	R3,#0
 	SWI	XOS_ChangeEnvironment
 	STMIA	R8!,{R1,R2,R3}
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 changeenv2	; this and all following labels are local
 	PUSH	"R0-R1"
@@ -421,7 +425,7 @@ changeenv2	; this and all following labels are local
 	MOV	R2,#0			; ?
 	SWI	XOS_ChangeEnvironment
 	STMIA	R8!,{R1,R2,R3}
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 changeenvback				; all following labels are local
 	FNJSR

@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help
-; $Id: MiniBuff,fff,v 2.10 2001/05/28 17:36:09 ds Exp $
+; $Id: MiniBuff,fff,v 2.11 2001/05/30 17:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -85,10 +85,10 @@
 
 
 find_completions
- STMFD R13!,{R2-R11,R14}
+ FNJSR "R2-R11"
  MOV R10,R0			; save filename
  BL find_leaf_name
- LDMVSFD R13!,{R2-R11,PC}
+ FNRTS VS
  SUBS R11,R0,R10		; offset of leaf part
  FNLDR R9,wimp_block		; place to put search strings
  MOVEQ R1,#'@'
@@ -141,11 +141,11 @@ fi23
  CMP R3,#0
  BLE fi23			; didn't match - try next one
  ADD R8,R8,#1			; found a matching object
- STMFD R13!,{R2}
+ PUSH "R2"
  ADD R2,R2,#20			; object name
  MOV R1,R7
  BL strcpy
- LDMFD R13!,{R2}
+ PULL "R2"
  LDR R0,[R2,#16]		; object type
  TST R0,#2			; directory?
  MOVNE R0,#'.'
@@ -157,7 +157,7 @@ fi23
 fi24
  ADDS R0,R8,#0			; number of matches + clv
  MOV R1,R11			; leaf name offset
- LDMFD R13!,{R2-R11,PC}
+ FNRTS
 
  LOCAL
 
@@ -221,9 +221,9 @@ perform_completion
 ;  R0=4 if several possible extensions no chars added WB WD #
 
 add_completions
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  CMP R0,#0			; any matches found?
- LDMLEFD R13!,{R1-R11,PC}
+ FNRTS LE
  MOV R3,R1			; save length of leaf part
  MOV R8,R2			; save buffer address
  MOV R7,#0			; flags (b0=ok so far b1=added let)
@@ -257,23 +257,23 @@ ad22
  TST R7,#1
  BNE ad24			; didn't find letter or exact match
  ADD R3,R3,#1			; letter matched
- STMFD R13!,{R9}
+ PUSH "R9"
  MOV R0,R13			; matched char
  BL minibuffer_write		; add the char
  ADD R13,R13,#4
  ORRVC R7,R7,#2			; we have added some letters
  BVC ad20
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 ad23
  TEQ R2,#1
  MOVEQ R0,#1			; found unique match
  MOVNE R0,#3			; found match but can extend
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 ad24
  TST R7,#2
  MOVEQ R0,#2			; some chars added
  MOVNE R0,#4			; couldn't add any (open buf!)
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Warning code						    ;
@@ -354,18 +354,18 @@ local_callbacktime & 0
 ;X Minibuffer window created and opened, input focus not gained #
 
 minibuffer_open
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  BL get_MiniBuf
  MOV R1,#1			; not created by menu
  BL create_leaf_window		; create the window
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  BL open_mini_window
  LDR R14,local_callbacktime
  EOR R14,R14,#1<<31
  STR R14,local_callbacktime
  MOV R14,#0
  STR R14,local_callbackflag
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;X ensures minibuffer open / closed accoriding to opt_flags #
 
@@ -374,23 +374,23 @@ minibuffer_ensure
  MOV R0,R0,LSR#23
  ANDS R0,R0,#3
  MOVEQ PC,R14
- STMFD R13!,{R7-R9,R14}
+ FNJSR "R7-R9"
  BL get_MiniBuf
  TEQ R0,#2
  BEQ mi1
  MOV R8,#0
  MOV R9,#0
  BL minibuffer_open
- LDMFD R13!,{R7-R9,PC}
+ FNRTS
 mi1
  BL close_leaf_window
- LDMFD R13!,{R7-R9,PC}
+ FNRTS
 
 ;E R8/R9
 ;X Minibuffer is visable on screen
 
 minibuffer_ensure_open
- STMFD R13!,{R7,R14}
+ FNJSR "R7"
  BL get_wind_off		; R0=associated window
  FNLDR R14,mini_wind		; old window
  FNSTR R0,mini_wind		; new window
@@ -409,10 +409,10 @@ mi16
  BEQ mi11			; already open
 mi17
  BL minibuffer_open		; open the window
- LDMFD R13!,{R7,PC}
+ FNRTS
 mi11
  BL minibuffer_update		; so just update the contents
- LDMFD R13!,{R7,PC}
+ FNRTS
 
 ;E R7=command number to assosiate to minibuffer contents R8/R9
 ;X Minibuffer created if closed / refreshed ow
@@ -472,11 +472,11 @@ d$l DCD 0
 ;  all others ignored. Screen not updated #
 
 minibuffer_write
- STMFD R13!,{R1-R8,R14}
+ FNJSR "R1-R8"
  ;SWI &107
  FNLDR R14,key_flags
  TST R14,#2			; are we in an execute strokes loop
- LDMNEFD R13!,{R1-R8,PC}
+ FNRTS NE
 mi_resume$l
  FNLDR R4,mini_ptr		; buffer address
  FNLDR R5,mini_bufl		; length of buffer
@@ -671,7 +671,7 @@ mi5
  MOV R1,#0
  STRB R1,[R4,R6]		; add terminator
  MOVVC R0,#0
- LDMFD R13!,{R1-R8,PC}
+ FNRTS
 mi_paste
  MOV R3,R8
  BL get_selection
@@ -818,14 +818,14 @@ minibuffer_prompt_token_and_history
 ;  set to ensure cursor in view etc WB #
 
 minibuffer_update
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  BL get_MiniBuf
  LDR R4,[R7,#8]			; window handle
  CMP R4,#0			; window existing?
- LDMMIFD R13!,{R1-R7,PC}
+ FNRTS MI
  LDR R0,[R7,#4]
  TST R0,#1<<5			; window open?
- LDMNEFD R13!,{R1-R7,PC}
+ FNRTS NE
  FNLDR R1,wimp_block
  STR R4,[R1]			; window handle
  LDR R6,[R7]			; actual window block
@@ -833,13 +833,13 @@ minibuffer_update
  LDMIA R6,{R0,R2,R3,R14}	; load
  STMIB R1,{R0,R2,R3,R14}	; save
  BL update_leaf_window		; send this block to be updated
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  SWI XWimp_GetCaretPosition
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  LDR R0,[R1]
  TEQ R0,R4			; is the caret in here?
  BLEQ minibuffer_setcaret
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;X If minibuffer non empty then update
 
@@ -855,12 +855,12 @@ minibuffer_show
  LOCAL
 
 minibuffer_setcaret
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  BL minibuffer_ensurecaret
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  LDR R0,[R7,#8]			; window handle
  CMP R0,#0
- LDMLEFD R13!,{R1-R6,PC}
+ FNRTS LE
  LDR R6,[R7]			; window data
  FNLDR R5,mini_off		; index into string
  BL checkfortextop
@@ -874,7 +874,7 @@ minibuffer_setcaret
  SUB R4,R4,R3			; height of caret
  MOV R5,#0			; no string index
  SWI XWimp_SetCaretPosition
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 font$l
  MOV R0,#1
  FNLDR R1,mini_ptr
@@ -883,24 +883,24 @@ font$l
  ADDVC R2,R0,#8			; left hand indent
  LDRVC R0,[R7,#8]
  MOVVC PC,R14
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 
 ;E R7=minibuffer
 ;X Ensures caret is visible WB #
 
 minibuffer_ensurecaret
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  FNLDR R1,wimp_block
  LDR R0,[R7,#8]			; window flags
  CMP R0,#0
- LDMLEFD R13!,{R1,PC}
+ FNRTS LE
  STR R0,[R1]
  SWI XWimp_GetWindowState	; get window state block
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  BL show_mini_caret
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  SWINE XWimp_OpenWindow
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R1=minibuffer open block
 ;X EQ if caret visible NE if scroll offsets changed |
@@ -953,7 +953,7 @@ short$l
  FNRTS
 
 font$l
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  MOV R0,#1
  FNLDR R1,mini_ptr
  FNLDR R2,mini_off
@@ -964,7 +964,7 @@ font$l
  FNLDR R2,mini_len,VC
  SWIVC XWimp_TextOp		; get whole string width
  ADDVC R4,R0,#16
- LDMVCFD R13!,{R1,PC}
+ FNRTS VC
  LDR R1,[R13],#8
  FNRTS
 
@@ -1012,51 +1012,51 @@ minibuffer_clear
 ;  (called before a command executed)
 
 minibuffer_wipe
- STMFD R13!,{R7,R14}
+ FNJSR "R7"
  FNLDR R0,mini_len
  CMP R0,#0
- LDMLEFD R13!,{R7,PC}		; minibuffer already empty
+ FNRTS LE		; minibuffer already empty
  BL get_MiniBuf
  LDR R0,[R7,#8]
  CMP R0,#0
- LDMMIFD R13!,{R7,PC}		; none to clear
+ FNRTS MI		; none to clear
  BL minibuffer_clear		; zero the pointers
- LDMVSFD R13!,{R7,PC}
+ FNRTS VS
  BL minibuffer_update		; update on screen
- LDMFD R13!,{R7,PC}
+ FNRTS
 
 ;X Minibuffer close if popup / input lost ow.
 
 minibuffer_close
- STMFD R13!,{R7,R14}
+ FNJSR "R7"
  BL get_MiniBuf
  LDR R0,[R7,#8]
  CMP R0,#0			; any window to consider?
- LDMMIFD R13!,{R7,PC}
+ FNRTS MI
  MOV R0,#&70 ; escape
  BL test_forkey
  BCS escapedfromthebuffer
  LDR R0,local_callbackflag
  CMP R0,#0
- LDMNEFD R13!,{R7,PC}
+ FNRTS NE
 escapedfromthebuffer
  FNLDR R0,opt_flags
  TST R0,#1<<23
  BEQ mi13			; popup
  BL minibuffer_update		; clear it
- LDMVSFD R13!,{R7,PC}
+ FNRTS VS
  ;BL restore_carets
- LDMFD R13!,{R7,PC}
+ FNRTS
 mi13
  BL close_leaf_window		; close it
  ;BL restore_carets		; input not lost any more...
- LDMFD R13!,{R7,PC}
+ FNRTS
 
 ;E R0=string (usually minibuffer string)
 ;X R0=number stored in string/CS if none WB
 
 minibuffer_eval
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  FNLDR R1,wimp_block
  MOV R2,#0
  SWI XOS_EvaluateExpression
@@ -1064,10 +1064,10 @@ minibuffer_eval
  TEQ R1,#0
  BNE mi15			; not an integer
  ADDS R0,R2,#0			; result and clear C
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 mi15
  SUBS R0,R0,#0			; set C and clear V
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Minibuffer key handling				     ;
@@ -1312,7 +1312,7 @@ recall$l			; recall a line from the history buffer
 ;X leaf window opened at minibuffer posn WB #
 
 open_mini_window
- STMFD R13!,{R1-R9,R14}
+ FNJSR "R1-R9"
  LDR R6,[R7]			; window data
  BL conv_index_offs
  FNLDR R1,wimp_block
@@ -1327,7 +1327,7 @@ open_mini_window
  B mi3
 mi2
  BL update_wind_state		; get current window posn in R8
- LDMVSFD R13!,{R1-R9,PC}
+ FNRTS VS
  LDR R0,[R8,#w_minx]		; left edge of window
  LDR R2,[R6]
  LDR R3,[R6,#8]
@@ -1362,7 +1362,7 @@ mi3
  STR R0,[R1,#w_scrollx]
  STR R0,[R1,#w_scrolly]
  SWI XWimp_OpenWindow		; open window
- LDMFD R13!,{R1-R9,PC}
+ FNRTS
 
 ;E R1=proposed new open block R8
 ;X Minibuffer opened first at new posn if need be #
@@ -1390,16 +1390,16 @@ reopen_minibuffer
 ;NB R1=R8 on most calls and may be wimp_block (eg Toggle)!
 
 reflect_minibuffer
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  MOV R2,R1			; save new open block
  FNLDR R1,mini_openblk		; workspace open block
  BL calculate_open_block	; find change R3-R6
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  BL get_MiniBuf
  LDR R0,[R7,#8]			; minibuffer handle
  STR R0,[R1]
  SWI XWimp_GetWindowState	; find its current posn
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  LDR R0,[R1,#w_minx]		; mini lhs
  LDR R14,[R1,#w_maxx]
  SUB R14,R14,R0			; mini width
@@ -1422,9 +1422,9 @@ reflect_minibuffer
  LDR R0,[R1]			; minibuffer handle
  STR R0,[R2,#w_infront]		; put main window behind
  BL show_mini_caret		; change scroll offsets
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  SWI XWimp_OpenWindow		; open the window
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Minibuffer redraw on screen				    ;
@@ -1526,7 +1526,7 @@ find_leaf_area
 ;X Minibuffer vars initialised and buffer opened if opts #
 
 init_mini
- STMFD R13!,{R6-R7,R14}
+ FNJSR "R6-R7"
  BL get_MiniBuf
  FNLDR R0,mini_bufl
  CMP R0,#8
@@ -1534,7 +1534,7 @@ init_mini
  FNSTR R0,mini_bufl		; ensure sensible length
  ADD R0,R0,#1			; room for terminator
  BL heap_claim
- LDMVSFD R13!,{R6-R7,PC}
+ FNRTS VS
  FNSTR R0,mini_ptr		; minibuffer address
  MOV R0,#0
  FNSTR R0,mini_len
@@ -1542,7 +1542,7 @@ init_mini
  FNSTR R0,mini_mark
  FNSTR R0,mini_command
  BL minibuffer_ensure
- LDMFD R13!,{R6-R7,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; !Help support						;
@@ -1817,9 +1817,9 @@ store$l
  B insertloop$l
 key$l
 	TST	R11,#3<<30		; return early if not a command
-	MOVNES	PC,R14
+	MOVNES	PC,R14	; !!! ARM32 FIXME
 	TEQ	R4,#0
-	MOVMIS	PC,R14
+	MOVMIS	PC,R14	; !!! ARM32 FIXME
 	FNJSR	"R1-R4,R11"		; add key shortcut to help
 	MOV	R0,R6
 	ADD	R1,R7,#12		; big enough
@@ -2123,13 +2123,13 @@ help$l FNS ("<Zap$HelpData>")
 ; out - Wimp_TextOp available? LT=no, GE=yes
 
 checkfortextop
-	STMFD	R13!,{R14}
+	FNJSR
 	FNLDR	R14,opt_switches
 	TST	R14,#switch_MinibufferAntialiased
 	FNLDR	R14,wimp_realver,NE
 	MOVEQ	R14,#0
 	SUB	R14,R14,#320
 	CMP	R14,#17
-	LDMFD	R13!,{PC}
+	FNRTS
 
  END
