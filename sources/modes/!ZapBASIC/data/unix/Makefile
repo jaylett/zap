@@ -12,8 +12,7 @@
 #	ZapBASIC (default)	Build ZapBASIC
 #	clean			Wipe .o and .t files, and auto-gen headers
 
-OBJECTS		=  o/ZapBASIC o/BASIC o/BAStxt o/Brackets o/Buttons \
-		   o/Toggle
+OBJECTS		=  o/ZapBASIC o/BASIC o/BAStxt o/Brackets o/Toggle
 
 asm		= as_ro
 link		= link_ro
