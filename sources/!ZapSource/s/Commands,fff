@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.44 2000/01/23 18:07:31 ds Exp $
+; $Id: Commands,fff,v 1.1.2.45 2000/01/27 16:34:50 james Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -1667,32 +1667,26 @@ Cut
  BL shade_no_sel		; get R8/R9 containg the selection
  FNRTS CS
  BL caret_writable
- BL shade_no_sel		; get R8/R9 containg the selection
+ BL shade_no_sel		; get R1 off, R2 len, R8/R9
  CMP R7,R8
  LDRNE R0,[R8,#w_poff]
  LDREQ R0,[R10,#c_off]
- BL goto_file_offset
- ;BLVC clear_point		; scrub out point if marked
- ;BLVC gain_input
- ;BLVC plot_caret ; set_old_caret_pos ; call_set_caret
- ;BLVC make_cursor_visible
-; BLVC gain_input
-; BLVC clear_selection		; remove selected area
+ BL goto_file_offset		; if in different window, go to the selection
  FNRTS VS
  TEQ R6,#0
  BNE noundo$l
  LDR R0,[R9,#f_flags]
  TST R0,#1
  BEQ noundo$l
- ;MOV R4,R2			; save length of delete
- ;MOV R5,R3
+
  BL read_selection
  FNRTS VS
  LDR R14,[R9,#f_flags]
  TST R14,#&110			; read only?
  BLEQ clear_selection		; remove selected area if not
  CMP R3,#0
- FNRTS EQ
+ FNRTS EQ			; was there a selection?
+
  MOV R0,#&52			; delete no concat
  LDR R14,[R10,#c_off]
  CMP R14,R1
@@ -1704,11 +1698,11 @@ Cut
  FNLDR R14,opt_switches		; ask for no returned heap block...
  BIC R14,R14,#bit_return_deletions
  FNSTR R14,opt_switches
-; FNRTS VS
- MOVVC R0,#0
- BLVC add_yank_region		; add it to the yank list
- MOVVC R0,R3
- BLVC heap_free
+ FNRTS VS
+ MOV R0,#0			; add last deletion on this file
+ BL add_yank_region		; add it to the yank list
+ MOV R0,R3
+ BL heap_free
  FNRTS
 
 noundo$l
