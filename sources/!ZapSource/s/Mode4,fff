@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.5 2002/11/11 01:20:41 christian Exp $
+; $Id: Mode4,fff,v 2.6 2002/11/17 15:02:01 christian Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -119,6 +119,9 @@ mode4_author
 mode4_title
 	FNS	("Code")
 
+
+; -------------- e_init --------------
+
 mode4_init
 	TEQ	R1,#7
 	BEQ	mode4_menu
@@ -133,32 +136,24 @@ mode4_init
 	TEQ	R1,#0
 	MOVEQ	R0,#-1			; don't kill this module
 	MOVEQ	PC,R14
- ;TEQ R1,#1
- ;BEQ start$l ; OK
 	TEQ	R1,#2
 	MOVNE	PC,R14
 	FNJSR	"R0-R4,R8"
 	MOV	R8,#0
 	MOV	R1,R0			; mode number
-; BL like_init_mode_word
 	BL	ensure_colours_correct
- ;MOV R0,#MODE4_COLNUMBS
- ;FNcall Zap_ModeColourNum		; change palette size
- ;CMP R0,#MODE4_COLNUMBS
- ;BLNE mode4_UnkPreColBit		; define them
 
 	MOV	r8,#0
 	LDR	R1,[R13]		; mode number
 	BL	get_mode_word
-; FNcall Zap_GetModeWord
 	BVS	mode4_dontchangeathing
 	TEQ	R0,#0
 	BNE	mode4_dontchangeathing
 	MOV	R0,#&20000000		; default_mode_word
 	BL	put_mode_word
-; FNcall Zap_PutModeWord
 mode4_dontchangeathing
 	FNRTVC	; return no error (why? - cl)
+
 
  [ NEW_DISASM = 0
 mode4_init_13				; set up for redraw
@@ -211,15 +206,17 @@ getdisasmdata
 	FNRTS
  ]
 
+
  [ NEW_DISASM = 0
 mode4_init_14				; end of redraw data
 	B	readandrestoredisasm
  |
+
 ;E R0,R1 as for Debugger_Disassemble
 ;X Instruction disassembled, or R0/VS
 disassemble
 	FNJSR	"R0-R2"
-	BL	mode4_init_13 ; shouldn't be needed
+	BL	mode4_init_13		; shouldn't be needed
 	LDR	R2,local_disassemblerflags
 	SWI	XDebugger_DisassemblePlus
 	LDMVSFD	R13,{R0-R2}
@@ -228,90 +225,15 @@ disassemble
 	FNRTS
  ]
 
-;start$l
-; FNJSR
-; STR R0,localcopyof_mode_code
-; MOV R1,R0
-; PUSH "R1"
-; ADD R1,R1,#&100			; variable number
-; FNcall Zap_ReadVar			; R0=mode word
-; PULL "R1"
-; TEQ R0,#0
-; FNRTS NE
-; MOV R0,#&20000000			; default value...!?
-; ADD R1,R1,#&100
-; FNcall Zap_WriteVar			; width kept here
-; FNRTS
-
-;localcopyof_mode_code
-;  & 0
-
-;E R0=mode number R8/R9=window /0 for options menu
-;X mode word saved #
 
 save_mode_word
-; FNJSR "R11"
 	B	modes_end
-; FNcall Zap_SaveModeWord,R11
-; FNRTS
 
 ;E R0=mode number R8/R9=window /0 for options
 ;X mode word restored #
-
 restore_mode_word
-; FNJSR "R11"
 	B	modes_start
-; FNcall Zap_RestoreModeWord,R11
-; FNRTS
 
-; mode4_UnkPreColBit
-;  FNJSR "R1-R4"
-;  ADR R3,mode4_DefaultColours
-;  MOV R1,#4				; modenumber = code mode...
-; mode4_PreZModColBit
-;  MOV R2,#&09				; start colours
-; mode4_ZModColBit
-;  LDRB  R0,[R3],#1
-;  FNcall Zap_ModeColour		; Read colour definitions
-;  FNRTS VS
-;  ADD R2,R2,#1
-;  TEQ R2,#MODE4_COLNUMBS		; max colours
-;  BNE mode4_ZModColBit
-;  FNRTS
-
-;like_init_mode_word
-; FNJSR "R0-R4,R8"
- ;MOV R8,#0				; default options
- ;MOV R1,#4
- ;ADR R3,mode4_col_sup$l
- ;BL Acallsub$l
-; BL ensure_colours_correct
-; FNRTS
-
-;Acallsub$l				; R1=mode number R3=data block
-; FNJSR
-; LDR R4,[R3],#4			; number of extra colours
-; PUSH "R1"
-; ADD R1,R1,#&100			; variable number
-; FNcall Zap_ReadVar			; R0=mode word
-; PULL "R1"
-; TEQ R0,#0
-; FNRTS NE				; already set up
-; ;PUSH "R1"
-; ;LDR R0,[R3]				; get width etc
-; ;MOV R0,R0,LSL#16
-; ;MOV R0,R0,LSR#16			; save width in mode word
-; ;ADD R1,R1,#&100
-; ;FNcall Zap_WriteVar			; width kept here
-; ;PULL "R1"
-; LDR R0,[R3]
-; MOV R2,#0
-; MOV R1,#4
-; ADD R0,R3,#4
-; ADD R4,R4,#9
-; BL mode4_init_cols			; setup initial colours
-; MOVS R0,#0
-; FNRTS
 
 mode4_col_sup$l
 	DCD	(MODE4_COLNUMBS - 9)	; no of extra colours...
@@ -325,10 +247,6 @@ ensure_colours_correct
 	FNJSR	"R1-R4,R8"
 	MOV	R8,#0			; default options
 	MOV	R2,#0
-; ADR R3,mode4_col_sup$l
-; LDR R4,[R3],#4			; number of extra colours
-; ADD R0,R3,#4
-; ADD R4,R4,#9
 	MOV	R4,#MODE4_COLNUMBS
 	BL	get_pointer_to_code_cols
 	BL	mode4_init_cols		; setup initial colours
@@ -336,8 +254,6 @@ ensure_colours_correct
 
 	LOCAL
 
-;local_modecodelraero
-; DCD 0
 
 ;E R0=pointer to words of wimp colours R1=mode number R4=num of cols
 ;  R8=window to set /0
@@ -345,30 +261,20 @@ ensure_colours_correct
 
 mode4_init_cols
 	FNJSR	"R1-R5"
-; PUSH "R0"
 	MOV	R3,R0
 	MVN	R0,#0
 	BL	mode_colour_num
-; FNcall Zap_ModeColourNum,R5		; Read palette size
-; PULL "R3"
 	CMP	R0,R4
 	FNRTS	"GE"			; why doesn't it work?
 	MOV	R5,R0
-;thethickofthecols
-; STR R0,local_modecodelraero
-; PUSH "R3"
 	MOV	R0,R4
 	BL	mode_colour_num
-; FNcall Zap_ModeColourNum		; change palette size
-; PULL "R3"
 	MOV	R2,#0			; colour number
 a$l
 	LDR	R0,[R3],#4		; next bit of data
-; LDR R5,local_modecodelraero
 	CMP	R2,R5
 	BLT	postinitcolour		; Debugging - Why doesn't it work?
 	BL	mode_colour
-; FNcall Zap_ModeColour
 	FNRTS	VS
 postinitcolour
 	ADD	R2,R2,#1
@@ -376,73 +282,24 @@ postinitcolour
 	BCC	a$l
 	FNRTS
 
-;  FNJSR "R1-R5"
-;  PUSH "R0"
-;  MVN R0,#0
-; FNcall Zap_ModeColourNum		; Read palette size
-; PULL "R3"
-; CMP R0,R3
-; FNRTS "EQ"				; ???
-;  PUSH "R3"
-;  MOV R0,R4
-;  ;FNcall Zap_ModeColourNum		; change palette size
-;  PULL "R3"
-;  MOV R2,#0				; colour number
-; mode4_justa$l
-;  TST R2,#7				; 8 colour boundry?
-;  LDREQ R5,[R3],#4			; next bit of data
-;  AND R0,R5,#&F			; wimp colour
-;  ;FNcall Zap_ModeColour
-;  FNRTS VS
-;  MOV R5,R5,LSR#4			; next colour
-;  ADD R2,R2,#1
-;  CMP R2,R4
-;  BCC mode4_justa$l
-;  FNRTS
-
-; mode4_DefaultColours			; Colour Numbers :
-;  = &0C				; Comment Colour =&09 09
-;  = &0E				; String colour  =&0A 10
-;  = &0A				; Punctuation	 =&0B 11
-;  = &0F				; Embedded {}	 =&0C 12
-;  = &04				; Bs		 =&0D 13
-;  = &02				; Misc Punct.	 =&0E 14
-;  = &03				; Number colour  =&0F 15
-;  = &04				; Error colour	 =&10 16
-;  = &04				; GSTrans	 =&11 17
-;  = &01				; Unknown	 =&12 18
-;  = &0C				; Unknown	 =&13 19
-;  = &0E				; Unknown	 =&14 20
-;  = &01				; Unknown	 =&15 21
-;  = &02				; Unknown	 =&16 22
-;  = &03				; Unknown	 =&17 23
-;  = &04				; Unknown	 =&18 24
-;  = &01				; Unknown	 =&19 25
-;  = &09				; Cond		 =&19 26
-;  = &0B				; Unrecognised	 =&19 27
-;  = &08				; FP		 =&19 28
-;  = &08				; CP		 =&19 29
-;  = &01				; LDM/STM	 =&19 30
-;  = &0
-;  = &0					; double zero termination !
-;  ALIGN
-
 mode4_cols
 	=	"zap_m_codecols",0
 	ALIGN
 
+
+; --------------- e_setwidth -------------
+
 mode4_setwidth
-; CMP R2,#0
-; BNE mode0_setwidth
 	FNJSR
-; LDR R14,[R0]
 	CMP	R0,#&FF			; 255 limit ?
 	MOVGT	R0,#&FF
-; STRCS R14,[R0]
 	BL	mode0_setwidth
 	ANDS	R0,R0,#&FF
 	MOVEQ	R0,#1
 	FNRTS
+
+
+; ---------------- e_width ---------------
 
 mode4_width
 	FNJSR	"R1-R2"
@@ -473,6 +330,7 @@ localmodeword
 
 local_temp4r6
 	%	32
+
 
 ; E R0 = offset (4 => -4...) / R7 = current address.
 ; X R0 -> to addr - offset (as an offset?)
@@ -513,7 +371,7 @@ hex2$l					; hex dump loop
 	LDRB	R0,[R7],#1
 	ORR	R4,R4,R0
 	MOV	R4,R4,ROR #8		; save byte in instruction
- ; BL hex2
+
 	ADD	R6,R6,#2		; increment R6 like hex2...
 	TST	R2,#1<<17
 	SUBEQ	R6,R6,#4		; little endian so go back
@@ -648,16 +506,11 @@ asciiend$l				; finished ascii field
 	BL	colons
 	PULL	"R5,R7,R10"		; get start of line
 	LDR	R2,[R8,#w_format]	; format value
- ; fudge...
- ;MOV R0,#4
- ;BL getpreviousaddress			; as an offset...?
+
+	; fudge...
 	SUB	R0,R7,#4
 	LDR	R14,local_temp4r6 + 16	; recover previous attempt...
 	TEQ	R0,R14
- ;BNE notprehex$l
- ;BEQ atprehex$l			; we've just done the previous instr...?
- ;MOV R0,#8
- ;BL getpreviousaddress			; as an offset...?
 	SUBEQ	R0,R7,#8
 	LDREQ	R14,local_temp4r6 + 20	; recover previous attempt...
 	TEQEQ	R0,R14
@@ -672,8 +525,6 @@ notprehex$l
 	CMP	R0,R11
 	MOVCS	R7,R0
 	BLCS	tizhexed
- ;LDR R2,[R8,#w_addr]
- ;SUB R1,R7,R5
 	ADD	R1,R1,R2		; user file address
 	SWI	XDebugger_Disassemble	; discard results...
 	ADR	R0,local_temp4r6
@@ -684,11 +535,10 @@ notprehex$l
 	CMP	R0,R11
 	MOVCS	R7,R0
 	BLCS	tizhexed
- ;LDR R2,[R8,#w_addr]
- ;SUB R1,R7,R5
 	ADD	R1,R1,R2		; user file address
 	SWI	XDebugger_Disassemble	; discard results...
- ; end of fudge...
+	; end of fudge...
+
 	ADR	R1,local_temp4r6
 	LDMIA	R1,{R5-R7,R10}
 atprehex$l
@@ -697,7 +547,6 @@ atprehex$l
 	MOV	R3,#4			; huh?
 	MOV	R4,#0			; current instruction
  ; restore...
- ; LDR R0,local_temp4r6 + 16	; recover previous attempt...
 	SUB	R0,R7,#4		; ?
 	STR	R0,local_temp4r6 + 20	; recover previous attempt...
 	STR	R7,local_temp4r6 + 16	; save it...
@@ -764,12 +613,10 @@ dis$l					; disassemble the instruction
 	TEQNE	R0,#&E << 24		; data op / register xfer
 	BEQ	foundcopro$l		; copro
 
-;pregotcol$l
 	AND	R0,R4,#15<<24
 	TEQ	R0,#15<<24		; SWI signature
 	ORREQ	R2,R2,#2
 colouring_colour
- ; LDR R4,[R8,#w_txtw]		; offset to foreground mask
 	LDRB	R3,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
 	LDRB	R3,[R14,R3,LSL #2]	; width of instructions
@@ -790,14 +637,9 @@ dis_loop_in_redraw
 	TST	R2,#2048		; second column not reached...
 	BLEQ	secondcolnotreached2
 notaconditionhere2
-; TST R4,#mode4_Unconditional
- ;BNE notaconditionhere ; ???
 	TST	R2,#1<<22		; second column not reached...
 	BLEQ	tochkcondcode		; ????????????????????
-; BL tochkcondcode
- ;BNE notaconditionhere
- ;TST R2,#2048				; second column not reached...
- ;BEQ secondcolnotreached
+
 notaconditionhere
 	TST	R4,#mode4_MinimalColouring
 	BNE	backfromfoundaregister
@@ -807,8 +649,7 @@ notaconditionhere
 
 	TST	R2,#&C2			; &... or #... or SWI(?) ... erm &2 is MUL, I think.
 	BNE	backfromfoundaregister
- ;TST R2,#1 << 20			; Undefined instruction
- ;BNE backfromfoundaregister
+
 	CMP	R0,#'{'
 	BCS	backfromfoundaregister
 
@@ -870,7 +711,6 @@ dontcheckthese_minimal
 	MOVNE	R11,#13
 	TST	R2,#2			; SWI
 	BNE	saswihere
-;	MOV	R11,#12			; hope OK.
 	TST	R2,#32			; registers
 	MOVNE	R11,#19
 	TST	R2,#64			; & -> hex
@@ -879,9 +719,8 @@ dontcheckthese_minimal
 	MOVNE	R11,#22			; logical...
 	TST	R2,#512
 	MOVNE	R11,#22			; arithmetic...
-	TST	R2,#1 << 21;1024
+	TST	R2,#1 << 21
 	MOVNE	R11,#22			; rolls...
-;	CMP	R11,#12			; !!! wtf is this doing here?
 	TST	R2,#1 << 20		; undefined instructs
 	MOVNE	R11,#27
 	TST	R2,#1 << 14		; cp regs
@@ -892,9 +731,7 @@ dontcheckthese_minimal
 	MOVNE	R11,#21
 
 	TST	R4,#mode4_MinimalColouring
-	BNE	mode4_keepingitsimple	; ?????????????????????????????????
- ;TST R4,#mode4_Unconditional
- ;BNE bfnumberreductionpossible ; mode4_keepingitsimple
+	BNE	mode4_keepingitsimple
 
 	BIC	R14,R0,#&20
 	CMP	R14,#'A'
@@ -936,17 +773,12 @@ pre_exit_from_redraw
 just_exit_from_redraw
 	LDR	R11,local_temp4r6 + 24	; save it...
 	ADD	R11,R11,#1		; next log line
- ;STR R2,local_bgcol_please
 	FNRTVC				; return no error (why? - cl)
-
-;theundef
-; MOV R11,#27
-; B bfnumberreductionpossible	; mode4_keepingitsimple
 
 tobfnumberreductionpossible
 	ORR	R2,R2,#2048		; second column reached...
 	BIC	R2,R2,#&3<<12
-	B	bfnumberreductionpossible	; mode4_keepingitsimple
+	B	bfnumberreductionpossible ; mode4_keepingitsimple
 
 numberreductionpossible
 	LDR	R4,localmodeword
@@ -957,24 +789,8 @@ numberreductionpossible
 	MOVEQ	R11,#&12
 	MOV	PC,R14
 
-; darrens_helpful_lower_case
-;  BIC R0,R0,#&20
-;  B asmcondfound
-
 stored_blank_string2
 	DCD	0
-; ADD R11,R11,#1			; next log line
-; PUSH "R0,R1,R6"
-; LDR R6,local_temp4r6 + 20		; save it...
-; MOV R1,#27
-; MOV R0,#0
-; ;LDR R1,[R8,#w_txtw]
-;blankloop$l
-; STRB R0,[R6,R1]
-; SUBS R1,R1,#1
-; BPL blankloop$l
-; PULL "R0,R1,R6"
-; FNRTSS				; return no error
 
 asciiblnk$l				; blank non present ascii characters
 	ADD	R6,R6,R3
@@ -988,7 +804,7 @@ absolute$l
 	BCS		dis$l		; definitely not in header
 	CMP		r1,#20		; compare with start of data block
 	BLT		dis$l		; is < header data, so we don't care
-; check it is a valid AIF file
+	; check it is a valid AIF file
 	PUSH	"R0"			; save the word
 	MOV	R0,#16			; address of SWI "OS_Exit"
 	BL	cln_readw		; get word
@@ -996,39 +812,40 @@ absolute$l
 	EORS	r0,r0,#&00000011	; clear SWI number
 	PULL	"R0"			; word not now needed
 	BNE	dis$l			; if not 0 now, it's invalid
-	MOV     r0,r1                   ; put the offset in the right reg
-        BL      mode4_aif_headerstring
-        MOV     r1,r0                   ; return the string in R1
+	MOV	r0,r1			; put the offset in the right reg
+	BL	mode4_aif_headerstring
+	MOV	r1,r0			; return the string in R1
 	MOV	R2,#&B			; use comment colour
-	B	colouring_colour		; and put it in there
+	B	colouring_colour	; and put it in there
 
 
 ; decode module header
 ; => r1 = file offset
 ; return using B dis$l
 module$l
-        MOV     r11,r0                   ; hang on to instruction
-        MOV     r0,r1                    ; r0 = offset
-        BL      mode4_mod_headerstring   ; read the string
-        TEQ     r0,#0                    ; did we decode it ?
-        MOVEQ   r0,r11                   ; if not, restore instruction
-        BEQ     dis$l                    ; if not, normal disassembly
-        MOV     r1,r0                    ; string in r1
+	MOV	r11,r0			 ; hang on to instruction
+	MOV	r0,r1			 ; r0 = offset
+	BL	mode4_mod_headerstring	 ; read the string
+	TEQ	r0,#0			 ; did we decode it ?
+	MOVEQ	r0,r11			 ; if not, restore instruction
+	BEQ	dis$l			 ; if not, normal disassembly
+	MOV	r1,r0			 ; string in r1
 	MOV	R2,#&B			 ; use comment colour
 	B	colouring_colour	 ; and colour it
+
 
 ; return a string for the module header
 ; => r0 = offset in file
 ; <= r0 = string pointer, or 0 if not known
 mode4_mod_headerstring
 	FNJSR	"R1-R5,R9"
-	CMP	R0,#(end_mod_stab - mod_stab) ;&2C
-	MOV     r1,r0                   ; r1 = offset
-	MOVCS   r0,#0                   ; if too big, it's not known
+	CMP	R0,#(end_mod_stab - mod_stab)
+	MOV	r1,r0			; r1 = offset
+	MOVCS	r0,#0			; if too big, it's not known
 	FNRTS	CS			; definitely not in header
 	MOV	R2,#0			; check valid loop
 	PUSH	"R0"			; save the word
-checkoff$l			        ; check it is a valid module offset
+checkoff$l				; check it is a valid module offset
 	MOV	R0,R2
 	BL	cln_readw		; get word
 	TEQ	R2,#4
@@ -1037,7 +854,7 @@ checkoff$l			        ; check it is a valid module offset
 	MOV	R4,R0			; preserve for later...
 	BL	valid_off		; valid offset?
 	PULL	"R0",CS
-	MOVCS   r0,#0                   ; if too big, it's not known
+	MOVCS	r0,#0			; if too big, it's not known
 	FNRTS	CS			; definitely not in header
 	CMP	R2,R1
 	ADDCC	R2,R2,#4
@@ -1087,7 +904,7 @@ ldm$l
 	TST	R4,#1<<20
 	BNE	load$l			; LDM
 	ORR	R2,R2,#1 << 16
-	TEQ	R0,#2<<23			; DB
+	TEQ	R0,#2<<23		; DB
 	BNE	colouring_colour
 	TST	R4,#1<<14		; push r14
 	ORRNE	R2,R2,#8
@@ -1102,8 +919,6 @@ load$l
 	B	colouring_colour
 
 ldr$l
-; TST R4,#&10			; ???
-; BNE precolouring_colour		; ???
 simplelsdr
 	ORR	R2,R2,#1 << 17
 	B	colouring_colour
@@ -1152,10 +967,9 @@ notAPCSstylep
 	B	mode4_keepingitsimple
 
 APCSstylep
-	LDRB	R14,[R1,#-2]		; ??? - because r1 has already been advanced ...
+	LDRB	R14,[R1,#-2]
 	BIC	R14,R14,#&20
 	TEQ	R14,#'C'
-;	TEQNE	R14,#'F'
 	BNE	notAPCSstylep
 	MOV	R2,#1 << 14
 	ORR	R2,R2,#2048		; second column reached...
@@ -1178,8 +992,7 @@ foundaNAPCSCPreg
 	BIC	R14,R14,#&20
 	TEQ	R14,#'P'
 	BEQ	mode4_keepingitsimple
-;	B	foundaCPregister
-;	fall through...
+; fall through...
 
 foundaCPregister
 	LDRB	R14,[R1,#-2]
@@ -1295,23 +1108,23 @@ asmruboutloop
 	BLE	asmruboutloop
 	B	pre_exit_from_redraw
 
+
 ;E R0=word R2=module offset R9=file
 ;X CC if word valid CS ow |
-
 valid_off
 	FNJSR
 	CMP	R2,#&10
 	BCC	code$l			; code offset
 	CMP	R2,#&1C
-	BCC	string$l			; string/table offset
+	BCC	string$l		; string/table offset
 	TEQ	R2,#&24
-	BEQ	string$l			; string/table offset
+	BEQ	string$l		; string/table offset
 	CMP	R2,#&20
 	BCS	code$l			; code offset
 	CMP	R0,#&01000000		; swi number
 	FNRTS
 code$l
-	AND	R14,R0,#3			; word aligned?
+	AND	R14,R0,#3		; word aligned?
 	CMP	R14,#1
 	FNRTS	CS			; not word aligned
 ; does CS need  ^^ to be set here ?
@@ -1392,22 +1205,21 @@ find_branch_addr
  ]
 	ADRVS	R1,stored_blank_string
 	MOVVS	R2,#1
- ;LDMVSFD R13!,{R1-R2,PC}
-fi2
-	LDRB	R0,[R1],#1
+
+fi2	LDRB	R0,[R1],#1
 	TEQ	R0,#'&'
 	BEQ	fi3
 	CMP	R0,#&20
 	BCS	fi2
-	SUBS	R0,R0,#0			; sec
+	SEC
 	FNRTS
-fi3
-	MOV	R2,R1			; save first digit
+
+fi3	MOV	R2,R1			; save first digit
 	BL	hex_read
 	SUB	R14,R1,R2
 	TEQ	R14,#8			; was it 8 chars
 	BNE	fi2			; if not then carry on
-	ADDS	R0,R0,#0			; clc
+	CLC
 	FNRTS
 
 ;E R1=apparent address... R2 = 0ffset (4 or 8)
@@ -1431,20 +1243,20 @@ getpreviousinstrs
 ; decodes an offset into an AIF header description
 ; => r0= offset in the file
 ; <= r0= string to give it, or 0 if none
-        LOCAL
+	LOCAL
 mode4_aif_headerstring
 	FNJSR	"R1-R3"
-        CMP     r0,#&40                 ; is it < start of debugger ?
-        BLO     topheader$l             ; if so, it's an explicit header
-        MOV     r14,#-4*1               ; -1 string means 'unknown'
-        MOVEQ   r14,#-4*2               ; if = start, it's the -2 string
-        TEQ     r0,#&44                 ; is it start of zero-init ?
-        MOVEQ   r14,#-4*3               ; if so, it's the -3 string
-        TEQ     r0,#&7C                 ; is it end of zero-init ?
-        MOVEQ   r14,#-4*4               ; if so, it's the -4 string
-        MOV     r0,r14                  ; offset = r14
+	CMP	r0,#&40			; is it < start of debugger ?
+	BLO	topheader$l		; if so, it's an explicit header
+	MOV	r14,#-4*1		; -1 string means 'unknown'
+	MOVEQ	r14,#-4*2		; if = start, it's the -2 string
+	TEQ	r0,#&44			; is it start of zero-init ?
+	MOVEQ	r14,#-4*3		; if so, it's the -3 string
+	TEQ	r0,#&7C			; is it end of zero-init ?
+	MOVEQ	r14,#-4*4		; if so, it's the -4 string
+	MOV	r0,r14			; offset = r14
 topheader$l
-	ADR	R14,abs_stab	        ; take address of offset table
+	ADR	R14,abs_stab		; take address of offset table
 	LDR	R14,[R14,R0]		; get string offset
 	FNLDR	R0,env_modstart		; base for indirected offsets
 	ADD	R1,R0,R14		; string address
@@ -1458,11 +1270,11 @@ topheader$l
 	DCD	debug$l
 	DCD	unknown$l
 abs_stab
-	DCD     decomp$l
-        DCD     selfreloc$l
-        DCD     zeroinit$l
-        DCD     entry$l
-        DCD     foolish$l
+	DCD	decomp$l
+	DCD	selfreloc$l
+	DCD	zeroinit$l
+	DCD	entry$l
+	DCD	foolish$l
 	DCD	abs_readonly$l
 	DCD	abs_readwrite$l
 	DCD	abs_debug$l
@@ -1475,16 +1287,16 @@ abs_stab
 	DCD	abs_res1$l
 	DCD	abs_res2$l
 end_abs_stab
-zeroe$l         = "zap_d_zeroe",0
-zeros$l         = "zap_d_zeros",0
-debug$l         = "zap_d_debug",0
-unknown$l       = "zap_d_unknown",0
+zeroe$l		= "zap_d_zeroe",0
+zeros$l		= "zap_d_zeros",0
+debug$l		= "zap_d_debug",0
+unknown$l	= "zap_d_unknown",0
 ; before here are the 'special' -ve's
-decomp$l        = "zap_d_decomp",0
-selfreloc$l     = "zap_d_selfreloc",0
-zeroinit$l      = "zap_d_zeroinit",0
-entry$l         = "zap_d_entry",0
-foolish$l       = "zap_d_foolish",0
+decomp$l	= "zap_d_decomp",0
+selfreloc$l	= "zap_d_selfreloc",0
+zeroinit$l	= "zap_d_zeroinit",0
+entry$l		= "zap_d_entry",0
+foolish$l	= "zap_d_foolish",0
 abs_readonly$l	= "zap_d_abs_readonly",0
 abs_readwrite$l	= "zap_d_abs_readwrite",0
 abs_debug$l	= "zap_d_abs_debug",0
@@ -1499,54 +1311,54 @@ abs_res2$l	= "zap_d_abs_res2",0
 	ALIGN
 
 
- LOCAL
+	LOCAL
+
 
 ;E R0=file offset R8/R9 R10=caret
 ;X Branch at this offset followed #
-
 follow_branch
 	FNJSR	"R1-R3"
 	STR	R14,local_temp4r6 + 16	; blat cache...
-	BIC	R1,R0,#3			; offset of instruction
+	BIC	R1,R0,#3		; offset of instruction
  [ NEW_DISASM = 0
 	PUSH	"R1"
-	BL	getdisasmdata ; carefully_getdisasmdata ;
+	BL	getdisasmdata
 	STR	R0,local_disassemblerflags
 	BL	carefully_readandputdisasmdata
 	PULL	"R1"
  ]
- ; fudge
+	; fudge
 	MOV	R2,#8
 	BL	getpreviousinstrs
 	MOV	R2,#4
 	BL	getpreviousinstrs
- ; end fudge
+	; end fudge
 	MOVS	R0,R1
-	BLPL	cln_readw			; get instruction in R0
+	BLPL	cln_readw		; get instruction in R0
 	MOV	R3,R0			; save 'instruction'
 	LDR	R2,[R8,#w_addr]		; base address
 	ADD	R1,R2,R1
 	BL	find_branch_addr
 	BVS	exit$l
-	BCC	branch$l			; R0=new address
- ; MOV R3,R0 ; tim's ???? fix ????
+	BCC	branch$l		; R0=new address
+
 	BIC	R3,R3,#1 << 31		; clear bit 31...
-	SUBS	R0,R3,R2			; file offset corresponding to this address
+	SUBS	R0,R3,R2		; file offset corresponding to this address
 	BMI	exit$l			; off bottom of file (signed!)
 	LDR	R14,[R9,#f_len]
 	CMP	R0,R14
 	BCS	exit$l			; off end of file
 	MOV	R0,R3			; indirect (eg module header)
-	SUB	R0,R0,R2			; find file offset
+	SUB	R0,R0,R2		; find file offset
 	BL	goto_offset
 exit$l
  [ NEW_DISASM = 0
 	BL	carefully_readandrestoredisasm
  ]
 	FNRTS
+
 branch$l
- ;SWI &107
-	SUB	R0,R0,R2			; find file offset
+	SUB	R0,R0,R2		; find file offset
 	BL	goto_offset
 	B	exit$l
 
@@ -1562,12 +1374,10 @@ inmode4_return
 	ADD	R14,R8,#w_mode0
 	LDR	R2,[R14,R2,LSL #2]
 	STR	R2,localmodeword
-	BL	getdisasmdata ; carefully_getdisasmdata VC
+	BL	getdisasmdata
 	STR	R0,local_disassemblerflags
-	BL	loaddisasmwithcare		; if needed VC
+	BL	loaddisasmwithcare	; if needed VC
 	LDR	R2,localmodeword
- ;MOV R1,R2,LSR #8
- ;BIC R1,R1,#(&F << 20)		; options - need to update if these change
 	BL	carefully_readandputdisasmdata
  |
 	BL	getdisasmdata
@@ -1650,7 +1460,6 @@ start$l					; get line to search through
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
 	LDR	R2,[R14,R2,LSL #2]
-  ; STR R2,localmodeword
 	MOV	R3,R2
 	BL	getdisasmdata
 	STR	R0,local_disassemblerflags
@@ -1669,7 +1478,6 @@ start$l					; get line to search through
 	ADDVC	R1,R1,R3		; address to assume instruction came from
 	BLVC	mode4_clever_search	; R1=buf R2=len (RET VS???)
 	BVS	possibleproblem$l
-;	FNRTS	VS			; !???
 	MOV	R10,R2			; save the length
 	CMP	R4,#0
 	MOVPL	R2,#0			; offset in the detokenised line
@@ -1678,16 +1486,6 @@ start$l					; get line to search through
  [ NEW_DISASM = 0
 	BL	readandrestoredisasm	; preserves...?
  ]
-
-; LDR R2,[R8,#w_mode4]
-; STR R2,localmodeword
-; BL carefully_getdisasmdata
-; STR R0,local_disassemblerflags
-; BL loaddisasmwithcare	; if needed
-; LDR R2,localmodeword
-; ;MOV R1,R2,LSR #8
-; ;BIC R1,R1,#(&F << 20)		; options - need to update if these change
-; BL carefully_readandputdisasmdata
 
 	FNRTS
 
@@ -1710,16 +1508,18 @@ end$l
 	ADD	R2,R3,#3
 	MOV	PC,R14
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Insert a character							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 	LOCAL
 
-; R4=w_flags R5=num typed R6=w_format R7=address of characters R8-R10=input
+; --------------- e_char ---------------
 
+; R4=w_flags R5=num typed R6=w_format R7=address of characters R8-R10=input
 mode4_char
 	FNJSR
 	BL	minibuffer_wipe		; clear the minibuffer
@@ -1739,7 +1539,6 @@ a$l
 	FNRTS	VS
 	FNLDR	R0,wimp_block
 	BL	minibuffer_prompt
-; FNcall Zap_MiniPrompt			; prompt = address + colon
 	FNRTS	VS
 	MOV	R1,#0
 	MOV	R0,#0			; address to assume instruction came from
@@ -1833,13 +1632,6 @@ asmcondfound
 	ORR	R2,R2,#1<<12
 	MOV	R11,#26
 	B	mode4_keepingitsimple
-;bgcondcolour
-; LDR R14,local_bgcol_please
-; CMP R14,#0
-; BNE notaconditionhere
-; MOV R11,#26
-; STR R11,local_bgcol_please
-; B notaconditionhere
 
 aCoranSC
 	LDRB	R14,[R1]
@@ -1847,17 +1639,17 @@ aCoranSC
 	CMPNE	R14,#'C'
 	BNE	notaconditionhere
 
-	LDRB	R14,[R6,#-1] ; was 3
+	LDRB	R14,[R6,#-1]
 	CMP	R14,#'B'
-	LDRNEB	R14,[R6,#-2] ; was 3
+	LDRNEB	R14,[R6,#-2]
 	CMPNE	R14,#'B'
-	BEQ	skipchk3a$l ; if a B (as in BL...)
-	LDRB	R14,[R6,#-1] ; was 3
+	BEQ	skipchk3a$l
+	LDRB	R14,[R6,#-1]
 	CMP	R14,#'A'
-	LDREQB	R14,[R6,#-2] ; was 3
+	LDREQB	R14,[R6,#-2]
 	CMPEQ	R14,#'!'
 	BLE	notaconditionhere
-	LDRB	R14,[R6,#-3] ; was 4
+	LDRB	R14,[R6,#-3]
 	CMP	R14,#'!'
 	BLE	notaconditionhere
 skipchk3a$l
@@ -1906,7 +1698,7 @@ aMINUShere
 	CMP	R14,#'S'
 	BNE	asmcondfound
 	LDRB	R14,[R1,#-4]
-	CMP	R14,#'T'			; for TSTMI
+	CMP	R14,#'T'		; for TSTMI
 	BEQ	asmcondfound
 	B	notaconditionhere
 
@@ -1918,50 +1710,36 @@ anHoranH
 	B	notaconditionhere
 
 anLoranL
-; LDRB R14,[R1,#1]		; ???
-; CMP R14,#'Q'
-; BEQ notaconditionhere
-;	LDRB	R14,[R1,#-2]
-;	CMP	R14,#'@'			; for LOGGTP??
-;	BLE	backfromfoundaregister;notaconditionhere
-;	LDRB	R14,[R1,#-3]
-;	CMP	R14,#'@'			; for LOGGTP??
-;	BLE	backfromfoundaregister;notaconditionhere
-;	LDRB	R14,[R1,#-1]
-;	CMP	R14,#'@'			; for LOGGTP??
-;	BLE	backfromfoundaregister;notaconditionhere
 	LDRB	R14,[R1,#-2]
-	CMP	R14,#'U'			; for MULS...
-	CMPNE	R14,#'F'			; for FLTGTP...
-;	CMPNE	R14,#'@'			; for LOGGTP
-	BEQ	backfromfoundaregister ; notaconditionhere
+	CMP	R14,#'U'		; for MULS...
+	CMPNE	R14,#'F'		; for FLTGTP...
+	BEQ	backfromfoundaregister
 	LDRB	R14,[R1,#-3]
 	CMP	R14,#'@'
-	BLE	backfromfoundaregister; notaconditionhere		; FOR FLTGTP F5,R10 etc.
-	CMP	R14,#'B'			; FOR BLLT...?
+	BLE	backfromfoundaregister
+	CMP	R14,#'B'		; FOR BLLT...?
 	BEQ	skipchk2$l
 	LDRB	R14,[R1,#-4]
 	CMP	R14,#'@'
-	BLE	backfromfoundaregister ; notaconditionhere
-; SWI &107
+	BLE	backfromfoundaregister
 skipchk2$l
 	LDRB	R14,[R1,#1]
 	CMP	R14,#'G'		; LOG!!!
-	BEQ	backfromfoundaregister ; notaconditionhere
+	BEQ	backfromfoundaregister
 	LDRB	R14,[R1]
 	CMP	R14,#'S'
 	CMPNE	R14,#'O'
 	CMPNE	R14,#'E'
 	BEQ	asmcondfound
 	CMP	R14,#'T'
-	BNE	backfromfoundaregister ; notaconditionhere
+	BNE	backfromfoundaregister
 	LDRB	R14,[R1,#-2]
-	CMP	R14,#'F'			; for FTL<cond>
+	CMP	R14,#'F'		; for FTL<cond>
 	BNE	asmcondfound
 	LDRB	R14,[R1,#-3]
 	CMP	R14,#'!'
 	BCS	asmcondfound
-	B	backfromfoundaregister ; notaconditionhere
+	B	backfromfoundaregister
 
 justalonelyTE
 	LDRB	R14,[R1]
@@ -2007,13 +1785,10 @@ straightfwdCSV2
 	B	notaconditionhere
 
 ;X R1=pointer to the menu
-
 mode4_menu
 	FNJSR	"R0"
-; SWI &107
 	MOV	R0,#14			; Code mode menu
-	BL	read_menu_handle		; create the code mode menu
-;  SUB R1,R1,#8
+	BL	read_menu_handle	; create the code mode menu
 	FNRTS
 
 redrawallcodemodewindows
@@ -2032,7 +1807,7 @@ callallroutine$l
 
 	LOCAL
 
-redrawmostcodemodewindows	; 'global' ones anyway...
+redrawmostcodemodewindows		; 'global' ones anyway...
 	FNJSR
 	SWI	XHourglass_On
 	CMP	R8,#0
@@ -2054,24 +1829,25 @@ callallroutine$l
 	BLNE	Updatewindow
 	FNRTS
 
+
 	DCD	&8017
-Code_disasmtoggle		; global cases dealt with here...
-	LDR	R6,[R0]		; gets word argument...
+Code_disasmtoggle			; global cases dealt with here...
+	LDR	R6,[R0]			; gets word argument...
 	CMP	R6,#&18
 	BCS	backtonormal$l
 	FNJSR
 	MOV	R0,#4
 	BL	isthisaclonebase
-r$l	MOVNE	R0,#2		; in case R2=15
-	FNRTS	NE		; return if not (a clone of) Code mode
+r$l	MOVNE	R0,#2			; in case R2=15
+	FNRTS	NE			; return if not (a clone of) Code mode
 	CMP	R2,#15
 	MOVLO	R14,R0
-	TEQ	R0,R14		; menu - right mode?
+	TEQ	R0,R14			; menu - right mode?
 	BNE	r$l
 	CMP	R8,#0
 	ADDEQ	R11,R12,#opt_mode0
 	ADDNE	R11,R8,#w_mode0
-	LDR	R0,[R11,R0,LSL #2]! ; mode word
+	LDR	R0,[R11,R0,LSL #2]!	; mode word
 	MOV	R7,R0
 	CMP	R2,#15
 	BEQ	but_tickquery2		; R2=15 indicates a 'tickquery'
@@ -2118,8 +1894,8 @@ specialcasestosdeal
 	BEQ	but_tickquery3a
 	CMP	R6,#253
 	FNRTS	NE
-	MOV	R0,#0		; clear nothing
-	MOV	R1,#(1<<25)	; free click?
+	MOV	R0,#0			; clear nothing
+	MOV	R1,#(1<<25)		; free click?
 	BL	new_wind_format_set
 	BIC	R0,R0,#2
 	CMP	R2,#15
@@ -2136,15 +1912,15 @@ but_tickquery3a
 	LDREQB	R0,[R12,#opt_format]
 	CMP	R0,#4
 	FNRTS	NE
-	MOV	R0,#0		; clear nothing
-	MOV	R1,#bit_windowwrap ; 1<<26	; toggle softwrap
+	MOV	R0,#0			; clear nothing
+	MOV	R1,#bit_windowwrap	; toggle softwrap
 	BL	new_wind_format_set
 	BL	redrawmostcodemodewindows
 	FNRTS
 
 but_tickquery3b
-	MOV	R0,#0		; clear nothing
-	MOV	R1,#bit_windowwrap ; 1<<26	; toggle softwrap
+	MOV	R0,#0			; clear nothing
+	MOV	R1,#bit_windowwrap	; toggle softwrap
 	BL	new_wind_format_set
 	FNRTS
 
@@ -2153,29 +1929,20 @@ getdisasmdata
 	MOV	R0,#0
 	MOV	R1,#0
 	SWI	XDebugger_63
-	SUBVS	R1,R1,R1	; 0 on error...
+	SUBVS	R1,R1,R1		; 0 on error...
 	MOV	PC,R14
 
 putdisasmdata
 	MVN	R0,#0
 	SWI	XDebugger_63
-	SUBS	R0,R0,R0			; clv.
+	SUBS	R0,R0,R0		; clv.
 	MOV	PC,R14
  ]
 
 but_sortwwout
 	FNJSR "R1-R12"
- ;FNcall Zap_GetWindOff
- ;FNcall Zap_ConvWindOff
- ;BL update_whole_window
- ;MOV	  R0,#4
- ;BL	  but_callmiscentrypt
- ;MOV	  R0,#5
- ;BL	  but_callmiscentrypt
- ;FNcall Zap_SaveWinStatus
- ;FNcall Zap_NewWinStatus
 	BL	save_window_status
-	BL	new_window_status		; update the window
+	BL	new_window_status	; update the window
 	BL	Updatewindow
 	FNRTS
 
@@ -2188,14 +1955,14 @@ CmdCODEflagstoggle
 	BNE	Code_disasmtoggle	; yes...
 backtonormal$l
 	FNJSR
-	LDR	R6,[R0]		; gets word argument...
+	LDR	R6,[R0]			; gets word argument...
 	MOV	R0,#4
 	BL	isthisaclonebase
-	MOVNE	R0,#2		; in case R2=15
-	FNRTS	NE		; return if not (a clone of) Code mode
+	MOVNE	R0,#2			; in case R2=15
+	FNRTS	NE			; return if not (a clone of) Code mode
 	CMP	R2,#15
 	MOVLO	R14,R0
-	TEQ	R0,R14		; menu - right mode?
+	TEQ	R0,R14			; menu - right mode?
 	BNE	r$l
 	TST	R6,#&80
 	BNE	specialcasestosdeal
@@ -2270,11 +2037,13 @@ skipd_codestf
 	MOVVC	R0,#0
 	FNRTVC
 
+
+
 ; \E R1 is bit to operate on (as WFLAGS_TOGGLE)
 ;     b0-b4 bit
 ;     b5-b6 0=toggle
-;           1=set
-;           2=clear
+;	    1=set
+;	    2=clear
 ;     b7 may be set
 ;    R7 is the word value to operate on
 ; \X R7 is the word value result
@@ -2301,7 +2070,7 @@ insertbinarydata
 binaryloop$l
 	CMP	R7,R10
 	BLCS	red_overflow
-	BVS	just_exit_from_redraw			; overflow
+	BVS	just_exit_from_redraw	; overflow
 	LDRB	R0,[R7],#1
 	ORR	R4,R4,R0
 	MOV	R4,R4,ROR #8		; save byte in instruction
@@ -2317,51 +2086,36 @@ binaryloop$l
 	ADDEQ	R6,R6,#45		; finish hex dump field
 	B	backfrominsertbinarydata
 
-maybe_bgcondcolour		; corrupts R4.
+maybe_bgcondcolour			; corrupts R4.
 	TST	R2,#1<<12
 	BICNE	R2,R2,#1<<12
 	MOVNE	R11,#26
 	BNE	mode4_keepingitsimple
-	TST	R2,#1<<10			; fontbgcol
+	TST	R2,#1<<10		; fontbgcol
 	BICNE	R2,R2,#1<<13
 	ORR	R2,R2,#1<<10		; fontbgcol ; 1<<21 ; cond complete.
-	TST	R2,#2048			; after some spaces???
+	TST	R2,#2048		; after some spaces???
 	BNE	notaconditionhere2
 	BIC	R0,R0,#&20
 	B	mode4_keepingitsimple
 
-; LDR R4,local_bgcol_please
-; TST R4,#&FF
-; TST R2,#3 << 12
-; MOVEQ PC,R14
- ;TST R4,#&80000000
- ;ORREQ R4,R4,#&80000000
- ;MOVNE R4,#&7F000000
- ;STR R4,local_bgcol_please
-; MOV PC,R14
-
 alreadyinacomment
 	MOV	R11,#11
- ;LDR R4,localmodeword
- ;TST R4,#1 << 22
- ;BEQ mode4_keepingitsimple
- ;MOV R0,#32
-	B	bfnumberreductionpossible ; mode4_keepingitsimple
+	B	bfnumberreductionpossible
 
 possiblyasbackground
- ;STRB R14,[R6,R4]		; background colour
- ;LDR R14,local_bgcol_please
- ;TST R14,#&FF
 	SUB	R4,R4,#1
-	TST	R2,#1<<13			; cond bg font...
+	TST	R2,#1<<13		; cond bg font...
 	MOVEQ	R14,#1			; bg.
 	MOVNE	R14,#26			; possible colour
-; SUB R4,R4,#1
 	STRB	R14,[R6,R4]		; background colour
-; ADD R4,R4,#1
 	SUBS	R3,R3,#1
 	BGT	dis_loop_in_redraw
 	B	pre_exit_from_redraw
+
+
+
+; -------------- e_interrogate --------------
 
 mode4_interrogate
 	CMP	R0,#11
@@ -2380,12 +2134,12 @@ couldbeokormaybenot
 	BEQ	binarytest$l
 	CMP	R0,#15
 	BEQ	colourquery$l
-	CMP	R0,#13 ; SAYT
-	CMPNE	R0,#5 ; ConfineH
-	CMPNE	R0,#6 ; ConfineV
-	CMPNE	R0,#7 ; Free click
-	CMPNE	R0,#8 ; Smart cursors
-	CMPNE	R0,#12 ; Line Select
+	CMP	R0,#13			; SAYT
+	CMPNE	R0,#5			; ConfineH
+	CMPNE	R0,#6			; ConfineV
+	CMPNE	R0,#7			; Free click
+	CMPNE	R0,#8			; Smart cursors
+	CMPNE	R0,#12			; Line Select
 	CMPNE	R0,#23			; block editing?
 	CMPNE	R0,#24			; auto-indent
 	MOVEQ	R0,#0
@@ -2396,30 +2150,6 @@ couldbeokormaybenot
 	MOV	PC,R14
 
 secondary_problem
-;	TST	R4,#&00200000		; HMM...
-;	ORRNE	R2,R2,#1 << 18		; FP...????????
-;	BNE	colouring_colour
-
-;	AND	R0,R4,#&F << 20
-;	CMP	R0,#&0 << 20
-;	CMPNE	R0,#&1 << 20
-;	CMPNE	R0,#&6 << 20
-;	CMPNE	R0,#&7 << 20
-;	CMPNE	R0,#&8 << 20
-;	CMPNE	R0,#&A << 20		; > C D E F
-;	ORRLT	R2,R2,#1 << 18		; FP
-;	BLT	colouring_colour		; dodgy criteria.
-
-;	CMP	R0,#&C << 20
-;	CMPNE	R0,#&D << 20		; > C D E F
-;	ORREQ	R2,R2,#1 << 19		; CP
-;	BEQ	colouring_colour
-
-;	AND	R0,R4,#&0F << 24
-;	CMP	R0,#&0D << 24		; &xDxxx1xx?
-;	ORREQ	R2,R2,#1 << 19		; CP
-;	BEQ	colouring_colour
-
 	MOV	R0,R4,LSR#20
 	AND	R0,R0,#&FF
 	CMP	R0,#&C3
@@ -2447,8 +2177,6 @@ secondary_problem
 	CMPNE	R0,#&CC
 	ORREQ	R2,R2,#1 << 19		; CP
 	BEQ	colouring_colour
-; ...
-;	CMP	R0,#&EB			; here...???
 
 	CMP	R0,#&E6
 	CMPNE	R0,#&E7
@@ -2457,8 +2185,6 @@ secondary_problem
 	CMPNE	R0,#&EA
 	CMPNE	R0,#&EC
 	BEQ	moreproblems$l
-; ...
-;	BEQ	idproblem$l
 
 	AND	R0,R0,#&F0
 	TEQ	R0,#&D0			; last...
@@ -2481,30 +2207,10 @@ secondary_problem
 	ORREQ	R2,R2,#1 << 19		; CP
 	BEQ	colouring_colour
 
-;	AND	R0,R4,#&F << 20
-;	CMP	R0,#&F << 20
-;	ANDEQ	R0,R4,#&E << 24
-;	CMPEQ	R0,#&E << 24
-;	ORRNE	R2,R2,#1 << 19		; CP ...?
-;	BNE	colouring_colour
-
-;	AND	R0,R4,#&F << 20
-;	CMP	R0,#&F << 20
-;	ANDEQ	R0,R4,#&E << 24
-;	CMPEQ	R0,#&E << 24
-;	ORRNE	R2,R2,#1 << 19		; CP ...?
-;	BNE	colouring_colour
-
-;	TEQ	R0,#&D << 24
-;	ORREQ	R2,R2,#1 << 18		; FP
-;	BEQ	colouring_colour
-;	ORREQ	R2,R2,#1 << 18		; FP
-;	ORR	R2,R2,#1 << 18		; FP
 	ORR	R2,R2,#1 << 19		; CP ...?
 	B	colouring_colour
 
 stage4_problem
-;	SWI &107
 	TST	R4,#&10
 	ORRNE	R2,R2,#1 << 19		; CP ...?
 	BNE	colouring_colour
@@ -2512,33 +2218,12 @@ stage4_problem
 	TST	R4,#&8000
 	ORRNE	R2,R2,#1 << 18		; FP
 	ORREQ	R2,R2,#1 << 19		; CP ...?
-;	BNE	colouring_colour
-
-;	ORREQ	R2,R2,#1 << 19		; CP ...?
 	B	colouring_colour
-
-; was here - is it necessary...???
-;	AND	R0,R4,#&FB00
-;	TEQ	R0,#&1100
-;;;	TEQNE	R0,#&5100
-;	ORRNE	R2,R2,#1 << 18		; FP
-;	ORREQ	R2,R2,#1 << 19		; CP ...?
-;	B	colouring_colour
-
-;idproblem$l
-;;	SWI &107
-;	AND	R0,R4,#&FF << 8
-;	CMP	R0,#&F1 << 8
-;	ORREQ	R2,R2,#1 << 18		; FP ...?
-;	BEQ	colouring_colour		; ???
-;
-;	ORR	R2,R2,#1 << 19		; CP ...?
-;	B	colouring_colour
 
 moreproblems$l
 	ANDS	R0,R4,#&10
 	ORREQ	R2,R2,#1 << 18		; FP ...?
-	BEQ	colouring_colour		; ???
+	BEQ	colouring_colour	; ???
 
 	ORR	R2,R2,#1 << 19		; CP ...?
 	B	colouring_colour
@@ -2576,6 +2261,10 @@ colourquery$l
 	MOVEQ	R0,#15
 	MOV	PC,R14
 
+
+
+; -------------- e_help ----------------
+
 ; e_help entry point, written by James (feel free to replace)
 ;
 ; \E r0 offset, r8/r9
@@ -2590,109 +2279,113 @@ colourquery$l
 buf$l EQU 50
 mode4_help
 	FNJSR "r2-r3"
-	BIC r0,r0,#3 ; round down to a whole word
-	MOV r2,r0 ; store for disassembly
-	LDR r1,[r9,#f_splito]
-	CMP r0,r1 ; is it past split?
-	LDRGT r1,[r9,#f_splits]
-	ADDGT r0,r0,r1 ; jump over split
-	LDR r1,[r9,#f_ptr] ; start of buffer
-	ADD r0,r0,r1 ; address
-	LDR r0,[r0] ; get instruction word
-	AND r1,r0,#(15:SHL:24) ; SWI identifying fragment
-	CMP r1,#(15:SHL:24)
-	BNE notswi$l
+	BIC	r0,r0,#3		; round down to a whole word
+	MOV	r2,r0			; store for disassembly
+	LDR	r1,[r9,#f_splito]
+	CMP	r0,r1			; is it past split?
+	LDRGT	r1,[r9,#f_splits]
+	ADDGT	r0,r0,r1		; jump over split
+	LDR	r1,[r9,#f_ptr]		; start of buffer
+	ADD	r0,r0,r1		; address
+	LDR	r0,[r0]			; get instruction word
+	AND	r1,r0,#(15:SHL:24)	; SWI identifying fragment
+	CMP	r1,#(15:SHL:24)
+	BNE	notswi$l
 
-	BIC r2,r0,#(255:SHL:24) ; clear to SWI number
-	MOV r0,#buf$l
-	BL heap_claim
-	FNRTS VS
-	MOV r1,r0 ; buffer
-	MOV r0,r2 ; SWI number
-	MOV r2,#buf$l
-	SWI XOS_SWINumberToString
-	FNRTS VS
+	BIC	r2,r0,#(255:SHL:24)	; clear to SWI number
+	MOV	r0,#buf$l
+	BL	heap_claim
+	FNRTS	VS
+	MOV	r1,r0			; buffer
+	MOV	r0,r2			; SWI number
+	MOV	r2,#buf$l
+	SWI	XOS_SWINumberToString
+	FNRTS	VS
 
-	MOV r0,#8
-	BL heap_claim
-	BVS fail$l
+	MOV	r0,#8
+	BL	heap_claim
+	BVS	fail$l
 
-	STR r1,[r0,#0] ; first possibility
-	MOV r1,r0 ; ready for return
-	MOV r0,#4
-	BL heap_claim
-	BVS fail2$l
+	STR	r1,[r0,#0]		; first possibility
+	MOV	r1,r0			; ready for return
+	MOV	r0,#4
+	BL	heap_claim
+	BVS	fail2$l
 
-	STR r0,[r1,#4] ; second possibility
-	LDR r2,swi$l
-	STR r2,[r0] ; store "SWI\0"
-	MOV r0,#2 ; two possibilities
+	STR	r0,[r1,#4]		; second possibility
+	LDR	r2,swi$l
+	STR	r2,[r0]			; store "SWI\0"
+	MOV	r0,#2			; two possibilities
 	FNRTS
 
-fail$l	MOV r2,r0 ; store error pointer
-	MOV r0,r1 ; buffer to free
-	BL heap_free
-	MOV r0,r2 ; restore error pointer
+fail$l	MOV	r2,r0			; store error pointer
+	MOV	r0,r1			; buffer to free
+	BL	heap_free
+	MOV	r0,r2			; restore error pointer
 	FNRTS
 
-fail2$l MOV r2,r0 ; store error pointer
-	LDR r0,[r1,#0] ; get SWI name buffer
-	BL heap_free ; free it
-	MOV r0,r1 ; get the other buffer
-	BL heap_free ; free it
-	MOV r0,r2 ; restore error pointer
+fail2$l	MOV	r2,r0			; store error pointer
+	LDR	r0,[r1,#0]		; get SWI name buffer
+	BL	heap_free		; free it
+	MOV	r0,r1			; get the other buffer
+	BL	heap_free		; free it
+	MOV	r0,r2			; restore error pointer
 	FNRTS
 
-swi$l = "SWI", 0
+swi$l	=	"SWI", 0
 
 ; /E r0 = instruction word, r2 = file offset
 notswi$l
-	LDR r1,[r8,#w_addr] ; start address for file
-	ADD r1,r1,r2 ; address the instruction "came from"
-	BIC r0,r0,#(15:SHL:28) ; clear condition code
-	ORR r0,r0,#(14:SHL:28) ; 'AL' (disassembled invisibly)
+	LDR	r1,[r8,#w_addr]		; start address for file
+	ADD	r1,r1,r2		; address the instruction "came from"
+	BIC	r0,r0,#(15:SHL:28)	; clear condition code
+	ORR	r0,r0,#(14:SHL:28)	; 'AL' (disassembled invisibly)
  [ NEW_DISASM = 0
-	SWI XDebugger_Disassemble		; naked???
+	SWI XDebugger_Disassemble	; naked???
  |
 	BL disassemble
  ]
 
-	MOVVC r0,r2 ; length, including terminator
-	BLVC heap_claim ; \X r0 => block
-	FNRTS VS
+	MOVVC	r0,r2			; length, including terminator
+	BLVC	heap_claim		; \X r0 => block
+	FNRTS	VS
 
-	MOV r2,r1 ; source
-	MOV r1,r0 ; destination
-	MOV r3,r0 ; save it
-	BL strcopy ; copy it, including terminator
+	MOV	r2,r1			; source
+	MOV	r1,r0			; destination
+	MOV	r3,r0			; save it
+	BL	strcopy			; copy it, including terminator
 
-	MOV r0,#4
-	BL heap_claim
-	BVS failnotswi$l
+	MOV	r0,#4
+	BL	heap_claim
+	BVS	failnotswi$l
 
-	STR r3,[r0] ; store pointer to disassembly
-	MOV r1,r0 ; into position for return
+	STR	r3,[r0]			; store pointer to disassembly
+	MOV	r1,r0			; into position for return
 
 	; this, of course, isn't enough. We now have to find the first
 	; lwsp byte and replace it with a NUL, so that lookup will only
 	; be on the opcode itself (plus flags. Arg.)
-loop$l LDRB r2,[r3],#1
-	CMP r2,#32
-	BGT loop$l
-	MOV r0,#0
-	STRB r0,[r3,#-1]
+loop$l	LDRB	r2,[r3],#1
+	CMP	r2,#32
+	BGT	loop$l
+	MOV	r0,#0
+	STRB	r0,[r3,#-1]
 
-	MOV r0,#1 ; one possibility
+	MOV	r0,#1			; one possibility
 	FNRTS
 
 failnotswi$l
-	MOV r1,r0 ; store error pointer
-	MOV r0,r3 ; get block pointer
-	BL heap_free ; free it
-	MOV r0,r1 ; restore error pointer
+	MOV	r1,r0			; store error pointer
+	MOV	r0,r3			; get block pointer
+	BL	heap_free		; free it
+	MOV	r0,r1			; restore error pointer
 	FNRTS
 
+
 	LOCAL
+
+
+; ------------- e_click -------------
 
 mode4_click
 	CMP	R1,#2
@@ -2760,7 +2453,7 @@ co29$l	CMP	R7,R6
 	BCS	co30$l
 	MOV	R0,R7
 	BL	cln_readw
-	STR	R0,[R3,R4,LSL#2]		; word
+	STR	R0,[R3,R4,LSL#2]	; word
 	ADD	R7,R7,#4
 	ADD	R4,R4,#1
 	CMP	R4,R2
@@ -2771,4 +2464,6 @@ co30$l	PULL	"R0"
 	BL	reflect_caret
 	FNRTS
 
-	END
+
+
+ END
