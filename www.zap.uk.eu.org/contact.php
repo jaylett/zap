@@ -1,5 +1,5 @@
 <?php
-  // $Id: contact.php,v 1.1 2002/01/23 20:27:02 ds Exp $
+  // $Id: contact.php,v 1.2 2002/01/29 14:02:57 james Exp $
   include ".php/zap-std.inc";
   setroot ('contact');
   zap_header ("Zap contact details", 'up:/');
@@ -52,10 +52,10 @@
 
 <h3><a name="sja">James Aylett</a></h3>
 
-<p>James maintains ZapFonts, the combined command extensions (although, to some extent, this is a shared responsibility), the 'glue' (documentation, web and ftp sites, domain, mailing lists), and an air of omniscience. He is also responsible (amongst other things) for c-vars and the general shape of the distribution. He currently works at tangozebra ltd; please note that Zap has nothing to do with tangozebra.</p>
+<p>James maintains ZapFonts, the combined command extensions (although, to some extent, this is a shared responsibility), the 'glue' (documentation, web and ftp sites, domain, mailing lists), and an air of omniscience. He is also responsible (amongst other things) for c-vars and the general shape of the distribution. He currently works at Intercede 1749 ltd; please note that Zap has nothing to do with Interecede.</p>
 
 <address><a href="mailto:dj@zap.tartarus.org">dj@zap.tartarus.org</a></address>
-<address>James Aylett<br>tangozebra ltd<br>3rd Floor, Great Titchfield House<br>14-18 Great Titchfield Street<br>LONDON<br>W1W 8BD<br>UK</address>
+<address>James Aylett<br>Intercede 1749 Ltd<br>Eldon House<br>1 Dorset Street<br>LONDON<br>W1U 4BB<br>UK</address>
 
 <h3><a name="christian">Christian Ludlam</a></h3>
 
@@ -86,5 +86,5 @@
 <!-- martin@galaxy.tcp.co.uk -->
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:02 $');
+  zap_body_end ('$Date: 2002/01/29 14:02:57 $');
 ?>
