@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.24 2002/11/16 15:18:58 christian Exp $
+; $Id: Menus,fff,v 2.25 2002/11/16 17:30:18 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -61,6 +61,13 @@
  EXPORT Getdynamicarea
  EXPORT Savelist
  EXPORT Closelist
+
+
+; new menu entry flags word [menu entry buffer, #-16]
+mef_ExecCommand	  *	1<<31		; exec code is a Zap Command
+mef_SubCommand	  *	1<<30		; submenu code is a ZapCommand
+mef_ParamTypeMask *	&0F		; exec Command parameter type
+
 
 ; tick menu option if EQ with $a=menu start $b=menu offset corrupts R0
 
@@ -376,6 +383,7 @@ Colourlist
 	ADR	R2,create$l		; put tick by all modes
 	ADR	R3,sub$l		; toggle all modes button
 	MOV	R4,#12
+	MOV	R6,#0			; flags for each entry
 	BL	build_menu		; create the menu
 	FNRTS
 name$l  =	27,"zap_m_col",0
@@ -507,6 +515,7 @@ Removelist
 	TEQ	R2,#16			; especially save R3!
 	FNRTS	NE
 	MOV	R2,#0
+	MOV	R6,#0
 	BL	build_menu
 	MOVVC	R1,R0			; menu pointer
 	BLVC	sort_menu
@@ -581,7 +590,6 @@ sub_filelist				; file chosen
 	FNRTS	MI			; empty menu item selected
 	LDR	R4,[R3,#12]		; previous menu item text
 	LDR	R4,[R4,#-12]		; menu command for previous item
-	BIC	R4,R4,#1<<31		; actual address
 	FNLDR	R9,file_list
 	ADD	R9,R9,R1,LSL#f_shift	; file address
 
@@ -695,6 +703,7 @@ Getmodule$l
 	ADR	R3,execsub$l
 	MOV	R4,#22
 	MOV	R9,#0			; instantiation number
+	MOV	R6,#0
 	BL	build_menu
 	MOVVC	R1,R0
 	BLVC	sort_menu
@@ -786,7 +795,7 @@ Modelist
 	ADR	R0,name$l
 	ADR	R1,buildsub$l
 	MOV	R2,#0
-	MOV	R3,#0
+	MOV	R3,#0			; do nothing when clicked
 	MOV	R4,#16
 	ADR	R5,mhelp$l
 	TEQ	R8,#0
@@ -794,6 +803,7 @@ Modelist
 	LDRNEB  R9,[R8,#w_format]
 	ORRNE	R9,R9,#1<<31
 	MOV	R8,#-3			; mode number
+	MOV	R6,#0
 	BL	build_menu_with_help
 	FNRTS
 name$l  =	27,"zap_m_mode",0
@@ -812,7 +822,8 @@ buildsub$l
 	TEQ	R8,#0
 	BMI	loadmode$l
 std$l	ADRL	R3,Mode
-	ORR	R3,R3,#2<<27:OR:1<<31	; command, int parameter
+	MOV	R0,#mef_ExecCommand + 2	; is a command taking word
+	STR	R0,[R7,#-16]
 find$l  MOV	R0,R8
 	BL	read_mode
 	TEQ	R0,#0
@@ -865,13 +876,15 @@ loadmode$l
 	ADRLTL  R11,lmode$l
 	ADREQ	R0,Clonelist
 	ADREQL  R11,cmode$l
-	ORR	R0,R0,#1<<31
+	MOV	R3,#mef_SubCommand
 	MOVGT	R0,#0
+	MOVGT	R3,#0
 	ADRGTL  R11,zmode$l
 	BICGT	R9,R9,#1<<31
-	STR	R0,[R7,#-12]
+	STR	R0,[R7,#-12]		; submenu code
+	ORRGT	R3,R3,#mef_ExecCommand + 3 ; string parameter
+	STR	R3,[R7,#-16]
 	ADRGTL  R3,Moden
-	ORRGT	R3,R3,#1<<31 :OR: 3<<27
 	ADRLT	R0,lmode+1
 	ADREQ	R0,cmode+1
 	ADRGT	R0,zmode
@@ -945,10 +958,10 @@ Loadlist
 	ADR	R1,buildsub$l
 	MOV	R2,#0
 	ADRL	R3,Moden
-	ORR	R3,R3,#3<<27:OR:1<<31	; command, string parameter
 	MOV	R4,#14
 	FNLDR	R8,ext_modes		; list of external modes
 	BL	swapmenu
+	MOV	R6,#mef_ExecCommand + 3 ; command, string parameter
 	BL	build_menu
 	MOVVC	R1,R0
 	BLVC	sort_menu
@@ -1000,10 +1013,10 @@ Clonelist
 	ADR	R1,buildsub$l
 	MOV	R2,#0
 	ADRL	R3,Moden
-	ORR	R3,R3,#3<<27:OR:1<<31	; command, string parameter
 	MOV	R4,#14
 	FNLDR	R8,ext_clones		; list of clone modes
 	BL	swapmenu
+	MOV	R6,#mef_ExecCommand + 3	; command, string parameter
 	BL	build_menu
 	MOVVC	R1,R0
 	BLVC	sort_menu
@@ -1043,6 +1056,7 @@ Getdynamicarea
 	ADR	R3,execsub$l
 	MOV	R4,#22
 	MOV	R9,#-1			; current area number
+	MOV	R6,#0
 	BL	build_menu
 	MOVVC	R1,R0
 	BLVC	sort_menu
@@ -1227,6 +1241,7 @@ mw_bitmaplist
 	ADR	R3,mwbml_execsub
 	MOV	R4,#11
 	MOV	R8,#0			; R8=offset in the directory
+	MOV	R6,#0
 	BL	build_menu
 	MOV	R1,R0			; in R1
 	FNRTS				; menu pointer in R0...
@@ -1640,7 +1655,7 @@ Typelist
 	ADR	R1,build$l
 	MOV	R2,#0			; no creating sub (use Newtype command)
 	FNADR	R3,ext1$l		; new type command
-	ORR	R3,R3,#1<<31:OR:2<<27	; it's a command execute type
+	MOV	R6,#mef_ExecCommand + 2	; it's a command taking int
 	MOV	R4,#14
 	MOV	R8,#0			; count
 	BL	build_menu
@@ -1687,7 +1702,7 @@ Basemaplist
 	ADR	R1,build$l
 	MOV	R2,#0			; no creating sub (use Basemap command)
 	FNADR	R3,cmd$l		; new type command
-	ORR	R3,R3,#1<<31:OR:2<<27	; it's a command execute type
+	MOV	R6,#mef_ExecCommand + 2	; it's a command taking int
 	MOV	R4,#14
 	MOV	R5,#0
 	FNLDR	R11,key_maplist		; count
@@ -1967,7 +1982,7 @@ first$l BL	next_menu_entry
 	BPL	next$l
 mis$l	FNPULL
 	ERR	"zap_e_menustrprob"
-done$l  ADD	R1,R2,#14+12		; keyname, terminator, addrs, align
+done$l  ADD	R1,R2,#14+16		; keyname, terminator, addrs, align
 	BIC	R1,R1,#3
 	MUL	R1,R0,R1		; total space required
 	MOVS	R3,R9
@@ -2022,6 +2037,7 @@ read_one_entry
 	STR	R0,[R4],#4
 	STR	R0,[R4],#4
 	STR	R0,[R4],#4		; clear the 3 address entry points
+	STR	R0,[R4],#4		; and flags word
 	STR	R0,[R3,#16]		; validation string
 	MOV	R0,#1<<3		; all menus warned
 	STR	R0,[R3]			; default menu flags
@@ -2050,9 +2066,9 @@ s$l
 	BEQ	sub$l
 	BL	read_command		; read the command name (updates R10)
 	BLVS	readnull$l		; bad command name
-	ORR	R0,R7,#1<<31
-	ORR	R0,R0,R6,LSL #27
-	STR	R0,[R2,#-4]		; command address
+	ORR	R0,R6,#mef_ExecCommand	; parameter type and exec is command flag
+	STR	R0,[R2,#-16]
+	STR	R7,[R2,#-4]		; command address
 	STR	R1,[R2,#-8]		; command data
 sub$l					; start on the submenu pointer
 	MOV	R0,#-1
@@ -2076,7 +2092,9 @@ command$l				; check for command giving submenu
 	MOV	R0,#1
 	STR	R0,[R3,#4]		; there is a submenu
 	BL	validate_command
-	ORRVC	R7,R7,#1<<31		; safe to assume CS if VC
+	LDRVC	R0,[R2,#-16]		; safe to assume CS if VC
+	ORRVC	R0,R0,#mef_SubCommand
+	STRVC	R0,[R2,#-16]
 	STRVC	R7,[R2,#-12]		; command to call to open submenu
 	FNRTS
 box$l					; create a leaf box R7=the command R0=flags
@@ -2471,12 +2489,11 @@ show_menu
 	ADD	R1,R1,#28		; first item in menu
 loop$l
 	LDR	R14,[R1,#12]		; address of indirected data
-	LDR	R0,[R14,#-4]		; interpret code of the menu entry
-	TST	R0,#1<<31
+	LDR	R11,[R14,#-16]		; entry flags
+	TST	R11,#mef_ExecCommand
 	BEQ	next$l			; not a command
-	MOV	R11,R0,LSR #27
-	AND	R11,R11,#15
-	BIC	R7,R0,#&FC<<24		; address of the command
+	LDR	R7,[R14,#-4]		; interpret code of the menu entry
+	AND	R11,R11,#mef_ParamTypeMask
 	LDR	R0,[R14,#-8]		; data for the command
 	LDR	R14,ouch$l
 	TEQ	R8,R14
@@ -2521,7 +2538,7 @@ a$l	LDRB	R0,[R1],#1
 
 	LOCAL
 
-;E R1=menu address R2=mouse x R3=mouse y R4=mode (if R3b31 set) R8/R9
+;E R1=menu address  R2=mouse x  R3=mouse y  R4=mode (if R3b31 set)  R8/R9
 ;X menu updated and opened & wimp_menuptr/wimp_menu updated #
 	FNAME	create_menu
 create_menu
@@ -2604,13 +2621,12 @@ com$l					; creation address le 0
 a$l
 	ADD	R9,R9,#1
 	LDR	R5,[R6,#12]		; address of the item text
-	LDR	R7,[R5,#-4]		; interpret code
-	TST	R7,#1<<31
+	LDR	R7,[R5,#-16]		; entry flags
+	TST	R7,#mef_ExecCommand
 	BEQ	next$l			; no command here
-	BIC	R7,R7,#&FC<<24		; command address (maybe b0 set)
+	LDR	R7,[R5,#-4]		; interpret code
 	BL	get_command_flags
 	MOV	R4,R0			; command flags
-nodel$l					; don't delete the entry R4=flags etc
 	TST	R4,#1<<18
 	BEQ	gottxt$l
 
@@ -2769,21 +2785,17 @@ loop$l
 menu_process_key_command
 	FNJSR	"R9"
 	LDR	R7,[R5,#-4]
-	BIC	R7,R7,#&FC<<24
 	BL	validate_command
 	FNRTS	VS
-	LDRCS	R0,[R5,#-4]
-	ANDCS	R0,R0,#&FC<<24
-	ORRCS	R0,R7,R0
-	STRCS	R0,[R5,#-4]
+	STRCS	R7,[R5,#-4]
 	TEQ	R8,#0
 	MOVEQ	R9,#0
 	LDRNE	R0,[R8,#w_file]
 	BLNE	conv_file_off
-	LDMDB	R5,{R0,R14}		; command argument & parameter type
-	MOV	R14,R14,LSR #3
-	AND	R14,R14,#&F<<24
-	ADD	R2,R14,R2
+	LDR	R0,[R5,#-8]		; argument
+	LDR	R14,[R5,#-16]		; parameter type
+	AND	R14,R14,#mef_ParamTypeMask
+	ADD	R2,R2,R14,LSL #24
 	BL	process_key_command
 	FNRTS
 
@@ -2876,28 +2888,28 @@ call_warn_code
 	FNJSR	"R2,R7,R10"
 	LDR	R10,[R2,#12]		; text of the entry
 	LDR	R7,[R10,#-12]		; address to create the submenu
+	LDR	R10,[R10,#-16]		; flags
 	TEQ	R7,#0
 	BEQ	a$l			; none
-	TST	R7,#1<<31
+	TST	R10,#mef_SubCommand
 	BNE	com$l			; new command style
-	MOVS	R14,PC			; old style
+	MOV	R14,PC			; old style
 	MOV	PC,R7			; get the menu address
 	CMP	R1,#&8000
 	FNRTS	CC
 	TST	R1,#3
-					; um - shit!?
 	MOVEQ	R0,#0			; if a menu...
 	STREQ	R0,[R1,#-8]		; needs to be updated (eg collist)
 	FNRTS
-com$l					; new style - call the command
-	MOV	R2,#16
+
+com$l	MOV	R2,#16			; new style - call the command
 	BIC	R7,R7,#1<<31
 	MOV	R10,#0			; no cursor(! :-< )
 	BL	process_command		; returns in R0...!
 	MOVVC	R1,R0
 	FNRTS
-a$l
-	LDR	R1,[R2,#4]		; menu should already be there
+
+a$l	LDR	R1,[R2,#4]		; menu should already be there
 	FNRTS
 
 
@@ -2908,23 +2920,27 @@ a$l
 
 	LOCAL
 
-;E R0=menu name (max 12 chars)  (or 27,token form)
-; R1=address of sub to create the menu
-; R2=address of cm_sub to update the menu /0
-; R3=address of interpret sub for each menu entry /0
-; R4=menu width in characters
-; R8-R11=values to call creation sub with
-;X R0=pointer to menu start (menu_struct+8) # (Does NOT use WB)
+;E R0	  =  menu name (max 12 chars)  (or 27,token form)
+;  R1	  =  address of sub to create the menu
+;  R2	  =  address of cm_sub to update the menu / 0
+;  R3	  =  address of interpret sub for each menu entry / 0
+;  R4	  =  menu width in characters
+;  R5	  =  no entry help text
+;  R6	  =  menu flags for each entry (at #-16)
+;  R8-R11 =  values to call creation sub with
+;X R0	  -> menu start (menu_struct with -ve offsets) # (Does NOT use WB)
+;
 ;   The sub pointed to by R1 has entry/exit
-; ;E R0=buffer for string (48)
-;   R5=address of start of menu structure
-;   R6=address of menu entry being built
-;   R7=address of current buffer entry (top of data+8)
-;   R8-R11=as returned from last call
-; ;X R0=index for this entry/-1 (you may use WB)
-;   R1=help text (first byte=ESC if token) [statically stored] or 0 / saved
-;   R2-R7 saved (unless you alter R7 deliberately - beware)
-;   R8-R11 updated (for your use, and passed back to you) #
+;   ;E R0     = buffer for string
+;      R5     = address of start of menu structure
+;      R6     = address of menu entry being built
+;      R7     = address of current buffer entry
+;      R8-R11 = as returned from last call
+;   ;X R0     = index for this entry / -1 (you may use WB)
+;      R1     = help text (first byte = ESC if token) [statically stored] or 0 / saved
+;      R2-R7 saved (unless you alter R7 deliberately - beware)
+;      R8-R11 updated (for your use, and passed back to you) #
+
 	FNAME	build_menu_with_help
 build_menu_with_help
 	FNJSR	"R1-R11"
@@ -2991,7 +3007,9 @@ entry$l					; entry loop
 	FNLDR	R5,menu_entries
 	MOV	R0,#0
 	STR	R0,[R6,#16]		; no validation by default.
-	STR	R0,[R7,#12]!		; null string in case at end
+	STR	R0,[R7,#16]!		; null string in case at end
+	MOV	R0,#-1
+	STR	R0,[R7,#-16]
 	MOV	R0,R7			; buffer
 	MOVS	R14,PC
 	LDR	PC,[R13]		; call the sub to create menu text
@@ -3000,6 +3018,10 @@ entry$l					; entry loop
 	SUB	R14,R7,R5		; buffer offset
 	STR	R14,[R6,#12]		; (link offsets AFTER buffers stop moving)
 	STMDB	R7,{R0,R3}		; index, addr of interpret sub
+	LDR	R5,[R7,#-16]		; allow the sub to modify the flags
+	CMP	R5,#-1
+	LDREQ	R5,[R13,#20]		; store entry flags
+	STREQ	R5,[R7,#-16]		;
 	MOV	R5,R0			; save index
 	MOV	R0,R7			; menu entry text
 	BL	str_len
@@ -3025,6 +3047,7 @@ findend$l
 	MOV	R14,#-1
 	STR	R14,[R0,R3]!
 	STR	R2,[R0,#-4]		; store help text ptr
+	LDR	R3,[R13,#8]		; restore interpret sub
 nohelp$l
 	CMN	R5,#1			; finished?
 	ADDNE	R6,R6,#24
@@ -3377,10 +3400,10 @@ menu_click
 	TEQ	R3,#0
 	BEQ	outline$l
 	LDR	R10,[R2,#12]		; address of item text
+	LDR	R4,[R10,#-16]		; item flags
 	LDR	R5,[R10,#-4]		; sub to call
-	TST	R5,#1<<31
+	TST	R4,#mef_ExecCommand
 	BNE	a$l
-	BIC	R5,R5,#&FC<<24
 	CMP	R5,#&8000
 	FNRTS	LT			; nothing to call
 	LDR	R0,[R11,#-4]		; previous offset
@@ -3390,14 +3413,13 @@ menu_click
 	FNLDR	R6,opt_format,EQ
 	LDRNE	R7,[R8,#w_flags]
 	LDRNE	R6,[R8,#w_format]	; set up flags
-	MOVS	R14,PC
+	MOV	R14,PC
 	MOV	PC,R5			; call the sub
 	FNRTS
 a$l					; it is a command
 	LDMDB	R10,{R0,R7}		; parameter, address/type
-	MOV	R2,R7,LSR #3
-	AND	R2,R2,#15<<24		; execute command
-	BIC	R7,R7,#&FC<<24
+	AND	R2,R4,#mef_ParamTypeMask
+	MOV	R2,R2,LSL #24
 	TST	R7,#1
 	BNE	b$l			; hmm, we still have a name pointer...
 c$l
@@ -3437,10 +3459,7 @@ b$l
 	BL	validate_command
 	ADDVS	R13,R13,#4
 	FNRTS	VS
-	LDR	R0,[R10,#-4]		; safe to assume that command has been found?
-	AND	R0,R0,#&FC<<24
-	ORR	R0,R7,R0
-	STR	R0,[R10,#-4]		; update for next time
+	STR	R7,[R10,#-4]		; update for next time
 	PULL	"R0"
 	B	c$l
 outline$l				; for outline fonts...
@@ -3452,12 +3471,12 @@ outline$l				; for outline fonts...
 	LOCAL
 
 ;E R1=address of menu R11=sequence of menu off,off,...-1 as given by wimp
-;X R0=help text / 0 |
+;X R0=help text / 0  R1 = non-zero to mean literal help text |
 ; (Called in response to message Help_Request; uses wimp_kbdbuf)
 
 	FNAME	menu_get_help
 menu_get_help
-	FNJSR	"R1-R7,R11"
+	FNJSR	"R2-R7,R11"
 	LDR	R4,[R11]
 	MOV	R3,R1
 	MOV	R5,R1
@@ -3490,7 +3509,7 @@ gotitem$l
 	TEQ	R0,#0
 	LDRNE	R0,[R0,R4,LSL #2]	; help text entry
 	TEQ	R0,#0
-	FNRTS	EQ			; return if no help text
+	BEQ	none$l			; no help text
 	LDRB	R1,[R0]
 	TEQ	R1,#27
 	FNRTS	NE			; return if not a token
@@ -3503,7 +3522,35 @@ token$l FNLDR	R2,wimp_kbdbuf
 	MOV	R7,#0
 	BL	lookup_token		; expand token
 	FNLDR	R0,wimp_kbdbuf,VC
+	MOV	R1,#1
 	FNRTS
+
+	; R3 -> menu  R4 = item + 1
+none$l	ADD	R3,R3,#28+12		; menu items text buffer
+	SUB	R4,R4,#1
+	ADD	R4,R4,R4,LSL #1
+	MOV	R4,R4,LSL #3
+	LDR	R11,[R3,R4]		; -> text buffer
+	LDR 	R5,[R11,#-16]		; menu entry flags
+	TST	R5,#mef_ExecCommand
+	MOVEQ	R0,#0
+	FNRTS	EQ			; not a command - no action
+	LDR	R7,[R11,#-4]		; command address
+	BL	get_command_flags
+	MOVVC	R2,R0
+	MOVVC	R0,R7
+	LDRVC	R1,[R10,#-8]		; command parameter
+	BLVC	find_command_fromkey	; R0=ptr to command name
+	FNRTS	VS
+	CMP	R0,#0
+	MOVLE	R0,#0
+	FNRTS	LE
+	MOV	R3,#1<<24 ; don't process special characters [maybe include args info?]
+	BL	find_command_help
+	FNLDR	R0,wimp_data,VC
+	MOVVC	R1,#0
+	FNRTS
+
 outline$l
 	=	"zap_h_outline",0
 	ALIGN
