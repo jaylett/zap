@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.1.2.7 1999/04/19 17:43:12 ds Exp $
+; $Id: Mode11,fff,v 1.1.2.8 1999/04/19 23:30:59 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -14,6 +14,7 @@
  GET h.Cursors
  GET h.Commands
  GET h.Execute
+ GET h.Menus
 
  EXPORT mode_table_11
  EXPORT new_link_entry
@@ -22,6 +23,8 @@
  EXPORT insert_line_number
  EXPORT mode11_insprepare
  EXPORT mode11_inspostpare
+
+ EXPORT CmdTHROWBACKflagstoggle
 
  IMPORT mode3_author
  IMPORT modes_start
@@ -32,6 +35,8 @@
  IMPORT test_input
  IMPORT get_input_caret
  IMPORT find_caret_pos
+
+ IMPORT CmdBYTEWORDflagstoggle
 
 MODE11_COLNUMBS * 9+8
 
@@ -393,19 +398,27 @@ mode11_cols
  ALIGN
 
 mode11_init
- TEQ R1,#6
+ TEQ R1,#einit_ModeMenu
+ BEQ mode11_menu
+ TEQ R1,#einit_ColoursSubmenu
  ADREQ R1,mode11_cols
- TEQ R1,#2
+ TEQ R1,#einit_ModeStarted
  BEQ init_throwback
- TEQ R1,#5
+ TEQ R1,#einit_DeleteModifiedFile
  MVNEQ R1,#0			; kill the file
  MOVEQ PC,R14
- TEQ R1,#0
+ TEQ R1,#einit_ZapDying
  MOVNE PC,R14
  FNJSR
  BL kill_throwback
  MOVVC R0,#-1			; don't kill module
  FNRTS
+
+mode11_menu
+	FNJSR	"R0"
+	MOV	R0,#15
+	BL	read_menu_handle	; create the mode menu
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Start/End throwback registration			     ;
@@ -601,8 +614,10 @@ loop1$l
  LDMIA R13,{R0,R8,R9}
  BL delete_match
  BVS adjret$l
- MOVEQ R2,#0			; set R2 to 1 if an entry was deleted
- MOVNE R2,#1
+ CMP R0,#1
+ BHI adjret$l			; buffer deleted? return
+ MOVLO R2,#0			; set R2 to 1 if an entry was deleted
+ MOVEQ R2,#1
  LDMIA R13,{R0,R8,R9}
  ADD R0,R0,#1
  STR R0,[R13]
@@ -873,26 +888,26 @@ of1
 
 ;E R0=offset in throwback buffer R8/R9=throwback buffer
 ;X The match this represents deleted from the throwback file #
-;  Returns EQ if nothing deleted
+;  R0=0 if nothing deleted, 1 if one entry deleted, 2 if buffer auto-deleted
 
 delete_match
  STMFD R13!,{R1-R11,R14}
  BL get_to_match		; find match file and set R1-R5
  CMP R0,#0			; valid file?
- BMI ret$l
- BL get_links_entry		; set R6=match offset in list R7
+ MOVMI R7,#-1
+ BLPL get_links_entry		; set R6=match offset in list R7
  CMP R7,#0			; valid offset?
- BMI ret$l
+ MOVMI R0,#0
+ LDMMIFD R13!,{R1-R11,PC}	; return 0
  BL delete_link
  ;STR R0,typeofdeletion
  LDMVSFD R13!,{R1-R11,PC}
- TEQ R0,#0			; invalid?
- LDMEQFD R13!,{R1-R11,PC}
- TEQ R0,#1
+ CMP R0,#1			; invalid?
+ LDMLOFD R13!,{R1-R11,PC}	; return 0
  MOVEQ R1,R3
  MOVEQ R2,R4			; start/end for link
- MOVNE R1,R2
- ADDNE R2,R4,#1			; start/end for file
+ MOVHI R1,R2
+ ADDHI R2,R4,#1			; start/end for file
  LDR R0,[R9,#f_len]
  CMP R2,R0
  MOVCS R2,R0			; clip to file end
@@ -906,11 +921,19 @@ delete_match
 ; FNcall Zap_DoCommand,R11
 ; BL mode11_inspostpare
  LDMVSFD R13!,{R1-R11,PC}
- MOVS R0,#11
+ LDRB R0,[R8,#w_format]
  STR R0,[R9,#f_cmode]		; claim the file so deletes ok
- LDMFD R13!,{R1-R11,PC}
-ret$l
- MOVS R0,#0
+ ADD R0,R8,R0,LSL #2
+ LDR R0,[R0,#w_mode0]		; load our mode word
+ TST R0,#mode11_AutoDelete
+ MOVEQ R0,#0			; cause return if not auto-delete
+ LDRNE R0,[R9,#f_links]		; else check if there are still links
+ LDRNE R0,[R0]
+ CMP R0,#0			; +ve if there are, or not auto-deleting
+ MOVPL R0,#1
+ LDMPLFD R13!,{R1-R11,PC}	; return NE
+ BL discard_file
+ MOVVC R0,#2			; return 2
  LDMFD R13!,{R1-R11,PC}
 
 ;E R7=pointer to link entry R6=link offset (not validated)
@@ -1604,5 +1627,13 @@ mode11_interrogate
 ; FNRTS GT			; off the end of the line
 ; B next$l
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Commands							;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ DCD c_NoR8 :OR: c_NoR9 :OR: c_Param_Words :OR: c_DecrementR1 :OR: c_TickableMenuEntry
+CmdTHROWBACKflagstoggle
+	MOV	R1,#11		; mode number
+	B	CmdBYTEWORDflagstoggle
 
  END
