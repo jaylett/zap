@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.3 2002/01/25 19:53:15 ds Exp $
+  // $Id: zap-std.inc,v 1.4 2002/02/01 13:47:49 james Exp $
 
   $stable = 'zr-0.39';
   $ftproot = '/usr/data/ftp/zap/pub/';
@@ -240,7 +240,7 @@ EOF;
 <tr>
 <td>
 <address>
-<a href="${root}copyright">&copy; Copyright Zap Developers 2001. All rights reserved.</a>
+<a href="${root}copyright">&copy; Copyright Zap Developers 1992-2002. All rights reserved.</a>
 EOF;
     $date = ereg_replace ('^\$Date\: ', '', $date);
     $date = ereg_replace (' \$$', '', $date);

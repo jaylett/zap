@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.1 2002/01/23 20:27:04 ds Exp $
+  // $Id: index.php,v 1.2 2002/02/01 13:47:50 james Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/index');
   zap_header ('Zap documentation', 'up:../', 'help:faq:FAQ');
@@ -26,7 +26,7 @@
 <table border=0 width="100%">
 <tr><td valign=top align=left>
 <ul>
- <li><a href="manual/">Zap manual</a> (for Zap version 1.43)</li>
+ <li><a href="manual/">Zap manual</a> (for Zap version 1.44)</li>
  <li><a href="manual/imp.zip">As Impression document</a> (converted by Chris
 Bell; for Zap version 1.40)</li>
  <li><a href="manual/old.txt">Old version</a> (version 1.35 updated for version 1.40 features)</li>
@@ -68,5 +68,5 @@ Bell; for Zap version 1.40)</li>
 </table>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:04 $');
+  zap_body_end ('$Date: 2002/02/01 13:47:50 $');
 ?>
