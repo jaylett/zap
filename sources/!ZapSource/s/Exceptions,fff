@@ -1,5 +1,5 @@
 ; Contains code called when things go bang
-; $Id: Exceptions,fff,v 2.6 2002/11/14 19:30:30 christian Exp $
+; $Id: Exceptions,fff,v 2.7 2002/11/15 00:18:57 christian Exp $
 
  GET h.ModuleBits
  GET h.ZapHeader
@@ -9,6 +9,7 @@
  GET h.MiniBuff
 
  EXPORT register_abort_handlers
+ EXPORT Stackdump
 
  EXPORT zephyr
 
@@ -167,7 +168,9 @@ checkanddump
 	SWI	XOS_File		; check for <Zap$Dir>.Debug
 	FNRTS	VS
 	CMP	R0,#0
-	BLNE	core_dump
+	FNRTS	EQ
+	BL	core_dump
+	BL	Stackdump
 	FNRTS
 
 debugfile$l
@@ -230,6 +233,123 @@ unset_running_var
 	FNRTS
 
 var$l	=	|zap$|,"$Running",0
+	ALIGN
+
+
+	LOCAL
+
+; do a stack dump, attempting to resolve function names
+; E
+; X
+	FNAME	Stackdump
+	DCD	7
+Stackdump
+	MOV	R0,#&8C			; open file with errors
+	ADR	R1,fname$l
+	SWI	XOS_Find
+	MOVVS	PC,R14
+	MOV	R11,R0			; keep file handle
+
+	FNSTR	R14,opt_temporary	; don't use the stack
+
+	ADRL	R8,Module_header	; find our limits
+	ADRL	R9,Module_end		;
+	MOV	R7,#&8000		; start at the base of the stack
+
+loop$l	MOV	R0,R7			; print the address
+	BL	hex4$l			;
+
+	ADR	R0,colon$l
+	BL	write$l
+
+	LDR	R6,[R7],#4		; print the stack contents
+	MOV	R0,R6			;
+	BL	hex8$l			;
+
+	TST	R6,#3			; ignore if not word aligned
+	BNE	next$l			;
+
+	TEQ	PC,PC			; clear PSR bits if we're in a 26 bit mode
+	TEQEQ	PC,PC			;
+	BICNE	R6,R6,#&FC000000	;
+
+	CMP	R6,R8			; see if it's inside our module
+	CMPHS	R9,R6			;
+	BLO	next$l			;
+
+	MOV	R10,R6			; keep address
+	SUB	R5,R6,#2048		; scan back a maximium of 2k
+	CMP	R5,R8
+	MOVLO	R5,R8			; and don't go past the module start
+
+flop$l	CMP	R6,R5			; didn't find a function name
+	BLO	next$l			;
+	LDR	R3,[R6],#-4
+	BIC	R1,R3,#&FF
+	TEQ	R1,#&FF000000		; SWINV?
+	BNE	flop$l
+
+	ADR	R0,arr$l
+	BL	write$l
+
+	AND	R0,R3,#&FF		; name length
+	SUB	R0,R6,R0
+	ADD	R0,R0,#4		; corect for post-decrement
+	BL	write$l
+
+	SUB	R10,R10,R6		; get offset into function
+	SUBS	R10,R10,#8		;
+	BEQ	next$l
+	ADR	R0,plus$l
+	BL	write$l
+	MOV	R0,R10			; write it out
+	BL	hex4$l
+
+next$l	BL	newl$l			; do next stack entry
+	CMP	R7,#&8000 + stack_size
+	BLO	loop$l
+
+end$l	FNLDR	R14,opt_temporary	; recover return address
+	MOV	R0,#0
+	FNSTR	R0,opt_temporary	; clear it as instructed :)
+	MOV	R1,R11
+	SWI	XOS_Find		; close file
+	MOV	R0,#18			; set it's type to Text
+	ADR	R1,fname$l
+	MOV	R2,#&FF
+	ORR	R2,R2,#&F00
+	SWI	XOS_File
+	MOV	PC,R14
+
+hex8$l	FNLDR	R1,exception_buffer	; write 8 hex characters
+	MOV	R2,#256
+	SWI	XOS_ConvertHex8
+	B	write$l
+
+hex4$l	FNLDR	R1,exception_buffer	; write 4 hex characters
+	MOV	R2,#256
+	SWI	XOS_ConvertHex4		; fall through
+
+; write string in R0
+write$l	MOV	R2,R0
+	MOV	R1,R11
+wlop$l	LDRB	R0,[R2],#1
+	TEQ	R0,#0
+	MOVEQ	PC,R14
+	SWI	XOS_BPut
+	BVS	end$l
+	B	wlop$l
+
+newl$l	MOV	R0,#10
+	MOV	R1,R11
+	SWI	XOS_BPut
+	BVS	end$l
+	MOV	PC,R14
+
+colon$l	=	" : ",0
+plus$l	=	" + ",0
+fname$l	=	"<",|zap$|,"$Dir>.D-Stack",0
+arr$l	=	" -> ",0
 	ALIGN
 
 
