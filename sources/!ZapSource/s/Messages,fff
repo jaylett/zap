@@ -1,5 +1,5 @@
 ; Contains MessageTrans interface code,
-; $Id: Messages,fff,v 2.4 2002/11/16 22:22:45 christian Exp $
+; $Id: Messages,fff,v 2.5 2003/06/20 20:40:48 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Heap
@@ -12,6 +12,7 @@
 	EXPORT	lookup_error
 	EXPORT	lookup_token_R0
 	EXPORT	expand_menu
+	EXPORT	zap_query
 
 msgsblk	&	0
 block	%	16
@@ -243,5 +244,50 @@ skip$l	LDRB	R0,[R11],#1	; skip string at R11
 	ADD	R11,R11,#3
 	BIC	R11,R11,#3
 	MOV	PC,R14
+
+zap_query
+	; In: R0 = message (error block), R1 = title or 0 for default,
+	;     R2 = buttons, or 0 for esc/cancel or 1 for yes/no
+	;     R3 = icon name (in WIMP sprite pool), or 0 for Zap's icon
+	;     R4-R7 = parameters for message, if needed
+	;     Strings are currently *always* looked up via MessageTrans.
+	;     No expansion is done on title or buttons.
+	;     Error code must be 0.
+	; Out: R1 = button number; Z set if R1=1 or R1=3.
+	;      R0 & wimp_data corrupted.
+	;      May return an error.
+	FNJSR	"R2-R7"
+	BL	lookup_error	; will return VS - ignore this
+	MOV	r4,r0
+	CMP	r2,#1
+	ADRLO	r0,btns_yn$l
+	ADREQ	r0,btns_esc$l
+	MOVHI	r0,r2
+	BL	lookup_token_R0
+	MOV	r5,r0
+	TEQ	r1,#0
+	ADREQ	r1,title$l
+	FNLDR	r2,wimp_data
+	MOV	r3,#256
+	BL	lookup_token
+	FNLDR	r1,wimp_realver
+	CMP	r1,#320
+	MOVHS	r1,#&910
+	MOVLO	r1,#&13
+	MOV	r0,r4
+	LDR	r3,[r13,#4]
+	TEQ	r3,#0
+	ADREQ	r3,icon$l
+	MOV	r4,#1
+	SWI	XWimp_ReportError
+	TEQ	r1,#1
+	TEQNE	r1,#3
+	FNRTS
+
+title$l		=	"zap_q_msg",0
+btns_yn$l	=	"zap_q_btns_yn",0
+btns_esc$l	=	"zap_q_btns_esc",0
+icon$l		=	"!zap",0
+	ALIGN
 
 	END
