@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: docsrc.pl,v 1.1 1998/12/03 15:49:04 dj Exp $
+# $Id: docsrc.pl,v 1.2 1999/01/02 13:57:20 dj Exp $
 #
 # docsrc.pl
 # Written by Simon Tatham; generalised a little by James Aylett
@@ -771,7 +771,7 @@ sub write_html {
 }
 
 sub html_foot {
-  print "<hr>\n\n<address><a href=\"/copyright.html\">&copy; Copyright Zap Developers 1998. All rights reserved.</a>\n</address>\n\n";
+  print "<hr>\n\n<address><a href=\"/copyright.html\">&copy; Copyright Zap Developers 1999. All rights reserved.</a>\n</address>\n\n";
 
 # Print out the map ...
   print "<MAP NAME=\"docmap\">\n";
