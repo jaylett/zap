@@ -7,11 +7,12 @@ use Getopt::Long;
 
 my ($progname, $progversion) = ("zipdiff.pl", "1.0");
 my ($verbose, $help, $man) = ('', 0, 0);
-my ($zip1, $zip2, $outzip) = ('', '', '');
+my ($zip1, $zip2, $outzip, $inzip) = ('', '', '', '');
 
 Getopt::Long::Configure("bundling");
 
-GetOptions('outzip=s' => \$outzip,
+GetOptions('inzip=s' => \$inzip,
+	   'outzip=s' => \$outzip,
 	   'help|?' => \$help,
 	   'man' => \$man,
 	   'verbose' => \$verbose);# or
@@ -140,23 +141,40 @@ if (scalar @changelist > 0) {
 }
 
 if ($outzip) {
-  my $ozh = Archive::Zip->new();
+  my $ozh;
+
+  warn "Cannot merge directly into a zipfile (use different filenames)." if ($outzip eq $inzip);
+
+  if ($inzip) {
+    $ozh = Archive::Zip->new($inzip) or die "Couldn't open zip '$inzip' for merging with output.";
+  } else {
+    $ozh = Archive::Zip->new() or die "Couldn't create output zip.";
+  }
   my $member;
     
   foreach $file (@changelist) {
     $member = $zh2->memberNamed($file);
+    $ozh->removeMember($file);
     $ozh->addMember($member);
   }
   foreach $file (@adddirlist) {
     $member = $zh2->memberNamed($file);
+    $ozh->removeMember($file);
     $ozh->addMember($member);
   }
   foreach $file (@addlist) {
     $member = $zh2->memberNamed($file);
+    $ozh->removeMember($file);
     $ozh->addMember($member);
   }
+  $ozh->removeMember('Manifest');
   $ozh->addString($manifest, 'Manifest');
-  $ozh->zipfileComment("Diffs between '$zip1' ('" . $zh1->zipfileComment() . "') and '$zip2' ('" . $zh2->zipfileComment() . "')");
+  my $cmt = $ozh->zipfileComment();
+  if ($cmt) {
+    $cmt .= "\n";
+  }
+  $cmt .= "Diffs between '$zip1' ('" . $zh1->zipfileComment() . "') and '$zip2' ('" . $zh2->zipfileComment() . "')";
+  $ozh->zipfileComment($cmt);
   $ozh->writeToFileNamed($outzip)==AZ_OK or die "Couldn't write diffzip to '$outzip'";
 } else {
   if ($verbose) { print "\n\n"; }
@@ -178,6 +196,7 @@ zipdiff.pl [options] zip1 zip2
   --man           full documentation
   --verbose       run in verbose mode
   --outzip FILE   produce zipfile of diffs, not manifest
+  --inzip FILE    zipfile to augment when producing diffs zipfile
 
 =head1 OPTIONS
 
