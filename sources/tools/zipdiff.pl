@@ -37,32 +37,73 @@ my (@mem1, @mem2);
 @mem1 = $zh1->memberNames();
 @mem2 = $zh2->memberNames();
 
-my ($file, @removelist, @changelist, @addlist);
+my ($file, @removelist, @changelist, @addlist, @removedirlist, @adddirlist);
 
 foreach $file (@mem1) {
   if ($zh2->memberNamed($file)) {
     # Has it changed?
-    my ($contents1, $contents2);
-    if ($contents1 = $zh1->contents($file)) {
-      if ($contents2 = $zh2->contents($file)) {
-	if ($contents1 eq $contents2) {
+    my ($member1, $member2);
+    if ($member1 = $zh1->memberNamed($file)) {
+      if ($member2 = $zh2->memberNamed($file)) {
+	if (!$member1->isDirectory() || !$member2->isDirectory()) {
+	  if ($member1->isDirectory()) {
+	    push @addlist, $file; # directory changed into a file
+	    push @removedirlist, $file;
+	    if ($verbose) { print "$file: directory -> file\n"; }
+	  } else {
+	    if ($member2->isDirectory()) {
+	      push @removelist, $file; # file changed into a directory
+	      push @adddirlist, $file;
+	      if ($verbose) { print "$file: file -> directory\n"; }
+	    } else {
+	      my ($contents1, $contents2);
+	      if ($contents1 = $zh1->contents($file)) {
+		if ($contents2 = $zh2->contents($file)) {
+		  if ($contents1 ne $contents2) {
+		    push @changelist, $file;
+		    if ($verbose) { print "$file: file changed\n"; }
+		  } else {
+		    if ($verbose) { print "$file: file unchanged\n"; }
+		  }
+		} else {
+		  warn "Couldn't extract '$file' from '$zip2'";
+		}
+	      } else {
+		warn "Couldn't extract '$file' from '$zip1'";
+	      }
+	    }
+	  }
 	} else {
-	  push @changelist, $file;
+	  if ($verbose) { print "$file: directory unchanged\n"; }
 	}
       } else {
-	warn "Couldn't extract '$file' from '$zip2'";
+	warn "Couldn't read '$file' from '$zip2'";
       }
     } else {
-      warn "Couldn't extract '$file' from '$zip1'";
+	warn "Couldn't read '$file' from '$zip1'";
     }
   } else {
-    push @removelist, $file;
+    my $member1 = $zh1->memberNamed($file);
+    if ($member1->isDirectory()) {
+      push @removedirlist, $file;
+      if ($verbose) { print "$file: directory removed\n"; }
+    } else {
+      push @removelist, $file;
+      if ($verbose) { print "$file: file removed\n"; }
+    }
   }
 }
 
 foreach $file (@mem2) {
   if (!$zh1->memberNamed($file)) {
-    push @addlist, $file;
+    my $member2 = $zh2->memberNamed($file);
+    if ($member2->isDirectory()) {
+      push @adddirlist, $file;
+      if ($verbose) { print "$file: directory added\n"; }
+    } else {
+      push @addlist, $file;
+      if ($verbose) { print "$file: file added\n"; }
+    }
   }
 }
 
@@ -73,14 +114,26 @@ if (scalar @removelist > 0) {
     $manifest .= "\t$file\n";
   }
 }
+if (scalar @removedirlist > 0) {
+  $manifest .= "\nREMOVE DIRECTORIES:\n";
+  foreach $file (@removedirlist) {
+    $manifest .= "\t$file\n";
+  }
+}
+if (scalar @adddirlist > 0) {
+  $manifest .= "\nADD DIRECTORIES:\n";
+  foreach $file (@adddirlist) {
+    $manifest .= "\t$file\n";
+  }
+}
 if (scalar @addlist > 0) {
-  $manifest .= "ADD:\n";
+  $manifest .= "\nADD:\n";
   foreach $file (@addlist) {
     $manifest .= "\t$file\n";
   }
 }
 if (scalar @changelist > 0) {
-  $manifest .= "CHANGE:\n";
+  $manifest .= "\nCHANGE:\n";
   foreach $file (@changelist) {
     $manifest .= "\t$file\n";
   }
@@ -88,16 +141,25 @@ if (scalar @changelist > 0) {
 
 if ($outzip) {
   my $ozh = Archive::Zip->new();
+  my $member;
+    
   foreach $file (@changelist) {
-    $ozh->addMember($zh2->memberNamed($file));
+    $member = $zh2->memberNamed($file);
+    $ozh->addMember($member);
+  }
+  foreach $file (@adddirlist) {
+    $member = $zh2->memberNamed($file);
+    $ozh->addMember($member);
   }
   foreach $file (@addlist) {
-    $ozh->addMember($zh2->memberNamed($file));
+    $member = $zh2->memberNamed($file);
+    $ozh->addMember($member);
   }
   $ozh->addString($manifest, 'Manifest');
   $ozh->zipfileComment("Diffs between '$zip1' ('" . $zh1->zipfileComment() . "') and '$zip2' ('" . $zh2->zipfileComment() . "')");
   $ozh->writeToFileNamed($outzip)==AZ_OK or die "Couldn't write diffzip to '$outzip'";
 } else {
+  if ($verbose) { print "\n\n"; }
   print $manifest;
 }
 
