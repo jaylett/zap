@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: module,fff,v 1.1 2003/03/18 11:52:42 james Exp $
+; $Id: module,fff,v 1.2 2003/03/20 18:13:05 ds Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -209,12 +209,48 @@ discard$l	BL	delete_buttons
 		FNRTS
 
 ; a window has lost the input focus
-lost$l		BL	close_buttons
+lost$l		LDR	r0,[r8,#w_info]
+		TST	r0,#winfo_buttons_persist
+		FNRTS	NE
+		BL	test_for_minibuffer
+		BLNE	close_buttons
 		FNRTS
 
 ; a window has gained the input focus
 gained$l	BL	open_buttons
 		FNRTS
+
+		LOCAL
+
+; test if the window gaining the input focus is a pane of the window losing it
+; E R8
+; X Z set if condition is true
+test_for_minibuffer
+	FNJSR	"R0-R7"
+	SUB	r13,r13,#64
+	MOV	r1,r8
+	SWI	XWimp_GetWindowState
+	MOVVC	r1,r13
+	SWIVC	XWimp_GetCaretPosition
+	BVS	no$l
+	LDR	r0,[r8,#28]	; window above
+up$l	CMN	r0,#1
+	BEQ	no$l		; hmm, top window...
+	STR	r0,[r13,#4]
+	ADD	r1,r13,#4
+	SWI	XWimp_GetWindowState
+	LDR	r0,[r13,#36]
+	TST	r0,#1<<5	; pane?
+	BEQ	no$l		; no - return now
+	LDMIA	r13,{r0,r1}
+	TEQ	r0,r1
+	LDRNE	r0,[r13,#32]	; window above
+	BNE	up$l
+	ADD	r13,r13,#64	; found window, and it's a pane...
+	FNRTS
+no$l	CMP	pc,#0
+	ADD	r13,r13,#64
+	FNRTS
 
 		LOCAL
 
@@ -384,6 +420,7 @@ default$l	=	"buttons_help:This is a buttons bar.",0
 ; &203 Buttons_Close
 ; &204 Buttons_GetPaneHandle
 ; &205 Buttons_GetPaneWindow
+; &206 Buttons_FlagsToggle
 
 		FNAME	ext_call
 ext_call	CMP	R7,#(table_end$l - table$l) / 4
@@ -395,6 +432,7 @@ table$l		B	create_buttons
 		B	close_buttons
 		B	gethand$l
 		B	getwind$l
+		B	flagstoggle$l
 table_end$l
 
 gethand$l	FNJSR	"R9"
@@ -405,6 +443,11 @@ getwind$l	FNJSR	"R9"
 		BL	get_button_wind
 		FNRTS
 
+flagstoggle$l
+	FNJSR	"r2,r9"
+	MOV	r2,#6
+	BL	Buttons_FlagsToggle
+	FNRTS
 
 ; ---------------------------------
 ; BUTTONS_START command
@@ -1217,6 +1260,7 @@ nofocus$l	LDRB	R1,[R6]				; check for don't learn flag
 		MOVEQ	R1,#1<<31			; set don't learn bit
 		MOVNE	R1,#0
 		MOV	R0,R6
+		MOV	R10,#0				; command may want cursor block
 		FNcall	Zap_CommandString,R2		; execute it
 		FNRTS
 
