@@ -174,6 +174,13 @@ nextline$C	SAVE	r2,modeblk
 		EXPORT	redrawline$C
 redrawline$C	STMFD	sp!,{r6,windowblk,r11,lr}
 		SWI	XHourglass_On
+; SJA: nasty hack because r7 (modeblk) is already being used in scanfile$C.
+		STMFD	sp!,{wsblk,modeblk}
+		BL	checkmode
+		LDR	modeblk,m_flags1$C
+		STR	modeblk,sja_temp_flags1
+		LDMFD	sp!,{wsblk,modeblk}
+; SJA: nasty hack over. Go home.
 		SUB	r11,r7,r5
 		BL	scaninit$C
 		BL	scanto$C
@@ -730,14 +737,23 @@ ansiincloop$L	BL	getchar$L
 
 ;  Check preprocessor
 
+; SJA: nasty hack. Used both immediately below and in redrawline$C.
+sja_temp_flags1	DCD	0
+; SJA: nasty hack over. Go home.
+
 checkpreproc$L	TST	crtab,#javaext
 		BNE	checkprejava$L
 		TST	state,#whitespace
 		TSTNE	crtab,#cext+cppext		;  :NOT:javaext
 		MOVNE	state,#preproc+preprocflag
 		B	mainloop$L
-checkprejava$L	;LDR	lr,m_flags1$C
-		;TST	lr,#2
+checkprejava$L
+; SJA: nasty hack because r7 (normally modeblk) is already in use.
+		STMDB	sp!,{lr}
+		LDR	lr,sja_temp_flags1
+		TST	lr,#2
+		LDMIA	sp!,{lr}
+; SJA: nasty hack over. Go home.
 		TSTNE	state,#whitespace
 		MOVNE	state,#preproc+preprocflag
 		B	mainloop$L
