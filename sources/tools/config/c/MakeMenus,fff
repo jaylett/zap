@@ -29,7 +29,7 @@
 /* Written by Darren Salt <ds@youmustbejoking.demon.co.uk>.  */
 
 #define PROGRAM "MakeMenus"
-#define VERSION "0.1.8"
+#define VERSION "0.1.9"
 
 #include "system.h"
 
@@ -196,7 +196,7 @@ help (void)
 "  -D, --define=LABEL    define a preprocessor label\n"
 "  -Z, --zap-main-menus  the input file is the main Zap menus source file\n"
 "  -O, --old-menu-format create a menus file suitable for Zap 1.40\n"
-"  -o, --output=FILE     create a menus file suitable for Zap 1.40\n"
+"  -o, --output=FILE     an alternative way of specifying the output file\n"
 #ifdef __riscos
 "  -T, --throwback       report most errors using throwback\n"
 #endif
@@ -587,14 +587,26 @@ add_entry (menu_t * menu, menu_entry_type type, char *text)
 static int
 find_label (const char *label)
 {
-  int i;
-  for (i = 0; i < labels_used; ++i)
+  int i = -1;
+  while (++i < labels_used)
     {
       int j = labels[i].aliases;
       while (j)
 	if (!strcmp (labels[i].name[--j], label))
 	  return i;
     }
+  return -1;
+}
+
+
+/* Find the first free menu, returning its number, or -1 if not found. */
+static int
+find_free_menu (void)
+{
+  int i = zap_menus ? NUM_SYSTEM - 1 : -1;
+  while (++i < NUM_MENUS)
+    if (menus[i].lineno == 0)
+      return i;
   return -1;
 }
 
@@ -993,9 +1005,13 @@ read_menus (if_type if_flag)
 	  if ((labels_used && i >= (zap_menus ? NUM_SYSTEM : 0))
 	      || (zap_menus && (unsigned) i < NUM_SYSTEM && menus[i].lineno))
 	    error_tb (1, "duplicated label '%s'", word + 1);
+	  if (i == -1)
+	    {
+	      i = zap_menus ? labels_used : find_free_menu ();
+	      if (i == -1)
+		error_tb (1, "out of menu numbers");
+	    }
 	  /* declare the label, and start a menu definition */
-	  if (zap_menus && i == -1)
-	    i = labels_used;
 	  this_menu = &menus[i];
 	  this_menu->file = infile;
 	  this_menu->lineno = lineno;
@@ -1058,6 +1074,13 @@ read_menus (if_type if_flag)
 		  && !(zap_menus && i < NUM_SYSTEM))
 		error_tb (1, "menu %i has already been defined", i);
 	      this_menu->lineno = lineno;
+	      labels[i].file = infile;
+	      labels[i].lineno = lineno;
+	      labels[i].name = xmalloc(sizeof (char *));
+	      labels[i].name[0] = "";
+	      labels[i].aliases = 1;
+	      if (i == labels_used)
+	        labels_used++;
 	      skipspcs ();
 	      this_menu->title = readstring ();
 	    }
@@ -1276,7 +1299,7 @@ main (int argc, char *argv[])
     if (labels[i].lineno && !labels[i].referenced)
       {
 	setline (labels[i].file, labels[i].lineno);
-	if (labels[i].name)
+	if (labels[i].name && labels[i].name[0][0])
 	  error_tb (-1, "menu '%s' is unreferenced", labels[i].name[0]);
       }
 
@@ -1302,7 +1325,7 @@ write_error:
     error (2, errno, "write error");
   for (i = 0; i < NUM_MENUS; ++i)
     {
-      if (i < SIZEOF_MENU_COMMENTS && menu_comments[i])
+      if (zap_menus && i < SIZEOF_MENU_COMMENTS && menu_comments[i])
 	fprintf (fd, "\n| %s", menu_comments[i]);
       if (ferror (fd))
 	goto write_error;
