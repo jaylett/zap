@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.29 2004/11/21 13:51:03 christian Exp $
+; $Id: Cache,fff,v 1.30 2004/11/21 14:48:17 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1056,7 +1056,7 @@ err$l		MOV	R6,R0
 ; E r1 = file handle,  buffer contains header
 ; X r0 -> glyphs in 1bpp, with space for cursors  r5 = first  r6 = last  r7 = charw  r8 = charh
 load_old_font_file
-		FNJSR	"R10-R11"
+		FNJSR	"R4,R10-R11"
 		MOV	R11,R1
 		MOV	R10,#0
 
@@ -1079,16 +1079,27 @@ load_old_font_file
 		CMP	R6,#256				; limit number of glyphs
 		MOVHS	R6,#256				;
 
+		PUSH	"R2,R3"				; keep cbpl and cbpc
 		MLA	R2,R5,R3,R10			; get address of first char
 		MLA	R3,R6,R3,R10			; end of file
 		SUB	R3,R3,R2			; number of bytes to read
 		MOV	R0,#4				; read it
 		MOV	R1,R11				;
 		SWI	XOS_GBPB			;
-		MOVVC	R0,R10
-		FNRTS	VC
+		PULL	"R2,R3"
+		BVS	err$l
 
-		PUSH	"R0"
+loop$l		CMP	R6,#256				;
+		MOVHS	R0,R10				; insert null glyph over undefined chars
+		FNRTS	HS				;
+
+		MLA	R4,R6,R3,R10			; get address
+		MOV	R0,#6				; null glyph
+		BL	adb_create_sub			;
+		ADD	R6,R6,#1                        ;
+		B	loop$l                          ;
+
+err$l		PUSH	"R0"
 		MOV	R0,R10
 		BL	cache_free
 		PULL	"R0"
@@ -3112,8 +3123,8 @@ err$l		MOV	R8,R0				; keep the error
 							;
 		MOVS	R0,R8				; return the error
 		MOVEQ	R2,#'E'				;
-		MOVEQ	R1,R11                          ;
-		BLEQ	error_notfound                  ;
+		MOVEQ	R1,R11				;
+		BLEQ	error_notfound			;
 		FNRTV					;
 
 
