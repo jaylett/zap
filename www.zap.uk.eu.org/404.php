@@ -1,7 +1,5 @@
 <?php
-  // $Id: 404.php,v 1.3 2002/02/04 19:22:36 ds Exp $
-
-  include ".php/zap-std.inc";
+  // $Id: 404.php,v 1.4 2002/03/13 21:17:11 ds Exp $
 
   $req = &$GLOBALS['REQUEST_URI'];
   if ($GLOBALS['REDIRECT_STATUS'] == 404 && substr ($req, -5) == '.html') {
@@ -23,6 +21,8 @@
 #      }
     }
   }
+
+  include ".php/zap-std.inc";
 
   $errs = array (
     ''  => array ('Hello world', 'I\'m your friendly error script.'),
