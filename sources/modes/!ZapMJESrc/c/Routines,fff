@@ -6,12 +6,33 @@
  *                                                                         *
  ***************************************************************************/
 
+/*
+ * 2000-10-01 checked entire file - sja
+ * Some FIXME's and NOTE's still remain, and I really want to completely
+ * rewrite the indenting. Most of the support routines are now okay, though.
+ *
+ * 2000-10-05 started fixing some of the grievious bugs - plan is to get a
+ * reasonably stable version, hopefully acceptably useful, hammer out v1.45
+ * and then rewrite all the indenting code for whatever comes with v1.46.
+ * no guarantee this is possible, though - worst case, we fix it all now,
+ * and have only incremental changes post v1.45 - sja
+ *
+ * 2000-10-07 fixed quite a few of the bugs. Trailing comments seem to
+ * indent the following line for no terribly obvious reason /sometimes/.
+ * Examples are noted with EEK in this file. - sja
+ */
+
 #include "Defns.h"
 
 extern void wordr11(char c);
 #define wordr11(c) ((void)0)
-
-// static int globalflag = 0;
+bool ischarincomment(unsigned int offset);
+bool ischarinstring(unsigned int offset);
+static bool lineisblank(int offset);
+static int findbracketmatch(char close,unsigned int offset);
+static bool lineisacomment(int offset);
+bool is_label(char c, int i);
+bool is_block_statement(char c, int i);
 
 void C_test(void)
 {
@@ -20,73 +41,46 @@ void C_test(void)
 
 void C_init(void)
 {
-//  globalflag = 0;
+  //  globalflag = 0;
 }
 
 // returns true if alphanumeric (using supposedly dodgy < and > code)...
+// Strictly, returns true if it can be part of a C identifier. Because otherwise functions
+// like is_break() cause immense fun by firing the break; recognition code ...
 static bool alphanum(char c)
 {
-  if ((c >='a' && c <='z') || (c >='A' && c <='Z') || (c >='0' && c <='9')) return true;
+  if ((c >='a' && c <='z') || (c >='A' && c <='Z') || (c >='0' && c <='9') || c=='_') return true;
 
   return false;
 }
 
-
-/*
-static int intdiv(int n,int d)
-{
-  int count = 0;
-  int total = 0;
-
-  while (total < n) {
-    total += d;
-    count++;
-  }
-
-  return count;
-}
-*/
-
-
-/* Bracket matching functions */
+/* -------------------------------------------------------------------------
+ * Bracket matching functions
+ * -------------------------------------------------------------------------
+ */
 
 /* Returns bracket type given character. Positive for open,
-   negative for close, or 0 if invalid */
+ * negative for close, or 0 if invalid */
 static int getbrackettype(char c)
 {
   switch(c)
   {
-    case '(':
-      return(1);
-
-    case ')':
-      return(-1);
-
-    case '{':
-      return(2);
-
-    case '}':
-      return(-2);
-
-    case '[':
-      return(3);
-
-    case ']':
-      return(-3);
-
-    default:
-      return(0);
+  case '(':
+    return(1);
+  case ')': return(-1);
+  case '{': return(2);
+  case '}': return(-2);
+  case '[': return(3);
+  case ']': return(-3);
+  default: return(0);
   }
 }
-
 
 // Returns true if character at offset is escaped by
 //   an odd number of \ characters
 static bool escaped(unsigned int offset)
 {
   bool escaped=false;
-
-
   while(offset && (getc(--offset)=='\\'))
   {
     escaped=!escaped;
@@ -95,70 +89,103 @@ static bool escaped(unsigned int offset)
   return(escaped);
 }
 
-
-// Returns true if character at offset is inside a comment
-static bool ischarinasmcomment(unsigned int offset)
+// Returns true if character at offset is inside a one-line comment
+// Can't use isaquote() because that calls ischarincomment() ... which calls this.
+static bool ischarin_oneline_comment(unsigned int offset)
 {
   int i;
-  char inquotes = 0;
-  bool insidecomment = false;
+  char inquotes = 0; // 0, or char that quotes this region
   char c;
 
-  if (getc(offset)==(window->cr.byte)) offset--; // for end of line situations...
+  if (getc(offset)==(window->cr.byte))
+    offset--; // move back off end of line
 
-  for (i=offset;(getc(i)!=(window->cr.byte) && (i > 0));i--);
+  // move backwards to start of line / file
+  //  for (i=offset; (getc(i)!=(window->cr.byte) && (i > 0)); i--);
+  // I prefer the following formulation (sja):
+  i=offset;
+  while (getc(i)!=(window->cr.byte) && (i > 0)) {
+    i--;
+  }
+  // FIXME: i either points to the cr.byte of the previous line, or to the sof?
+  // Not that the mismatch is hugely problematic, but even so.
 
-  if ((mode->shared.info)->intmode == 3) {
+  // line to consider goes from (i) to (offset)
+  // Some things to remember:
+  //  * mismatched quotes are simply the quote type embedded in a quoted region
+  if ((mode->shared.info)->intmode == int_asm) {
     do {
       c=getc(i);
-      if ((c=='"' || c=='\'') && !escaped(i))
-        if ((inquotes==c) || (inquotes == 0)) inquotes ^= c;
-      //else if (inquotes==0) inquotes=c;
+      if ((c=='"' || c=='\'') && !escaped(i)) { // entering quoted region?
+        if ((inquotes==c) || (inquotes == 0))
+          inquotes ^= c;
+      }
       if (c==';' && (inquotes == 0)) {
         return true;
       }
     } while (i++ < offset);
+    return false;
+  } else { /* C++ like */
+    do {
+      c=getc(i);
+      // NOTE: quoting logic used to be (sja):
+      // if ((c=='"' || c=='\'') && !escaped(i))
+      //  inquotes=!inquotes;
+      if ((c=='"' || c=='\'') && !escaped(i)) { // entering quoted region?
+        if ((inquotes==c) || (inquotes == 0))
+          inquotes ^= c;
+      }
+      if (c=='/' && !escaped(i) && (inquotes==0)) {
+        if (getc(i+1) == '/') {
+          return true;
+        }
+      }
+    } while (i++ < offset);
+    return false;
   }
-
-  //else {
-  //  do {
-  //    c=getc(i);
-  //    if ((c=='"' || c=='\'') && !escaped(i)) inquotes=!inquotes;
-  //      if (c=='/' && !escaped(i) && !inquotes) {
-  //        if (getc(i+1) == '/') {
-  //          return true;
-  //        } else if (getc(i+1) == '*') insidecomment = true;
-  //    }
-  //
-  //    if (c=='*' && !escaped(i) && !inquotes && getc(i+1)=='/') insidecomment=0;
-  //  } while (i++ < offset);
-  //}
-
-  return insidecomment;
 }
 
 
-int wkbktolastclosebrace(unsigned int offset)
+// Walk back to last close brace.
+// NOTE: this can probably be written better. Or at least more clearly.
+int findlastclosebrace(unsigned int offset)
 {
-  while (getc(--offset) != '}');
+  do {
+    while (offset && getc(--offset) != '}'); // walk back to last brace / sof
+  } while (offset && ischarincomment(offset) || ischarinstring(offset)); // until we find one that isn't in a string or comment
   return offset;
 }
 
-
 // Returns true if character at offset is inside a comment
+// NOTE: relies totally on how in_comment() works, which I haven't
+// found documentation for / looked at in detail yet.
 bool ischarincomment(unsigned int offset)
 {
   int i;
 
-  // return false;
-  if ((offset == 0) || (offset > file->len)) return false;
+  if ((offset == 0) || (offset > file->len))
+    return false;
   i = in_comment(offset);
-  if (!i) return false;
-  if (i == 1) return true;
+  if (!i)
+    return false;
+  if (i == 1)
+    return true;
 
-  return ischarinasmcomment(offset);
+  return ischarin_oneline_comment(offset);
 }
 
+// Returns true if character at offset is inside a string
+bool ischarinstring(unsigned int offset)
+{
+  return (offset == 0 || offset > file->len) ? false : in_string(offset);
+}
+
+// Returns true if character at offset is inside a comment, string or
+// character literal
+bool ischarinquoted(unsigned int offset)
+{
+  return (offset == 0 || offset > file->len) ? false : in_quoted(offset);
+}
 
 // Returns true if character at offset is a quote
 static bool isaquote(unsigned int offset, char inquotes)
@@ -175,6 +202,15 @@ static bool isaquote(unsigned int offset, char inquotes)
 // Returns previous 'real' line start - needs improving to cope with:
 // wibble int x,
 //         int y {<CR>
+// If anyone wants to do this, they need a sensible project to work on - sja
+// It probably also ought to do:
+// if (something ||
+//     something_else) {
+//   indent_to_here();
+// by skipping back to the start of the continued expression.
+//
+// Currently, it just copes with lines with continuation thingumies at the end,
+// ie the backslash.
 static int findpreviousrealline(int offset)
 {
   int i;
@@ -193,13 +229,15 @@ static int findpreviousrealline(int offset)
 }
 
 
-// Returns '#' if line is a preprocessor directive...
+// Returns first 'real' char of line - ie first non-blank
 static char firstcharofline(int offset)
 {
   int i;
   char c;
 
-  if (offset <= 0) return 0;
+  // NOTE. Was (sja):
+  // if (offset <= 0) return 0;
+  if (offset<=0) offset=0;
   i=zap_basemode_e_linestart(offset);
 
   c = getc(i++);
@@ -211,10 +249,10 @@ static char firstcharofline(int offset)
 }
 
 
-// Returns true if line is a preprocessor directive...
+// Returns true if line is a preprocessor directive (and if we care about prepro directives)
 static bool preprodirective(int offset)
 {
-  return ((mode->c.flags1 & 2 == 0) && firstcharofline(offset) == '#');
+  return ((mode->c.flags1 & M_FLAGS1_HIGHLIGHTPREPRO == 0) && firstcharofline(offset) == '#');
 }
 
 
@@ -224,117 +262,102 @@ static bool lineisblank(int offset)
   return (firstcharofline(offset) == (window->cr.byte));
 }
 
+// Find previous open bracket matching the given type
+static int find_prevopen_bracketmatch(int t, unsigned int offset)
+{
+  signed char stack[32]; // bracket we're looking for
+  unsigned int sp=0;
+  stack[0]=-t;
 
-// Returns offset of matching open bracket given close bracket character
-//  and offset to start from, or -1 if none found */
+  /* Close bracket - scan the file backwards */
+  while(offset) {
+    /* Get the type of bracket this character is, if any */
+    char c=getc(--offset);
+    t=getbrackettype(c);
+
+    if(t<0 && !ischarincomment(offset)) {
+      /* Close bracket.
+      Stack the corresponding open bracket. Error on stack full */
+      if(sp<31) {
+        stack[++sp]=-t;
+      } else {
+        return(-1);
+      }
+    } else if(t && !ischarincomment(offset)) {
+      /* Open bracket. Remove bracket off stack if present, else open
+      bracket is out of sequence with close brackets so error */
+      if (stack[sp]==t) {
+        /* If last item on stack then found the one we want */
+        if (!sp--)
+          return(offset);
+      } else {
+        return(-1);
+      }
+    } else if (isaquote(offset,0) && (!ischarincomment(offset))) {
+      /* Found a close quote. Search for the corresponding non-escaped
+      open quote thus ignoring all the brackets (Hmm...:-<) */
+      while(offset && ((getc(--offset)!=c) || (escaped(offset))));
+    }
+  }
+  return -1;
+}
+
+// Find next close bracket matching the given type
+static int find_nextclose_bracketmatch(int t, unsigned int offset)
+{
+  signed char stack[32];
+  unsigned int sp=0;
+  stack[0]=-t;
+
+  /* Open bracket - scan the file forwards */
+  while(offset<file->len) {
+    /* Get the type of bracket this character is, if any */
+    char c=getc(++offset);
+    t=getbrackettype(c);
+
+    if(t>0 && !ischarincomment(offset)) {
+      /* Open bracket. Stack the corresponding close bracket.
+      Error on stack full */
+      if(sp<31) {
+        stack[++sp]=-t;
+      } else {
+        return(-1);
+      }
+    } else if(t && !ischarincomment(offset)) {
+      /* Close bracket.  Remove bracket off stack if present, else
+      close bracket is out of sequence with open brackets so error */
+      if(stack[sp]==t) {
+        /* If last item on stack then found the one we want */
+        if(!sp--)
+          return(offset);
+      } else {
+        return(-1);
+      }
+    } else if (isaquote(offset,0)) {
+      /* Found an open quote. Search for the corresponding non-escaped
+      close quote thus ignoring all the brackets */
+      while(offset+1<file->len && (getc(++offset)!=c || escaped(offset)));
+    }
+  }
+  return -1;
+}
+
+
+// If bracket given is open, search forwards for matching close;
+// if bracket given is close, search backwards for matching open.
+// All errors, return -1.
 static int findbracketmatch(char close,unsigned int offset)
 {
-  int t=getbrackettype(close);
+  int t;
+  if (ischarincomment(offset))
+    return -1;
+  t=getbrackettype(close);
 
-  if (ischarincomment(offset)) return -1;
-  /* Check what sort of bracket we have been given */
-  if (t<0)
-  {
-    signed char stack[32];
-    unsigned int sp=0;
-    stack[0]=-t;
-    /* Close bracket - scan the file backwards */
-    while(offset)
-    {
-      /* Get the type of bracket
-        this character is, if any */
-      char c=getc(--offset);
-      t=getbrackettype(c);
-
-      if(t<0 && !ischarincomment(offset))
-      {
-        /* Close bracket.
-           Stack the corresponding open bracket. Error on stack full */
-        if(sp<31)
-        {
-          stack[++sp]=-t;
-        }
-        else
-        {
-          return(-1);
-        }
-      }
-      else if(t && !ischarincomment(offset))
-      {
-        /* Open bracket. Remove bracket off stack if present, else open
-          bracket is out of sequence with close brackets so error */
-        if (stack[sp]==t)
-        {
-          /* If last item on stack then found the one we want */
-          if (!sp--)
-          {
-            return(offset);
-          }
-        }
-        else
-        {
-          return(-1);
-        }
-      }
-      else if (isaquote(offset,0) && (!ischarincomment(offset)))
-      {
-        /* Found a close quote. Search for the corresponding non-escaped
-           open quote thus ignoring all the brackets (Hmm...:-<) */
-        while(offset && ((getc(--offset)!=c) || (escaped(offset))));
-      }
-    }
+  if (t<0) {
+    return find_prevopen_bracketmatch(t, offset);
+  } else if(t) {
+    return find_nextclose_bracketmatch(t, offset);
   }
-  else if(t)
-  {
-    signed char stack[32];
-    unsigned int sp=0;
-    stack[0]=-t;
-
-    /* Open bracket - scan the file forwards */
-    while(offset<file->len)
-    {
-      /* Get the type of bracket this character is, if any */
-      char c=getc(++offset);
-      t=getbrackettype(c);
-      if(t>0 && !ischarincomment(offset))
-      {
-        /* Open bracket. Stack the corresponding close bracket.
-           Error on stack full */
-        if(sp<31)
-        {
-          stack[++sp]=-t;
-        }
-          else
-        {
-          return(-1);
-        }
-      }
-      else if(t && !ischarincomment(offset))
-      {
-        /* Close bracket.  Remove bracket off stack if present, else
-           close bracket is out of sequence with open brackets so error */
-        if(stack[sp]==t)
-        {
-          /* If last item on stack then found the one we want */
-          if(!sp--)
-          {
-            return(offset);
-          }
-        }
-        else
-        {
-          return(-1);
-        }
-      }
-      else if (isaquote(offset,0)) {
-        /* Found an open quote. Search for the corresponding non-escaped
-           close quote thus ignoring all the brackets */
-        while(offset+1<file->len && (getc(++offset)!=c || escaped(offset)));
-//        offset--;
-      }
-    }
-  }
-
   return(-1);
 }
 
@@ -362,56 +385,41 @@ static void bounceto(unsigned int offset)
   }
 }
 
-
-/*
-static int getlastbrackonline(unsigned int i)
-{
-  char c= ' ';
-  bool inquotes = false;
-  int brackoffset = 0;
-
-  while ((c !=(window->cr.byte)) && (i<file->len)) {
-    c=getc(i);
-    if ((c=='\'' || c=='"') && !escaped(i)) inquotes = !inquotes;
-    if (!inquotes) {
-      if (((c=='}') || (c=='}')) && !escaped(i)) brackoffset = i;
-    }
-
-    i++;
-  }
-
-  return brackoffset;
-}
-*/
-
-
-// returns total brackdepth on line containing the offset ...
+// returns total bracket depth on line containing the offset ...
 static int getbrackdepth(unsigned int offset)
 {
   char c = ' ';
   char inquotes = 0;
   int brackdepth = 0;
   unsigned int i=zap_basemode_e_linestart(offset);
-//  unsigned int i=offset;
 
   while ((c !=(window->cr.byte)) && (i < (file->len))) {
-    c=getc(i);
-    if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
-      // (c=='\'' || c=='"') && !escaped(i)) inquotes = !inquotes;
-    if (inquotes == 0) {
-      if (c == '}') brackdepth--;
-      if ((c == '{') && (brackdepth < 0)) brackdepth = 0; //  ???
-      if (c == '{') brackdepth++;
-    }
+    if (!ischarincomment(i)) {
+      c=getc(i);
+      if (isaquote(i,inquotes))
+        inquotes = inquotes ^ c;
 
+      if (inquotes == 0) {
+        if (c == '}')
+          brackdepth--;
+        if ((c == '{') && (brackdepth < 0)) // just in case ...
+          brackdepth = 0;
+        if (c == '{')
+          brackdepth++;
+      }
+    }
     i++;
   }
-
   return brackdepth;
 }
 
 
-// Indenting and character entering functions
+/* -------------------------------------------------------------------------
+ * Indenting and character entering functions
+ * -------------------------------------------------------------------------
+ */
+
+// Insert the spaces and tabs of the required indentation
 static void performindentation(unsigned int start,indentsize size_of_indent)
 {
   int i;
@@ -438,20 +446,18 @@ static void performindentation(unsigned int start,indentsize size_of_indent)
   }
 }
 
-
+// Add up total screen space (ie: columns) of the indent
 int calctotalno(indentsize size_of_indent)
 {
   return size_of_indent.noofspaces + 8 * size_of_indent.nooftabs;
 }
 
-// Given SOL what is indent?
+// Given SOL what is current indent?
 static indentsize indentdepth(int offset)
 {
-  bool notfoundend = true;
-  bool problemflagged = false;
+  bool notfoundend = true, problemflagged = false;
   indentsize size_of_indent;
   char c;
-//  unsigned int start = zap_basemode_e_linestart(offset);
 
   size_of_indent.nooftabs = 0;
   size_of_indent.noofspaces = 0;
@@ -463,18 +469,22 @@ static indentsize indentdepth(int offset)
         (size_of_indent.noofspaces)++;
       } else if (c==window->tabchar.byte) {
         (size_of_indent.nooftabs)++;
-        if ((size_of_indent.noofspaces) > 0) problemflagged = true;
+        if ((size_of_indent.noofspaces) > 0) // spaces exist on line before tabs
+          problemflagged = true;
       } else {
         notfoundend = false;
       }
-
-      if ((offset + size_of_indent.noofspaces + size_of_indent.nooftabs) > file->len) notfoundend = false;
+      if ((offset + size_of_indent.noofspaces + size_of_indent.nooftabs) > file->len)
+        notfoundend = false;
     } else {
       notfoundend = false;
     }
   }
 
-  size_of_indent.totalno = zap_basemode_e_lineoff(offset,offset + size_of_indent.noofspaces + size_of_indent.nooftabs); // lineoff - margins???
+  // Stuff the column of the end of the indent into totalno
+  size_of_indent.totalno = zap_basemode_e_lineoff(offset,offset + size_of_indent.noofspaces +
+  size_of_indent.nooftabs);
+
   // if a bad mixture of tabs and spaces then use spaces...
   if (problemflagged == true)
   {
@@ -486,7 +496,7 @@ static indentsize indentdepth(int offset)
 }
 
 
-// given an offset find the previous non-blank line start not in a comment
+// given an offset find the previous non-blank line start not in a comment/preprocessor
 static int findprevnocommentline(int offset)
 {
   unsigned int start;
@@ -498,81 +508,82 @@ static int findprevnocommentline(int offset)
   if (offset >= file->len)
     offset=(zap_basemode_e_linestart(offset)) - 1;
 
-  if (offset <= 0) return 0;
+  if (offset <= 0)
+    return 0;
+
   start=zap_basemode_e_linestart(offset);
 
   do {
     if (start > 0) {
       i = start;
-
       c = getc(i);
       while (((c==' ') || (c==(window->tabchar.byte))) && (i <= (file->len)))
-        c=getc(i++);
+        c=getc(i++); // skip blanks
+
       // sigh - do we /have/ to consider both cases? ;-(
       ipo = i + 1;
-      if (ipo > file->len) ipo = file->len;
-      if (i   > file->len) i   = file->len;
+      if (ipo > file->len)
+        ipo = file->len;
+      if (i > file->len)
+        i = file->len;
+
       if ((i <= (file->len)) &&
-          (c == window->cr.byte || (c == '#' && mode->c.flags1 & 2)) ||
-          (ischarincomment(i) && (ischarincomment(ipo)))) {
-        start=zap_basemode_e_linestart(start - 1);
-      } else fin=true;
-    } else fin=true;
+        (c == window->cr.byte || (c == '#' && mode->c.flags1 & M_FLAGS1_HIGHLIGHTPREPRO)) ||
+        (ischarincomment(i) && (ischarincomment(ipo))))
+        {
+          start=zap_basemode_e_linestart(start - 1);
+        } else {
+          fin=true;
+        }
+    } else {
+      fin=true;
+    }
   } while (!fin);
 
   return start;
 }
 
 
-/*
-static bool lineisblankoracomment(int offset)
-{
-  unsigned int i = zap_basemode_e_linestart(offset);
-  char c;
-  bool found=false;
-
-    c = getc(i);
-    while (((c==' ') || (c==(window->tabchar.byte))) && i<(file->len))
-      c=getc(i++);
-    if ((c == (window->cr.byte)) || (ischarincomment(i + 1))) found = true;
-  return found;
-}
-*/
-
-
+// Returns true if the line starts with a comment (not counting blanks).
+// Does this by checking the character /after/ the first non-blank, but
+// of course that shouldn't matter for C/C++/Java-like languages ...
 static bool lineisacomment(int offset)
 {
   unsigned int i = zap_basemode_e_linestart(offset);
   char c;
   int ipo;
-  bool found=false;
 
   c = getc(i);
   while (((c==' ') || (c==(window->tabchar.byte))) && (i < (file->len)))
     c=getc(i++);
   ipo = i + 1;
-  if (ipo > file->len) ipo = file->len;
-  if ((ischarincomment(ipo))) found = true;
-
-  return found;
+  if (ipo > file->len)
+    ipo = file->len;
+  if ((ischarincomment(ipo)))
+    return true;
+  else
+    return false;
 }
 
 
+// Returns true if offset is in blanks at start of line.
 static bool beforestartofline(int offset)
 {
   unsigned int i = zap_basemode_e_linestart(offset);
   char c;
-  bool found=false;
 
   c = getc(i);
   while ((c==' ' || c==(window->tabchar.byte)) && i<(file->len))
     c=getc(i++);
-  if (i >= (offset - 1)) found = true;
-
-  return found;
+  if (i >= (offset - 1))
+    return true;
+  else
+    return false;
 }
 
 
+// Augment the indent by 'num' entries, remembering that c.indent
+// is negative to indicate an indent size in tabs (# of the absolute value)
 static indentsize changeindentby(indentsize size_of_indent,int num)
 {
   if (mode->c.indent > 0) {
@@ -581,10 +592,10 @@ static indentsize changeindentby(indentsize size_of_indent,int num)
     size_of_indent.nooftabs -= (mode->c.indent) * num;
   }
 
-// probably...
-
-  if (size_of_indent.noofspaces < 0) size_of_indent.noofspaces = 0;
-  if (size_of_indent.nooftabs < 0) size_of_indent.nooftabs = 0;
+  if (size_of_indent.noofspaces < 0)
+    size_of_indent.noofspaces = 0;
+  if (size_of_indent.nooftabs < 0)
+    size_of_indent.nooftabs = 0;
 
   size_of_indent.totalno = calctotalno(size_of_indent);
 
@@ -592,75 +603,118 @@ static indentsize changeindentby(indentsize size_of_indent,int num)
 }
 
 
+/* break */
+bool is_break(char c, int i)
+{
+  if (((c=='b') && (getc(i+1)=='r') && (getc(i+2)=='e') && (getc(i+3)=='a') && (getc(i+4)=='k') && (!alphanum(getc(i+5))))) return true;
+  return false;
+}
+
+/* case or default */
+bool is_label(char c, int i)
+{
+  if (((c=='c') && (getc(i+1)=='a') && (getc(i+2)=='s') && (getc(i+3)=='e') && (!alphanum(getc(i+4)))) ||
+    ((c=='d') && (getc(i+1)=='e') && (getc(i+2)=='f') && (getc(i+3)=='a') && (getc(i+4)=='u') && (getc(i+5)=='l') && (getc(i+6)=='t') && (!alphanum(getc(i+7))))) return true;
+  return false;
+}
+
+/* if, else, for or while */
+bool is_block_statement(char c, int i)
+{
+  if ((((c=='i') && (getc(i+1)=='f') && (!alphanum(getc(i+2)))) ||
+    ((c=='e') && (getc(i+1)=='l') && (getc(i+2)=='s') && (getc(i+3)=='e') && (!alphanum(getc(i+4)))) ||
+    ((c=='f') && (getc(i+1)=='o') && (getc(i+2)=='r') && (!alphanum(getc(i+3)))) ||
+    ((c=='w') && (getc(i+1)=='h') && (getc(i+2)=='i') && (getc(i+3)=='l') && (getc(i+4)=='e')) && (!alphanum(getc(i+5))))) return true;
+  return false;
+}
+
+/* private, public or protected (for ':' indent) */
+bool is_visibility_modifier_simple(char c, int i)
+{
+  if (((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='i') && (getc(i+3)=='v') && (getc(i+4)=='a') && (getc(i+5)=='t') && (getc(i+6)=='e') && (!alphanum(getc(i+7)))) ||
+    ((c=='p') && (getc(i+1)=='u') && (getc(i+2)=='b') && (getc(i+3)=='l') && (getc(i+4)=='i') && (getc(i+5)=='c') && (!alphanum(getc(i+6)))) ||
+    ((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='o') && (getc(i+3)=='t') && (getc(i+4)=='e') && (getc(i+5)=='c') && (getc(i+6)=='t') && (getc(i+7)=='e') && (getc(i+8)=='d') && (!alphanum(getc(i+9))))) return true;
+
+  return false;
+}
+
+/* private:, public: or protected: */
+bool is_visibility_modifier(char c, int i)
+{
+  if (((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='i') && (getc(i+3)=='v') && (getc(i+4)=='a') && (getc(i+5)=='t') && (getc(i+6)=='e') && (getc(i+7)==':')) ||
+    ((c=='p') && (getc(i+1)=='u') && (getc(i+2)=='b') && (getc(i+3)=='l') && (getc(i+4)=='i') && (getc(i+5)=='c') && (getc(i+6)==':')) ||
+    ((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='o') && (getc(i+3)=='t') && (getc(i+4)=='e') && (getc(i+5)=='c') && (getc(i+6)=='t') && (getc(i+7)=='e') && (getc(i+8)=='d') && (getc(i+9)==':'))) return true;
+
+  return false;
+}
+
 // Re-indent current line according to requirements
+// brack can be '{', ':', '}' or cr.byte
 void reindentline(char brack)
 {
-  int start2;
-  indentsize original_size_of_indent,size_of_indent2;
-  int oomb = -1;
-//  int start3;
-//  indentsize size_of_indent3;
-  unsigned int oldflags=file->flags;
-  int i;
-  unsigned int start=zap_basemode_e_linestart(cursor->off);
+  int start2, i;
   char c;
+  indentsize original_size_of_indent,size_of_indent2;
+  int oomb = -1, casedef = 1, visibilitydef = 1;
+  unsigned int oldflags=file->flags;
+  unsigned int start=zap_basemode_e_linestart(cursor->off);
 
-//  for (i=0;(i<1000000);i++);
-
-//  start2 = findpreviousrealline(findprevnocommentline(start - 1));
-//  size_of_indent2 = indentdepth(start2);
-
-  if (brack == '}') {
+  if (brack == '}') { // use indent from line the bracket matches
     oomb = findbracketmatch('}',cursor->off);
     if (oomb >= 0) {
       start2 = findpreviousrealline(zap_basemode_e_linestart(oomb));
       size_of_indent2 = indentdepth(start2);
-
-//      if ((size_of_indent3.totalno > size_of_indent2.totalno) || (brack == '}')) {
-//      size_of_indent2 = size_of_indent2;
-//      start2 = start2;
-//      }
     }
   }
 
-  if ((brack != '}') || (oomb == -1)) {
+  if ((brack != '}') || (oomb == -1)) { // not bracket matching (or it failed) - use indent from previous useful line
     start2 = findpreviousrealline(findprevnocommentline(start - 1));
     size_of_indent2 = indentdepth(start2);
   }
 
   /* Calculate number of whitespace chars at start of that line */
-//  size_of_indent = indentdepth(start2);
-
   if (brack != '}') {
     i=getbrackdepth(start2);
-    if (i>0) {
+    if (i>0) { // unmatched on that line: '{'
       size_of_indent2 = changeindentby(size_of_indent2,i);
-    } else if (i<0) {
-///* vindicated this section...
-      oomb = findbracketmatch('}',wkbktolastclosebrace(cursor->off));
-      // before the start of the file?
-      if (oomb == -1) oomb = 0;
+    } else if (i<0) { // unmatched on that line: '}'
+      oomb = findbracketmatch('}',findlastclosebrace(cursor->off));
+      if (oomb == -1) // before the start of the file?
+        oomb = 0;
+      // use indent from previous useful line to bracket matching line
+      // (we went back to previous useful line looking for an indent, but that
+      // line had unmatched cbraces, so we go back to find a match for that --
+      // this isn't recursive, however, so it's probably possible to confuse it).
       start2 = findpreviousrealline(zap_basemode_e_linestart(oomb));
       size_of_indent2 = indentdepth(start2);
-//*/ <- this when inserting '//' redraws wrong :-/
     }
 
-    // to cope with wibble }<CR>
-    // size_of_indent2 = changeindentby(size_of_indent2,i);
+    // NOTE: I've moved this outside the previous conditional, because it should
+    // (surely?) always be fired unless we're dealing with a cbrace -- sja.
+    // skip blank space
+    for (; ((c=getc(start2))==' ' || c==window->tabchar.byte) && start2 < file->len; start2++);
+    casedef = !is_label(c, start2);
+    visibilitydef = !is_visibility_modifier(c, start2);
+    // does this line NOT begin with 'case' / 'default' / visibility modifier?
   }
 
   /* Calculate number of whitespace chars at start of line */
   for (i=start;(((c=getc(i))==' ' || c==window->tabchar.byte) && (i < file->len));i++);
 
-// all called OK.
-//  if (c != '{' || c == '}' || c == (window->cr.byte)) {  // Strange != at start!
-//  if ((c == '{') || (c == '}') || (c != (window->cr.byte))) {
+  // Check for 'case' or 'default'; unindent a little if found
+  // Do this only if the previous useful line didn't have case/default starting it.
+  if (casedef && !ischarincomment(i) && is_label(c, i))
+    size_of_indent2 = changeindentby(size_of_indent2, -1);
+  // Similarly for visibility modifiers
+  if (visibilitydef && !ischarincomment(i) && is_visibility_modifier_simple(c, i))
+    size_of_indent2 = changeindentby(size_of_indent2, -1);
 
-// hmm...?
-//  if (brack != '{') {
-
+  // Huh? If we've scanned past the cursor. This routine is /always/ called from
+  // within a character insertion routine, so the cursor will /always/ be where the
+  // appropriate character is inserted. I can't see how we can scan to the cursor
+  // or beyond unless the cursor was at the first non-blank space on the line.
+  // And I don't think that's the point, so ... umm ...
   if (i > (cursor->off) - 1) {
-
     /* Replace all of current whitespace with required number of
        whatever characters the line was originally indented with as the
        new indent */
@@ -676,61 +730,12 @@ void reindentline(char brack)
   }
 }
 
-/* break */
-bool chkforwds_break(char c, int i)
-{
-  if (((c=='b') && (getc(i+1)=='r') && (getc(i+2)=='e') && (getc(i+3)=='a') && (getc(i+4)=='k') && (!alphanum(getc(i+5))))) return true;
-  return false;
-}
-
-/* case or default */
-bool chkforwds0(char c, int i)
-{
-  // "quick" 'n' dirty search for private, public, protected...
-  if (((c=='c') && (getc(i+1)=='a') && (getc(i+2)=='s') && (getc(i+3)=='e') && (!alphanum(getc(i+4)))) ||
-     ((c=='d') && (getc(i+1)=='e') && (getc(i+2)=='f') && (getc(i+3)=='a') && (getc(i+4)=='u') && (getc(i+5)=='l') && (getc(i+6)=='t') && (!alphanum(getc(i+7))))) return true;
-
-  return false;
-}
-
-/* if, else, for or while */
-bool chkforwds1_only(char c, int i)
-{
-  // "quick" 'n' dirty search for if, for, else, case, default, while...
-  if ((((c=='i') && (getc(i+1)=='f') && (!alphanum(getc(i+2)))) ||
-     ((c=='e') && (getc(i+1)=='l') && (getc(i+2)=='s') && (getc(i+3)=='e') && (!alphanum(getc(i+4)))) ||
-     ((c=='f') && (getc(i+1)=='o') && (getc(i+2)=='r') && (!alphanum(getc(i+3)))) ||
-     ((c=='w') && (getc(i+1)=='h') && (getc(i+2)=='i') && (getc(i+3)=='l') && (getc(i+4)=='e')) && (!alphanum(getc(i+5))))) return true;
-  return false;
-}
-
-/* if, else, for or while OR case or default */
-bool chkforwds1(char c, int i)
-{
-  return chkforwds1_only(c,i) || chkforwds0(c,i);
-}
-
-/* private:, public: or protected: */
-bool chkforwds2(char c, int i)
-{
-  // "quick" 'n' dirty search for private, public, protected...
-  if (((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='i') && (getc(i+3)=='v') && (getc(i+4)=='a') && (getc(i+5)=='t') && (getc(i+6)=='e') && (getc(i+7)==':')) ||
-     ((c=='p') && (getc(i+1)=='u') && (getc(i+2)=='b') && (getc(i+3)=='l') && (getc(i+4)=='i') && (getc(i+5)=='c') && (getc(i+6)==':')) ||
-     ((c=='p') && (getc(i+1)=='r') && (getc(i+2)=='o') && (getc(i+3)=='t') && (getc(i+4)=='e') && (getc(i+5)=='c') && (getc(i+6)=='t') && (getc(i+7)=='e') && (getc(i+8)=='d') && (getc(i+9)==':'))) return true;
-
-  return false;
-}
-
-
 /*
- * returns true if we've had one of:
- *   if, for, else, case, default, while
- * without being followed by {} or a statement.
- * case or default followed by a statement will
- * still return true (because case 9: foo; should
- * still indent).
+ * If this line contains a block statement without block or statement,
+ * or case/default, we have to reindent following lines on entering '{'.
+ * A /similar/ function is performed by adjustbrackdepthforifs() ... I
+ * /think/.
  */
-
 static bool needtochkprev(int offset)
 {
   int realstartofline = zap_basemode_e_linestart(offset);
@@ -752,297 +757,275 @@ static bool needtochkprev(int offset)
   do {
     c=getc(i);
     if (inquotes==0) {
-      // "quick" 'n' dirty search for if, for, else, case, default, while...
-      if (chkforwds1(c,i)) {
+      if (is_block_statement(c,i) || is_label(c,i)) {
         if (i>0) b = getc(i-1); else b = 0;
         if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
           iflevel = true;
-        }
-        if (chkforwds0(c,i)) { /* case, default */
-          caseordefault=true;
+          if (is_label(c,i)) // case, default
+            caseordefault=true;
         }
       }
 
       if (((c=='{') || (c=='}') || (c==';')) && (!(escaped(i-1))) && (!(ischarincomment(i-1)))) {
-        if (c==';') foundsemicolon = true; else foundlevelchanger = true;
+        if (c==';')
+          foundsemicolon = true;
+        else
+          foundlevelchanger = true;
       }
 
-      if (foundsemicolon && (c>32) && (c!=';') && (c!='/') && (c!='*') && (!ischarincomment(i))) foundsemicolon = false; // deals with 'for (x;y;z)'
+      if (foundsemicolon && (c>32) && (c!=';') &&
+          (c!='/') && (c!='*') && (!ischarincomment(i)))
+        foundsemicolon = false; // deals with 'for (x;y;z)' ... amongst others
     }
 
-    if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
+    if (isaquote(i,inquotes))// something
+      inquotes = inquotes ^ c;
 
   } while ((i++ <= realendofline) && (c!=(window->cr.byte))); // offset);
 
+  // Bits of blocks, or statements not following case/default mean we don't have
+  // to check this line when considering those after it.
   if ((foundsemicolon && !caseordefault) || foundlevelchanger) iflevel = false;
-
+  // Otherwise, if we found a block statement or case/default, then we do.
   return iflevel;
 }
 
-/* SJA:
- * (I *think*) this knocks off bracket depth in the case of
- * if (foo)
- *  bar;
- * It may now also find case: break; okay. I hope so.
- * Then it does some horrendous stuff which I can't figure out
- * at the end ...
+/*
+ * Adjusts indents for any unfinished block keyword found on this line.
+ * By 'unfinished', we mean where the block or statement isn't completed
+ * on this line. Except it also checks the start of a block.
+ * If it fails a condition that I don't think /can/ fail, then it scans
+ * further backwards trying to figure out what to do. This is very wooly,
+ * and quite probably wrong most of the time. I've removed my lame attempts
+ * to get break; to knock off, since that's not the domain of this function
+ * at all, and in any case we don't do things like that any more -- sja
  */
-
 static indentsize adjustbrackdepthforifs(int offset,indentsize size_of_indent)
 {
   int realstartofline = zap_basemode_e_linestart(offset);
   int realendofline = zap_basemode_e_lineend(offset);
-//  int oldsol = 0;
   int newstartofline;
   int i;
   int iflevel = 0, caselevel = 0;
-  int oldiflevel = 0, oldcaselevel = 0;
   char c,b;
 
   char inquotes = 0;
   bool foundlevelchanger = false;
   bool foundsemicolon = false;
   bool foundopening = false;
-  bool activity_reqd = false;
-  bool flag  = false;
-  bool foundbreak = false;
-  bool foundcase = false;
-
-//  offset = zap_basemode_e_lineend(offset); // make sure it's all checked...
-//  indentsize size_of_indent2;
-
-//  size_of_indent2.noofspaces = 0;
-//  size_of_indent2.nooftabs = 0;
-
-//  if (realstartofline == 0) return size_of_indent;
 
   i=realstartofline;
 
   if (preprodirective(i)) return size_of_indent; // don't work :-(
 
+  // Scan the line for interesting things.
   do {
     c=getc(i);
-    if (inquotes==0) {
-      // "quick" 'n' dirty search for if, for, else, case, default, while...
-      flag = chkforwds2(c,i);
-      foundbreak = chkforwds_break(c,i);
-      if (chkforwds1_only(c,i) || flag) {
-        if (i>0) b = getc(i-1); else b = 0;
-        if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
-          iflevel = oldiflevel + 1; // hmm...
-        }
-      }
-      // SJA: check for case, and track separately from if
-      if (chkforwds0(c,i)) {
-        if (i>0) b = getc(i-1); else b = 0;
-        if (!ischarincomment(i) && !escaped(i) && !alphanum(b)) {
-          caselevel = oldcaselevel + 1;
-          foundcase = true;
+    if (inquotes==0 && !ischarincomment(i) && !escaped(i)) {
+      if (i>0)
+        b = getc(i-1);
+      else
+        b = 0;
+
+      // Indent after if/else/for/while/visibility:
+      if (is_block_statement(c,i) || is_visibility_modifier(c,i)) {
+        // normal check: not part of an identifier that just
+        // happens to have the appropriate characters in it
+        if (!alphanum(b)) {
+          iflevel = 1; // only indent once for one if ...
         }
       }
 
-      if (((c=='{') || (c=='}') || (c==';')) && (!(escaped(i-1))) && (!(ischarincomment(i-1)))) {
-        if (c==';') foundsemicolon = true; else foundlevelchanger = true;
+      // EEK: first example of comments indenting ...
+      if (is_label(c,i)) { // Indent after case/default
+        if (!alphanum(b)) {
+          caselevel = 1; // only indent once for one case ...
+        }
       }
 
-      if (foundsemicolon && (c>32) && (c!=';') && (c!='/') && (c!='*') && (!ischarincomment(i))) foundsemicolon = false; // deals with 'for (x;y;z)'
+      // Need to check that this doesn't immediately follow a comment
+      // or string. (NOTE: but what about char* c="this"; ? Ofc, that
+      // doesn't have any bearing on if (something) statement; ...)
+      if (((c=='{') || (c=='}') || (c==';')) &&
+        (!(escaped(i-1))) && (!(ischarincomment(i-1)))) {
+          if (c==';')
+            foundsemicolon = true;
+          else
+          {
+            if (c=='{')
+              foundopening = true;
+            foundlevelchanger = true;
+          }
+        }
+
+        // Huh? If we previously found a semicolon, but this isn't it
+        // and we're not leading into something that might be a comment
+        // (BUT: what about '/' and '*' as arithmetic operators?), then it
+        // wasn't a 'real' semicolon, but part of a 'for' statement.
+        // Surely this fails on wibble(); x = y * t[\n]; ?
+        // AH! Perhaps it's _supposed_ to only catch the last semicolon
+        // on the line. The 'for' comment is misleading ... ?
+        if (foundsemicolon && (c>32) && (c!=';') &&
+          (c!='/') && (c!='*') && (!ischarincomment(i)))
+          foundsemicolon = false; // deals with 'for (x;y;z)'
     }
 
-    if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
-      //(c=='"' || c=='\'') && !escaped(i) && (!ischarincomment(i))) inquotes=!inquotes;
+    if (isaquote(i,inquotes))
+      inquotes = inquotes ^ c;
+  } while ((i++ <= realendofline) && (c!=(window->cr.byte)));
 
-  } while ((i++ <= realendofline) && (c!=(window->cr.byte))); // offset);
+  // This tries to clear up if/else/for/while followed by their statement
+  // on the same line, and also copes with finding their block starting on
+  // the same line. In neither case does the following line indent due to
+  // the block keyword.
+  //
+  // We can cope with:
+  //
+  // if (something)
+  // { ...
+  // } else
+  //
+  // except that the extra indent from the else doesn't subsequently
+  // get knocked off, presumably because the other code to cope with that
+  // doesn't understand about a level changer followed by a keyword.
+  // To get old behaviour (not coping with the above at all) use foundlevelchanger.
+  // To get new, use foundopening.
+  if (foundsemicolon || foundlevelchanger)
+    iflevel = 0;
 
-//  i = iflevel;
-  if (foundsemicolon || foundlevelchanger) iflevel = 0;
-
-  // SJA: if we had a break;, then case: has been closed ...
-  if (foundbreak) caselevel = 0;
-  // SJA: if and case both count (or something ... don't entirely understand this bit)
   iflevel += caselevel;
 
-//  if (flag) return size_of_indent;
-
   size_of_indent = changeindentby(size_of_indent,iflevel);
-//  size_of_indent = changeindentby(size_of_indent,2); // !?
 
+  // If we found a brace (2nd condition), or there was a block keyword without
+  // its statement/block (3rd condition), or there was no block keyword at all
+  // and no brace and no semicolon (1st condition) -- then we're done.
   if (!foundsemicolon ||
-      foundlevelchanger ||
-      (iflevel > 0)) return size_of_indent; // ||
-//      flag) return size_of_indent;
+    foundlevelchanger ||
+    (iflevel > 0)) return size_of_indent; // ||
 
-//   return size_of_indent; // !??????????????????????
+  // My analysis of the above is definitely wrong (since the code /CAN/ fire) - sja
 
-  // ------------------------------------------------------
+  // So: no braces, so we didn't find a block at all. No block keywords without
+  // statements/blocks at all. Might have been a keyword, but then it would have
+  // had to have had a block (fails - 2nd condition), a statement (fails - 1st
+  // condition) or neither (fils - 3rd condition). So I'm confused; my
+  // analysis of the above is wrong (or this code never fires).
 
-  // iflevel;  || foundlevelchanger
-  // example.
-
-  // return size_of_indent;
-
-  // prob after this...
-
+  // Otherwise, we need to consider earlier lines, because this line looks like
+  // it didn't contain a complete statement for us to use. (Or something like that.)
+  // We keep going backwards until we find one with '}' or ';' on ... ie the end of
+  // a statement or block.
   do {
     foundlevelchanger = false; // overkill...
     foundsemicolon = false;
     foundopening = false;
-    inquotes = false;
+    //    inquotes = false;
+    inquotes = 0;
 
-    if (realstartofline == 0) return changeindentby(size_of_indent,-99); // !
+    // Find the previous useful line. If we're at the start of the
+    // file, reset the indent to nothing.
+    if (realstartofline == 0)
+      return changeindentby(size_of_indent,-99); // !
     newstartofline = findprevnocommentline(realstartofline - 1);
-    if (newstartofline == 0) return changeindentby(size_of_indent,-99); // !
+    if (newstartofline == 0)
+      return changeindentby(size_of_indent,-99); // !
 
-    // zap_basemode_e_linestart(realstartofline - 1);
-    // fpl = findprevnocommentline(start - 1);
-    // offset = realstartofline;                         // ...?
-    // offset = zap_basemode_e_lineend(newstartofline);  bug...
-
+    // Okay, let's consider from here forward to the line we've
+    // already done.
     i=newstartofline;
     do {
       c=getc(i);
-      if (inquotes==0) {
-//        if ((foundsemicolon && c>32) && (c!=';') && (c!='/') && (!ischarincomment(i))) foundsemicolon = false; // deals with 'for (x;y;z)'
+      // EEK: second example of comments indenting
+      if (inquotes==0) {// anything interesting on this line?
         if (((c=='{') || (c=='}') || (c==';')) && (!escaped(i)) && (!ischarincomment(i))) {
-          if (c=='{') foundopening = true;
-          if (c==';') foundsemicolon = true; else foundlevelchanger = true;
+          if (c=='{')
+            foundopening = true;
+          if (c==';')
+            foundsemicolon = true;
+          else
+            foundlevelchanger = true;
         }
-        if (foundsemicolon && (c>32) && (c!=';') && (c!='/') && (c!='*') && (!ischarincomment(i))) foundsemicolon = false; // deals with 'for (x;y;z)' again
+        if (foundsemicolon && (c>32) && (c!=';') && (c!='/') &&
+            (c!='*') && (!ischarincomment(i)))
+          foundsemicolon = false; // deals with 'for (x;y;z)' again (and similar)
       }
-
-      if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
+      if (isaquote(i,inquotes))
+        inquotes = inquotes ^ c;
 
     } while ((i++ < realstartofline) && (c!=(window->cr.byte))); // offset); was <=
 
+    // If we found nothing useful ('{', '}' or ultimate ';'), loop to try another line.
     if ((!foundlevelchanger) && (!foundsemicolon)) {
-//    oldsol = realstartofline;
       realstartofline = newstartofline;
-      activity_reqd = true;
+      //      activity_reqd = true;
     }
   } while ((!foundlevelchanger) && (!foundsemicolon));
 
-  //  if (foundlevelchanger) return size_of_indent;
-  //  prob before this
-  //  if (!foundlevelchanger && foundsemicolon)
-
-  //  if (!activity_reqd) return size_of_indent;
-
-  // see if it returns to one of...
-
-  if (preprodirective(realstartofline)) return size_of_indent; // doesn't work?
+  // If the final line we checked was a preprocessor line, stop here.
+  if (preprodirective(realstartofline))
+    return size_of_indent; // doesn't work?
 
   inquotes=0;
   i=realstartofline;
   realendofline = zap_basemode_e_lineend(i);
-  foundsemicolon = false;
-  flag = false;
+  //  foundsemicolon = false;
+  //  flag = false;
 
+  // Let's reconsider this line we found (the one with the end of the block/statement
+  // on it).
+  // FIXME: not the one /after/ that? It looks like that to me ...
   do {
     c=getc(i);
-    if (inquotes==0 && (chkforwds_break(c, i) || chkforwds2(c,i) || chkforwds0(c,i))) return size_of_indent;
+    // If it's a break, visibility: or label, give up.
+    if (i>0)
+      b = getc(i-1);
+    else
+      b = 0;
+    if (!alphanum(b) && !ischarincomment(i) && inquotes==0 && (is_break(c, i) || is_visibility_modifier(c,i) || is_label(c,i)))
+      return size_of_indent;
 
-    if (isaquote(i,inquotes)) inquotes = inquotes ^ c;
-
+    if (isaquote(i,inquotes))
+      inquotes = inquotes ^ c;
   } while ((i++ <= realendofline) && (c!=(window->cr.byte))); // offset);
 
-//  if (preprodirective(realstartofline)) return size_of_indent;
-
-//  return size_of_indent;  ////?????????????????
-
-//  for (i=0;(i<2000000);i++);
-
-//  size_of_indent = indentdepth(findpreviousrealline(newstartofline)); //realstartofline); // newstartofline);
-
-  size_of_indent = indentdepth(realstartofline); //realstartofline); // newstartofline);
-//  size_of_indent = indentdepth(findpreviousrealline(realstartofline)); //realstartofline); // newstartofline);
-
+  // If we've got to here, just count the brackets and add that to the current indent.
+  // (This is still the earliest line we considered.)
+  size_of_indent = indentdepth(realstartofline);
   i = getbrackdepth(realstartofline); // was newsol...
-
-  // if (foundopening)
   size_of_indent = changeindentby(size_of_indent,i);
-
-//  i = size_of_indent2.nooftabs + size_of_indent2.noofspaces;
-//  if (i < 0) i = -i;
-//  //  size_of_indent = indentdepth(storedstartofline);
-//  j = size_of_indent.nooftabs + size_of_indent.noofspaces;
-//  if (j < 0) j = -j;
-//  i -= j;
-//  if (i<0) i = -i;
-//  j = mode->c.indent;
-//  if (j < 0) j = -j;
-//  i = intdiv(i,j);
-//  // calculate offset...
 
   return size_of_indent;
 }
 
 
 // deal with pressing return
-// cases to deal with include: if, case, default, { and }
+// cases to deal with include: if, case, default, { and }, visibility modifiers
 static void returnindent(void)
 {
-  int i; //brackdepth = 0,i;
-  int start2;
-  unsigned int oldflags=file->flags;
-  unsigned int start=zap_basemode_e_linestart(cursor->off); // this line...
-
-//  int notfoundend = 1;
-//  int size_of_indent.noofspaces = 0, size_of_indent.nooftabs = 0;
-
-  char c;
   indentsize size_of_indent,oldsize_of_indent,original_size_of_indent;
+  int i, start2;
+  char c;
+  unsigned int oldflags = file->flags;
+  unsigned int start = zap_basemode_e_linestart(cursor->off); // this line...
 
-  if (start == 0) return;                   // deal with start of file
+  if (start == 0) // deal with start of file
+    return;
 
-  start2 = findprevnocommentline(start - 1);          // -1
-
-// // if (start2 == 0) return;                    // deal with start of file
-//
-//   brackdepth = getbrackdepth(start2);
-//   if (brackdepth < 0) {
-//     start2=getlastbrackonline(start2);
-//     if (start2 > 0) start2 = findbracketmatch('}',start2);
-//     if (start2 > 0) start2 = zap_basemode_e_linestart(start2);
-//     if (start2 < 0) start2 = 0;
-//     brackdepth = 0;
-//   }
-//
-// // brackdepth += adjustbrackdepthforifs(start-1);
-// // if (brackdepth < 0) brackdepth++;
-//
-//  size_of_indent = indentdepth(0);
+  start2 = findprevnocommentline(start - 1); // previous 'useful' line start
   size_of_indent = indentdepth(findpreviousrealline(start));
-//    while(notfoundend) {
-//      c=getc(start2 + size_of_indent.noofspaces + size_of_indent.nooftabs);
-//      if (c==' ') {
-//        size_of_indent.noofspaces++;
-//      } else if (c==window->tabchar.byte) {
-//        size_of_indent.nooftabs++;
-//      } else {
-//        notfoundend = !notfoundend;
-//      }
-//?????  }
-//    for(anew=start2;(c=getc(anew))==' ' || c==window->tabchar.byte;anew++);
-//    anew -= start2;
-//   size_of_indent = changeindentby(size_of_indent,brackdepth);
-  oldsize_of_indent = size_of_indent;
-  size_of_indent = adjustbrackdepthforifs(start2,size_of_indent);
-  if ((size_of_indent.noofspaces == oldsize_of_indent.noofspaces) && (size_of_indent.nooftabs == oldsize_of_indent.nooftabs)) return;
-
-//  if (size_of_indent.noofspaces < 0) size_of_indent.noofspaces = 0;
-//  if (size_of_indent.nooftabs < 0) size_of_indent.nooftabs = 0;
-
-//   size_of_indent.noofspaces -= oldsize_of_indent.noofspaces;
-//   size_of_indent.nooftabs -= oldsize_of_indent.nooftabs;
-//   oldsize_of_indent = indentdepth(start);
-//   size_of_indent.noofspaces += oldsize_of_indent.noofspaces;
-//   size_of_indent.nooftabs += oldsize_of_indent.nooftabs;
-
-/* Calculate number of whitespace chars at start of line */
-  for(i=start;((c=getc(i))==' ' || c==window->tabchar.byte) && (i < file->len);i++);
-// (total No...?)
-//  if (c != '{' || c == '}' || c == (window->cr.byte)) {
-  /* Replace all of current whitespace with required number of
-  spaces for new indent */
+  oldsize_of_indent = size_of_indent; // last useful line's indent
+  size_of_indent = adjustbrackdepthforifs(start2,size_of_indent); // deal with un-blocked if's and similar
+  if ((size_of_indent.noofspaces == oldsize_of_indent.noofspaces) &&
+    (size_of_indent.nooftabs == oldsize_of_indent.nooftabs))
+    return;
+  // Calculate number of whitespace chars at start of /this/ line
+  for(i=start; ((c=getc(i))==' ' || c==window->tabchar.byte) && (i < file->len); i++);
+  // NOTE: not positive following is correct, but it seems to work ...
+  if (is_label(c, i) || is_visibility_modifier(c, i)) { // if we start with a label, knock off an indent level
+    size_of_indent = changeindentby (size_of_indent, -1);
+  }
+  // Replace old indent characters with new ones
   original_size_of_indent = indentdepth(start);
   if (original_size_of_indent.totalno != size_of_indent.totalno) {
     file->flags|=1<<14;
@@ -1052,8 +1035,8 @@ static void returnindent(void)
   }
 }
 
-
-// allow for insertions/deletions in zap_command...
+// Moves bracket marks around during insertions/deletions in Zap_Command
+// so that we still know where the brackets are.
 void move_markers_around(unsigned int cno,unsigned int offset,unsigned int num)
 {
   int i = (cno & 7);
@@ -1081,185 +1064,168 @@ void move_markers_around(unsigned int cno,unsigned int offset,unsigned int num)
 
 
 // Next level of C_char: After bracket matching, now indent line if required
-static void charwithindent(unsigned int wflags,
-                           unsigned int len,
-                           unsigned int wformat,
-                           const char  *data)
+// Some rather dubious and scatty code here.
+static void charwithindent(unsigned int wflags, unsigned int len,
+unsigned int wformat, const char  *data)
 {
   unsigned int i;
-  int tempbo1 = ws->bracketoff1;
-  int tempbo2 = ws->bracketoff2;
-  int before = cursor->off;
-  int truelen = len;
-  char a;
-  char t='@';
+  int tempbo1 = ws->bracketoff1, tempbo2 = ws->bracketoff2;
+  int before = cursor->off, truelen = len;
+  char a, t='@';
 
-  ///*
   zap_startop();
 
-  for(i=0;i<len;i++)
-  {
+  for(i=0; i<len; i++) { // check for anything that needs the indentation depth altering
     a = data[i];
     switch(a)
     {
-      case '{':   // C & C++. cc-mode also does ';' & ',' - why?
-      case '}':
-        if (a != '}' || zap_readvar(v_carmode) != 2) {
-    /* Get current cursor mode. Check for being normal cursor */
+      // EEK: example of comments indenting
+    case ':': // label
+      if (zap_readvar(v_carmode) != 2) { // not during split cursor
+        ++i;
+        data+=i;
+        len-=i;
 
+        {
+          int cur = cursor->off;
+          int flen = file->len;
+          int i, j;
+          // NOTE: firstcharofline() contains almost exactly the same code. Needs
+          // factoring into a shared function.
+          i = j = zap_basemode_e_linestart(cur);
+          while (i < file->len && ((a = getc(i)) == ' ' || a == window->tabchar.byte))
+            i++; /* skip white space */
 
-  //      case ':':
-  //      case '*':
-  //      case '#':
-  //
-  //      case '/':   C++ only
-  //      case '<':
-  //      case '>':
-  //      case (window->cr.byte):
-          // unhighlight();        // overkill?
-  // ------------------------------------------
-
-  //      ++i;
-  //      ++i; //prototype line
-          ++i;
-          data+=i;
-          len-=i;
-
-  // -----------------------------------------
-
-  //      if (a=='}' || a=='{') reindentline(a); // || (window->cr.byte)??? ////
-  //      if (a=='}' || a=='{') {
-          if (a != '}') {
-            if ((needtochkprev(findprevnocommentline(cursor->off))) || (window->addr == -1))
-              {
-                reindentline(a); // usually not if '{'  || (globalflag == 123)
-                // bug!!!
-//                zap_basemode_e_char(wflags,1,wformat,&t);
-              }
-          } else {
-            zap_basemode_e_char(wflags,1,wformat,&t);
-            unlearntzap_commandstring("LEFT");
-            reindentline(a);
-            unlearntzap_commandstring("DELETENEXT");
+          if (is_label(a, i) || is_visibility_modifier_simple(a, i)) {
+            cursor->off = j;
+            reindentline(':');
+            cursor->off = cur + file->len - flen;
           }
-
-          data-=i;
-          len+=i;
-  //        zap_basemode_e_char(wflags,++i,wformat,data);
-          // before = cursor->off;
-          zap_basemode_e_char(wflags,i,wformat,data);
-          // move_markers_around(1,before,cursor->off - before);
-  //      }
-  //      else
-  //        {
-  //        data-=i;
-  //        len+=i;
-  // //     zap_basemode_e_char(wflags,++i,wformat,data);
-  //          // before = cursor->off;
-  //        zap_basemode_e_char(wflags,i,wformat,data);
-  //          // move_markers_around(1,before,cursor->off - before);
-  //      }
-
-          data+=i;
-          len-=i;
         }
 
-        break;
+        data-=i;
+        len+=i;
+        zap_basemode_e_char(wflags,i,wformat,data); // insert up to here
+        data+=i; // We've done this bit
+        len-=i;
+      }
+      break;
+      // EEK: example of comments indenting
+    case '{':   // C & C++. cc-mode also does ';' & ',' - why?
+      // EEK: example of comments indenting
+    case '}':   // probably because emacs likes to revalidate its indentation after every statement? (sja)
+      if (a != '}' || zap_readvar(v_carmode) != 2) { // either '{' or not split cursor mode (FIXME: huh?)
+        ++i;
+        data+=i;
+        len-=i;
 
-      default:;
+        if (a != '}') { // '{' (may be split cursor mode?)
+          if ((needtochkprev(findprevnocommentline(cursor->off))) || (window->addr == -1))
+          {
+            // follows something like if/for/else/case/default/while/whatever that might
+            // have indented this line in anticipation of a simple statement (no braces)
+            // We need to reindent the line again telling it about the '{' to correct this.
+            reindentline(a);
+          }
+        } else {
+          // '}' -- insert it, force a reindent to get the match, then delete it again
+          // (it'll be /re/inserted in the next zap_basemode_e_char() call ...)
+          zap_basemode_e_char(wflags,1,wformat,&t);
+          unlearntzap_commandstring("LEFT");
+          reindentline(a);
+          unlearntzap_commandstring("DELETENEXT");
+        }
+
+        data-=i;
+        len+=i;
+        zap_basemode_e_char(wflags,i,wformat,data); // insert up to here
+        data+=i; // We've done this bit
+        len-=i;
+      }
+      break;
     }
   }
 
-  // */
-  if (len) {
-    //before = cursor->off;
+  if (len) { // do anything remaining
     zap_basemode_e_char(wflags,len,wformat,data);
-    //move_markers_around(1,before,cursor->off - before);
   }
 
   zap_stopop();
 
-  ws->bracketoff1 = tempbo1; // ?
-  ws->bracketoff2 = tempbo2; // ?
+  // Restore
+  ws->bracketoff1 = tempbo1;
+  ws->bracketoff2 = tempbo2;
 
   // is this necessary...?
-  if ((!(window->flags & 2)) | (getc(cursor->off) == (window->cr.byte))) move_markers_around(1,before,truelen); // - before);
+  // NOTE: was '|' not '||'!
+  if ((!(window->flags & 2)) ||
+    (getc(cursor->off) == (window->cr.byte)))
+    move_markers_around(1, before, truelen); // - before);
 }
 
-
 // Handle the default e_char entry point so we get bracket matching
+// If we're inserting a close bracket, match on that one.
+// If we're inserting a ':' and it closes a label, reindent that.
+// Don't bother if we're in a comment or string ...
 void C_char(unsigned int wflags,
-            unsigned int len,
-            unsigned int wformat,
-            const char *data)
+unsigned int len,
+unsigned int wformat,
+const char *data)
 {
-// /*
-// if(len && (getbrackettype(data[len-1])<0) || data[len-1] = (window->cr.byte))
-//   unhighlight();
-
-  if(len && (getbrackettype(data[len-1])<0) && !ischarincomment(cursor->off))
-  {
+  if(len && (getbrackettype(data[len-1])<0) && !ischarincomment(cursor->off) && !ischarinstring(cursor->off)) {
     int offset;
     // Last character is a close bracket.
-    // Insert all the characters before it
-    if(len>1)
-    {
+    if(len>1) // Insert all the characters before it
       charwithindent(wflags,len-1,wformat,data);
-    }
-
-    // Bounce to the corresponding open bracket
-    if (window->addr != -1) {
-      //(globalflag != 123) {
+    if (window->addr != -1) { // Bounce to the corresponding open bracket
       if ((offset=findbracketmatch(data[len-1],cursor->off))>=0)
-      {
         bounceto(offset);
-      }
     }
-
-    // Modify parameters to be just the end bracket
     data+=len-1;
-    len=1;
+    len=1; // just do closing bracket
   }
-
-  //*/ <- redraw problems...
   charwithindent(wflags,len,wformat,data);
   ws->oldcoff=-1;
 }
 
-
 // Handle the default e_return entry point so we get auto-indent
+//
+// A couple of weird things: what does w_addr==-1 indicate?
+// More nastiness with inserting, deleting, reinserting to get
+// indent, then deleting again. Again, need a native way of doing
+// this.
 void C_return(unsigned int wflags,
-              unsigned int wformat,
-              int type)
+unsigned int wformat,
+int type)
 {
-  int tempdelay;
-  int before = cursor->off;
-  char a;
-  char c='B';
-  int tempbo1 = ws->bracketoff1;
-  int tempbo2 = ws->bracketoff2;
+  int tempdelay, before = cursor->off;
+  char a, c='B';
+  int tempbo1 = ws->bracketoff1, tempbo2 = ws->bracketoff2;
   bool blank = false;
 
-  if ((lineisacomment(before)) && (beforestartofline(before))) type = 1; // rni
-//  if (((cursor->col)-(window->margin)) <= 0) type = 1; // if at sol RNI.
-  if (((window->format)&0x10000) == 0) type = 1; // if no auto-indent RNI.
-
+  if ((lineisacomment(before)) && (beforestartofline(before)))
+    type = 1; // Return No Indent
+  if (((window->format)&0x10000) == 0)
+    type = 1; // if no auto-indent offset, Return No Indent
   if (window->addr == -1) {
-    type = 0;
-//    unlearntzap_commandstring("BEEP");
+    type = 0; /* erm ... start address is -1 (?) => Return With Indent */
   }
-//  type = 0;
+  // NB: I /think/ that the RNI stuff relies on using the basemode's e_return
+  // and just assuming it does the Right Thing based on the options. ie: set
+  // the indent width to 0, use RETURN, and you'll get the very basic indent
+  // preservation of Text mode.
 
   if (type != 1) {
     blank = lineisblank(before);
     zap_startop();
+    // EEK: comment causes indenting
     zap_basemode_e_return(type,wflags,wformat); // with appropriate indent
-    if ((!blank) || (window->addr == -1)) {
-      if (!ischarincomment(cursor->off)) {
+    if ((!blank) || (window->addr == -1)) { /* non-blank line / start address is -1 (?) */
+      if (!ischarincomment(cursor->off)) { // not a comment
         reindentline((window->cr.byte));
-        returnindent();
+        returnindent(); // get the indent for the return ...
         a = getc(cursor->off);
-        if ((a == '}')) {
+        if ((a == '}')) { // force a re-indent if we're sitting on a cbrace, to match indentation
           tempdelay = mode->shared.matchdelay;
           mode->shared.matchdelay = 0;
           unlearntzap_commandstring("RIGHT");
@@ -1267,67 +1233,48 @@ void C_return(unsigned int wflags,
           unlearntzap_commandstring("LEFT");
           unlearntzap_commandstring("DELETE"); // Delete the '}'
           C_char(0,1,wformat,&a); // put the '}' back in (with autoindent)
-//          unlearntzap_commandstring("BEEP");
           unlearntzap_commandstring("RIGHT");
           unlearntzap_commandstring("DELETE"); // Delete the 'B'
-//          unlearntzap_commandstring("DELETENEXT");
           unlearntzap_commandstring("LEFT"); // Back to where we started
           mode->shared.matchdelay = tempdelay;
         }
-
-//        if (a == '}') {
-//          tempdelay = mode->shared.matchdelay;
-//          mode->shared.matchdelay = 0;
-//
-//          unlearntzap_commandstring("RIGHT");
-//          C_char(0,1,wformat,&c); // 'B'
-//          unlearntzap_commandstring("LEFT");
-//          unlearntzap_commandstring("DELETE");
-//
-//          //if (globalflag != 123) {
-//          //  globalflag = 123;
-//          //  C_char(0,1,wformat,&a); // '}'
-//          //  globalflag = 0;
-//          //} else {
-//          C_char(0,1,wformat,&a); // '}' - goes wrong, though...
-//          //}
-//
-//          unlearntzap_commandstring("DELETENEXT");
-//          unlearntzap_commandstring("LEFT");
-//          unlearntzap_commandstring("BEEP");
-////          unlearntzap_commandstring("DELETENEXT");
-////          unlearntzap_commandstring("LEFT");
-//          mode->shared.matchdelay = tempdelay;
-//        }
-
       }
     }
-
     zap_stopop();
-  } else {
-    zap_basemode_e_return(type,wflags,wformat); // with appropriate indent
+  } else { // Return No Indent
+    zap_basemode_e_return(type,wflags,wformat);
   }
-
-//  if (type != 1) zap_stopop();
-
   ws->bracketoff1 = tempbo1;
   ws->bracketoff2 = tempbo2;
   move_markers_around(1,before,cursor->off - before);
   ws->oldcoff=-1;
 }
 
-
-void C_reindent(const char *data,   /* Pointer to string parameter */
-                unsigned int count,   /* Number of times pressed */
-                unsigned int reason,  /* Reason code for call */
-                unsigned int wformat, /* Format for call */
-                unsigned int wflags)
+// Reindent the current line, and move to the next.
+// Notes (sja)
+//  1. I'd like this not to move to the next line -- we have gotoline #(@line + 1)
+//  2. This really should just strip the indent, figure out the indent
+//     depth, and reinsert the indent itself, rather than using lots of
+//     nasty command strings. However it'll do for the moment.
+void C_reindent(const char *data,   /* Pointer to string parameter (except MJE_REINDENT takes none ...) */
+unsigned int count,   /* Number of times pressed (unused) */
+unsigned int reason,  /* Reason code for call (unused) */
+unsigned int wformat,
+unsigned int wflags /* (unused) */)
 {
   char a;
   char c='A';
   unsigned int atemp;
 
-  if (lineisacomment(cursor->off) && (mode->c.flags1 & 1))
+  if (ischarinstring(zap_basemode_e_linestart(cursor->off))) {
+    /* start of line is in a long string - just move to the next line */
+    unlearntzap_commandstring("CRIGHT");
+    unlearntzap_commandstring("DOWN");
+    unlearntzap_commandstring("CLEFT");
+    return;
+  }
+
+  if (lineisacomment(cursor->off) && (mode->c.flags1 & M_FLAGS1_INDENTCOMMENTS))
   {
     unlearntzap_commandstring("CRIGHT");
     unlearntzap_commandstring("DOWN");
@@ -1337,22 +1284,21 @@ void C_reindent(const char *data,   /* Pointer to string parameter */
     atemp = window->addr;
     window->addr = -1;
     unlearntzap_commandstring("CLEFT");
-    unlearntzap_commandstring("UNSPACE");
-    unlearntzap_commandstring("UNSPACE");
-    unlearntzap_commandstring("DELETE");
-    unlearntzap_commandstring("RETURN");
-//    C_return(0,wformat,0);
+    unlearntzap_commandstring("UNSPACE"); // kill lead tabs
+    unlearntzap_commandstring("UNSPACE"); // kill lead spaces
+    unlearntzap_commandstring("DELETE"); // kill NL
+    if (cursor->off)
+      unlearntzap_commandstring("RETURN"); // if not at sof, return to get indent correct
     a = getc(cursor->off);
-    if (a=='}' || a=='{') {
+    if (a=='}' || a=='{') { // if the char at left of line causes additional reindentation ...
       unlearntzap_commandstring("RIGHT");
       unlearntzap_commandstring("DELETE");
-      C_char(0,1,wformat,&c);
+      C_char(0,1,wformat,&c); // insert a dummy char instead of it ('A')
       unlearntzap_commandstring("LEFT");
-      C_char(0,1,wformat,&a);
+      C_char(0,1,wformat,&a); // put the character back again in front of it (forces reindentation)
       unlearntzap_commandstring("RIGHT");
-      unlearntzap_commandstring("DELETE");
+      unlearntzap_commandstring("DELETE"); // get rid of the dummy char
     }
-//    unlearntzap_commandstring("BEEP");
     unlearntzap_commandstring("CRIGHT");
     unlearntzap_commandstring("DOWN");
     unlearntzap_commandstring("CLEFT");
@@ -1362,14 +1308,16 @@ void C_reindent(const char *data,   /* Pointer to string parameter */
 }
 
 
-///* Parenthesis functions - highlighted bracket matching */
+/* -------------------------------------------------------------------------
+ * Parenthesis functions - highlighted bracket matching
+ * -------------------------------------------------------------------------
+ */
 
 /* Force redraw of a given character offset to (un)highlight it */
 static void highlightchar(int offset)
 {
   wordr11('h');
-    if(offset>=0)
-  {
+  if(offset>=0) {
     zap_offlinecol_ret xy;
     zap_update_coords rect;
 
@@ -1378,10 +1326,8 @@ static void highlightchar(int offset)
     rect.windowhandle=window->handle;
     rect.maxx=(rect.minx=xy.column)+1;
     rect.maxy=(rect.miny=xy.row)+1;
-    if(rect.windowhandle!=-1)
-    {
+    if (rect.windowhandle!=-1)
       zap_updatearea(&rect);
-    }
   }
 }
 
@@ -1391,16 +1337,10 @@ static void highlightchar(int offset)
 static void unhighlight()
 {
   /* If there was a previous window */
-  if(ws->oldcwind!=-1)
-  {
+  if(ws->oldcwind!=-1) {
     zap_convwindoff(ws->oldcwind);
-
-    /* If window still exists */
-    if(window)
-    {
-      /* Unhighlight any highlights we had */
-      if(ws->bracketoff1!=-1)
-      {
+    if(window) {
+      if(ws->bracketoff1!=-1) {
         int old=ws->bracketoff1;
         ws->bracketoff1=-1;
         highlightchar(old);
@@ -1415,30 +1355,24 @@ static void unhighlight()
   }
 }
 
-
 // update all highlighted areas on e_command
 void C_command(unsigned int cno,unsigned int offset,unsigned int num,char *data)
 {
   /* If there was a previous window */
-  if(ws->oldcwind!=-1)
-  {
+  if(ws->oldcwind!=-1) {
     zap_convwindoff(ws->oldcwind);
-
-    /* If window still exists */
-    if(window) move_markers_around(cno,offset,num);
+    if(window)
+      move_markers_around(cno,offset,num);
   }
 }
-
 
 // Handler for paren call backs
 void C_parencallback(int handle)
 {
   /* Get current cursor mode. Check for being normal cursor */
-  if(zap_readvar(v_carmode)==1)
-  {
+  if(zap_readvar(v_carmode)==1) {
     int offset1=-1,offset2=-1,coff;
 
-    /* Get cursor block and current window/file blocks */
     cursor=(c_block *)zap_readvar(v_carcursor);
     coff=cursor->off;
     zap_convwindoff(cursor->wind);
@@ -1448,14 +1382,11 @@ void C_parencallback(int handle)
        || coff!=ws->oldcoff)
     {
       /* It has, so if in one of our modes scan for bracket matches */
-      if(C_checkmode() && coff && (offset1=findbracketmatch(getc(coff-1),coff-1))>=0)
-      {
-        /* Found. Remember location */
+      if(C_checkmode() && coff && (offset1=findbracketmatch(getc(coff-1),coff-1))>=0) {
         offset2=coff-1;
         ws->bracketclr=mode->shared.info->bracketclr;
       }
 
-      /* Remove any previous highlights */
       unhighlight();
 
       /* Remember new values */
@@ -1467,19 +1398,14 @@ void C_parencallback(int handle)
 
       /* Re-convert window/file blocks after unhighlight, and highlight new characters */
       zap_convwindoff(cursor->wind);
-      if(offset1!=-1)
-      {
+      if(offset1!=-1) {
         highlightchar(offset1);
       }
-      if(offset2!=-1)
-      {
+      if(offset2!=-1) {
         highlightchar(offset2);
       }
     }
-  }
-  else if(ws->oldcwind!=-1)
-  {
-    /* No cursor so undo any current highlights */
+  } else if(ws->oldcwind!=-1) {
     unhighlight();
     ws->oldcwind=-1;
   }

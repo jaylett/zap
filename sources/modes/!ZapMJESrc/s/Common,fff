@@ -15,6 +15,7 @@
 		GET	h.Routines
 		GET	h.Support
 		GET	h.Tables
+		GET	h.CMode
 
 		GET	h.C_Redraw
 
@@ -376,30 +377,72 @@ noshrink$L	LDRVC	r0,[info$L,#i_mode]
 		LOCAL
 
 
-;  Insert character(s)
+;  Insert character(s) -- C/C++/Java modes only
 
 		EXPORT	char
-char		MOV	r0,r4
+char		MOV	r2,lr
+		MOV	r3,r7
+		BL	checkmode	; \X wsblk, modeblk set up
+		MOV	lr,r2
+		LDR	r6,m_flags1$C
+		TST	r6,#m_flags1_smartindenting
+		MOVEQ	r7,r3
+		BEQ	char$C		; not using smart indenting
+
+		MOV	r0,r4
 		MOV	r1,r5
 		MOV	r2,r6
-		MOV	r3,r7
-		MOV	r4,lr
-		BL	checkmode
-		MOV	lr,r4
+		; r0 = w_flags, r1 = # bytes
+		; r2 = w_format, r3 = address of data
 		ADRL	r6,C_char
 		B	callc
 
-		EXPORT	return
-return		MOV	r2,r0 ; was R7
-		MOV	r1,r6
+;		EXPORT	char
+;char		MOV	r0,r4
+;		MOV	r1,r5
 ;		MOV	r2,r6
-		MOV	r0,r4	; wflags
-		MOV	r3,r7	; ?
-		MOV	r4,lr   ; tmp
-		BL	checkmode
-		MOV	lr,r4
+;		MOV	r3,r7
+;		MOV	r4,lr
+;		BL	checkmode
+;		MOV	lr,r4
+;		ADRL	r6,C_char
+;		B	callc
+
+		EXPORT	return
+return		MOV	r2,lr
+		BL	checkmode	; \X modeblk, wsblk
+		MOV	lr,r2
+		LDR	r6,m_flags1$C
+		TST	r6,#m_flags1_smartindenting
+		BEQ	return$C	; not using smart indenting
+
+		MOV	r2,r0
+		MOV	r1,r6
+		MOV	r0,r4
+		MOV	r3,r7
+		; r2 = 1 if no-indent, r0, r1, r3 = ???
+		; only takes r0-r2 anyway, and only uses
+		; r2 of that except to pass through to
+		; other functions, which is probably garbage
+		; by then ...
 		ADRL	r6,C_return
 		B	callc
+
+;		EXPORT	return
+;return		MOV	r2,r0 ; was R7
+;		MOV	r1,r6
+;;		MOV	r2,r6
+;		MOV	r0,r4	; wflags
+;		MOV	r3,r7	; ?
+;		; r2 = 0 if RETURN, 1 if RETURNNOINDENT
+;		; r1 = ???
+;		; r0 = ???
+;		; r3 = ???
+;		MOV	r4,lr   ; tmp
+;		BL	checkmode
+;		MOV	lr,r4
+;		ADRL	r6,C_return
+;		B	callc
 
 ;		EXPORT	initglobals
 ;initglobals	MOV	r2,r0

@@ -149,23 +149,30 @@ notcpp$L	LDR	r1,w_format
 
 		EXPORT	return$C
 return$C	STMFD	sp!,{lr}
+		CMP	r0,#1
+		BEQ	returnnoindent$L
+
 		CALL	Zap_StartOp
 		BL	getprevchar
 		TEQ	r0,#'{'
-		BNE	noindent$L
+		BNE	noindent$L		; '{' causes an indent
 		BL	getindentcurr$C
 		MOV	r2,r0
 		BL	getindent$C
-		ADD	r2,r2,r0
+		ADD	r2,r2,r0		; new indent level
+
 		STMFD	sp!,{r1,r2,r8-r10}
 		MOV	r1,#1
+		MOV	r0,#0
 		LDR	r9,=e_return
-		BL	callbasemode
+		BL	callbasemode		; do a single return, matching indent levels
 		LDMFD	sp!,{r1,r2,r8-r10}
-		SUB	r1,r1,#1
+
+		SUB	r1,r1,#1		; so one fewer returns left to do
 		BL	getindentcurr$C
-		SUBS	r0,r2,r0
+		SUBS	r0,r2,r0		; indent change for this line
 		BLE	noindent$L
+
 		STMFD	sp!,{r1,r8-r10}
 		MOV	r5,r0
 		BL	getflags
@@ -174,13 +181,18 @@ return$C	STMFD	sp!,{lr}
 		MOV	r6,r0
 		ADR	r7,thirtytwospaces
 		LDR	r9,=e_char
-		BL	callbasemode
+		BL	callbasemode		; insert additional indentation
 		LDMFD	sp!,{r1,r8-r10}
 noindent$L	CMP	r1,#0
 		BLE	noreturn$L
 		LDR	r9,=e_return
-		BL	callbasemode
+		MOV	r0,#0
+		BL	callbasemode		; do any remaining returns at same indent level
 noreturn$L	CALL	Zap_StopOp
+		LDMFD	sp!,{pc}
+returnnoindent$L
+		LDR	r9,=e_return
+		BL	callbasemode
 		LDMFD	sp!,{pc}
 
 thirtytwospaces	=	"                                ",0
@@ -193,6 +205,7 @@ thirtytwospaces	=	"                                ",0
 
 		EXPORT	char$C
 char$C		STMFD	sp!,{lr}
+		CALL	Zap_StartOp
 		MOV	r1,#0
 00		CMP	r1,r5
 		BGE	%f01
@@ -217,6 +230,7 @@ char$C		STMFD	sp!,{lr}
 		B	%b00
 
 01		BL	%f02
+		CALL	Zap_StopOp
 		LDMFD	sp!,{pc}
 
 02		CMP	r1,#0
@@ -1047,10 +1061,16 @@ indentclicked$C	SAVE
 
 getindent$C	SAVE
 		BL	checkmode
-		LDREQ	r0,m_flags1$C
-		MOV	r0,r0,LSR #17
-		AND	r0,r0,#31
+		LDREQ	r0,m_indent$C
+		MOVNE	r0,#0
 		RTS
+
+;getindent$C	SAVE
+;		BL	checkmode
+;		LDREQ	r0,m_flags1$C
+;		MOV	r0,r0,LSR #17
+;		AND	r0,r0,#31
+;		RTS
 
 
 		LOCAL
