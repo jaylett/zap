@@ -1,5 +1,5 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.13 2004/03/29 16:12:02 christian Exp $
+; $Id: VDURedraw,fff,v 1.14 2004/10/25 23:31:46 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -46,10 +46,12 @@ redraw_area_vdu
  BL handle_to_name		; r11 r8 charw charh cbpl cbpc r1=a_ext2 r0->name
  LDRVC R2,[R10,#r_flags]
  BLVC get_vdu_fonts		; get handles
- BVS end$l
+ BVS bad$l
  STR R1,[R11,#a_ext2]		; store them
-font$l				; got the font (0=system font)
-; MOV R5,#1
+
+ LDR R0,[R11,#a_x1]		; preserve font size
+ PUSH "R0"
+
  BL sprite_get_info
  ADD R0,R11,#a_topofvars	; address for sprite area
  LDR R14,[R11,#&60]
@@ -106,7 +108,7 @@ fill$l				; fill off the data end all in one go
  LDR R0,[R10,#r_minx]
  LDR R2,[R10,#r_maxx]
  MOV R7,R0,LSL R6		; minx
- MOV R2,R2,LSL R6               ; maxx
+ MOV R2,R2,LSL R6		; maxx
  LDR R6,[R10,#r_flags]
  TST R6,#rf_realvdu
  BEQ fillos$l
@@ -130,9 +132,11 @@ fillos$l
  SWI XOS_Plot
 
 end$l
+ PULL "R0"			; restore font size
+ STR R0,[R11,#a_x1]
+bad$l
  MOVVS R9,R0
  MOVVC R9,#0			; (no error)
- ;ADDS R0,R8,#0			; clv
  LDR R0,[R11,#a_ext2]
  LDR R1,[R10,#r_caddr]
  CMP R1,#&8000
@@ -439,8 +443,18 @@ vdu_redraw_line
  STR R0,[R11,#a_temp1]
  LDR R0,[R11,#a_stack4]		; start bac colour
  STR R0,[R11,#a_spr2]		; Hmm...
+
+ MOV R1,R3
+ MOV R12,#0			; start off with zero flags
+ SWI XFont_CacheAddr		; test for UCS FontManager
+ CMP R0,#340
+ ORRHI R12,R12,#1<<31
+ MOV R3,R1
+
+ LDR R0,[R11,#a_x1]		; keep starting chunk
+ PUSH "R0"
+
  BL vdu_set_colours		; set init for/bac
- MOVVC R12,#0			; start off with zero flags
  LDRVC R2,[R10,#r_flags]
  TSTVC R2,#rf_rtol
  LDRVC R2,[R11,#a_x3]		; charw in os
@@ -454,7 +468,11 @@ vdu_redraw_line
  BLVC vdu_set_colours		; set init for/bac hmm...
 ; MOVVC R14,#0
 ; STRVC R14,[R11,#a_spr1]	; for the benefit of underlining
+ PULLS "R0",VC
+ STRVC R0,[R11,#a_x1]
  BLVC vrl_foreground		; redraw the foreground
+ PULL "R0"
+ STR R0,[R11,#a_x1]
  FNRTS VS
  TST R12,#1<<3			; cursor loop requested?
  BLNE vrl_cursors
@@ -615,6 +633,7 @@ vrlc_2
 ;	     b2 => Doing merge characters pass
 ;	     b3 => Set to indicate we need to do a merges
 ;	     b4 => Operation has been started
+;           b31 => New FontManager present
 ;X R0=next character number to draw (>=0)
 ;     or -1 if it was a merge
 ;     or -2 if it was the end of the line
@@ -687,12 +706,12 @@ vcc_4
  BNE vcc_4bac
  TST R12,#2
  BNE vcc_4for
- MOV R12,R0			; save the char
+ PUSH "R0,R1"			; keep chunk and the char
  MOV R1,R3
  MOV R2,R4			; current coords
  MOV R0,#4
  SWI XOS_Plot			; move to correct posn
- MOVVC R0,R12
+ PULL "R0,R1"
  BLVC vdu_merge_characters
  MVNVC R0,#0			; done it
  FNRTS
@@ -701,8 +720,13 @@ vcc_4bac
  MVNVC R0,#0			; done it
  FNRTS
 vcc_4for
+ LDR R2,[R11,#a_x1]
+ STR R1,[R11,#a_x1]
+ PUSH "R2"
  MOV R0,R9,LSR#16		; base chacter
  BL vdu_one_for
+ PULL "R2"
+ STR R2,[R11,#a_x1]
  MVNVC R0,#0
  FNRTS
 
@@ -739,7 +763,7 @@ vcc_8 ; used for cursors and not selection...
  FNRTS VS
  CMN R0,#1			; already drawn?
  FNRTS EQ
- CMP R0,#5                      ; }
+ CMP R0,#5			; }
  ADDLS R0,R0,#&100		; } see corresponding notes in s.DSARedraw - cl
  CMP R0,#&100
  BCC vcc_8a			; just swap cols
@@ -760,8 +784,13 @@ vcc_8bac
  MVNVC R0,#0			; done it (was B -> vcc_8end)
  FNRTS
 vcc_8for
+ LDR R2,[R11,#a_x1]
+ STR R1,[R11,#a_x1]
+ PUSH "R2"
  MOV R0,R9,LSR#16		; base character
  BL vdu_one_for			; draw as normal
+ PULL "R2"
+ STR R2,[R11,#a_x1]
  MVNVC R0,#0			; done it (was B -> vcc_8end)
  FNRTS
 ;vcc_8end
@@ -847,7 +876,9 @@ vcc_10end
  B vdu_control_char
 
 vcc_11
- ADD R5,R5,#1			; just ignore it for now
+ LDRB R0,[R5],#1			; new chunk
+ MOV R0,R0,LSL #8
+ STR R0,[R11,#a_x1]
  LDRB R0,[R5],#1
  TEQ R0,#0
  MOVNE PC,R14			; more common case...
@@ -856,6 +887,7 @@ vcc_11
 ;E R5=character string R3/R4=coords R6/R7=box offset
 ;  R8=font handle R10=redraw block R11=workarea
 ;X R9= b0-b7=for col b8-b15=bac col b16-b31=base character
+;  R1 = chunk for base character
 ;  R0=mask character / -1 if already drawn #
 
 vdu_get_merge_args
@@ -869,6 +901,7 @@ vdu_get_merge_args
  FNRTS VS
  CMN R0,#1
  BEQ vgma_1			; character has been drawn
+ LDR R1,[R11,#a_x1]		; keep chunk
  ORR R9,R9,R0,LSL#16		; orr in base character
  LDRB R0,[R5],#1		; mask char
  TEQ R0,#0
@@ -877,9 +910,11 @@ vdu_get_merge_args
 vgma_1
  PUSH "R0-R4"			; save the vals
  MOV R1,R5			; next char
+ LDR R5,[R11,#a_x1]		; current chunk
  LDRB R0,[R1],#1
  TEQ R0,#0
  BLEQ skip_control_char		; skip it
+ STR R5,[R11,#a_x1]		; new chunk
  MOV R5,R1
  PULL "R0-R4"
  FNRTS
@@ -1134,7 +1169,7 @@ vdu_given_one_for
 
 ;E R0=character number to plot
 ;  R3,R4=os coords of bottom left of box to draw character in
-;        (note: with R6/R7 added in to save time...)
+;	 (note: with R6/R7 added in to save time...)
 ;  R8=font handle (0 if in VDU mode) (current font)
 ;  R6,R7=offset to plot character from bottom left
 ;  R10=redraw block R11=workarea (uses a_temp1)
@@ -1143,6 +1178,17 @@ vdu_given_one_for
 ; (not to be called directly due to no stacked R14)...
 
 vdu_redraw_char
+ TEQ R8,#0
+ TSTNE R12,#1<<31
+ BNE newfm$l
+
+ ; old FontManager
+oldfm$l
+ LDR R14,[R11,#a_x1]		; check for chunk 0
+ TEQ R14,#0
+ MOVNE R0,#&100			; if not, replace with null glyph
+ ADDNE R0,R0,#6
+
  TEQ R0,#0
  MOVEQ R0,#'0'
  CMP R0,#&20
@@ -1158,7 +1204,6 @@ vdu_redraw_char
  TST R5,#ss_underlined
  BNE doitunderlined$l
 dontdoitunderlined$l
-; ADD R1,R11,#a_temp1	; a_spr1 ; a_temp1
  ADR R1,local_yuckvdu
  STR R0,[R1]
  MOV R2,#1<<4
@@ -1193,6 +1238,70 @@ strikethroughon
 
 local_yuckvdu
  & 0
+ & 0
+
+
+; new FontManager
+newfm$l
+ CMP R0,#&100			; cursor chars live in a plane of their own
+ BCS vrc_2
+
+ LDR R14,[R11,#a_x1]		; add in chunk
+ ADD R0,R0,R14
+
+ TEQ R0,#0
+ MOVEQ R0,#'0'
+ CMP R0,#&20
+ PULL "PC",EQ			; don't bother to paint spaces...
+ ADDCC R0,R0,#&40
+ TEQ R0,#&7F			; check for cursor chars
+ BEQ vrc_2
+
+; PUSH "R0,R1,R2"		; replace with null glyph if non-existant
+; MOV R1,R0
+; MOV R0,#0
+; SWI XFont_EnumerateCharacters
+; CMP R2,#-1
+; PULL "R0,R1,R2"
+; MOVEQ R0,#&100
+; ADDEQ R0,R0,#3
+; BEQ vrc_2
+
+ PUSH "R1-R2,R5"
+ LDRB R5,[R11,#a_stack1 + 1]	; font name...
+ TST R5,#ss_underlined
+ BNE newdoul$l
+newnorm$l
+ ADR R1,local_yuckvdu
+ STR R0,[R1]
+ MOV R2,#(1<<4)			; OS units
+ ORR R2,R2,#1<<13		; 32 bit string
+ SWI XFont_Paint
+ TST R5,#ss_strikethrough	; ok - TST doesn't corrupt V
+ LDMEQFD R13!,{R1-R2,R5,PC}
+newdoss$l
+ ADRVC R1,strikethroughon
+ BIC R2,R2,#1<<13		; 8 bit string
+ SWIVC XFont_Paint
+ LDMFD R13!,{R1-R2,R5,PC}
+ ; *no* speed-up possible by using Font_Paint rub-out boxes.
+newdoul$l
+ CMP R0,#32
+ BLS newnorm$l
+ ADR R1,newul$l
+ STR R0,[R1,#12]
+ MOV R2,#(1<<4)			; OS units
+ ORR R2,R2,#1<<13		; 32 bit string
+ SWI XFont_Paint
+ TST R5,#&01
+ LDMEQFD R13!,{R1-R2,R5,PC}
+ BVC newdoss$l
+ LDMFD R13!,{R1-R2,R5,PC}
+
+newul$l
+ & 25,-24,16,0			; thickness was 24
+ & 0
+
 
 vrc_1
  PUSH "R1-R2,R7"		; use os_writec
@@ -1204,6 +1313,8 @@ vrc_1
  MOVVC R0,R7			; temporarily
  SWIVC XOS_WriteC
  LDMFD R13!,{R1,R2,R7,PC}
+
+
 vrc_2
  PUSH "R1-R5"
  MOV R5,R0
@@ -1226,6 +1337,7 @@ vrc_start
  B vrc_103
  B vrc_104
  B vrc_105
+ B vrc_106
 vrc_end
 vrc_7F
  LDRVC R3,[R11,#a_x3]		; width
@@ -1264,6 +1376,7 @@ vrc_102
  BLVC vrc_left
  LDMFD R13!,{R1-R5,PC}
 vrc_103
+vrc_106
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
  MOVVC R0,#1
@@ -1317,6 +1430,7 @@ vrc_main
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R0=mask character
+;  R1 = chunk for base character
 ;  R6/R7=offset to plot characters within box
 ;  R8=font handle / 0 for VDU
 ;  R9=b0..b7  foreground zap colour
@@ -1346,7 +1460,15 @@ vdu_merge_characters
  BLVC colour_setting_up
  SWIVC XOS_WriteI+16		; CLG - background colour...
  MOVVC R0,R9,LSR#16		; base character
+
+ LDR R1,[R11,#a_x1]		; swap the mask
+ PUSH "R1"
+ LDR R1,[R13,#4]
+ STR R1,[R11,#a_x1]
  BLVC call_vdu_redraw_char	; draw the base character
+ PULL "R1"			; restore chunk
+ STR R1,[R11,#a_x1]
+
  BVS vmc_1
  MOV R0,#0
  BL sprite_output		; restore output to screen
@@ -1528,12 +1650,14 @@ calculate_x_scroll_vdu
  CMP R4,#&8000
  ANDLO R4,R4,#&FF		; start font from handle
  MOVHS R4,#&10			;  otherwise plain
+ MOV R5,#0			; start in chunk 0
  [ MARGINS = EMPTY
  TEQ R0,#0			; use current if in margin
  BLNE find_character		; move to nth char
  |
  BL find_character		; move to nth char
  ]
+ STR R5,[R11,#a_x1]		; store initial chunk
  MOV R5,R1			; new first character
  LDR R1,[R10,#r_palette]
  LDR R2,[R1,R2,LSL#2]
@@ -1771,7 +1895,7 @@ shallow$l
  TEQ R5,#2
  LDRNE R1,[R10,#r_bpp]		; actually log2 bpp
  MOVEQ R1,#0
- CMP R1,#3                      ; > 8bpp?
+ CMP R1,#3			; > 8bpp?
  BHI sp_3			; no palette :-)
  ADD R6,R6,#&3C			; start of palette
 	TEQ	R1,#0
@@ -1934,17 +2058,17 @@ local_ystored
  & 0
 
 vduvars			; eeek - writable values in the module body...
-depth               & 0
-linelen             & 0
-dispstart           & 0
-GWLCol              & 0
-GWBRow              & 0
-GWRCol              & 0
-GWTRow              & 0
+depth		    & 0
+linelen		    & 0
+dispstart	    & 0
+GWLCol		    & 0
+GWBRow		    & 0
+GWRCol		    & 0
+GWTRow		    & 0
 
-screenstart         & 0
-screensize          & 0
-screenend           & 0
+screenstart	    & 0
+screensize	    & 0
+screenend	    & 0
 
 toplotrect
 ; R0 = left   X (inclusive)
@@ -2020,8 +2144,8 @@ plotrect
 	FNPULL	NE
 	BNE	to_vf_plot_rect
  LDR R5,depth
- MOV R0,R0,LSL R5               ; -> start bit position on row
- MOV R2,R2,LSL R5               ; -> end ...
+ MOV R0,R0,LSL R5		; -> start bit position on row
+ MOV R2,R2,LSL R5		; -> end ...
  AND R5,R0,#31
  AND R6,R2,#31
  LDR R7,dispstart
@@ -2029,14 +2153,14 @@ plotrect
  LDR R11,screenend
  ADD R7,R7,R0,LSR #3
  BIC R7,R7,#3
- MLA R7,R1,R14,R7               ; first address to plot to (word-aligned)
+ MLA R7,R1,R14,R7		; first address to plot to (word-aligned)
  SUB R1,R3,R1
  ADD R0,R0,#31
  MOV R2,R2,LSR #5
- SUBS R0,R2,R0,LSR #5   	; no. of full words to plot
+ SUBS R0,R2,R0,LSR #5		; no. of full words to plot
  TEQEQ R6,#0
  MOVEQ R6,#32
- BLE plot_narrow_rect   	; ... <=32 bits wide & within one word
+ BLE plot_narrow_rect		; ... <=32 bits wide & within one word
  MOV R8,R4
  MOV R9,R4
  MOV R10,R4
@@ -2044,7 +2168,7 @@ plotloop
  CMP R7,R11
  BHS obscureproblem		; plot around screen end...
 noobscureproblem
- MOV R12,R7                     ; preserve ready for next row...
+ MOV R12,R7			; preserve ready for next row...
  TEQ R5,#0
  BEQ noleftpartial
  LDR R2,[R7]
@@ -2121,7 +2245,7 @@ fasttowrap
  STMNEIA R7!,{R4,R8-R10}
  SUBNE R14,R14,#4
  BNE fasttowrap
- LDR R3,screensize              ; display wrap
+ LDR R3,screensize		; display wrap
  SUB R7,R7,R3
  MOVS R3,R14,LSR #1
  B fastfillrow
@@ -2137,7 +2261,7 @@ plot_narrow_rect
  LDR R6,linelen
 doplotcolumn
  CMP R7,R11
- SUBHS R7,R7,R3                 ; display wrap
+ SUBHS R7,R7,R3			; display wrap
  LDR R5,[R7]
  BIC R5,R5,R0
  ORR R5,R5,R4
@@ -2147,12 +2271,12 @@ doplotcolumn
  FNRTS
 
 obscureproblem
- LDR R14,screensize            ; display wrap
+ LDR R14,screensize	       ; display wrap
  SUB R7,R7,R14
  B noobscureproblem
 
 obscureproblem2
- LDR R14,screensize            ; display wrap
+ LDR R14,screensize	       ; display wrap
  SUB R7,R7,R14
  B noobscureproblem2
 

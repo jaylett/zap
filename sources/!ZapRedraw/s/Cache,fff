@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.19 2004/10/18 20:55:49 christian Exp $
+; $Id: Cache,fff,v 1.20 2004/10/25 23:31:46 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -263,8 +263,25 @@ vdumode$l	TEQ	R0,#0				; ignore sizes if system font
 		MOV	R0,R1,LSL #8
 		FNRTS
 
-novmatch$l	MOVVC	R1,R8
-		BLVC	new_vdu_font_block
+novmatch$l	MOV	R4,R0
+
+		SWI	XFont_CacheAddr			; get it in UTF-8 if suitably
+		CMP	R0,#340				;   recent FontManager
+		MOVLS	R0,R4				;
+		BLS	oldfm$l				;
+							;
+		LDRB	R0,[R4]				;
+		TEQ	R0,#92				; backslash
+		ADRNE	R2,encb$l			;
+		ADREQ	R2,enc$l			;
+		ADD	R1,R12,#buffer			;
+		BL	strcpy				;
+		MOV	R2,R4				;
+		BL	strcopy				;
+		ADD	R0,R12,#buffer			;
+
+oldfm$l		MOV	R1,R8
+		BL	new_vdu_font_block
 		FNRTS	VS
 
 		MOV	R9,R1
@@ -284,6 +301,9 @@ noshave$l	DCD	0				; null shaving block
 		DCD	0
 		DCD	0
 
+encb$l		=	92,"EUTF8",92,"F",0		; \EUTF8\F
+enc$l		=	92,"EUTF8",0			; \EUTF8
+		ALIGN
 
 nocache$l	FNPULL
 		ERROR	err_nocache,"NoCache"
@@ -1224,7 +1244,7 @@ load_chunk_given_handle
 		;DEBUGF	"loading chunk from %2s"
 		;ADD	R13,R13,#256
 		;PULL	"R0-R6"
-                ;
+		;
 		;PUSH	"R5-R11"
 		;LDMIA	R0,{R5-R8}
 		;LDMIA	R2,{R9,R10}
@@ -1526,7 +1546,7 @@ add_font_suffix	FNJSR	"R1,R7-R11"
 
 		LDR	R2,[R11,#fb_flags]		; don't add anything if no substyles
 		TST	R2,#ff_ssallowed		;
-		MOVEQ	R0,#0                           ;
+		MOVEQ	R0,#0				;
 		STREQB	R0,[R1]				;
 		ADDEQ	R0,R12,#buffer			;
 		FNRTS	EQ				;
