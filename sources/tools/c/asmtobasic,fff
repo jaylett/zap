@@ -1,6 +1,6 @@
 /* asmtobasic - convert offset assembler header to a tokenised BASIC equivalent
 // (c) 2002 Zap Developers
-// $Id: asmtobasic,fff,v 1.1 2002/02/07 17:54:36 christian Exp $
+// $Id: asmtobasic,fff,v 1.2 2002/02/07 19:53:05 christian Exp $
 
 // syntax:
 //
@@ -16,7 +16,6 @@
 // any lines not containing DEFPROC, ENDPROC, END, # or ^ are simply copied accress.
 // if outside a DEFPROC...ENDPROC block, REM is prepended.
 //
-// Note: the number after # is ignored and assumed 4
 */
 
 #include <stdio.h>
@@ -28,16 +27,14 @@
 
 #define LINC    10         // line number increment
 #define REM     0xf4
+#define CREM    ":\xf4"
 #define DEF     "\xdd "
 #define PROC    "\xf2"
 #define ENDPROC "\xe1"
-#define LOCAL   "\xea "
-#define FOR     "\xe3 "
-#define NEXT    "\xed"
-#define TO      "\xb8 "
-#define STEP    "\x88 "
-#define OPT     "OPT "
-#define DIM     "\xde "
+
+// column numbers
+#define COLUMN1 26
+#define COLUMN2 36
 
 #define myfputc(a,b)         \
  if (fputc((a), (b)) == EOF) \
@@ -48,12 +45,31 @@
      finish("write error\n");
 
 // globals
+int storage_counter;
 int line_number = 10;
-static int in_for = 0;
 char line[256];
 char *outfile;
 FILE *in;
 FILE *out;
+
+
+char *skipspaces(char *s)
+{
+    while (isspace(*s))
+        s++;
+
+    return s;
+}
+
+
+char *skipword(char *s)
+{
+    while (!isspace(*s))
+        s++;
+
+    return s;
+}
+
 
 void finish(char *error)
 {
@@ -113,72 +129,108 @@ void write_line(char *line)
 void write_rem(char *line)
 {
     char buf[256];
+    char *s;
+
+    s = strchr(line, '\n');
+    if (s != NULL)
+        *s = '\0';
+
+    // don't write "REM" for empty lines
+    if (strlen(line) == 0)
+    {
+        write_line("");
+        return;
+    }
+
+    s = skipspaces(line);
 
     *buf       = REM;
     *(buf + 1) = ' ';
-    strcpy(buf + 2, line);
+    strcpy(buf + 2, s);
 
     write_line(buf);
 }
 
-void process_defproc(void)
+
+void process_defproc(char *s)
 {
     char buf[256];
-    char *c;
 
-    c = strstr(line, "DEFPROC");
-    while (isalpha(*c))
-        c++;
-    while (isspace(*c))
-        c++;
+    s = skipword(s);
+    s = skipspaces(s);
 
     strcpy(buf, DEF PROC);
-    strcat(buf, c);
+    strcat(buf, s);
 
     write_line("");
     write_line(buf);
-    write_line(LOCAL "pass%, P%, O%, L%, code%");
-    write_line(DIM "code% 2048");
-    write_line("L% = code% + 2048");
 }
 
 
 void process_endproc(void)
 {
-    if (in_for)
-        write_line("]:" NEXT);
-
-    in_for = 0;
-
     write_line(ENDPROC);
 }
 
 
-void process_hat(void)
+void process_hat(char *s)
 {
-    if (in_for)
-        write_line("]:" NEXT);
+    s = skipword(s);
+    s = skipspaces(s);
 
-    write_line(FOR "pass% = %1100 " TO " %1110 " STEP "2");
-    write_line("P% = 0 : O% = code%");
-    write_line("[ OPT pass%");
+    storage_counter = atoi(s);
 
-    in_for = 1;
+    printf("new storage counter: %d\n", storage_counter);
 }
 
 
-void process_hash(void)
+void process_hash(char *s)
 {
     char buf[256];
-    int i;
+    int i, inc;
+    char *t;
 
-    *buf = '.';
+    // copy all up to end of var name
+    t = skipword(line);
+    i = (int)(t - line);
+    strncpy(buf, line, i);
 
-    i = (int)(strchr(line, '#') - line);
+    // align to column 1
+    while (i < COLUMN1)
+        *(buf + i++) = ' ';
 
-    strncpy(buf + 1, line, i);
-    strcpy(buf + i + 1, "EQUD");
-    strcat(buf, line + i + 1);
+    // add =
+    strcpy(buf + i, "= ");
+    i += 2;
+
+    // skip the #
+    s = skipword(s);
+    s = skipspaces(s);
+
+    // find the increment
+    inc = atoi(s);
+
+    // write it out
+    i += sprintf(buf + i, "%d", storage_counter);
+    storage_counter += inc;
+
+    printf("new storage counter: %d\n", storage_counter);
+
+    // align to column 2
+    while (i < COLUMN2)
+        *(buf + i++) = ' ';
+
+    strcpy(buf + i, CREM);
+
+    // skip the number and copy the comment
+    s = skipword(s);
+    s = skipspaces(s);
+
+    if (*s == ';')
+        s++;
+
+    strcat(buf + i, s);
+
     write_line(buf);
 }
 
@@ -192,20 +244,32 @@ void write_end(void)
 
 void process_asm(void)
 {
+    char *s;
+
     while ((1))
     {
         get_line(line, sizeof(line));
 
-        if (strchr(line, '^'))
-            process_hat();
-        else if (strchr(line, '#'))
-            process_hash();
-        else if (!strstr(line, "ENDPROC"))
-            write_line(line);
-        else
+        if ((s = strchr(line, '^')) != NULL)
+            process_hat(s);
+        else if ((s = strchr(line, '#')) != NULL)
+            process_hash(s);
+        else if ((s = strstr(line, "DEFPROC")) != NULL)
+            process_defproc(s);
+        else if (strstr(line, "$Id:"))
+            write_rem(MESSAGE); // filter out RCS Ids since they'll be wrong for the generated file
+        else if (strstr(line, "ENDPROC"))
+            process_endproc();
+        else if (strstr(line, "END"))
             break;
+        else
+        {
+            if (*line == ';')
+                write_rem(line + 1);
+            else
+                write_rem(line);
+        }
     }
-    process_endproc();
 }
 
 
@@ -224,36 +288,8 @@ int main(int argc, char *argv[])
 
     if (in != NULL && out != NULL)
     {
-        while ((1))
-        {
-            // do comments outside the assembly bit
-            while ((1))
-            {
-                get_line(line, sizeof(line));
-
-                if (strstr(line, "DEFPROC") || strstr(line, "END"))
-                    break;
-
-                // filter out RCS Ids since they'll be wrong for the generated file
-                if (strstr(line, "$Id:"))
-                    write_rem(MESSAGE);
-                else
-                {
-                    if (*line == ';')
-                        write_rem(line + 1);
-                    else
-                        write_rem(line);
-                }
-            }
-
-            if (strstr(line, "END"))
-                break;
-
-            process_defproc();
-
-            // process the assembly part
-            process_asm();
-        }
+        // process the file
+        process_asm();
 
         // finish
         write_end();
