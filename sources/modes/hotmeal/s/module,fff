@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.10 2003/09/21 15:30:25 ds Exp $
+; $Id: module,fff,v 1.11 2003/09/21 19:44:28 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -116,16 +116,22 @@ Initialisation
 	BEQ	spellcheck
 ;	CMP	r1, #7
 ;	BEQ	amenucreation
-	CMP	r1, #1
-	MOVCC	pc, lr
-	STREQ	r0, [r11, #4]
-	STREQ	r0, modenumberlocal
 	TEQ	r1, #6
 	ADREQL	r1, MenuExtension
 	MOVEQ	pc, lr
 	TEQ	r1, #2
-	MOVNE	pc, lr
-	STMFD	sp!, {r1, r7, r8, lr}
+	BEQ	zap_starting
+	TEQ	r1,#1
+	MOVNE	pc,lr
+	LDR	r1,modenumberlocal
+	TEQ	r1,#0
+	STREQ	r0,[r11,#4]
+	STREQ	r0,modenumberlocal
+	MOV	pc,lr
+
+zap_starting
+	FNJSR	"r1,r6-r8"
+	MOV	r6,r0			; mode number in R6
 		;  REM here? yes!
 	STMFD	sp!, {r0, r1, r7}
 	ADRL	r0, entitylist
@@ -229,20 +235,21 @@ backinactione
 	BLE	_altered_6
 		;  REM -----------------------------------------
 	LDMFD	sp!, {r0, r1, r7}
-	MOV	r8, #0
-	BL	ZapModeWord
-	LDMVSFD	sp!, {r1, r7, r8, pc}
-	TEQ	r7, #0
+	MOV	r1,r6
+	MOV	r8,#0
+	FNcall	Zap_GetModeWord,r7
+	FNRTS	VS
+	MOVS	r7, r0
 	BEQ	nocfginit
 	LDR	r0, [r7, #0]
 	CMP	r0, #zizeofcfgwksp
-	LDMEQFD	sp!, {r1, r7, r8, pc}
+	FNRTS	EQ
 		;  REM no !Config...
 nocfginit
 	MOV	r0, #num_colours
-	LDR	r1,modenumberlocal
+	MOV	r1,r6
 	FNcall	Zap_ModeColourNum	;  REM change palette size.
-	LDMVSFD	sp!, {r1, r7, r8, pc}
+	FNRTS	VS
 	BL	UnkPreColBit		; to set up colours with zmcs
 	TEQ	r7, #0
 	MOVEQ	r1,#0
@@ -253,12 +260,12 @@ nocfginit
 	MOV	r1, #zizeofcfgwksp	;  REM all vc
 	MOV	r0, r7
 	FNcall	Zap_Ensure
-	LDMVSFD	sp!, {r1, r7, r8, pc}
-	B	write_default_config
+	BVC	write_default_config
+	FNRTS
 noheapblkatall
 	MOV	r0, #zizeofcfgwksp
 	FNcall	Zap_Claim
-	LDMVSFD	sp!, {r1, r7, r8, pc}
+	FNRTS	VS
 write_default_config
 	MOV	lr,#zizeofcfgwksp
 	STR	lr,[r0]
@@ -273,11 +280,11 @@ write_default_config
 	ADDLO	r1,r1,#4
 	BLO	%BT0
 	LDR	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
-	LDR	r1, [r11, #4]
+	MOV	r1,r6
 	MOV	r2, #0
 	FNcall	Zap_ModeData
 justendtheresnoneed
-	LDMFD	sp!, {r1, r7, r8, pc}
+	FNRTS
 default_config
 	&	zizeofcfgwksp
 	&	0
@@ -309,7 +316,7 @@ UnkPreColBit
 	ADR	r3, DefaultColours
 	ADD	r3,r3,r0
 	SUB	r3,r3,#9	; index of first undefined colour
-	LDR	r1,modenumberlocal ;[r11, #4]	; REM normally 0
+	MOV	r1,r6		; mode number
 	MOV	r2, r0		; start colours (R0=prev.def.)
 ZModColBit
 	CMP	r2,#num_colours
@@ -363,15 +370,33 @@ Tk1frm12andret
 	MVNNE	r0, #0
 	MOV	pc, lr
 
+;E R8
+;X R1 = mode number
+getmodenumber
+	FNJSR	"r0,r2"
+	CMP	r8,#0
+	LDRNEB	r0,[r8,#w_format]
+	MOVEQ	r1,#var_opt_format
+	FNcallc	Zap_ReadVar,EQ,r2
+	AND	r1,r0,#255
+	FNRTS
+
+;X Z set if is (a clone of) HoTMeaL
+checkifHoTMeaL
+	FNJSR	"r0,r1"
+	LDR	r0,modenumberlocal
+	FNcall	Zap_TestIfCloneBase,r1
+	FNRTS
+
 ZapModeWord
 	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #4]
+	BL	getmodenumber
 	FNcall	Zap_GetModeWord,r2
 	MOV	r7, r0
 	LDMFD	sp!, {r0-r2, pc}
 OnToWrtMdeWrd
 	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #4]
+	BL	getmodenumber
 WrtMdeWrd
 	MOV	r0, r7
 	FNcall	Zap_PutModeWord,r2
@@ -395,15 +420,17 @@ initialiseheap
 	LDMFD	sp!, {r1-r6, r8-r12, pc}
 
 E_Start
-	STMFD	sp!, {r1, r6, r7, lr}
+	FNJSR	"r1,r6-r7,r10"
+	TEQ	r8,#0
+	LDRNEB	r10,[r8,#w_format]
 	STMFD	sp!, {r1-r12}
-	LDRB	r1, [r11, #4]
-	ORR	r1, r1, #0x100
+	ORR	r1,r10,#0x100
 	FNcall	Zap_ReadVar
 	STR	r0, localdefltmw
 	LDMFD	sp!, {r1-r12}
-	BL	ZapModeWord
-	CMP	r7, #0
+	MOV	r1,r10
+	FNcall	Zap_GetModeWord,r7
+	MOVS	r7,r0
 	BLEQ	initialiseheap
 	TEQ	r8, #0
 	BEQ	BeforeAllare8
@@ -423,8 +450,7 @@ BeforeAll
 	MOVVC	r0, #0x0D
 	STRVC	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
 BeforeAllare8
-	LDRVC	r0, [r11, #4]
-		;     Zap_RestoreModeWord
+	MOVVC	r0,r10
 	FNcallc	Zap_RestoreModeWord,VC ; restore mode options on e_start
 	LDRVC	r1, [r7, #0x0C]
 	ADRVCL	r0, w_formmb
@@ -436,17 +462,21 @@ BeforeAllare8
 ;	BL	destroyanypanes
 ;	BLVC	gomakepanehappen
 ;	ADDVSS	lr, lr, #0	;  CLV...
-	LDMFD	sp!, {r1, r6, r7, pc}
+	FNRTS
 
 
 E_End
-	STMFD	sp!, {r7, lr}
+	FNJSR	"r7,r10"
+	TEQ	r8,#0
+	LDRNEB	r10,[r8,#w_format]
 ;	CMP	r8, #0
 ;	BLNE	destroyanypanes
-	BL	ZapModeWord
-	LDRVC	r0, [r11, #4]
+	MOV	r1,r10
+	FNcall	Zap_GetModeWord,r7
+	MOVVC	r0,r10
 	FNcallc	Zap_SaveModeWord,VC	; save on e_end
-	LDMFD	sp!, {r7, pc}
+	FNRTS
+
 
 SDsasa	DCD	0x1200004D
 
@@ -1543,11 +1573,11 @@ Brunch210
 	TEQNE	r0, r1
 	ADDEQ	lr, lr, #1
 	LDMFD	sp!, {r0, r1, pc}
-	STMFD	sp!, {r11, lr}
-	LDR	r11, Dater47
-	TEQ	r1, #0
-	BLEQ	Tk1frm12andret
-	LDMFD	sp!, {r11, pc}
+;	STMFD	sp!, {r11, lr}
+;	LDR	r11, Dater47
+;	TEQ	r1, #0
+;	BLEQ	Tk1frm12andret
+;	LDMFD	sp!, {r11, pc}
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 charchar
 	STMFD	sp!, {lr}
@@ -2220,9 +2250,10 @@ ampsemi
 		;     LDMFD   R13 !,{PC}
 		;     LDMFD   R13 !,{R7,PC}
 FromMJE27
-	STMFD	sp!, {r9, r11, lr}
-	LDR	r9, [r11, #4]	;  REM mode word...
-	LDMFD	sp!, {r11}
+	STMFD	sp!, {r1, r9, r11, lr}
+	BL	getmodenumber
+	MOV	r9,r1
+	LDMFD	sp!, {r1, r11}
 	FNcall	Zap_BaseMode
 	LDMFD	sp!, {r11, pc}
 FromMJE28
@@ -2260,44 +2291,32 @@ charfromoffset
 ;	CMP	r2, #0x20
 ;	BCS	FromMJE31
 ;	MOVS	pc, lr
-FromMJE32
-	TEQ	r8, #0
-	LDRNE	r0, [r8, #w_format]
-	MOVNE	pc, lr
-	STMFD	sp!, {r1, lr}
-	MOV	r1, #3
-	FNcall	Zap_ReadVar
-	LDMFD	sp!, {r1, pc}
-FromMJE33
-	TEQ	r8, #0
-	LDRNE	r0, [r8, #w_flags]
-	MOVNE	pc, lr
-	STMFD	sp!, {r1, lr}
-	MOV	r1, #2
-	FNcall	Zap_ReadVar
-	LDMFD	sp!, {r1, pc}
+;FromMJE32
+;	TEQ	r8, #0
+;	LDRNE	r0, [r8, #w_format]
+;	MOVNE	pc, lr
+;	STMFD	sp!, {r1, lr}
+;	MOV	r1, #3
+;	FNcall	Zap_ReadVar
+;	LDMFD	sp!, {r1, pc}
+;FromMJE33
+;	TEQ	r8, #0
+;	LDRNE	r0, [r8, #w_flags]
+;	MOVNE	pc, lr
+;	STMFD	sp!, {r1, lr}
+;	MOV	r1, #2
+;	FNcall	Zap_ReadVar
+;	LDMFD	sp!, {r1, pc}
 GetModeWord
-	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #4]
+	STMFD	sp!, {r1-r2, lr}
+	BL	getmodenumber
 	FNcall	Zap_GetModeWord,r2
-	LDMFD	sp!, {r0-r2, pc}
-PutModeWord
-	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #4]
-	FNcall	Zap_PutModeWord,r2
-	LDMFD	sp!, {r0-r2, pc}
-	STMFD	sp!, {r0-r2, lr}	;  REM ????
-	LDR	r1, [r11, #8]
-	B	FromMJE35
-	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #4]
-	B	FromMJE35
-	STMFD	sp!, {r0-r2, lr}
-	LDR	r1, [r11, #0]
-FromMJE35
-	MOV	r0, r7
-	FNcall	Zap_PutModeWord,r2
-	LDMFD	sp!, {r0-r2, pc}
+	LDMFD	sp!, {r1-r2, pc}
+;PutModeWord
+;	STMFD	sp!, {r0-r2, lr}
+;	BL	getmodenumber
+;	FNcall	Zap_PutModeWord,r2
+;	LDMFD	sp!, {r0-r2, pc}
 
 D1	=	"ZapHoTMeaL",0,0
 	DCD	0x00
@@ -3502,9 +3521,8 @@ wimpmessagerecvd
 	MOVS	r11,r0
 	LDMMIFD	sp!,{r0-r12,pc}
 	FNcall	Zap_ConvWindOff
-	LDRB	r1, [r8, #w_format]
-	ADRL	r5, modenumberlocal
-	LDRB	r5, [R5]
+	BL	getmodenumber
+	LDRB	r5, [r8, #w_format]
 	TEQ	r1, r5
 	BNE	dontexecutecmd
 	LDR	r1, localblkstore
@@ -3595,9 +3613,7 @@ maybenotimage
 	CMP	r5, r3
 	BEQ	retfromtoreporterror
 	STMFD	sp!, {r1-r11}
-	ADRL	r1, modenumberlocal
-  	LDRB	r1, [R1]
-	FNcall	Zap_GetModeWord
+	BL	GetModeWord
 	LDMFD	sp!, {r1-r11}
 	LDR	r5, [r0, #0xC]
 	ADR	r1, storedwlabel
@@ -3800,9 +3816,7 @@ _altered_39
 	LDR	r1, lastfulloneafter
 bfinsertfile
 	STMFD	sp!, {r1-r11}
-	ADRL	r1, modenumberlocal
-	LDRB	r1, [R1]
-	FNcall	Zap_GetModeWord
+	BL	GetModeWord
 	LDMFD	sp!, {r1-r11}
 	LDR	r5, [r0, #0xC]
 _altered_40
@@ -4220,10 +4234,7 @@ Cmdhtmlinsertif
 	LDRB	r1, [r0], #1
 	STR	r0, zeroptrtmp
 	STR	r1, divcharhtmlii
-	LDRB	r1, [r8, #w_format]
-	ADRL	r0, modenumberlocal
-	LDR	r0,[r0]
-	CMP	r0, r1
+	BL	checkifHoTMeaL
 	BNE	eeknotHoTMeaL
 	;FNcall	Zap_FindInput
 	LDR	r0,[r10,#c_off]
@@ -4330,17 +4341,16 @@ _altered_55
 ; FLAGSTOGGLE command
 	DCD	0x8017
 Cmdhtmlflagstoggle
-	STMFD	sp!, {lr}
+	FNJSR
+	BL	checkifHoTMeaL
+	MOVNE	r0,#2
+	FNRTS	NE
 	LDR	r10, [r0]
-	ADRL	r1, modenumberlocal
-	LDR	r1,[r1]
 		; CMP     8,#0
 		; LDRNEB  0,[8,#w_format]
 		; CMPNE   0,1
 		; LDMNEFD D !,{PC}
-	STMFD	sp!, {r1-r11}
-	FNcall	Zap_GetModeWord
-	LDMFD	sp!, {r1-r11}
+	BL	GetModeWord
 	MOV	r6, r0
 	LDR	r7, [r6, #0xC]
 	CMP	r2, #15
@@ -4375,7 +4385,7 @@ Cmdhtmlflagstoggle
 ;	BLNE	sortwwout
 ;	ANDS	r0, r5, #1
 ;	BLNE	sortbuttonsout
-	LDMFD	sp!, {pc}
+	FNRTS
 execute
 	AND	r2, r1, #0x1F
 	CMP	r2, #20
@@ -4413,11 +4423,11 @@ tickquery
 	MOVNE	r0, #1
 	MOVEQ	r0, #0
 	TST	r7, #sw_bit
-	LDMNEFD	sp!, {pc}
+	FNRTS	NE
 	TEQ	r3, #cur_logical_bit
 	TEQNE	r3, #cur_confine_bit
 	ORREQ	r0, r0, #2
-	LDMFD	sp!, {pc}
+	FNRTS
 ;sortwwout
 ;	STMFD	sp!, {r5, lr}
 ;	BL	tmt_updatewindow
@@ -4980,7 +4990,7 @@ DaterTable
 	DCD	HTMLLabeled
 	DCD	lp1	;  C-3FF0
 	DCD	0x0	;  REM = BaseMode = Text
-	DCD	13 :OR: emode_ModeWordIsBlock :OR: emode_UsesMessageTrans :OR: emode_MenuFile
+	DCD	13 :OR: emode_ModeWordIsBlock :OR: emode_UsesMessageTrans :OR: emode_MenuFile :OR: emode_MayBeCloned
 	DCD	Initialisation	;  REM init
 	DCD	menu	;  MnuDta; REM &00 ; menu...extension menu
 	DCD	endofdatertable - DaterTable	;  REM size of table ; len
@@ -5295,8 +5305,10 @@ finallyreachedend
 	CMP	r10, r6
 	MOVCS	r10, r6
 	MOV	r0, r10
-	ADRL	r9, modenumberlocal
-	LDR	r9,[r9]
+	STMFD	r13!,{r1}
+	BL	getmodenumber
+	MOV	r9,r1
+	LDMFD	r13!,{r1}
 	MOV	r11, #e_clnoff
 	FNcall	Zap_BaseMode
 	MOV	r1, r0
