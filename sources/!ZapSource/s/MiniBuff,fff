@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help
-; $Id: MiniBuff,fff,v 2.9 2001/04/30 23:40:23 ds Exp $
+; $Id: MiniBuff,fff,v 2.10 2001/05/28 17:36:09 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1579,6 +1579,7 @@ help_help
 iconbar$l
  ADR R0,icon$l
 wind$l				; R0=label for window or icon info
+ MOV R3,#0
  BL find_help
  FNRTS VS
  TEQ R0,#0
@@ -1644,7 +1645,6 @@ gotmenu$l
  LOCAL
 
 ;E R0=pointer to command name or label
-;     b31 => function, b30 => c-var
 ;  R1=command argument (if R2 valid)
 ;  R2=command flags (or 0 if no argument given,-1 if not a command)
 ;  R3=parameter type (only valid if command takes a parameter)
@@ -1939,8 +1939,8 @@ nohelp$l
 
 find_help
  FNJSR "R2,R11"
- AND R11,R0,#3<<30
- BIC R1,R0,#3<<30		; save search label
+ AND R11,R3,#3<<30
+ MOV R1,R0			; save search label
  BL load_help
  FNRTS VS
  FNLDR R2,wimp_helpdata		; file
@@ -1952,8 +1952,7 @@ a$l
  BEQ not_var$l
  TEQ R0,#35			; '#'
  ADDEQ R2,R2,#1			; skip it
- BNE b$l			; couldn't find it here
- BL strcmpstr			; case sensitive, R1,R2 saved
+ BLEQ strcmpstr			; case sensitive, R1,R2 saved
  BNE b$l
  LDRB R0,[R0]			; character after string
  CMP R0,#&20
@@ -1963,9 +1962,8 @@ not_var$l
  TST R11,#1:SHL:31		; function
  BEQ n$l			; neither function nor c-var
  TEQ R0,#64			; '@'
- ADDEQ R2,R2,#1			; skip it
- BEQ n$l
- B b$l				; couldn't find it here
+ BNE b$l			; couldn't find it here
+ ADD R2,R2,#1			; skip it
 n$l
  BL strCMPstr			; not case sensitive R1,R2 saved
  BNE b$l
