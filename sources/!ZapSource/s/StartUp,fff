@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.23 1999/08/04 13:53:39 james Exp $
+; $Id: StartUp,fff,v 1.1.2.24 1999/08/22 22:55:10 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -424,12 +424,12 @@ __global_end$l
 	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
 	&	&0000DD10, &FFBB0010
 	&	4
-	&	&282E0200
+	&	&082E0200
 
 halfword_config
 	&	2
 	&	&5C
-	FNS	("Halfword")
+	FNS	("HalfWord")
 	&	&3C
 	&	&05400008, &0200000F, &00000000, &00000000
 	&	-1
@@ -449,7 +449,20 @@ halfword_config
 	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
 	&	&0000DD10, &FFBB0010
 	&	4
-	&	&042E0200
+	&	&242E0200
+
+doubleword_config
+	&	2
+	&	&5C
+	FNS	("DoubleWord")
+	&	&3C
+	&	&05400002, &0200000F, &00000000, &00000000
+	&	-1
+	&	&00000010, &00000010, &FFFFFF10, &FFFFFF10
+	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
+	&	&0000DD10, &FFBB0010
+	&	4
+	&	&322E0200
 
 	&	2
 	&	&54
@@ -847,12 +860,16 @@ write_conf_mode_data
 update_options
  FNJSR "R1-R5"
  BL find_version_block
- LDRNE R0,[R0,#8]
- TEQNE R0,#0			; version 0 config file, or no version block?
+ LDRNE R5,[R0,#8]		; get config version, if present
+ MOVEQ R5,#0			; else default to version 0
+ TEQ R5,#0			; config file version == 0?
  ADREQL R0,halfword_config	; yes - need to add halfword mode info
  BLEQ copy_and_link_config_block
+ CMP R5,#1			; config file version <= 1?
+ ADRLSL R0,doubleword_config	; yes - need to add doubleword mode info
+ BLLS copy_and_link_config_block
  FNLDR R0,opt_minicols
- TEQ R0,#0
+ TEQ R5,#0
  FNRTS EQ			; up to date
  AND R14,R0,#&F
  FNSTR R14,opt_minibac		; background wimp colour

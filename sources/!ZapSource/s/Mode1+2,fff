@@ -1,5 +1,5 @@
 ; Contains mode entry points for word and similar modes.
-; $Id: Mode1+2,fff,v 1.1.2.8 1999/08/20 18:43:08 ds Exp $
+; $Id: Mode1+2,fff,v 1.1.2.9 1999/08/22 22:55:08 ds Exp $
 
 ; Note that use of LSR #mode1_Type_shift is OK, since mode1_Type is at the
 ; top of the relevant config word. If this changes, then this file will need
@@ -26,6 +26,7 @@
 	EXPORT	mode_table_1
 	EXPORT	mode_table_2
 	EXPORT	mode_table_5
+	EXPORT	mode_table_6
 	EXPORT	mode1_aligncaret
 	EXPORT	mode1_clnlog
 	EXPORT	mode1_clnoff
@@ -57,6 +58,9 @@
 	EXPORT	CmdWORDctrlreplace
 	EXPORT	CmdWORDflagstoggle
 	EXPORT	CmdWORDgroupsize
+	EXPORT	CmdDOUBLEWORDctrlreplace
+	EXPORT	CmdDOUBLEWORDflagstoggle
+	EXPORT	CmdDOUBLEWORDgroupsize
 	EXPORT	CmdBYTEWORDflagstoggle
 
 	IMPORT	find_version_block
@@ -148,9 +152,22 @@ mode_table_5
 	; default to the mode 1 table...
 mode5_table_end
 
+mode_table_6
+	DCD	mode_table_6
+	DCD	mode6_title
+	DCD	mode1_2_author
+	DCD	1
+	DCD	5+emode_BinaryMode+emode_UsesMessageTrans+emode_MayBeCloned
+	DCD	mode6_init
+	DCD	0
+	DCD	mode6_table_end-mode_table_6
+	; default to the mode 1 table...
+mode6_table_end
+
 mode1_title	= "Byte",0
 mode2_title	= "Word",0
 mode5_title	= "HalfWord",0
+mode6_title	= "DoubleWord",0
 
 mode1_2_author	= "Dominic Symes, James Aylett, Tim Tyler, Darren Salt",0
 
@@ -177,6 +194,13 @@ mode5_init
 	FNJSR	"R2,R3"
 	MOV	R2,#5
 	LDR	R3,mode5_mode_word
+	BL	mode1_2_init
+	FNRTS
+
+mode6_init
+	FNJSR	"R2,R3"
+	MOV	R2,#6
+	LDR	R3,mode6_mode_word
 	BL	mode1_2_init
 	FNRTS
 
@@ -233,6 +257,12 @@ mode5_mode_word
 				; 4 halfwords to a group (16 bytes)
 				; otherwise as above
 
+mode6_mode_word
+	&	&322E0200	; default mode word
+				; 'doubleword' display type,
+				; 2 doublewords to a group (16 bytes)
+				; otherwise as above
+
 ;E R14 stacked
 ;  R0 = (base) mode number, R2=reason code (assumes execute or menu)
 ;X returns to caller if OK, else to *its* caller, with R0=R7 (=2)
@@ -266,8 +296,14 @@ CmdHALFWORDgroupsize
 
 	&	c_NoR8 :OR: c_NoR9 :OR: c_Param_String :OR: c_PreMinibuffer :OR: c_CanSetupMenu
 CmdWORDgroupsize
-	MOV	R3,#1
+	MOV	R3,#4
 	MOV	R4,#2
+	B	CmdBYTEWORDgroupsize
+
+	&	c_NoR8 :OR: c_NoR9 :OR: c_Param_String :OR: c_PreMinibuffer :OR: c_CanSetupMenu
+CmdDOUBLEWORDgroupsize
+	MOV	R3,#4
+	MOV	R4,#6
 
 CmdBYTEWORDgroupsize
 	FNJSR
@@ -356,6 +392,11 @@ CmdHALFWORDctrlreplace
 	DCD	c_NoR8 :OR: c_NoR9 :OR: c_Param_String :OR: c_PreMinibuffer :OR: c_CanSetupMenu
 CmdWORDctrlreplace
 	MOV	R1,#2			; mode number
+	B	CmdBYTEWORDctrlreplace
+
+	DCD	c_NoR8 :OR: c_NoR9 :OR: c_Param_String :OR: c_PreMinibuffer :OR: c_CanSetupMenu
+CmdDOUBLEWORDctrlreplace
+	MOV	R1,#6			; mode number
 
 CmdBYTEWORDctrlreplace
 	FNJSR
@@ -423,6 +464,11 @@ CmdHALFWORDflagstoggle
 	DCD	c_NoR8 :OR: c_NoR9 :OR: c_Param_Words :OR: c_DecrementR1 :OR: c_TickableMenuEntry
 CmdWORDflagstoggle
 	MOV	R1,#2			; mode number
+	B	CmdBYTEWORDflagstoggle
+
+	DCD	c_NoR8 :OR: c_NoR9 :OR: c_Param_Words :OR: c_DecrementR1 :OR: c_TickableMenuEntry
+CmdDOUBLEWORDflagstoggle
+	MOV	R1,#6			; mode number
 
 CmdBYTEWORDflagstoggle
 	LDR	R6,[R0]			; word argument
@@ -604,8 +650,7 @@ mode1_redrawline
 	MOV	R14,R0,LSR #mode1_Type_shift
 	TST	R0,#mode1_BinaryNumberDump
 	MOV	R0,#2
-	MOV	R0,R0,LSL R14		; num of hex digits
-	SUB	R0,R0,#2
+	RSB	R0,R0,R0,LSL R14	; num of hex digits - 2
 	ADDEQ	R6,R6,R0		; move into place for first little endian atom (hex)
 	ADDNE	R6,R6,R0,LSL #2		; (binary)
 
@@ -645,8 +690,7 @@ red_c2_l1_afterwrite
 	LDR	R14,localmodeword
 	MOV	R0,#1
 	MOV	R14,R14,LSR #mode1_Type_shift
-	MOV	R14,R0,LSL R14
-	SUB	R14,R14,#1		; alignment mask
+	RSB	R14,R0,R0,LSL R14	; alignment mask
 	SUB	R0,R7,R5		; file offset
 	TST	R0,R14			; is next byte at start of a word?
 	BLEQ	red_c2_eow		; do end of word stuff
@@ -654,20 +698,31 @@ red_c2_l1_afterwrite
 	BNE	red_c2_l6		; big endian
 	; little endian, so have to move backwards
 	LDR	R14,localmodeword
-	ANDS	R14,R14,#mode1_Type
+	MOVS	R14,R14,LSR #mode1_Type_shift
 	BEQ	red_c2_l6 ; byte
-	TEQ	R14,#mode1_Type_Word
-	BEQ	red_c2_l1_afterwrite_word
+ MOV R11,#1
+ RSB R11,R11,R11,LSL R14	; alignment mask
+ TST R0,R11
+ MOVEQ R0,R11,LSL #2
+;	TEQ	R14,#mode1_Type_Word
+;	BEQ	red_c2_l1_afterwrite_word
+;	TEQ	R14,#mode1_Type_DoubleWord
+;	BEQ	red_c2_l1_afterwrite_doubleword
 	; not byte, word; must be halfword
-red_c2_l1_afterwrite_halfword
-	TST	R0,#1
-	MOVEQ	R0,#4			; next halfword (->end; little endian)
-	B	red_c2_l1_afterwrite_gotmove
-red_c2_l1_afterwrite_word
-	TST	R0,#3
-	MOVEQ	R0,#12			; next word (->end; little endian)
+; *** TRY TO REMOVE SPECIAL-CASING
+;red_c2_l1_afterwrite_halfword
+;	TST	R0,#1
+;	MOVEQ	R0,#4			; next halfword (->end; little endian)
+;	B	red_c2_l1_afterwrite_gotmove
+;red_c2_l1_afterwrite_word
+;	TST	R0,#3
+;	MOVEQ	R0,#12			; next word (->end; little endian)
+;	B	red_c2_l1_afterwrite_gotmove
+;red_c2_l1_afterwrite_doubleword
+;	TST	R0,#7
+;	MOVEQ	R0,#28		; next word (->end; little endian)
 
-red_c2_l1_afterwrite_gotmove
+;red_c2_l1_afterwrite_gotmove
 	MOVNE	R0,#-4			; still in current, so move backwards
 	; I appear to have run out of registers :-(
 	LDR	R11,localmodeword
@@ -847,12 +902,12 @@ mode1_lineoff
 	ANDS	R1,R4,#mode1_AtomsPerGroup
 	MOV	R1,R1,LSR #mode1_AtomsPerGroup_shift
 	MOVEQ	R1,#16
-	MOV	R6,R0,LSR R14		; saved
+	MOV	R0,R0,LSR R14
+	MOV	R6,R0			; save for later
 	SWI	XZapRedraw_Divide	; R0=phy line R2=col byte offset
-	MOV	R3,R0
-	MUL	R0,R5,R6		; {9,33} * x
 	TST	R4,#mode1_GroupNumberDump
-	ADDNE	R0,R3,R0		; {9,33} * x + {1,0} * x/n
+	MULEQ	R0,R5,R6		; {9,33} * x
+	MLANE	R0,R5,R6,R0		; {9,33} * x + {1,0} * x/n
 	SUB	R1,R5,#1		; width of cursor
 	FNRTS
 
@@ -880,7 +935,7 @@ mode1_linecol
 
 ;\E R1-R7 stacked R0=file offset of physical line start
 ;   R1=column R8/R9
-;   R2=chars per screen column if hex (*4 if binary)
+;   R2=chars per screen column, assuming hex display
 ;   R3=bytes per screen column
 ;      (w_format read here) (b9 => groups, b11 => binary
 ;			     b24-b27 = bytes per group)
@@ -1049,9 +1104,8 @@ mode1_aligncaret
 	LDR	R14,[R14,#w_mode0]
 	MOV	R0,#1
 	MOV	R14,R14,LSR #mode1_Type_shift
-	MOV	R14,R0,LSL R14
+	RSB	R14,R0,R0,LSL R14	; alignment mask
 	LDR	R0,[R10,#c_off]
-	SUB	R14,R14,#1		; alignment mask
 	BIC	R0,R0,R14		; half word align
 	STR	R0,[R10,#c_off]
 	FNLDR	R0,car_hex		; copy so can be recovered only
@@ -1087,39 +1141,44 @@ mode1_copy
 	LDRB	R14,[R8,#w_format]
 	ADD	R14,R8,R14,LSL #2
 	LDR	R14,[R14,#w_mode0]
-	AND	R14,R14,#mode1_Type
+	MOV	R14,R14,LSR #mode1_Type_shift
 	PUSH	"R14"
 co29	CMP	R7,R6
 	BCS	co30
 	MOV	R0,R7
 	BL	cln_readw
 	LDR	R14,[R13]
-	TEQ	R14,#mode1_Type_Word
+	TEQ	R14,#mode1_Type_DoubleWord>>mode1_Type_shift
+	BEQ	co29a
+	TEQ	R14,#mode1_Type_Word>>mode1_Type_shift
 	STREQ	R0,[R3,R4,LSL#2]	; word
 	ADDEQ	R7,R7,#4
-	TEQ	R14,#mode1_Type_HalfWord
+	TEQ	R14,#mode1_Type_HalfWord>>mode1_Type_shift
 	ADDEQ	R14,R3,R4,LSL #1	; half word
 	STREQB	R0,[R14],#1
 	MOVEQ	R0,R0,LSR #8
 	STREQB	R0,[R14]
 	ADDEQ	R7,R7,#2
-	TEQ	R14,#mode1_Type_Byte
+	TEQ	R14,#mode1_Type_Byte>>mode1_Type_shift
 	STREQB	R0,[R3,R4]		; byte
 	ADDEQ	R7,R7,#1
+co29b
 	ADD	R4,R4,#1
 	CMP	R4,R2
 	BLT	co29
 co30	PULL	"R14"
 	PULL	"R0"
-	MOV	R2,R4			; number actually typed (from bytes)
-	TEQ	R14,#mode1_Type_Word
-	STR	R0,[R8,#w_format]
-	MOVEQ	R2,R4,LSL#2		; number actually typed (from words)
-	TEQ	R14,#mode1_Type_HalfWord
-	MOVEQ	R2,R4,LSL#1		; number actually typed (from half words)
+	MOV	R2,R4,LSL R14		; number actually typed
 	STR	R7,[R10,#c_off]
 	BL	reflect_caret
 	FNRTS
+co29a	STR	R0,[R3,R4,LSL #3]!	; double word copying, first part
+	ADD	R0,R7,#4
+	BL	cln_readw
+	STR	R0,[R3,#4]		; second part
+	SUB	R3,R3,R4,LSL #3
+	ADD	R7,R7,#8
+	B	co29b
 
 ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
@@ -1139,14 +1198,15 @@ in30	TST	R6,#mode1_BinaryNumberDump
 	BL	hex_char
 	BCS	in31			; char no good
 	STR	R0,k_char_w1		; save the char
+	MOV	R0,#0
+	STR	R0,k_char_w2		; just in case in DoubleWord mode
 	FNLDR	R0,car_hex
 	TEQ	R0,#0			; entering first nibble?
 	BNE	in32			; wrap round
 in33a	LDR	R0,[R9,#f_len]
 	MOV	R14,R6,LSR #mode1_Type_shift
 	MOV	R1,#1
-	MOV	R1,R1,LSL R14
-	SUB	R1,R1,#1
+	RSB	R1,R1,R1,LSL R14
 	BIC	R0,R0,R1		; round down length
 	LDR	R1,[R10,#c_off]
 	CMP	R1,R0
@@ -1169,6 +1229,8 @@ in32					; rotate and add new nibble
 	BEQ	in32_byte
 	TEQ	R14,#mode1_Type_HalfWord
 	BEQ	in32_halfword
+	TEQ	R14,#mode1_Type_DoubleWord
+	BEQ	in32_doubleword
 	; not byte, halfword; must be word
 in32_word
 	BIC	R0,R0,#3		; nearest word
@@ -1177,6 +1239,20 @@ in32_word
 in32_byte
 	BL	cln_readc
 	B	in32_got_atom
+in32_doubleword
+	LDR	R14,[R8,#w_format]
+	TST	R14,#format_BigEndian	; big endian?
+	BICEQ	R1,R0,#7		; nearest double word
+	ADDEQ	R0,R1,#4
+	BICNE	R0,R0,#7		; nearest double word
+	ADDNE	R1,R0,#4
+	BL	cln_readw
+	MOV	R11,R0,LSL #4
+	MOV	R0,R1
+	BL	cln_readw
+	ORR	R11,R11,R0,LSR #28	; deal with b28-31
+	STR	R11,k_char_w2
+	B	in32_got_atom
 in32_halfword
 	BIC	R0,R0,#1		; nearest half word
 	BL	cln_readw
@@ -1184,27 +1260,33 @@ in32_halfword
 	TST	R14,#format_BigEndian	; big endian?
 	MOVNE	R0,R0,LSR #16		; ...yes
 in32_got_atom
-	MOV	R1,R0,LSL#4		; shift the lower nibbles
-	LDR	R0,k_char_w1
-	ORR	R0,R1,R0		; insert the new lowest nibble
+	LDR	R1,k_char_w1
+	ORR	R0,R1,R0,LSL #4		; insert the new lowest nibble
 	STR	R0,k_char_w1		; return to buffer
 	MOV	R0,#&14			; replace block no inc
 	MOV	R11,#0			; no caret change
 
 in33					; do alteration
 	STMFD	R13!,{R0,R6}
-	AND	R14,R6,#mode1_Type
-	LDR	R6,[R8,#w_format]
+	LDR	R14,[R8,#w_format]
+	AND	R6,R6,#mode1_Type
+	TST	R14,#format_BigEndian
 	LDR	R0,k_char_w1
 
-	TEQ	R14,#mode1_Type_HalfWord
+	TEQNE	R6,#mode1_Type_Byte	; don't want to reverse if in byte mode!
+	BEQ	in33_littleendian
+	TEQ	R6,#mode1_Type_HalfWord
 	MOVEQ	R0,R0,LSL #16
 	ORREQ	R0,R0,R0,LSR #16	; half word duplication (for big endian)
-
-	TST	R6,#format_BigEndian
-	TEQNE	R14,#mode1_Type_Byte	; don't want to reverse if in byte mode!
-	BLNE	reverse_word
+	BL	reverse_word
+	TEQ	R6,#mode1_Type_DoubleWord
+	LDREQ	R3,k_char_w2		; if double word mode,
+	STREQ	R0,k_char_w2		; reverse both words & swap them
+	MOVEQ	R0,R3
+	BLEQ	reverse_word
 	STR	R0,k_char_w1
+
+in33_littleendian
 	ADR	R3,k_char_w1
 
 	LDMFD	R13!,{R0,R6}		; restore
@@ -1260,8 +1342,7 @@ in35					; rotate and add new bit
 	LDR	R0,[R10,#c_off]
 	MOV	R14,R6,LSR #mode1_Type_shift
 	MOV	R1,#1
-	MOV	R1,R1,LSL R14
-	SUB	R1,R1,#1
+	RSB	R1,R1,R1,LSL R14
 	BIC	R0,R0,R1		; round down to atom size
 	BL	cln_readw		; \X R0 = word at cursor
 	MOV	R1,R0,LSL #1		; shift the lower bits
@@ -1273,8 +1354,9 @@ in35					; rotate and add new bit
 	MOV	R11,#0			; no caret change
 	B	in33
 
-	INCORE	4
+	INCORE	8
 k_char_w1	DCD	0
+k_char_w2	DCD	0
 
 mode1_char_literal
 	AND	R1,R1,#mode1_Type
@@ -1287,23 +1369,31 @@ mode1_char_literal
 
 mode1_return
 	FNJSR	"R4"
-	MOV	R4,R0
-	MOV	R0,#1			; byte mode?
-	BL	isthisaclonebase
-	ADREQ	R0,byte$l
-	BEQ	exec$l
-	MOV	R0,#5			; halfword mode?
-	BL	isthisaclonebase
-	ADREQ	R0,halfword$l
-	BEQ	exec$l
-	TEQ	R4,#0			; no - word mode
-	PULL	"R4",NE
+	LDRB	R1,[R8,#w_format]
+	ADD	R1,R8,R1,LSL #2
+	LDR	R1,[R1,#w_mode0]
+	MOV	R1,R1,LSR #mode1_Type_shift
+	ADR	R4,list$l
+	LDRB	R14,[R4,#-1]
+	CMP	R1,R14
+	FNRTS	HS
+	TEQ	R0,#0
+	ADDNE	R0,R4,#1
+	LDRNEB	R0,[R0,R1,LSL #1]
+	TEQNE	R0,#0
 	BNE	inmode4_return
-inmode1_return
-	ADR	R0,word$l		; command to execute
-exec$l	ORR	R0,R0,#command_DontLearn
-	BL	command_string
+	LDRB	R0,[R4,R1,LSL #1]
+	TEQ	R0,#0
+	ADDNE	R0,R0,R4
+	ORRNE	R0,R0,#command_DontLearn
+	BLNE	command_string
 	FNRTS
+	=	(endlist$l-list$l)/2	; no. of entries
+list$l	; fmt:	EDIT* offset (or 0), ASSEMBLE flag
+	=	byte$l-list$l, 0
+	=	halfword$l-list$l, 0
+	=	word$l-list$l, 1
+endlist$l
 byte$l		= "EDITBYTE",0
 halfword$l	= "EDITHALFWORD",0
 word$l		= "EDITWORD",0
@@ -1320,8 +1410,7 @@ mode1_delete
 	LDR	R14,[R14,#w_mode0]
 	MOV	R0,#1
 	MOV	R14,R14,LSR #mode1_Type_shift
-	MOV	R0,R0,LSL R14		; atom size
-	SUB	R0,R0,#1
+	RSB	R0,R0,R0,LSL R14	; atom size mask
 	MOV	R5,R5,LSL R14		; each delete is one atom
 	TEQ	R14,#mode1_Type_Byte	; no point in atom aligning if in byte mode
 	BLNE	word_align_caret_variable

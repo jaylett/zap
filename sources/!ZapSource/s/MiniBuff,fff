@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.1.2.12 1999/08/04 13:53:37 james Exp $
+; $Id: MiniBuff,fff,v 1.1.2.13 1999/08/22 22:55:08 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -901,6 +901,9 @@ show_mini_caret
  LDR R0,[R1,#w_minx]
  LDR R5,[R1,#w_scrollx]
  SUB R2,R2,R0			; width of visible area
+ CMP R4,R2
+ MOVLS R0,#0
+ BLS short$l
  SUB R14,R4,R2			; rightmost allowable scroll offset
  MOV R0,R5
  CMP R2,#128
@@ -925,6 +928,7 @@ ge$l
  MOVMI R0,#0
  CMP R0,R14
  MOVHI R0,R14
+short$l
  STR R0,[R1,#w_scrollx]
  FNRTS
 
@@ -942,7 +946,7 @@ font$l
  ADDVC R4,R0,#16
  LDMVCFD R13!,{R1,PC}
  LDR R1,[R13],#8
- LDMFD R13!,{R2-R4,PC}
+ FNRTS
 
 ;E R2=type
 ;X Command associated to minibuffer called with
@@ -1415,8 +1419,6 @@ redraw_minibuffer
  MOVVC R4,#0			; action
  SWIVC XColourTrans_SetGCOL
  FNRTS VS
- BL checkfortextop
- BLGE fontcolour$l
  MOV R1,R11
  BL find_leaf_area		; (R2,R3)=top left R5=num chars
  FNRTS VS			; R4=char offset
@@ -1443,8 +1445,12 @@ redraw_minibuffer
  SWINE XOS_WriteN		; write the chars to screen
  FNRTS				; go home!
 font$l
- MOV R0,#8
- SWI XWimp_ReadSysInfo
+ MOV R0,#0
+ FNLDR R1,opt_minifor
+ FNLDR R2,opt_minibac
+ SWI XWimp_TextOp
+ MOVVC R0,#8
+ SWIVC XWimp_ReadSysInfo
  FNRTS VS
  TEQ R0,#0
  MOV R0,#&40000002
@@ -1455,13 +1461,6 @@ font$l
  MVN R2,#0
  MVN R3,#0
  SWI XWimp_TextOp
- FNRTS
-fontcolour$l
- MOV R0,#0
- FNLDR R1,opt_minifor
- FNLDR R2,opt_minibac
- SWI XWimp_TextOp
- MOVVC PC,R14
  FNRTS
 
 ;E R1=wimp redraw block
