@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.5 2002/11/13 02:03:24 christian Exp $
+; $Id: Undo,fff,v 2.6 2002/11/13 13:40:29 christian Exp $
 
 ; *** Important notes on symbolisation ***
 ;
@@ -45,18 +45,17 @@ udata			* &07		; undo data block increment mask
 ; New format of undo buffers					;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; f_ptr		 =	start address of file
-; f_ptr+f_bufl	 =	end of file / start of undo buffer
-; f_ptr+f_blklen =	end of undo buffer / start of next file
-;
-; f_ulen	= length of valid data in the undo buffer
-; f_undo	= offset of the undo pointer in the undo buffer
-; (f_undop and f_undoptr no longer used)
+; f_ptr	    =	start address of file
+; f_uptr    ->	heap block containing undo blocks
+; f_ubufl   =	length of undo buffer
+; f_ulen    =	length of valid data in the undo buffer
+; f_undo    =	offset of the undo pointer in the undo buffer
+; f_undop   =	offset of undo pointer inside current command block
 ;
 ; Undo buffer consists of a list of words of the following format:
 ;
-;	<command number + flags + b31 + file offset>	: indicates start of block
-;	<Zap_Command's R1-R3> 				: as required
+;	<command number + flags + b31>	: b31 indicates start of block
+;	<Zap_Command's R1-R3> 		: as required
 ;
 ; Block types are:
 ;
@@ -125,30 +124,36 @@ udata			* &07		; undo data block increment mask
 ;		fast redo  -		}
 ;		-c			} FASTUNDO
 ;
-;
-; I know this isn't terribly clear. It really needs talking through :-/
 
 
 			^	0
-undo_Command		#	4	; combined command + flags + file offset
+undo_Command		#	4	; combined command + flags
+undo_FileOffset		#	4	; file offset
 undo_DataLength		#	4	; length of data in block     }
 undo_Data		#	4	; data inserted / deleted     } optional
 undo_ReplacedData	#	4	; data replaced		      }
 undo_MaxBlockSize	*	@	; maximum undo block length
 
-			^	:INDEX: undo_DataLength
+			^	:INDEX: undo_FileOffset
 undo_op_Size		*	@	; startop / stopop marker (no data)
 
-			^	:INDEX: undo_DataLength
-undo_fast_Offset	#	4	; fast[undo|redo] offset into undo buffer
-undo_fast_Size		*	@	;
+			^	:INDEX: undo_FileOffset
+undo_fastu_Offset	#	4	; fastundo offset into undo buffer
+undo_fastu_UndoP	#	4	; fastundo new undop
+undo_fastu_Size		*	@	;
 
-			^	:INDEX: undo_DataLength
+			^	:INDEX: undo_FileOffset
+undo_fastr_Offset	#	4	; fastredo offset into undo buffer
+undo_fastr_Size		*	@	;
+
+			^	:INDEX: undo_FileOffset
+undo_insert_Offset	#	4	; file offset of operation
 undo_insert_DataLength	#	4	; length of data inserted / deleted
 undo_insert_Data	#	4	; -> heap block containing inserted / deleted data
 undo_insert_Size	*	@	;
 
-			^	:INDEX: undo_DataLength
+			^	:INDEX: undo_FileOffset
+undo_replace_Offset	#	4	; file offset of operation
 undo_replace_DataLength	#	4	; length of data replaced
 undo_replace_Data	#	4	; -> heap block containing replaced data
 undo_replace_Replaced	#	4	; -> heap block containing new data
@@ -176,8 +181,7 @@ command_Illegal		*	(7)	; a command number which cannot exist. It's used internal
 command_LongOp		*	(command_Illegal)	; undo special op
 command_FastOp		*	(0)			; undo special op
 
-undo_Type_mask		*	(0x17)
-undo_Type_shift		*	(26)
+undo_Type_mask		*	(0x57)
 
 ; These are within a de-shifted undo block. b0-b2 give
 ; the command_ type.
@@ -185,15 +189,6 @@ undo_Block_Start	*	(1:SHL:5)
 undo_Block_IsAtomic	*	(1:SHL:4)
 undo_Block_DontFreeData	*	(1:SHL:3)
 
-; To make life worse, we use b25 (ie: the top of the data area below the
-; command) to indicate that this is a region select action as well as whatever
-; else. ie: we transfer command_SelectRegion into undo_SelectRegion:
-undo_SelectRegion	*	(1:SHL:25)
-
-; Look at what we've got left of this first word. We've cleared out b25-b31,
-; so we're left with b0-b24. This is 0x01ffffff; the inverse is 0xfe000000.
-undo_Information_mask	*	(0xfe000000)
-undo_Data_mask		*	(0x01ffffff)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Undo and redo							;
@@ -238,9 +233,8 @@ loop$l		CMP	R6,#0				; I don't think this is necessary - cl
 
 		MOV	R6,R0
 		ADD	R0,R7,R6
-		LDR	R14,[R0]			; get command + flags
+		LDR	R1,[R0]				; get command + flags
 
-		MOV	R1,R14,LSR #undo_Type_shift
 		AND	R1,R1,#undo_Type_mask		; actual command number
 		TEQ	R1,#undo_Type_stopop
 		BEQ	un22				; multiop (end)
@@ -255,10 +249,10 @@ loop$l		CMP	R6,#0				; I don't think this is necessary - cl
 		TEQ	R10,#0
 		BNE	loop$l				; fast undo not requested
 
-		LDR	R8,[R0,#undo_fast_Offset]	; new undop
+		ADD	R1,R6,#undo_fastu_Size		; next command (at end of fast undo)
+		LDRVC	R6,[R0,#undo_fastu_Offset]	; new undo
+		LDRVC	R8,[R0,#undo_fastu_UndoP]	; new undop
 		MOV	R0,#undo_Type_fastredo
-		ADD	R1,R6,#undo_fast_Size		; next command (at end of fast undo)
-		BIC	R6,R14,#&FE000000		; new undo ; FC000
 		BL	buffer_command			; buffer fast redo pointer
 		BVC	loop$l
 		FNRTS
@@ -348,7 +342,7 @@ un12		MOV	R0,R10				; so increment undo to next one
 		BCS	un15
 		ADD	R0,R7,R10			; address of next instruction
 		LDR	R14,[R0]
-		TST	R14,#&3C000000
+		TST	R14,#&0F
 		BEQ	un12				; not a proper instruction
 
 un15		MOV	R11,#0				; move undo pointers forward
@@ -404,14 +398,13 @@ un11		MOV	R0,R6
 		MOVCS	R6,#0
 		FNRTS	CS				; reached start of buffer !
 		MOV	R6,R0
-		ADD	R0,R7,R6			; address of previous instr
-		LDR	R14,[R0]			; previous instruction
-		MOV	R1,R14,LSR#undo_Type_shift
+		ADD	R14,R7,R6			; address of previous instr
+		LDR	R1,[R14]			; previous instruction
 		ANDS	R0,R1,#undo_Type_mask
 		BEQ	un11				; a fast undo (shouldnt be there!!)
 		TEQ	R0,#undo_Type_fastredo
 		FNRTS	NE				; found a proper instruction
-		BIC	R10,R14,#&FE000000		; a fast redo to this point
+		LDR	R10,[R14,#undo_FileOffset]	; a fast redo to this point
 		MOV	R11,#0
 		B	un11
 
@@ -459,7 +452,7 @@ un17		SUBS	R6,R6,#8			; move back one
 		CMN	R5,#1
 		BEQ	un17				; -1 => entry is dead
 		BIC	R0,R5,#3<<30			; actual address/offset
-		LDR	R2,[R1,#undo_DataLength]	; paramter (off/len)
+		LDR	R2,[R1,#4]			; paramter (off/len)
 		TST	R5,#1<<31
 		BNE	un28				; actual block
 		PUSH	"R9"
@@ -614,8 +607,8 @@ gc_datarequest	FNJSR	"r1-r10"
 		FNLDR	r6,yank_len			; length of kill ring; ie last pointer
 		FNLDR	r7,yank_ptr
 
- ; Next section of code modified from yank_paste_command, above, to
- ; find the block which would be pasted if the user just did it local to Zap
+ 		; Next section of code modified from yank_paste_command, above, to
+ 		; find the block which would be pasted if the user just did it local to Zap
 dr1		SUBS	r6,r6,#8			; back one
 		BMI	pullr1andreturn
 		ADD	r1,r6,r7			; block address
@@ -625,19 +618,19 @@ dr1		SUBS	r6,r6,#8			; back one
 		BEQ	dr1				; -1 => entry is dead
 
 		BIC	r0,r5,#(3:SHL:30)		; discard flags
-		LDR	r9,[r1,#undo_insert_DataLength]	; parameter (offset/length)
+		LDR	r9,[r1,#undo_insert_DataLength]	; parameter (offset/length)  CL FIXME
 		TST	r5,#(1:SHL:31)
 		BNE	dr2				; actual block - so r9, r0 are set up
 
- ; Otherwise it's part of the file's undo buffer, so r0 is the file offset
- ; and r9 is the offset into the file's undo buffer
+ 		; Otherwise it's part of the file's undo buffer, so r0 is the file offset
+ 		; and r9 is the offset into the file's undo buffer
 		PUSH	"r9"				; store whatever is actually in r9
 		BL	conv_file_off			; r9 = file ptr
 		LDR	r3,[r9,#f_uptr]			; r3 = undo buffer in file
 		PULL	"r9"				; get it back again
 		ADD	r3,r3,r9			; actual entry
-		LDR	r9,[r3,#4]			; length
-		LDR	r0,[r3,#8]			; address
+		LDR	r9,[r3,#undo_insert_DataLength]	; length
+		LDR	r0,[r3,#undo_insert_Data]	; address
 
 dr2		MOV	r8,r0				; address into r8, where we need it
 
@@ -700,7 +693,6 @@ ad18		BLVC	un_backward
 		FNRTS	CS
 		FNRTS	VS
 		LDR	R1,[R7,R0]			; first word
-		MOV	R1,R1,LSR #undo_Type_shift
 		AND	R1,R1,#command_mask
 		TEQ	R1,#command_Delete
 		TEQNE	R1,#command_Delete_MaintainCursor
@@ -741,7 +733,7 @@ un1		ADD	R0,R0,#4
 		LDR	R14,[R7,R0]
 		TST	R14,#1<<31
 		BEQ	un1
-		ADDS	R0,R0,#0			; clc
+		CLC
 		FNRTS
 
 
@@ -756,7 +748,7 @@ un2		CMP	R0,#0
 		LDR	R14,[R7,R0]
 		TST	R14,#1<<31
 		BEQ	un2
-		ADDS	R0,R0,#0			; clc
+		CLC
 		FNRTS
 
 
@@ -764,6 +756,7 @@ un2		CMP	R0,#0
 ;  R1 = file offset   }
 ;  R2 = data length   } as for execute_command (Zap_Command)
 ;  R3 = data pointer  }
+;  R4 = previous data pointer (for command_Replace)
 ;  R7 -> undo buffer for this file
 ;  R9
 ;
@@ -771,7 +764,7 @@ un2		CMP	R0,#0
 buffer_command	FNJSR	"R1-R3,R6,R8-R11"
 		MOV	R10,R0
 		MOV	R11,R1
-		MOV	R8,R2				; (LENGTH TT)
+		MOV	R8,R2				; length
 		LDR	R6,[R9,#f_ulen]
 		LDR	R0,[R9,#f_ubufl]
 		SUB	R14,R0,R6			; free bytes in buffer
@@ -799,10 +792,7 @@ un3		BIC	R0,R10,#undo_Block_DontFreeData	; command number
 		BCS	buf_new_command			; no previous command
 
 		LDR	R14,[R7,R0]			; read command number + flags
-		TST	R14,#undo_SelectRegion
-		MOV	R14,R14,LSR #undo_Type_shift
-		AND	R14,R14,#&1F			; get command number + don't concatonate flag
-		ORRNE	R14,R14,#command_SelectRegion	; &40
+		AND	R14,R14,#&5F			; get command number + don't concatonate flag
 
 		TEQ	R10,R14
 		BNE	buf_new_command			; not the same as the previous command
@@ -821,23 +811,22 @@ buf_new_command	CMP	R6,#0				; otherwise address exceptions!?
 		CMPPL	R7,#0
 		FNRTS	MI
 
-		ORR	R14,R11,R10,LSL#undo_Type_shift
-		ORR	R14,R14,#(undo_Block_Start:SHL:undo_Type_shift)	; start of undo block - 1<<31
-
-		TST	R10,#command_SelectRegion	; &40
-		ORRNE	R14,R14,#undo_SelectRegion
+		ORR	R14,R10,#1<<31			; start of undo block = 1<<31
 
 		ADD	R6,R7,R6			; address of entry
-		STR	R14,[R6],#4			; command and file offset - exception...!!!
-		TEQ	R10,#undo_Type_fastredo
-		BEQ	buf_new_end			; finished
+		STR	R14,[R6],#4			; command number
 		AND	R14,R10,#command_mask
 		CMP	R14,#command_LongOp
 		BCS	buf_new_end			; finished (marker)
 
-		STR	R8,[R6],#4			;
+		STR	R11,[R6],#4			; store file offset
+		TEQ	R10,#undo_Type_fastredo
+		BEQ	buf_new_end			; finished
+
+		STR	R8,[R6],#4			; data length
 		TEQ	R10,#undo_Type_fastundo		;
 		BEQ	buf_new_end			; finished
+
 		TST	R10,#undo_Block_DontFreeData
 		BNE	buf_no_claim			; not set for freeing, so don't bother to duplicate
 		MOV	R0,R8				; length
@@ -873,12 +862,11 @@ buf_new_end	SUB	R6,R6,R7			; new end offset
 
 ; concatonate this undo data with the previous command block's
 buf_concat_top	ADD	R0,R7,R0			; previous command
-		LDR	R1,[R0]
-		BIC	R1,R1,#undo_Information_mask	; file offset for insert/replace
+		LDR	R1,[R0,#undo_FileOffset]
 		LDR	R14,[R0,#undo_DataLength]	; length of data
 		ADD	R1,R1,R14			; file offset of last char
 		TEQ	R1,R11
-		BNE	buf_new_command			; doesnt concat
+		BNE	buf_new_command			; doesn't concat
 		TST	R10,#undo_Block_DontFreeData
 		BNE	buf_concat_top_no_claim
 		MOV	R6,R0				; alter previous command
@@ -926,8 +914,7 @@ buf_concat_top_no_claim
 ; concatonate this data with the previous command block's
 buf_concat_bottom
 		ADD	R0,R7,R0			; previous command
-		LDR	R1,[R0]
-		BIC	R1,R1,#undo_Information_mask	; offset of old block
+		LDR	R1,[R0,#undo_FileOffset]
 		SUB	R1,R1,R8
 		TEQ	R1,R11				; can new block be added on start
 		BNE	buf_new_command			; no
@@ -971,9 +958,9 @@ un21		PUSH	"R3"				; save data
 
 un19		ADD	R0,R8,R11
 		STR	R0,[R6,#undo_DataLength]
-		LDR	R0,[R6]
+		LDR	R0,[R6,#undo_FileOffset]
 		SUB	R0,R0,R8
-		STR	R0,[R6]				; new file offset
+		STR	R0,[R6,#undo_FileOffset]	; new file offset
 		FNRTS
 
 buf_concat_bottom_no_claim
@@ -984,9 +971,9 @@ buf_concat_bottom_no_claim
 		LDR	R14,[R0,#undo_DataLength]
 		ADD	R14,R14,R8
 		STR	R14,[R0,#undo_DataLength]
-		LDR	R14,[R0]
+		LDR	R14,[R0,#undo_FileOffset]
 		SUB	R14,R14,R8
-		STR	R14,[R0]			; new offset of action
+		STR	R14,[R0,#undo_FileOffset]		; new offset of action
 		STR	R3,[R0,#undo_insert_Data]	; new command start
 		AND	R14,R10,#command_mask
 		CMP	R14,#command_Replace
@@ -1003,10 +990,7 @@ undo_invert_command
 		FNJSR	"R6,R10-R11"
 		ADD	R6,R7,R6			; address of command to undo
 		LDR	R0,[R6]				; command
-		TST	R0,#undo_SelectRegion
-		BIC	R1,R0,#undo_Information_mask	; file offset (35MB limit here :|)
-		MOV	R0,R0,LSR #undo_Type_shift
-		ORRNE	R0,R0,#command_SelectRegion	; causes problems?
+		LDR	R1,[R6,#undo_FileOffset]
 		AND	R0,R0,#&5F			; 6 bit command (?)
 		ANDS	R10,R0,#command_mask
 		CMPNE	R10,#command_Illegal
@@ -1032,7 +1016,7 @@ undo_invert_command
 		ADDEQ	R3,R3,R11			; and this is the new
 		EOREQ	R10,R10,#7			; opposite replace
 		ORR	R0,R0,R10			; complete command number
-		ORR	R0,R0,#undo_Block_DontFreeData
+		ORR	R0,R0,#undo_Block_DontFreeData	; flag this as an 'undone' command
 		FNRTS
 
 
@@ -1044,11 +1028,9 @@ unbuffer_command
 		FNJSR	"R1-R3,R6"
 		ADD	R6,R7,R6			; address of the command
 		LDR	R0,[R6]
-		MOV	R3,R0,LSR #undo_Type_shift
-		ANDS	R1,R3,#command_mask
+		ANDS	R1,R0,#command_mask
 		CMPNE	R1,#command_Illegal
 		FNRTS	EQ
-		TST	R3,#undo_Block_DontFreeData
 		LDR	R0,[R6,#undo_DataLength]
 		SUBS	R0,R0,R2			; number of bytes left
 		FNRTS	LE				; none left
@@ -1057,9 +1039,9 @@ unbuffer_command
 		TEQNE	R1,#command_ReplaceBackwards
 		TEQNE	R1,#command_Delete_MaintainCursor
 		FNRTS	NE				; this is all for a concat top
-		LDR	R0,[R6]
+		LDR	R0,[R6,#undo_FileOffset]
 		ADD	R0,R0,R2
-		STR	R0,[R6]				; increase file offset
+		STR	R0,[R6,#undo_FileOffset]		; increase file offset
 		LDR	R0,[R6,#undo_insert_Data]
 		ADD	R0,R0,R2
 		STR	R0,[R6,#undo_insert_Data]	; increment position of first buf
@@ -1086,7 +1068,6 @@ fr2		SUB	R0,R6,R7			; undo offset
 		ADD	R6,R7,R0			; next instruction
 		LDR	R5,[R6]
 		MOV	R1,#-1				; yes?
-		MOV	R5,R5,LSR #undo_Type_shift	; top 6 bits
 		TST	R5,#undo_Block_DontFreeData
 		BNE	fr2				; no buffered data
 
