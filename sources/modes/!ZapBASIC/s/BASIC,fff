@@ -1,5 +1,5 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.2 1999/04/22 19:04:03 ds Exp $
+; $Id: BASIC,fff,v 1.3 1999/06/10 17:23:20 ds Exp $
 
  GET h.ZapBasHdr
  GET h.ZapBasic
@@ -642,6 +642,7 @@ red6
 
  TEQ R0,#'"'			; quote
  TSTEQ R2,#&800			; and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  BLEQ red16			; entering/leaving a quote
  TST R2,#&800			; see if we are in an asm comment -
  BNE nfanumbtt
@@ -915,7 +916,7 @@ red11
  MOVNE R14,#9			; rem
  STRNEB R14,[R6,R11]		; set colour for rem
  BNE tored6			; print the character
- TST R2,#2			; in a quote
+ TST R2,#&80000002		; in a quote or * command
  BLNE insidequotemarks		; in a quote...
 tored6
  TEQ R0,#&0D
@@ -1001,7 +1002,7 @@ bas_red_inanonow
 
 red_bas_testforoscli
  CMP R0,#'*'			; * oscli
- ORREQ R2,R2,#&80000000		; set * in it flag
+ ORREQ R2,R2,#&80000002		; set * in it flag
  CMP R0,#'.'			; . asembler label
  ORREQ R2,R2,#&100000
  ORREQ R2,R2,#&20		; Not at SOL anymore...
@@ -1068,6 +1069,7 @@ bas_foundfpname
 
 red_bas_foundinoscli
  CMP R0,#'"'
+ TSTEQ R2,#&80000000
  EOREQ R2,R2,#&2		;
  MOV R1,#&1B			; colour OSCLI...
  TST R2,#&40000000		; test relevant flag...
@@ -1362,8 +1364,8 @@ fully_detokenise_byte
  BNE cont$l
  ;MOV R1,#&800
  ;ORR R1,R1,#3			; in the middle of something
- TST R2,#3
- BNE inrem$l			; don't expand as in a quote/rem
+ TST R2,#&80000003
+ BNE inrem$l			; don't expand as in a quote/rem/*
  CMP R0,#&7F
  BCS cont$l			; expand token
 inrem$l
@@ -1384,7 +1386,7 @@ inrem$l
  ;BICEQ R2,R2,#&FF00		; clear recent flags...
  ;BICEQ R2,R2,#&FC		; clear 'GOTO' flags ... ???
  ;TEQNE R0,#' '			; if not ':'/' ' then ; fuzzy???
- ;;ORRNE R2,R2,#&8000		; could not be a * CLI next...
+ ORRNE R2,R2,#&8000		; could not be a * CLI next...
  ;;CMP R0,#'0'			; and there's a : of course
  ;;BICCC R2,R2,#&3000		; clear recent proc/fn flags...
 
@@ -1394,6 +1396,7 @@ inrem$l
 
  TEQ R0,#'"'
  TSTEQ R2,#&800			; quote and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  EOREQ R2,R2,#2
 back_bas_butwerenotinno
 back_nfanumbtt
@@ -1430,8 +1433,8 @@ bas_red_fully_det_byte
  FNJSR
  BICS R14,R0,#&FF
  BNE bas_red_contnotsolocal
- TST R2,#&3
- BNE bas_red_inrem$l		; don't expand as in a quote/rem
+ TST R2,#&80000003
+ BNE bas_red_inrem$l		; don't expand as in a quote/rem/*
  CMP R0,#&7F
  BCS bas_red_contnotsolocal	; expand token
 bas_red_inrem$l
@@ -1441,6 +1444,7 @@ bas_red_inrem$l
  BLEQ ba_incomment_general
  TEQ R0,#'"'
  TSTEQ R2,#&800			; quote and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  EOREQ R2,R2,#2
  TST R2,#&800			; see if we are in an asm comment -
  BNE bas_red_back_nfanumbtt	; if so, skip irrelevant stuff...
@@ -1459,8 +1463,7 @@ bas_red_inrem$l
  BLNE atendofasminstr
  BNE bas_red_back_nfanumbtt
 
- TST R2,#3 << 30		; test recent * / in DATA flag...
- TSTEQ R2,#3			; test recent " / REM
+ TST R2,#&C0000003		; test recent */DATA/"/REM
  TEQEQ R0,#':'			; and there's a : of course
  LDREQ R1,constantbicmask
  BICEQ R2,R2,R1
@@ -1746,13 +1749,14 @@ loop$l				; main loop
 
  TEQ R0,#'"'
  TSTEQ R2,#&800			; quote and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  BEQ quote$l
 back_nfanumbtt3
  TST R2,#1<<5
  BEQ linestart$l
- TST R2,#2
+ TST R2,#&80000002
  MOVNE R3,#10
- BNE char$l			; in a string
+ BNE char$l			; in a string or * command
  CMP R0,#&7F
  BCC char$l			; ordinary character
  MOV R3,#18			; function
@@ -1779,7 +1783,7 @@ linestart$l			; start of line (after a colon)
  BEQ space$l
  TEQ R0,#'*'
  MOVEQ R3,#20
- ORREQ R2,R2,#1<<31
+ ORREQ R2,R2,#&80000002
  BEQ char$l			; in an oscli statement
  CMP R0,#&7F
  BCS token$l
@@ -1795,12 +1799,11 @@ quote$l
  B char$l
 
 rem$l				; untokenised REM or DATA or OSCLI section
+ MOV R3,#9
+ TST R2,#1<<30
+ MOVNE R3,#19			; DATA
  TST R2,#1<<31
  MOVNE R3,#20			; colour for ...REM?
- BNE char$l
- TST R2,#1<<30
- MOVEQ R3,#9
- MOVNE R3,#19			; DATA
 char$l				; do one char - no longer at line start
  ORR R2,R2,#1<<5
 space$l
@@ -1847,8 +1850,8 @@ detokenise_len
  FNJSR
  BICS R14,R5,#&FF
  BNE cont$l			; in the middle of something
- TST R4,#3
- BNE rem$l			; in a quote/rem
+ TST R4,#&80000003
+ BNE rem$l			; in a quote/rem/*
  CMP R5,#&7F
  BCS token$l			; detokenise
 rem$l
@@ -2391,6 +2394,7 @@ cont$l				; decimal num/variable/hex num finished
  BEQ char$l			; skip
  TEQ R0,#&22			; quote
  TSTEQ R2,#&800			; and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  EOREQ R2,R2,#2			; toggle quote state
  TST R2,#3			; should we skip ; TT
  BNE char$l			; skip (as in quote/rem or after a *)
@@ -7908,8 +7912,8 @@ gettoken$l
  ADD R10,R10,#1
  ;MOV R1,#&800
  ;ORR R1,R1,#3			; in the middle of something
- TST R2,#&3
- BNE inrem$l			; don't expand as in a quote/rem
+ TST R2,#&80000003
+ BNE inrem$l			; don't expand as in a quote/rem/*
  CMP R0,#&7F
  BCS expand$l			; expand token
 inrem$l
@@ -7918,6 +7922,10 @@ inrem$l
  ANDS R1,R2,#3			; make sure we're outside quotes
  BLEQ ba_incomment_general
 
+ TEQ R0,#'*'			; '*'?
+ TSTEQ R2,#&8000		; and at statement start?
+ ORREQ R2,R2,#&80000002		; we're in a *command
+
  TST R2,#&02			; make sure we're outside quotes
  TEQEQ R0,#':'			; and there's a : of course
  LDREQ R1,constantbicmask3
@@ -7925,7 +7933,7 @@ inrem$l
  ;BICEQ R2,R2,#&FC00		; clear recent flags...
  ;BICEQ R2,R2,#&28		; clear 'GOTO' flag
  ;TEQNE R0,#' '			; if not ':'/' ' then
- ;ORRNE R2,R2,#&8000		; could not be a * CLI next...
+ ORRNE R2,R2,#&8000		; could not be a * CLI next...
  TST R2,#&2000			; in proc/fn
  BLNE possiblyendprocfn2
  CMP R0,#';'			; semicolon ;(TT)
@@ -7934,6 +7942,7 @@ inrem$l
 
  TEQ R0,#'"'
  TSTEQ R2,#&800			; quote and not in asm comment
+ TSTEQ R2,#&80000000		; and not in * command
  EOREQ R2,R2,#2
 
 back_nfanumbtt2
@@ -8869,8 +8878,9 @@ loop3$l
  BNE incandret2$l
  CMP R0,#'"'			; quote bit.
  TSTEQ R6,#&800			; and not in asm comment
+ TSTEQ R6,#&80000000		; and not in * command
  EOREQ R6,R6,#2
- TST R6,#2
+ TST R6,#&2
  BNE incandret2$l
  TEQ R0,#':'
  BICEQ R6,R6,#&180		; no asm cmt / no recent print

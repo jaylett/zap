@@ -1,5 +1,5 @@
 ; Contains BASIC module header and non mode specific code.
-; $Id: ZapBASIC,fff,v 1.1 1999/03/12 10:01:24 james Exp $
+; $Id: ZapBASIC,fff,v 1.2 1999/06/10 17:23:21 ds Exp $
 
  GET h.ZapBasHdr
  GET h.basic
@@ -45,7 +45,7 @@
  EXPORT test_forkey
 
  GBLS version
-version SETS "1.34 "
+version SETS "1.35 "
 
  AREA |!!!Module_Header_Area|,CODE,READONLY
 
@@ -96,23 +96,23 @@ command_table
  DCD 0
 
 tphlp
- = "This command is for testing the Zap BASIC editor's "
- = "tokenisation. It loads in the BASIC file and goes through "
- = "it line by line detokenising and then retokenising. "
- = "If there is a discrepancy then it prints up an error message.",13,10
+ = "This command",27,")for testing",27,2,"Zap BASIC editor's "
+ = "tokenisa",27,9,". It loads in",27,2,"BASIC ",27,7,27,16,"goes through "
+ = "it line by line detokenising",27,16,"then retokenising. "
+ = "If there",27,")a discrepancy then it prints up an error message.",13,10
 tpsyn
- FNS ("Syntax: *ZapBASIC_TestProgram <filename>")
+ = 27,27,0
 rnhlp
- = "This command is used internally by the ZapBASIC module "
- = "to run a BASIC program directly from RAM. Don't use it.",13,10
+ = "This command",27,")used internally by",27,2,"ZapBASIC module",27
+ = "(run a BASIC program directly from RAM. Don't use it.",13,10
 rnsyn
- FNS ("Syntax: *ZapBASIC_RunProgram")
+ = 27,1,0
 twhlp
- = "This command is designed to enable the Zap task "
- = "window to be used via CTRL-F12. It ensures that "
- = "the -ctrl option is set.",13,10
+ = "This command",27,")designed",27,"(enable",27,2,"Zap task "
+ = "window",27,"(be used via CTRL-F12. It ensures that",27,2
+ = "-ctrl option",27,")set.",13,10
 twsyn
- FNS ("Syntax: As for *TaskWindow")
+ FNS ("Syntax: as for *TaskWindow")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; INITIALISE AND FINALISE				       ;
@@ -312,9 +312,7 @@ ov1
 ;X mode word restored #
 
 restore_mode_word
- FNJSR
- FNcall Zap_RestoreModeWord
- FNRTS
+ FNjump Zap_RestoreModeWord
 
  LOCAL
 
@@ -340,9 +338,7 @@ set_width
 ;X mode word saved #
 
 save_mode_word
- FNJSR
- FNcall Zap_SaveModeWord
- FNRTS
+ FNjump Zap_SaveModeWord
 
 ;E R0=mode number R1=return character R8/R9
 ;X R0=w_bpl calculated as for standard text mode #
@@ -693,8 +689,8 @@ a$l
  CMP R0,#&20
  BCC b$l
  TEQ R0,R14
- FNRTS NE			; not equal
- B a$l				; next char
+ BEQ a$l			; next char
+ FNRTS				; not equal
 b$l
  CMP R14,#&20
  MOVCS R14,#0
@@ -718,8 +714,8 @@ a$l
  BCC b$l
  LDRB R14,[R2],#1
  TEQ R0,R14			; does the match continue
- FNRTS NE
- B a$l
+ BEQ a$l
+ FNRTS
 b$l
  MOV R0,R2
  TEQ R0,R0			; EQ
@@ -732,26 +728,24 @@ b$l
 ;  Match is case unsensitive
 
 strCMPstr
- FNJSR "R1-R2"
+ FNJSR "R1-R3"
  LDRB R0,[R1]
  CMP R0,#&20			; is R1 null
  FNRTS CC			; return if so (with NE)
 a$l
  LDRB R0,[R1],#1
+ LDRB R14,[R2],#1
  CMP R0,#&20
  BCC b$l			; reached end of R1 string so matches
- LDRB R14,[R2],#1
- SUB R0,R0,#'a'
- CMP R0,#26
- ADDCS R0,R0,#'a'
- ADDCC R0,R0,#'A'
- SUB R14,R14,#'a'
- CMP R14,#26
- ADDCS R14,R14,#'a'
- ADDCC R14,R14,#'A'
+ CMP R0,#'a'
+ RSBHSS R3,R0,#'z'
+ SUBHS R0,R0,#32
+ CMP R14,#'a'
+ RSBHSS R3,R14,#'z'
+ SUBHS R14,R14,#32
  TEQ R0,R14			; does the match continue
- FNRTS NE
- B a$l
+ BEQ a$l
+ FNRTS
 b$l
  MOV R0,R2
  TEQ R0,R0			; EQ
@@ -1544,7 +1538,6 @@ dwl01
  BVS dwl02
  MOV R0,#2
  FNcall Zap_Command
- BVS dwl02
  FNcall Zap_StopOp
 
 dwl02
@@ -1573,7 +1566,6 @@ dwr01
  BVS dwr02
  MOV R0,#2
  FNcall Zap_Command
- BVS dwr02
  FNcall Zap_StopOp
 
 dwr02
@@ -1598,8 +1590,8 @@ fw01
  BCC fw02
  ADD R0,R0,#1
  CMP R0,R2
- BHS fw_eof
- B fw01
+ BLO fw01
+ B fw_eof
 
 fw02
  ADD R0,R0,#1
