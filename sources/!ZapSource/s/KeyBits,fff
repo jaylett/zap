@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.19 2002/11/18 11:18:42 christian Exp $
+; $Id: KeyBits,fff,v 2.20 2003/01/26 13:59:01 christian Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -48,7 +48,6 @@
  EXPORT process_a_key
  EXPORT process_converted_key
  EXPORT test_forkey
- EXPORT tmt_offsets
  EXPORT bad_keymap
  EXPORT Passthrough
 
@@ -1107,10 +1106,10 @@ varstart$l
 	B	rk_string
 	&	wimp_attr		; &1C
 	B	rk_buffernum
-	&	tem_offsets		; &1D
-	B	rk_string_tmt
-	&	font_offsets		; &1E
-	B	rk_string_tmt
+	&	tem_xoff		; &1D
+	B	rk_numlist
+	&	0			; &1E
+	MOV	PC,R14
 	&	wimp_sofstring		; &1F
 	B	rk_string
 	&	wimp_eofstring		; &20
@@ -1365,38 +1364,24 @@ rk_string
 	SUBVC	R10,R2,#1		; terminator
 	FNRTS
 
-	FNAME	rk_string_tmt
-rk_string_tmt
-	FNJSR
-	MOV	R0,R10
-	BL	str_len
-	ADD	R1,R0,#4
-	ADR	R2,tmt_offsets
-	LDR	R0,[R2,R7]
-	CMP	R0,#0
-	BEQ	claimsome_tmt
 
-	BL	heap_ensure
-	FNRTS	VS
-nearendof_rk_string_tmt
-	ADR	R2,tmt_offsets		; OTT.
-	STR	R0,[R2,R7]
-	MOV	R1,R0
-	MOV	R2,R10
-	BL	strcopy
-	SUB	R10,R2,#1		; terminator
-	FNRTS
+	LOCAL
 
-claimsome_tmt
-	MOV	R0,R1
-	BL	heap_claim
-	BVC	nearendof_rk_string_tmt
-	FNRTS
-
-tmt_offsets
-	&	0			; tem_offsets...
-	&	0			; font_offsets...
-	&	0			; defeat anti-aliasing...?
+; comma-separated list of numbers, stored consecutively
+rk_numlist
+	ADD	R7,R7,R12
+	MOV	R0,#10
+	MOV	R1,R10
+loop$l	SWI	XOS_ReadUnsigned
+	MOVVS	PC,R14
+	STR	R2,[R7],#4
+skip$l	LDRB	R0,[R1],#1
+	TEQ	R0,#' '
+	TEQNE	R0,#9
+	BEQ	skip$l
+	TEQ	R0,#','
+	BEQ	loop$l
+	MOV	PC,R14
 
 
 	LOCAL
@@ -1593,20 +1578,6 @@ rk_buffernum
 	TEQ	R1,#0
 	BLNE	err3
 	STRVC	R2,[R12,R7]
-	FNRTS
-
-	FNAME	rk_buffernum_tmt
-rk_buffernum_tmt
-	FNJSR
-	MOV	R0,R10
-	FNLDR	R1,wimp_block
-	MOV	R2,#0
-	SWI	XOS_EvaluateExpression
-	FNRTS	VS
-	TEQ	R1,#0
-	BLNE	err3
-	ADRVC	R1,tmt_offsets
-	STRVC	R2,[R1,R7]
 	FNRTS
 
 

@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.9 2003/01/20 00:39:35 christian Exp $
+; $Id: Template,fff,v 2.10 2003/01/26 13:59:01 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -23,7 +23,6 @@
  GET h.TMTVars
 
  IMPORT err3
- IMPORT tmt_offsets
  IMPORT Cdown
 
  EXPORT init_templates
@@ -2652,11 +2651,13 @@ open_leaf_window
 	FNLDR	R1,wimp_block
 	LDR	R0,[R7,#8]		; window handle
 	STR	R0,[R1]
-	TEQ	R8,#0			; does a related window exist
-	BLNE	tmt_getxpos
+
 	TEQ	R8,#0			; does a related window exist
 	FNLDR	R0,scn_xos,EQ
-	MOVEQ	R0,R0,LSR#1		; no
+	MOVEQ	R0,R0,LSR#1		; no - centre it
+	FNLDR	R0,tem_xoff,NE
+	LDRNE	R2,[R8,#w_minx]		; otherwise offset it
+	ADDNE	R0,R2,R0
 	LDR	R2,[R6]
 	LDR	R3,[R6,#8]
 	SUB	R3,R3,R2		; width of window
@@ -2664,10 +2665,12 @@ open_leaf_window
 	STR	R0,[R1,#w_minx]
 	ADD	R0,R0,R3
 	STR	R0,[R1,#w_maxx]		; set up x coords of window
-	BLNE	tmt_getypos
-	TEQ	R8,#0			; does a related window exist
+
 	FNLDR	R0,scn_yos,EQ
 	MOVEQ	R0,R0,LSR#1
+	FNLDR	R0,tem_yoff,NE
+	LDRNE	R2,[R8,#w_maxy]		; otherwise offset it
+	SUBNE	R0,R2,R0
 	LDR	R2,[R6,#4]
 	LDR	R3,[R6,#12]
 	SUB	R3,R3,R2		; height
@@ -2675,6 +2678,7 @@ open_leaf_window
 	STR	R0,[R1,#w_maxy]
 	SUB	R0,R0,R3
 	STR	R0,[R1,#w_miny]
+
 	LDR	R0,[R6,#16]
 	STR	R0,[R1,#w_scrollx]
 	LDR	R0,[R6,#20]
@@ -2687,60 +2691,6 @@ open_leaf_window
 	STR	R1,[R7,#4]
 	FNRTS
 
-ofstmtlat$l
-	DCD	tmt_offsets
-	DCD	0
-
-
-	FNAME	tmt_getxpos
-tmt_getxpos
-	FNJSR	"R1"
-	FNADR	R0,ofstmtlat$l
-	LDR	R0,[R0,#tem_offsets]
-	CMP	R0,#0
-	LDREQ	R0,[R8,#w_minx]
-	ADDEQ	R0,R0,#&80		; default...
-	FNRTS	EQ
-	MOV	R2,R0			; return default...
-
-loopx$l	LDRB	R1,[R2],#1
-	TEQ	R1,#','
-	MOVEQ	R1,#0
-	STREQB  R1,[R2,#-1]
-	CMP	R1,#32
-	BCS	loopx$l			; return default...
-
-	ADR	R1,ofstmtlat$l + 4
-	MOV	R2,#0
-	SWI	XOS_EvaluateExpression
-	CMP	R1,#0
-	LDREQ	R0,[R8,#w_minx]
-	ADDEQ	R0,R0,R2
-	FNRTS
-
-
-	FNAME	tmt_getypos
-tmt_getypos
-	FNJSR	"R1"
-	FNADR	R0,ofstmtlat$l
-	LDR	R0,[R0,#tem_offsets]
-	CMP	R0,#0
-retdftlvat_tmt
-	LDREQ	R0,[R8,#w_maxy]
-	SUBEQ	R0,R0,#&80		; default...
-	FNRTS	EQ			; return default...
-
-loop$l	LDRB	R1,[R0],#1
-	CMP	R1,#32
-	BCS	loop$l
-	ADR	R1,ofstmtlat$l + 4
-	MOV	R2,#0
-	SWI	XOS_EvaluateExpression
-	CMP	R1,#0
-	BNE	retdftlvat_tmt
-	LDR	R0,[R8,#w_maxy]
-	SUB	R0,R0,R2
-	FNRTS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
