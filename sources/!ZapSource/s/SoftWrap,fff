@@ -1,0 +1,1038 @@
+; Contains mode entry points for text mode.
+; $Id: SoftWrap,fff,v 1.2 1999/01/12 18:24:09 dj Exp $
+
+ GET h.ZapHeader
+ GET h.Heap
+ GET h.ModeBits
+ GET h.Redraw
+ GET h.Cursors
+ GET h.Mode0
+
+ IMPORT clip_cache
+ IMPORT zephyr
+
+ EXPORT modesw_clnlog
+ EXPORT modesw_clnphy
+ EXPORT modesw_clnoff
+ EXPORT modesw_nextline
+ EXPORT modesw_prevline
+ EXPORT modesw_redrawline
+ EXPORT modesw_plus
+ EXPORT modesw_cplus
+ EXPORT modesw_linestart
+ EXPORT modesw_lineprev
+ EXPORT modesw_lineend
+ EXPORT modesw_linenext
+ EXPORT modesw_redrawlnum
+
+;;;;;;;;;;;;;;;;;;;;; findnextphysl /////////////////////////
+
+local_storageeugh
+ DCD 0
+local_storageeugh2
+ DCD 0
+local_zapwkspace
+ DCD 0
+
+;\\\\\\\\\\\\\\\\\\\\\\ findnextphysl ////////////////////////
+; \E R0 = address of a start of a line
+;    R12 = max length of line
+;    R3 = buffer start
+;    R4 = address of start of split
+;    R5 = length of split
+;    R6 = buffer end
+;    R7 = end of line character
+;    R8
+; \X R0 = address of start of next line
+;    CS if eol was forced by eol-character, CC else
+;    VS if eot before eol
+
+findnextphysl
+ BIC R14,R14,#1 << 29
+ STMFD R13!,{R1,R2,R3,R8-R12,R14}
+
+ LDRB R10,[R8,#w_tabc]
+
+ PUSH "R0-R1,R12"
+ MOV R0,#4
+ MOV R11,#e_interrogate
+ LDR R12,local_zapwkspace
+ BL call_mode
+ CMP R0,#4
+ ADREQ R0,dft_str_for_sw
+ STR R0,local_storageeugh
+ PULL "R0-R1,R12"
+
+ LDR R1,[R8,#w_format]
+ AND R1,R1,#3<<12
+
+ MOV R8,R0
+ MOV R9,R0
+ MOV R11,#0
+
+ TEQ R0,R4
+ ADDEQ R0,R0,R5
+
+ CMP R0,R3
+ MOVLT R0,R3
+
+ CMP R0,R6
+ BCS fnpl_eot
+fnpl_lp
+ LDR R3,local_storageeugh
+ STR R0,local_storageeugh2
+ LDRB R14,[R0],#1		; !EXCEPTION!!!?
+ TEQ R0,R4
+ ADDEQ R0,R0,R5
+ CMP R0,R6
+ BCS fnpl_eot
+ TEQ R14,R10			; tabc
+ BEQ possibiltyofwraphere2
+loop1$l
+ LDRB R2,[R3],#1
+ CMP R2,#0
+ BEQ swchar_dontdoathing
+ CMP R14,R2
+ BNE loop1$l
+possibiltyofwraphere
+ PUSH "R14"
+ LDRB R14,[R0]
+ TEQ  R14,#' '			; spaces
+ MOVNE R8,R0
+dontchktherest
+ PULL "R14"
+swchar_dontdoathing
+ TEQ R14,R7
+ BEQ fnpl_eolchar
+ TEQ R14,R10
+ ;STRNE R0,local_addrofpreviousone
+ ; STRNE R14,local_arecenttab
+ BLEQ fnpl_tab
+ ADDNE R11,R11,#1
+ CMP R11,R12
+ BLT fnpl_lp			; max r12 characters on the line
+ ;BICS R14,R14,#&FF		; just been to a sub?
+ ;LDRNE R0,local_addrofpreviousone; don't disturb carry...
+ ;PUSH "R14"
+ LDRB R14,[R0]
+ TEQ R14,R7
+ ;PULL "R14"
+ BEQ fnpl_eolchar2
+
+ TEQ R8,R9
+ MOVNE R0,R8
+
+ LDMFD R13!,{R1,R2,R3,R8-R12,PC}^
+
+dft_str_for_sw
+ = " -",0
+ ALIGN
+
+;local_addrofpreviousone
+; DCD 0
+;local_arecenttab
+; DCD 0
+
+possibiltyofwraphere2
+ LDR R8,local_storageeugh2
+ B swchar_dontdoathing
+
+fnpl_tab
+ TEQ R1,#0			; tab mode = none?
+ ORRNE R11,R11,#7
+ ADD R11,R11,#1
+ ;STR R14,local_arecenttab
+ MOVS PC,R14
+
+fnpl_eolchar
+ LDMFD R13!,{R1,R2,R3,R8-R12,R14}
+ ORRS PC,R14,#1 << 29
+
+fnpl_eolchar2
+ LDRB R14,[R0],#1
+ TEQ R0,R4
+ ADDEQ R0,R0,R5
+ CMP R0,R6
+ BCS fnpl_eot
+ LDMFD R13!,{R1,R2,R3,R8-R12,R14}
+ ORRS PC,R14,#1 << 29
+
+fnpl_eot
+ MOV R0,R6
+ TEQ R14,R7
+ BEQ fnpl_eolchar		; if last char of the file is ';n'
+ LDMFD R13!,{R1,R2,R3,R8-R12,R14}
+ ORRS PC,R14,#1 << 28
+
+;;;;;;;;;;;;;;;;;;;;; compute_column ///////////////////////
+; ;E r8/r9, r0,r1
+; ;X r2
+; Given r0,r1 file offsets; r0 -> an sol, compute the column number
+; of r1 in r2. This is non-trivial due to tabulation
+
+compute_column
+ CMP R1,R0
+ MOVEQ R2,#0
+ MVNMI R2,#0
+ MOVLES PC,R14
+ STMFD R13!,{R0-R1,R3-R6,R11,R14}
+ LDR R14,[R8,#w_format]
+ TST R14,#3<<12
+
+ SUBEQ R2,R1,R0
+ LDMEQFD R13!,{R0-R1,R3-R6,R11,PC}^
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ ADD R1,R1,R3
+ CMP R1,R4
+ ADDCS R1,R1,R5
+ MOV R2,#0
+ LDRB R11,[R8,#w_tabc]
+cc_lp
+ LDRB R14,[R0],#1
+ TEQ R14,R11
+ ORREQ R2,R2,#7
+ ADD R2,R2,#1
+ CMP R0,R4
+ ADDEQ R0,R0,R5
+ CMP R0,R1
+ BCC cc_lp
+ LDMFD R13!,{R0-R1,R3-R6,R11,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;; mode_clnoff /////////////////////////
+
+modesw_clnoff
+ CMP R0,#0
+ MOVLE R0,#0 ; doesn't help...
+; BLE simple_clnoff
+ STMFD R13!,{R10-R12,R14}
+ STR R12,local_zapwkspace
+ LDR R14,[R9,#f_splito]
+ CMP R0,R14
+ MOVLT R10,R0
+ LDRGE R14,[R9,#f_splits]
+ ADDGE R10,R0,R14
+ LDR R14,[R9,#f_ptr]
+ ADD R10,R10,R14
+
+ MOV R12,#0
+ LDR R14,[R8,#w_coff]
+ CMP R0,R14
+ BLGE mcl_forward
+ BGE mclno_done
+ CMP R0,R14,LSR #1
+ BLGE mcl_backward
+ BLLT mcl_forward
+mclno_done
+; STR R1,mcl_reprint_service_0 ; ? for mode_nextline, to correctly find eot
+; STR R0,mcl_reprint_service_1 ; ?? HERE ?? MAYBE...
+ EOR R0,R1,R0
+ EOR R1,R0,R1
+ EOR R0,R1,R0
+
+; MOVMI R0,#0
+
+; CMP R1,#0
+; MOVMI R1,#0
+
+; LDR R14,[R8,#w_stline]
+; CMP R2,R14
+; MOVLT R2,R14 ; none of this helps with sof problem...
+
+ LDMFD R13!,{R10-R12,PC}^
+
+mcl_forward
+; don't change stack structure without looking!
+ STMFD R13!,{R3-R7,R10-R12,R14}
+ STR R12,selfmod_reg
+ MOVLT R0,#0
+ LDRGE R0,[R8,#w_coff]
+ MOVLT R1,#0
+ LDRGE R1,[R8,#w_cline]
+; LDRLT R2,[R8,#w_stline] ; ???!
+ MOVLT R2,#0 ; NO!???
+ LDRGE R2,[R8,#w_clogl]
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ BL selfmod_check
+ BGE mcl_done
+
+mcl_fwd_from_bwd
+mcl_fwd_lp
+ STMFD R13!,{R0-R2} ; stack 'old' (r0,r1,r2)
+ BL findnextphysl
+ BCS mcl_noproblem
+ BVS mcl_eot_no_eol ; if at eot, and there isn't a ';n' at the end of the line
+mcl_noproblem
+ ADD R1,R1,#1
+ ADDCS R2,R2,#1			; IF END OF LOG.LINE
+ MOV R11,PC			; PRESERVE V FLAG
+ BL selfmod_check
+ BGT mcl_restore_done
+
+ ADD R13,R13,#12 ; forget about the 'old' stuff, we're going on...
+ BEQ mcl_done ; if exactly at an sol, the 'new' coords apply, but...
+
+ TST R11,#Vbit
+ BEQ mcl_fwd_lp			; unless at eot...
+ B mcl_done
+
+mcl_eot_no_eol
+ STR R0,mcl_reprint_service_0 ; for mode_nextline, to correctly find eot
+ STR R1,mcl_reprint_service_1
+ LDMFD R13!,{R0-R2}
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R0,R0,R3
+ LDMFD R13!,{R3-R7,R10-R12,PC}^
+
+selfmod_reg
+ DCD 0
+mcl_reprint_service_0
+ DCD 0
+mcl_reprint_service_1
+ DCD 0
+
+mcl_restore_done
+ LDMFD R13!,{R0-R2}
+mcl_done
+ STR R0,mcl_reprint_service_0	; for mode_nextline, to correctly find eot
+ STR R1,mcl_reprint_service_1	; ???? SW BUG ? :-/
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R0,R0,R3
+ LDMFD R13!,{R3-R7,R10-R12,PC}^
+
+mcl_backward
+; don't change stack structure without looking!
+ STMFD R13!,{R3-R7,R10-R12,R14}
+ STR R12,selfmod_reg
+ LDR R0,[R8,#w_coff]
+ LDR R1,[R8,#w_cline]
+ LDR R2,[R8,#w_clogl]
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+
+mcl_bfc_lp
+ MOV R11,R0
+
+ BL findsologl
+ BVS mcl_done		; stop if sot crossed
+ STMFD R13!,{R0,R14}	; preserve file address of start of curr. log. line
+mcl_bfc_fwd_lp
+ CMP R0,R11
+ BCS mcl_bfc_fwd_elp	; forward to 'original file address',
+ BL findnextphysl	; .. counting lines
+ SUB R1,R1,#1		; DECREASE THE PHYS. LINE # FOR EACH line counted
+ B mcl_bfc_fwd_lp
+
+mcl_bfc_fwd_elp
+ ADDHI R1,R1,#1		; if _exactly_ at an sol, don't do this
+ 			; (ie when moved to
+
+ LDMFD R13!,{R0}
+ BL selfmod_check
+ LDMFD R13!,{R14}
+ BLE mcl_bwd_before	; only allowable jump to mcl_bwd_before
+ MOV R0,R14		; MOVE LEFT ONE CHARACTER, OVER THE eol-char,
+ 			; to enter previous...
+ SUB R2,R2,#1
+ SUB R1,R1,#1
+ B mcl_bfc_lp
+
+selfmod_check
+ STMFD R13!,{R14}
+ LDR R14,selfmod_reg
+ ADD PC,PC,R14,LSL #3
+ DCD 0
+ CMP R0,R10
+ LDMFD R13!,{PC}
+ CMP R1,R10
+ LDMFD R13!,{PC}
+ CMP R2,R10
+ LDMFD R13!,{PC}
+mcl_bwd_before
+ BEQ mcl_done			; from the cmp rxx,r10 at line 'yes!'
+
+ B mcl_fwd_from_bwd
+
+;simple_clnoff
+; SWI &107
+; MOV R0,#0
+; MOV R1,#0
+; LDR R2,[R8,#w_stline]
+; STR R1,mcl_reprint_service_0 ; ? for mode_nextline...
+; STR R0,mcl_reprint_service_1 ; ?? HERE ?? MAYBE...
+; MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;; findnextlogl ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+findnextlogl
+ CMP R0,R6
+ ORRCSS PC,R14,#Vbit
+ BIC R14,R14,#Vbit
+ STMFD R13!,{R14}
+ CMP R0,R6
+ MOVCS R0,R6
+ BCS fnll_return		; return eof if at eof
+fnll_lp
+ LDRB R14,[R0],#1
+ TEQ R0,R4
+ ADDEQ R0,R0,R5			; skip split if appropriate
+ CMP R0,R6
+ MOVCS R0,R6
+ BCS fnll_return		; return eof if at eof
+ TEQ R14,R7
+ BNE fnll_lp			; search for eol
+fnll_return
+ LDMFD R13!,{PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;;; findsologl ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+findsologl
+ CMP R0,R3
+ MOVLS R0,R3
+ ORRLSS PC,R14,#Vbit
+; CMP R0,R3
+; MOVLO R0,R3
+; ORRLOS PC,R14,#Vbit ; no better...
+ BIC R14,R14,#Vbit
+ STMFD R13!,{R4,R14}
+ ADD R4,R4,R5
+
+fpll_lp
+ TEQ R0,R4
+ SUBEQ R0,R0,R5                 ; skip split if appropriate
+ SUB R0,R0,#1
+ CMP R0,R3
+ LDRHSB R14,[R0]		; dodgy check at -1 ?
+ MOVLO R14,R7
+ TEQ R14,R7
+ BNE fpll_lp                    ; search for eol-character
+ MOV R14,R0
+ ADD R0,R0,#1
+ TEQ R0,R3
+ MOVEQ R14,R0
+ SUB R4,R4,R5
+ TEQ R0,R4
+ ADDEQ R0,R0,R5                 ; skip split forward, if nec.
+fsll_return
+ LDMFD R13!,{R4,PC}^
+;fpll_lp
+; TEQ R0,R4
+; SUBEQ R0,R0,R5			; skip split if appropriate
+; CMP R0,R3
+; MOVLE R0,R3
+; MOVLE R14,R3
+; LDMLEFD R13!,{R4,PC}^		; if at sot
+;; BLE fsll_return		; if at sot
+; LDRB R14,[R0,#-1]!		; dodgy check at -1 ?
+; TEQ R14,R7
+; BNE fpll_lp			; search for eol-character
+; MOV R14,R0
+; ADD R0,R0,#1
+; SUB R4,R4,R5
+; TEQ R0,R4
+; ADDEQ R0,R0,R5			; skip split forward, if nec.
+;fsll_return
+; LDMFD R13!,{R4,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;;;; mode_clnlog ///////////////////////
+
+modesw_clnlog
+ STMFD R13!,{R2,R10-R12,R14}
+ STR R12,local_zapwkspace
+ MOV R10,R0
+ MOV R12,#2
+ LDR R14,[R8,#w_clogl]
+ CMP R10,R14
+ BLGE mcl_forward
+ BGE mclnl_done
+ CMP R10,R14,ASR #1
+ BLGE mcl_backward
+ BLLT mcl_forward
+mclnl_done
+ LDMFD R13!,{R2,R10-R12,PC}^
+
+
+;;;;;;;;;;;;;;;;;;;;;;; mode_clnphy /////////////////////////
+
+modesw_clnphy
+; CMP R0,#0
+; BLE simplecasetoavoidbug$l
+ STMFD R13!,{R2,R10-R12,R14}
+ STR R12,local_zapwkspace
+ MOV R10,R0
+ MOV R12,#1
+ LDR R14,[R8,#w_cline]
+ CMP R10,R14
+ BLGE mcl_forward
+ BGE mclnp_done
+ CMP R10,R14,ASR #1
+ BLGE mcl_backward
+ BLLT mcl_forward
+mclnp_done
+ MOV R1,R2
+ LDMFD R13!,{R2,R10-R12,PC}^
+;simplecasetoavoidbug$l
+; MOV R0,#0
+; LDR R1,[R8,#w_stline]
+; SUB R1,R1,#1
+; MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;; mode_nextline //////////////////////////
+
+modesw_nextline
+ STMFD R13!,{R2-R7,R12,R14}
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ BL findnextlogl
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUBS R0,R0,R3
+; MOVMI R0,#0			; debug!
+ LDR R12,[R13,#24]		; **** READING FROM STACK *****
+ BL modesw_clnoff
+ LDR R0,mcl_reprint_service_0	; ADDRESS OF FIRST SHIFTABLE LINE
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R0,R0,R3			; R0 = OFFSET
+ LDR R1,mcl_reprint_service_1	; R1 = LINE # (MAY BE TOO HIGH, AT EOT)
+; ADD R1,R1,#1			; plus one!
+ LDR R14,[R9,#f_len]		; ????!
+ LDMFD R13!,{R2-R7,R12,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;;;; mode_prevline ////////////////////////
+
+;modesw_prevline
+; STMFD R13!,{R1-R7,R12,R14}
+; LDR R14,[R9,#f_docom]
+; CMP R14,#0
+; CMPNE R14,#7 ; was 5
+; LDMCSFD R13!,{R1-R7,R12,PC}^	 ; exit if r14=0 or r14>=7
+;
+; LDR R3,[R9,#f_ptr]
+; LDR R4,[R9,#f_splito]
+; ADD R4,R4,R3
+; LDR R5,[R9,#f_splits]
+; LDR R6,[R9,#f_len]
+; ADD R6,R6,R3
+; ADD R6,R6,R5
+; LDR R12,[R8,#w_bpl]
+; LDRB R7,[R8,#w_cr]
+;
+; ADD R0,R0,R3
+; CMP R0,R4
+; ADDCS R0,R0,R5
+; BL findsologl
+; CMP R0,R4
+; SUBCS R0,R0,R5
+; SUB R0,R0,R3
+; LDR R12,[R13,#28] ; ************** reading from stack ************
+; BL clip_cache
+;; FNcall Zap_ClipCache,R7
+; LDMFD R13!,{R1-R7,R12,PC}^
+
+modesw_prevline
+ STMFD R13!,{R1-R7,R12,R14}
+ LDR R14,[R9,#f_docom]
+ CMP R14,#0
+ CMPNE R14,#7 ; was 5
+ LDMCSFD R13!,{R1-R7,R12,PC}^	; exit if r14=0 or r14>=7
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+
+; CMP R0,#0			; test code...
+; BLGT findsologl		; test GT!!! (no go :-/)
+
+ BL findsologl			; test GT!!!
+; SUB R0,R0,#1
+; BL findsologl			; ???
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R0,R0,R3
+
+ LDR R12,[R13,#28]		; ******** reading from stack ********
+ STMFD R13!,{R0}
+ BL clip_cache
+; FNcall Zap_ClipCache,R7	; severe dangers!
+
+; ADD R1,R1,#1			; plus one!
+ LDMFD R13!,{R0}
+
+ LDMFD R13!,{R1-R7,R12,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;;; mode_linestart ////////////////////////
+
+
+modesw_linestart
+modesw_lineprev
+ STMFD R13!,{R1-R7,R12,R14}
+ ;FNDBG_STRING "MODE_LINESTART R0="
+ ;FNDBG_HEX8 0
+ BL mls_lowlevel
+ CMP R0,R4
+ SUBHI R0,R0,R5
+ SUBS R0,R0,R3
+ ;FNDBG_STRING "EXIT: R0="
+ ;FNDBG_HEX8 0
+ ;FNDBG_DELIM
+ MOVMI R0,#0			;-)
+ LDMFD R13!,{R1-R7,R12,PC}^
+
+mls_lowlevel
+ STMFD R13!,{R14}
+
+ ;FN prepfindnextphysl
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ MOV R1,R0
+ MOV R2,R0
+ ;fnDBG_STRING "MLS_LOWLEVEL "
+ ;fnDBG_REGS
+ BL findsologl
+ ;fnDBG_STRING "AFTER FINDSOLOGL "
+ ;fnDBG_REGS
+mls_lp
+ CMP R0,R1
+ BGE mls_stop
+ ADDS R2,R0,#0
+
+ BL findnextphysl
+ BVC mls_lp
+
+mls_stop
+ MOVNE R0,R2			; if the last line start found (in r0)
+				; is too far, then use the
+ ;FNdbg_string "mls_stop r0="
+ ;FNdbg_hex8 0
+ LDMFD R13!,{PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;;; mode_lineend //////////////////////////
+
+modesw_lineend
+ ; B modesw_linenext		; doesnt sort out cK :(
+ STMFD R13!,{R1-R7,R12,R14}
+ BL mls_lowlevel
+ BL findnextphysl
+ BCC mln_letsdoit		; if a ';n' follows, then it's quite ok
+ MOV R12,#0
+ MOVCS R12,#1
+ MOVVC R12,#1			; see mode_cplus for expl.
+ CMP R0,R4
+ SUBHI R0,R0,R5
+ SUBS R0,R0,R3
+ SUBGT R0,R0,R12
+ LDMFD R13!,{R1-R7,R12,PC}^
+
+; mln_letsdoit2
+;  CMP R0,R4
+;  SUBHI R0,R0,R5
+;  SUB R0,R0,R3
+;  ;FNdbg_string "exit r0="
+;  ;FNdbg_hex8 0
+;  ;ADD R13,R13,#4
+;  LDMFD R13!,{R1-R7,R12,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;; mode_linenext ///////////////////////////
+
+modesw_linenext
+ STMFD R13!,{R1-R7,R12,R14}
+ ;FNdbg_string "mode_linenext r0="
+ ;FNdbg_hex8 0
+ BL mls_lowlevel
+ BL findnextphysl
+ ;FNdbg_string "after findnextphysl "
+ ;FNdbg_regs
+ ;BCS mln_letsdoit		 ; if a ';n' follows, then it's quite ok
+ ;ldmvsfd r13!,{r0-r7,r12,pc}^ ; if eot without ';n', then don't move.
+
+mln_letsdoit
+ CMP R0,R4
+ SUBHI R0,R0,R5
+ SUB R0,R0,R3
+ ; FNdbg_string "exit r0="
+ ; FNdbg_hex8 0
+ ; ADD R13,R13,#4
+ LDMFD R13!,{R1-R7,R12,PC}^
+
+;;;;;;;;;;;;;;;;;;;;;;; mode_plus //////////////////////////////
+local_rtwo
+ DCD 0
+
+modesw_plus
+ STMFD R13!,{R0,R3-R7,R11,R12,R14}
+ MOV R1,R2
+ BL mode0_linecol
+ MOV R1,R0
+ LDR R0,[R13]
+ LDR R14,[R9,#f_len]
+ MOV R11,R0
+
+ CMP R1,R14
+ LDMGEFD R13!,{R0,R3-R7,R11,R12,PC}^ ; can't go beyond eot
+ STR R2,local_rtwo
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ BL findnextphysl
+ MOV R12,PC			; store flags...
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R14,R0,R3
+ MOV R0,R11
+ MOV R11,R14			; r11 = offset of next pl.
+
+ ADD R1,R1,#1
+ BL compute_column
+ TST R12,#Cbit
+ BNE mp_doit
+ TST R12,#Vbit
+ LDMNEFD R13!,{R0,R3-R7,R11,R12,PC}^
+ CMP R1,R11
+ MVNGT R2,#0			; return r2=-1 if onto next physical line
+ LDMGTFD R13!,{R0,R3-R7,R11,R12,PC}^
+ ;SWI &107
+ LDR R14,local_rtwo
+ ;ADD R14,R14,#1		; nice but doesn't work...
+ CMP R14,R2
+ ; SWIEQ &107			; at -> next line...
+ MVNEQ R2,#0			; return r2=-1 if onto next physical line
+ ADDEQ R1,R1,#1
+ LDMFD R13!,{R0,R3-R7,R11,R12,PC}^
+
+mp_doit				; not interesting case (\n)
+ ; SWI &107 ;
+ CMP R1,R11
+ MVNGE R2,#0			; return r2=-1 if onto next physical line
+ LDMFD R13!,{R0,R3-R7,R11,R12,PC}^
+
+;///////////////////////////////////
+
+modesw_cplus
+ STMFD R13!,{R0,R3-R7,R12}
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ ADD R0,R0,R3
+ CMP R0,R4
+ ADDCS R0,R0,R5
+ BL findnextphysl
+ MOV R12,#0
+ MOVCS R12,#1			; *not!?* end of physl line.
+ ; MOVVC R12,#1			  ; if a ';n' follows, go to just before it
+mcp_doit
+ CMP R0,R4
+ SUBCS R0,R0,R5
+ SUB R0,R0,R3
+ SUBS R1,R0,R12
+ MOVMI R1,#0 ; clever trick to make sure the last chr of the file
+
+mcp_all
+ LDMFD R13!,{R0,R3-R7,R12}
+ LDMFD R13 !,{R14}
+ B compute_column
+
+; MVNGE R2,#0			 ; return r2=-1 if onto next physical line
+
+local_r0
+ DCD 0
+ DCD 0
+
+;;;;;;;;;;;;;;;;;;;;;; mode_redrawline /////////////////////////
+
+sortoutsoftwrapredraw
+call_mode_redrawline		; call sw mode...
+modesw_redrawline
+ STMFD R13!,{R9,R14}
+ MOV R0,R7
+ STMFD R13!,{R5-R7,R12}
+ STR R6,local_r0		 ; tt
+ STR R11,local_r0 + 4		      ; tt
+
+ ; FN prepfindnextphysl
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ADD R4,R4,R3
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_len]
+ ADD R6,R6,R3
+ ADD R6,R6,R5
+ LDR R12,[R8,#w_bpl]
+ LDRB R7,[R8,#w_cr]
+
+ BL findnextphysl
+ LDR R1,[R9,#f_splits]		; important for later...
+ MOV R2,R6			; R9 is EOF pointer.
+ LDMFD R13!,{R5-R7,R12}
+
+ ADDCS R11,R11,#1
+ STMFD R13!,{R0}		; start of next phys line
+ STMFD R13!,{R11}		; start of next phys line
+ BCC mrl_nologline
+
+ SUB R0,R0,#1
+ CMP R0,R4
+ BCC mrl_nologline
+ ADD R4,R4,R1			; WAS R4
+ CMP R0,R4			; WAS R4
+ SUBLT R0,R0,R1			; 14
+
+ ; ;STMFD R13!,{R14}		; stack ptr to eot
+ ; STMFD R13!,{R0}		; stack pointer to start of next phys line
+ ; ADDCS R11,R11,#1
+ ; LDR R1,[R9,#f_splits]	; important...
+ ; BCC mrl_nologline
+ ; SUB R0,R0,#1
+ ; ;CMP R0,R4
+ ; ;BCC mrl_nologline
+ ; ;ADD R4,R4,R1		; WAS R4
+ ; ;CMP R0,R4			; WAS R4
+ ; ;SUBLT R0,R0,R1		; 14
+ ; ; SWI &107
+mrl_nologline
+ MOV R4,R0
+ ;STMFD R13!,{R11}
+ LDRB R11,[R8,#w_tabc]
+
+ ;CMP R4,R10			 ; TT
+ ;SUB R2,R4,R7			 ; TT
+ ;SUBHI R2,R2,R1		 ; WAS 'CS'
+
+ LDR R3,[R8,#w_txtw]
+ ADD R3,R6,R3,LSL #1
+ CMP R7,R4			; TT
+ BCS mrl_cc_end			; nothing to do (only an eol-char or at eot)
+ STMFD R13!,{R12}		; TT
+ MOV R12,#0			; TT
+mrl_copychars
+ LDRB R14,[R7],#1		; TT
+ TEQ R14,R11			; TT
+ BLEQ mrl_tab			; TT
+ ;BEQ dontdostoring		; TT
+ ADDNE R12,R12,#1		; TT
+ ADDNE R3,R3,#1
+ ADDNE R6,R6,#1
+ ;LDRB R0,[R6],#1		; TT
+ ;CMP R0,#' ';			; TT ; has someone else done this...?
+ ;STREQB R14,[R6,#-1];		; TT
+ ;LDRB R0,[R3],#1		; TT
+ ;CMP R0,#0;			; TT
+ ;MOVEQ R0,#1;			; TT ; BACKGROUND COLOUR 1
+ ;STREQB R0,[R3,#-1];		; TT
+ ;ADD R12,R12,#1		; TT
+dontdostoring
+ TEQ R7,R10			; TT
+ ADDEQ R7,R7,R1			; TT
+ ADDEQ R5,R5,R1			; TT
+ MOVEQ R10,R2			; ptr to eot
+ ; LDREQ R10,[R13,#12]		; TT ptr to eot ; ** reading from stack **
+ CMP R7,R4			; TT
+ BLT mrl_copychars		; TT
+
+ LDR R11,local_r0		; TT ; to where, exactly?
+ LDR R14,[R8,#w_bpl]		; txtw] ; bpl] ; txtw]
+ ADD R11,R11,R14		; R11 was R4 (don't corrupt R4)
+ MOV R14,#' '			; TT ; scrubber
+ MOV R0,#0			; TT ; background colour 1
+ CMP R6,R11			; TT
+ BCS mrl_nospacestodo
+mrl_copyspcs
+ STRB R14,[R6],#1		; TT ; scrub anything
+ STRB R0,[R3],#1		; TT ; scrub background colour
+ CMP R6,R11			; TT
+ BLE mrl_copyspcs		; TT ; One more...
+mrl_nospacestodo
+ ;MOV R14,R12			; hmmm...
+ LDMFD R13!,{R12}
+mrl_cc_end
+ LDMFD R13!,{R11}
+ LDMFD R13!,{R0}		; last is dummy
+ LDR R2,local_r0 + 4		; TT
+ CMP R11,R2			; R7,R2
+ BEQ mrl_nonewlogl		; was 'eq'
+ ADD R7,R7,#1			; if new logical line, skip the ';n'.
+ TEQ R7,R10
+ ADDEQ R7,R7,R1
+ ADDEQ R5,R5,R1
+mrl_nonewlogl
+ LDMFD R13!,{R9,PC}^
+
+;mrl_nospacestodo
+; LDMFD R13!,{R12}
+; LDMFD R13!,{R11}
+; LDMFD R13!,{R0}		; last is dummy
+; LDMFD R13!,{PC}^
+
+mrl_tab ; returns EQ if only 1 character to do.
+ STMFD R13!,{R0,R4,R5,R7-R9,R14} ; e R12 = initial offset set up...
+ LDR R14,[R8,#w_format]
+ ANDS R14,R14,#3<<12
+ BEQ mrlt_none
+ CMP R14,#2<<12
+ ;PUSH "R5"
+ LDR R5,[R8,#w_txtw]		;
+ SUB R5,R3,R5			; foreground...
+ MOV R7,#32
+ MOV R8,#32
+ MOV R9,#32			; default and spaces mode
+ MOVHI R7,#'-'			; ']'
+ MOVHI R8,#'-'			; ']'
+ MOVHI R9,R11			; '--------->' mode
+ MOVEQ R7,R11			; '->        ' mode
+ BIC R14,R12,#7
+ ADD R14,R14,#8			; r14 = final column.
+ SUB R0,R14,R12			; r0 = number to do.
+ MOV R12,R14			; R12 = final column.
+ MOV R14,R0;			; R14 = number to do.
+ STRB R7,[R6],#1		;
+ MOV R4,#1
+ STRB R4,[R3],#1		; background
+ MOV R4,#8
+ STRB R4,[R5],#1		; foreground
+ SUBS R14,R14,#1;
+ BEQ mrlt_onlyone
+mrlt_lpa
+ STRB R8,[R6],#1		;
+ MOV R4,#1			; do the
+ STRB R4,[R3],#1		; foreground colour...
+ MOV R4,#8			; do the
+ STRB R4,[R5],#1		; background colour...
+ SUBS R14,R14,#1;
+ BNE mrlt_lpa
+ STRB R9,[R6,#-1]
+mrlt_all
+ ;PULL "R4"
+ MOVS R14,#0
+ LDMFD R13!,{R0,R4,R5,R7-R9,PC} ; looks like R12 is returned...
+
+mrlt_onlyone
+ TEQ R9,R11
+ STREQB R9,[R6,#-1]		;
+ MOVS R14,#0
+ LDMFD R13!,{R0,R4,R5,R7-R9,PC} ; flags too...
+
+mrlt_none
+ MOV R14,R11
+ STRB R14,[R6],#1
+ ;MOV R14,#1
+ ;STRB R14,[R3],#1
+ MOVS R14,#-1
+ LDMFD R13!,{R0,R4,R5,R7-R9,PC} ; R3,R6 updated.
+
+;;;;;;;;;;;;;;;;;;;;;;; mode_redrawlnum ////////////////////////
+
+modesw_redrawlnum
+ ;BIC R14,R14,#Cbit
+ SUBS R0,R7,#1
+ BICMIS PC,R14,#Cbit
+ STMFD R13!,{R0-R4,R14}
+ ; LDMCCFD R13!,{R3-R6,PC}^	  ; IF AT EOT...
+
+ LDR R3,[R9,#f_ptr]
+ LDR R4,[R9,#f_splito]
+ ;ADD R4,R4,R3
+ LDR R2,[R9,#f_splits]
+ ;LDR R6,[R9,#f_len]
+ ;ADD R6,R6,R3
+ ;ADD R6,R6,R5
+
+ CMP R0,R4
+ ADDCS R0,R0,R2			; GET ADDRESS OF CHARACTER JUST BEFORE
+ ADD R0,R0,R3
+
+ LDRB R0,[R0]
+ LDRB R1,[R8,#w_cr]
+ TEQ R0,R1			; LAST LINE TERMINATED BY ';N'?
+ LDMFD R13!,{R0-R4,R14}
+ BICEQS PC,R14,#Cbit
+ ORRNES PC,R14,#Cbit
+
+ END

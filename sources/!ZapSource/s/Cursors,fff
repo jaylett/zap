@@ -1,0 +1,4363 @@
+; Contains cursor/selection/marker/point handling code.
+; $Id: Cursors,fff,v 1.1 1999/01/06 16:59:24 dj Exp $
+
+	GET h.ZapHeader
+	GET h.Heap
+	GET h.Redraw
+	GET h.CreateWind
+	GET h.ModeBits
+	GET h.KeyBits
+	GET h.MiniBuff
+	GET h.AlterTxt
+	GET h.Strings
+	GET h.StartCode
+	GET h.Commands
+	GET h.Execute
+	GET h.CreateFile
+	GET h.TMTVars
+	GET h.Search
+
+	IMPORT get_SaveSelBox
+	IMPORT initiate_sprite_drag
+	IMPORT drag_box
+	IMPORT call_back
+	IMPORT process_command
+	IMPORT process_key_command
+	IMPORT validate_command
+	IMPORT cw_Goto_update_update
+
+	EXPORT put_caret
+	EXPORT find_caret_pos
+	EXPORT selection_data
+	EXPORT process_window_click
+	EXPORT default_click
+	EXPORT process_drag
+	EXPORT find_offset
+	EXPORT reflect_caret
+	EXPORT update_caret
+	EXPORT set_caret_mode
+	EXPORT set_caret_mode_to1
+	EXPORT remove_carets
+	EXPORT reflect_carets
+	EXPORT delete_carets
+	EXPORT default_caret
+	EXPORT restore_carets
+	EXPORT get_cursor_caret
+	EXPORT get_input_caret
+	EXPORT get_input_window
+	EXPORT find_input
+	EXPORT clear_selection
+	EXPORT get_selection
+	EXPORT read_selection
+	EXPORT alter_all_carets
+	EXPORT alter_selection
+	EXPORT new_carets
+	EXPORT correct_points
+	EXPORT correct_markers
+	EXPORT correct_links
+	EXPORT goto_file_offset
+	EXPORT goto_offset
+	EXPORT update_point
+	EXPORT insert_marker
+	EXPORT delete_marker
+	EXPORT previous_mark
+	EXPORT next_mark
+	EXPORT set_mark
+	EXPORT toggle_mark
+	EXPORT select_buffer
+	EXPORT select_region
+	EXPORT move_cursor
+	EXPORT pagemove_cursor
+	EXPORT make_cursor_visible
+	EXPORT constrict_cursor
+	EXPORT move_by
+	EXPORT enter_window
+	EXPORT test_cblk
+	EXPORT clear_point
+	EXPORT reclaim_caret
+	EXPORT declaim_caret
+	EXPORT set_caret
+	EXPORT indent_selection
+	EXPORT word_align_caret
+	EXPORT offset_line_column
+	EXPORT plot_caret
+	EXPORT caret_writable
+	EXPORT scroll_cursor
+	EXPORT test_fblk
+	EXPORT scrub_caret
+	EXPORT scrub_point
+	EXPORT gain_input
+	EXPORT shift_by
+	EXPORT correct_region
+	EXPORT clear_caret
+	EXPORT alter_selected_region
+	EXPORT init_flash
+	EXPORT create_window_caret
+	EXPORT test_input
+	EXPORT update_selection
+	EXPORT update_w_bpl
+	EXPORT scrub_all_on_this_file
+	EXPORT scrub_input_carets
+	EXPORT ensure_mark
+	EXPORT space_at_offset
+	EXPORT mouse_click
+	; EXPORT to_new_carets
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Add the caret to a (usually new) window		;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=wimp_modelist block which determined the mode the file was loaded as
+;  R8/R9=the file
+;X Caret put in the file at the start and startup commands executed
+;  if present
+
+create_window_caret
+	FNJSR "R1,R2,R7,R10"
+	MOV R10,R0			; save the block pointer
+	MOV R0,#0
+	BL put_caret
+	LDRVC R7,[R10,#8]		; command address (maybe b0 set form)
+	BICVC R7,R7,#15<<28
+	;CMP R7,#0
+	;FNRTS LE			; none
+	BLVC validate_command
+	FNRTS VS
+	LDRCS R0,[R10,#8]
+	ANDCS R0,R0,#15<<28
+	ORRCS R0,R0,R7
+	STRCS R0,[R10,#8]		; new command address
+	CMP R7,#0
+	FNRTS LE			; none
+	LDR R7,[R10,#8]
+	LDR R0,[R10,#12]		; command argument
+	MOV R1,#1
+	MOV R2,R7,LSR #4
+	AND R2,R2,#15<<24
+	BIC R7,R7,#15<<28
+	FNLDR R10,car_cursor
+;	PUSH "R0-R12"
+	BL process_key_command
+;	PULL "R0-R12"
+;	ADDS R14,R14,#0			; clv...?!?!?
+	FNRTS
+
+;E R0=file offset R8/R9
+;X caret mode set to 1 and caret put at this offset #
+
+put_caret
+	FNJSR "R10"
+	MOV R10,R0			; save offset
+	MOV R0,#1
+	BL set_caret_mode
+	MOVVC R0,R10
+	FNLDR R10,car_cursor,VC
+	BLVC goto_offset
+	BLVC update_point
+	FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; SUBS							    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R8/R9
+;X R10=input caret if in this window / point caret if not |
+
+find_caret_pos
+	FNJSR "R1,R8-R9"
+	MOV R1,R8
+	BL get_input_caret
+	ADDCS R8,R1,#1
+	TEQ R1,R8			; is the input caret in this wind?
+	ADDNE R10,R1,#w_pwind		; start of point caret
+	FNRTS
+
+	LOCAL
+
+;E R8/R9 of window / R8=0 for selection
+;X buffer unsplit R0=start addr of data/whole R1=length R8/R9 updated #
+
+selection_data
+	FNJSR "R2"
+	TEQ R8,#0
+	BEQ sel$l			; selection
+	LDR R0,[R9,#f_len]
+	MOV R1,#0
+	BL split_buffer		; unsplit
+	LDRVC R0,[R9,#f_ptr]
+	LDRVC R1,[R9,#f_len]
+	FNRTS
+sel$l
+	BL get_selection		; get new R8/R9 and selection
+	BCS none$l			; no selection
+	LDR R0,[R9,#f_len]
+	STMFD R13!,{R1}
+	MOV R1,#0
+	BL split_buffer		; unsplit
+	LDMFD R13!,{R1}		; get back selection offset
+	LDRVC R0,[R9,#f_ptr]
+	ADDVC R0,R0,R1			; selection start
+	MOVVC R1,R2			; and length
+	FNRTS
+none$l
+	MOV R0,#0
+	MOV R1,#0			; none
+	FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CURSOR PLACEMENT SUBS						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R2/R3=mouse x,y R4=buttons (adjust/select) R8/R9=edit window
+;  (NB drag=but*16 click=but*1 - can't use double clicks or
+;   it won't return drag afterwards).
+;X click/drag on window dealt with #
+
+process_window_click
+	STMFD R13!,{R1-R11,R14}
+	BL update_wind_state		; refresh R8 contents
+	LDMVSFD R13!,{R1-R11,PC}
+	MOV R1,R8
+	BL convert_coords		; convert R2/R3 to work pixels
+	LDMVSFD R13!,{R1-R11,PC}
+	CMP R2,#0
+	MOVMI R2,#0			; clip negative work pixels
+	BL ccd_xypix_xyline		; convert R2/R3 to col/row
+	SWIVC XOS_ReadMonotonicTime
+	LDMVSFD R13!,{R1-R11,PC}
+	MOV R10,R0			; current time in centi-seconds
+	FNLDR R1,clk_depth		; current click depth
+	CMP R1,#1
+	BLT cl15			; this is standard click
+	BGT cl21			; cannot be a simple drag
+	TST R4,#&F0
+	BNE cl15			; standard drag
+cl21
+	FNLDR R0,clk_time		; time of last click
+	SUBS R0,R10,R0			; interval between clicks
+	CMP R0,#100
+	BGE cl15			; standard click
+	FNLDR R0,clk_buttons
+	TEQ R0,R4
+	TEQNE R0,R4,LSR #4
+	FNLDR R0,clk_xcol,EQ
+	TEQEQ R0,R2			; x square moved?
+	FNLDR R0,clk_ycol,EQ
+	TEQEQ R0,R3			; y square moved?
+	BNE cl15
+
+	FNLDR R0,clk_time		; time of last click
+	SUBS R0,R10,R0			; interval between clicks
+	CMP R0,#100
+	BGE cl15			; standard click
+
+; this code seems th break triple-click drags and is thus commented out...
+
+;	TST	R4,#8
+;	FNLDR	R0,clk_buttons,EQ
+;	TSTEQ	R0,#8
+;	BNE	dragaltered$l
+;
+;	FNLDR R0,clk_xcol
+;	TEQ R0,R2
+;	BNE cl15			; x square moved
+;	FNLDR R0,clk_ycol
+;	TEQ R0,R3
+;	BNE cl15			; y square moved
+;
+;	FNLDR R0,clk_buttons
+;	EOR R14,R0,R4
+;	TST R14,#7
+;	BNE cl15
+
+;	FNLDR R0,clk_buttons
+;	TST	R4,#8
+;	TSTEQ	R0,#8
+;	BNE	dragaltered$l
+;
+;	EOR R14,R0,R4
+;	TST R14,#7
+;	BNE cl15
+
+;	FNLDR R0,clk_xcol
+;	TEQEQ R0,R2			; x square moved?
+;	FNLDR R0,clk_ycol,EQ
+;	TEQEQ R0,R3			; y square moved?
+;	BNE cl15
+
+; FNLDR R0,clk_xcol
+; TEQ R0,R2
+; BNE cl15			; x square moved
+; FNLDR R0,clk_ycol
+; TEQ R0,R3
+; BNE cl15			; y square moved
+;
+;dragaltered$l
+
+	FNLDR R0,clk_wind
+	FNLDR R14,wind_list
+	ADD R0,R14,R0,LSL#w_shift
+	TEQ R0,R8
+	BNE cl15			; not on the same window
+	TST R4,#&F0
+	ADDEQ R1,R1,#1			; increase click depth
+	MOVNE R4,R4,LSR#4		; drag buttons
+	ORRNE R4,R4,#1<<3		; indicate multiple drags
+	B cl16				; new click
+cl15
+	TST R4,#&F0
+	MOVNE R1,#0
+	MOVNE R4,R4,LSR#4		; simple drag
+	MOVEQ R1,#1			; single click
+cl16
+	AND R4,R4,#&0F
+	FNSTR R1,clk_depth
+	FNSTR R10,clk_time
+	FNSTR R2,clk_xcol
+	FNSTR R3,clk_ycol		; save new values
+	ORR R14,R4,R4,LSR #4
+	AND R14,R14,#15
+	FNSTR R14,clk_buttons
+	BL get_wind_off
+	FNSTR R0,clk_wind		; window of the click
+	BL mouse_click			; take click action
+	LDMFD R13!,{R1-R11,PC}
+
+	LOCAL
+
+;E R1=click depth (0=drag 1=single click 2=double click etc)
+;  R2/R3=xycol of click
+;  R4=buttons (b0=adjust,b2=select b3=mutlidrag)
+;  R8/R9=edit window
+;X click on edit window dealt with #
+
+mouse_click
+	STMFD R13!,{R0-R2,R11,R14}
+	MOV R11,#-1			; count this as a command - consider
+	FNSTR R11,car_column		; trash column preferred by cursor
+	MOV R11,#0			; count this as a command - consider
+	FNSTR R11,key_lastcom		; multiple ctrl K's
+	TEQ R4,#1
+	TEQNE R4,#4
+	TEQEQ R1,#2
+	BNE normal$l
+	MOV R0,#129
+	MOV R1,#253
+	MOV R2,#255
+	SWI XOS_Byte
+	ADDVS R13,R13,#4
+	LDMVSFD R13!,{R1-R2,R11,PC}
+	BCS word_clicksend
+normal$l
+	MOV R11,#e_click
+	LDMFD R13!,{R0-R2}
+	BL call_mode			; call click action for this mode
+; R0-R2 no longer stacked (preserved) here - is this a problem?
+	LDMFD R13!,{R11,PC}
+
+word_clicksend			; hijack Alt+doubleclick
+	MOV	R0,#0
+	FNSTR	R0,clk_depth
+	FNSTR	R0,clk_time
+	LDMFD	R13!,{R0-R2}
+	STMFD	R13!,{R1-R7}
+	BL	find_offset
+	LDMVSFD R13!,{R1-R7,R11,PC}^
+; Fake the caret (point) position for fns which don't take int parameters...
+	STR	R0,caret$l
+	ADD	R10,R8,#w_pwind
+	LDMIA	R10,{R2-R7}
+	STMFD	R13!,{R2-R7}
+	STR	R0,[R10,#c_off]
+	BL	update_caret		; just update vars, *don't* redraw
+	MOV	R11,#e_returnword
+	BL	call_mode
+	BVS	ret$l
+	MOVS	R7,R1
+	MOVNE	R6,R0
+	MVNEQ	R6,#0			; no word isn't a disaster
+	MOV	R11,#e_interrogate	; get mode type
+	MOV	R0,#14
+	BL	call_mode
+	MOVVC	R1,#1
+	MOVVC	R0,R1,LSL R0
+	STRVC	R0,modet$l
+	LDRVCB	R0,[R8,#w_format]
+	BLVC	read_mode
+	BVS	ret$l
+	LDR	R0,[R1,#e_title*2]
+	STR	R0,moden$l
+	FNLDR	R11,wimp_clicksend
+	MOV	R0,#0
+srch$l	LDR	R0,[R11,R0]!		; check each possibility
+	TEQ	R0,#0
+	BEQ	noact$l
+	LDR	R2,[R11,#8]
+	TEQ	R2,#0
+	BNE	type$l
+
+	LDR	R1,moden$l
+	LDR	R2,[R11,#12]
+	ADD	R2,R11,R2
+findmode$l
+	BL	strCMPstr		; is this mode listed?
+	BEQ	possmatch$l
+comma$l	LDRB	R0,[R2],#1
+	TEQ	R0,#','
+	BEQ	findmode$l
+	TEQ	R0,#0
+	BNE	comma$l
+	LDR	R0,[R11]		; no (try next)
+	B	srch$l
+possmatch$l
+	LDRB	R0,[R0]			; is next chr ',' or NUL?
+	TEQ	R0,#','
+	TEQNE	R0,#0
+	BNE	comma$l			; no (check next in list)
+	B	m_ok$l			; yes - mode is listed
+
+type$l	LDR	R1,modet$l
+	TST	R2,R1			; this type of mode?
+	LDREQ	R0,[R11]		; no (try next)
+	BEQ	srch$l
+
+m_ok$l	ADD	R0,R11,#24
+	LDRB	R14,[R0]
+	TEQ	R14,#0
+	ADDEQ	R0,R0,#1
+	MOVEQ	R3,R6
+	BEQ	nostart$l
+	MOV	R1,#2			; search back for start char/str
+	LDR	R3,caret$l
+	MOV	R4,#-1
+	MOV	R5,#2_10011101<<22
+	BL	search_data
+	TEQ	R0,#0			; start char/str found?
+	MOVPL	R3,R1			; yes - use end of match
+	MOVMI	R3,#0			; no - use SOF
+	ADD	R0,R11,#24
+m$l	LDRB	R14,[R0],#1		; find match string
+	TEQ	R14,#0
+	BNE	m$l
+	B	done_sb$l
+nostart$l
+	LDR	R14,[R11,#16]
+	TEQ	R14,#0			; no 'early call' fn?
+	BEQ	done_sb$l
+	STMFD	R13!,{R6,R7}
+	MOV	R7,R14
+	LDR	R0,caret$l		; use click offset pos as fn arg
+	MOV	R1,#1
+	MOV	R5,#16
+	BL	checkvalid$l
+	BLVC	args$l
+	MOVVC	R1,#1
+	BLVC	process_function
+	SUBVSS	R1,R1,R1		; ignore errors :-)
+	LDMFD	R13!,{R6,R7}
+	CMP	R1,#3
+	LDRNE	R0,[R11]		; not string (try next)
+	BNE	srch$l
+	TEQ	R0,#0
+	LDREQ	R0,[R11]		; null string (try next)
+	BEQ	srch$l
+	B	callcmd$l		; got string - call command
+done_sb$l
+	TEQ	R3,#0
+	LDRMI	R0,[R11]		; no word (try next)
+	BMI	srch$l
+	LDRB	R14,[R0]
+	TEQ	R14,#0
+	BEQ	callfn$l
+	MOV	R1,#2			; try to match at given offset
+	MOV	R4,#0
+	MOV	R5,#2_10011101<<22
+	BL	search_data
+	TEQ	R0,#0			; match found?
+	LDRMI	R0,[R11]		; no - get offset of next, try again
+	BMI	srch$l
+	TEQ	R0,R1
+	LDRNE	R14,caret$l
+	MOVEQ	R14,#-1
+	CMP	R1,R14			; caret in match?
+	LDRLO	R0,[R11]		; no - get offset of next, try again
+	BLO	srch$l
+	MOV	R6,R0
+	SUB	R7,R1,R0
+	ADD	R0,R7,#1		; yes - claim buffer for word
+	BL	heap_claim
+	BVS	ret$l
+	MOV	R1,R0
+	LDR	R2,[R9,#f_ptr]
+	LDR	R3,[R9,#f_splito]
+	LDR	R4,[R9,#f_splits]
+	CMP	R6,R3
+	ADDGE	R2,R2,R4
+copy$l	LDRB	R5,[R2,R6]		; copy word into buffer
+	STRB	R5,[R1],#1
+	ADD	R6,R6,#1
+	TEQ	R6,R3
+	ADDEQ	R2,R2,R4
+	SUBS	R7,R7,#1
+	BNE	copy$l
+	MOV	R5,#0
+	STRB	R5,[R1]
+;	MOV	R6,R0			; save buffer address for later
+	B	callcmd$l
+callfn$l
+	STMFD	R13!,{R6,R7}
+	MOV	R0,R3
+	MOV	R1,#1
+	LDR	R7,[R11,#20]		; use 'late call' fn...
+	MOV	R5,#20
+	TEQ	R7,#0
+	LDREQ	R7,[R11,#4]		; ...in preference to command-as-fn
+	MOVEQ	R5,#4
+	BL	checkvalid$l
+	BLVC	args$l
+	MOVVC	R1,#1
+	BLVC	process_function
+	SUBVSS	R1,R1,R1		; ignore errors :-)
+	LDMFD	R13!,{R6,R7}
+	CMP	R1,#3
+	LDRNE	R0,[R11]		; not string (try next)
+	BNE	srch$l
+	TEQ	R0,#0
+	LDREQ	R0,[R11]		; null string (try next)
+	BEQ	srch$l
+;	MOV	R6,R0			; save string address for later
+callcmd$l
+	MOV	R6,R0			; save address for later
+;	BL	get_cursor_caret	; (corrupts R0)
+;	MOV	R0,R6
+	LDR	R7,[R11,#4]		; command address
+	MOV	R5,#4
+	BL	checkvalid$l
+	MOVVC	R1,#1
+	MOVVC	R2,#1:OR:1<<31
+	BLVC	process_command		; call the command
+	MOVVS	R7,R0
+	MOVVC	R7,#0
+	MOV	R0,R6
+	BL	heap_free		; free up buffer
+	MOVS	R0,R7
+	BEQ	ret$l
+	LDMFD	R13!,{R2-R7}
+	STMIA	R10,{R2-R7}
+	LDMFD	R13!,{R1-R7,R11,R14}
+	ORRS	PC,R14,#1<<28
+checkvalid$l
+	TST	R7,#1
+	MOVEQS	PC,R14
+	STMFD	R13!,{R0,R14}
+	BL	validate_command
+	STRVC	R7,[R11,R5]
+	LDMVCFD	R13!,{R0,PC}^
+	ADD	R13,R13,#8
+ret$l	LDMFD	R13!,{R2-R7}
+	STMIA	R10,{R2-R7}
+	LDMFD	R13!,{R1-R7,R11,R14}
+	BICS	PC,R14,#1<<28
+args$l	LDR	R6,[R7,#-4]
+	MOV	R6,R6,LSR #24
+	AND	R6,R6,#7
+	TEQ	R6,#2
+	MOVNE	R6,#0
+	MOVS	PC,R14
+noact$l	ADR	R0,noactmsg$l
+	MOV	R1,#0
+	BL	warn_user
+	B	ret$l
+
+caret$l	&	0			; temporary caret offset store
+modet$l	&	0			; 1<<(e_interrogate 14)
+moden$l	&	0			; mode name
+
+noactmsg$l
+	=	"No action taken",0
+	ALIGN
+
+;E R1=depth R2/R3=xycol R4=buttons R8/R9
+;X perform default action as mode didn't take any notice #
+
+default_click
+	TEQ R1,#1
+	BEQ mc_place_cursor
+	TEQ R1,#0
+	MOVNE PC,R14
+;	BEQ mc_start_drag ; fall through
+
+;E as for mouse click
+;X drag started #
+
+mc_start_drag
+	FNLDR R10,car_cursor
+	;LDR R0,[R10,#c_off]
+	;FNSTR R0,fnd_word		; save actual selected region start
+	TST R4,#1			; is adjust pressed
+	BNE mc_drag_adjust		; continue drag
+	FNJSR
+	BL to_update_caret		; goto_offset
+	FNLDR R0,car_mode
+	CMP R0,#2			; was 3...
+	FNRTS GE			; already started a drag
+
+	;MOV R0,#&70 ; escape
+	;BL test_forkey
+	;BCS specialescapeselectdrag
+	;FNRTS CC
+	BL test_shiftctrl
+	TST R1,#1
+	BNE specialshiftselectdrag
+notinsideselection
+	; this all needs moving.
+	BL default_caret
+	FNRTS VS			; from current cursor posn
+	FNLDR R0,car_mode
+	CMP R0,#2
+	FNRTS EQ
+	MOV R0,#4			; start drag
+	BL set_caret_mode		; start new drag selection
+	BLVC get_wind_off		; from current cursor posn
+	BLVC get_wind_off
+	FNSTR R0,wimp_drag,VC		; set drag window
+	BLVC drag_point2
+	FNRTS
+
+specialshiftselectdrag
+	PUSH "R1-R9"
+	BL find_offset
+	BLVC testifinsideselection
+	PULL "R1-R9"
+	FNRTS VS
+	BNE notinsideselection
+	BLVC gain_input ; enter_window	; was BLVC gain_input ???
+	BLVC actuallysaveitsel
+	FNRTS
+
+actuallysaveitsel
+	FNJSR
+	MOV R0,#1			; adjust...?
+	FNSTR R0,wimp_menub
+	LDR R0,[R9,#f_load]
+	BL calc_ftype			; CS and R0=filetype/CC and load
+	MOVCC R0,#-1
+	ADR R1,spritenameinfo
+	;BCS typed$l
+	;BL get_file_sprite		; and set sprite name
+	;B getonwithdragging
+typed$l
+	BL get_file_sprite		; and set sprite name
+getonwithdragging
+	MOV R6,R1
+	BL initiate_sprite_drag
+	FNRTS
+
+testifinsideselection
+	FNJSR "R1-R10"
+	MOV R6,R0
+	MOV R7,R8
+	BL get_selection
+	CMP R7,R8
+	FNRTS NE
+	 FNLDR R10,car_cursor
+	 LDR R0,[R10,#c_off]		; selection start
+	CMP R6,R1
+	FNRTS LT
+	ADD R1,R1,R2
+	CMP R6,R1
+	MOVLES R14,#0
+	FNRTS
+
+ ;FNLDR R1,wimp_data
+
+ ;BL get_SaveSelBox
+ ;MOV R7,R1
+ ;MOV R5,#5		; save button type
+ ;BL initiate_drag
+ ;BL drag_point
+ ;FNLDR R14,scn_xos
+ ;ADD R4,R4,R14			; max bounding x
+ ;LDR R0,[R1,#4]			; mouse y
+ ;SUB R3,R3,R0
+ ;SUB R5,R5,R0
+ ;FNLDR R14,scn_yos
+ ;ADD R5,R5,R14			; R2-R5=bounding box
+ ;ADD R0,R1,#24
+ ;STMIA R0,{R2-R5}		; save 'parent' box
+ ;MOV R0,#0
+ ;ADR R2,shiftselectdragend
+ ;BL drag_box
+ ;FNRTS
+
+spritenameinfo
+	= "file_fff",0
+	ALIGN
+
+;shiftselectdragend
+; FNJSR
+; SWI &107
+; FNRTS
+
+to_update_caret
+	FNJSR "R1-R12"
+	BL update_caret ; goto_offset
+	FNRTS
+
+mc_drag_adjust
+	FNJSR "R1-R4,R10"
+	BL to_update_caret ; goto_offset
+	FNLDR R10,car_selection
+	BL test_cblk
+	FNRTS NE			; no selection to update from
+	LDR R14,[R10,#c_off]
+	LDR R0,[R10,#c_owidth]
+	CMP R0,R14
+	FNRTS EQ			; no selection to update from
+	;BL to_update_caret;
+	FNLDR R0,car_mode
+	CMP R0,#3			; already in a drag?
+	FNRTS GE
+	BL test_shiftctrl
+	TST R1,#2
+	BLEQ returnneiftwctrlemul
+	BNE rare_adjust_control_drag
+	; TST R1,#1
+	; BNE specialshiftadjustdrag	; !!! here too for shift-adjust drag...!
+	;notinsideselection2
+	MOV R0,#4
+	FNSTR R0,car_mode		; in drag mode
+	FNLDR R10,car_cursor
+	LDR R0,[R10,#c_wind]
+	FNSTR R0,wimp_drag		; wimp drag window
+	BL clear_caret_always		; remove caret image
+	;BL plot_caret			; update selection to cursor
+	;FNRTS VS
+	BLVC drag_point			; start the drag
+	FNRTS
+
+;specialshiftadjustdrag
+; BL testifinsideselection
+; BNE notinsideselection2
+; BL actuallysaveitsel
+; FNRTS
+
+rare_adjust_control_drag
+	BL ctrladjdrag_savecurs
+	FNLDR R10,car_cursor
+	LDR R0,[R10,#c_wind]
+	FNSTR R0,wimp_drag		; wimp drag window
+	MOV R0,#5
+	FNSTR R0,car_mode		; in drag mode
+	BL drag_point			; start the drag
+	FNRTS
+
+;X R1 bit 1 set if forcectrl...
+returnneiftwctrlemul
+	FNJSR "R0,R11"
+	MOV R11,#e_interrogate
+	MOV R0,#21
+	BL call_mode
+	CMP R0,#21
+	ORRNE R1,R1,#2			; ctrl - but not shift
+	FNRTS
+
+; X block cursor used (as used in ctrl-drags)
+
+ctrladjdrag_savecurs
+	FNJSR
+	FNLDR R1,car_cursor
+	FNLDR R2,car_input
+	MOV R3,#cusr_blk
+	SWI XZapRedraw_MoveBytes ; BL move_bytes			; save cursor block
+	FNRTS
+
+;local_offsetofclik
+; DCD 0
+;E as for mouse click  R4=buttons...
+;X cursor put at correct posn, selection made. #
+
+mc_place_cursor
+ TST R4,#1
+ BNE mc_place_adjust
+ FNJSR "R1-R11"
+ MOV R11,R2
+ BL test_shiftctrl
+ TST R1,#1
+ BNE specialshiftselect
+notinsideselforclick
+
+ BL quitkeyboardselections
+; FNLDR R10,car_cursor
+; MOV R6,R2
+; MOV R7,R3
+ BL find_offset
+; STR R0,local_offsetofclik
+;     ;BL find_offset			; get file offset in R0 (loff in R1)
+;   ;FNRTS VS
+; ;STR R0,[R10,#c_off]		; R6=selection start (unless ctrl)
+;; new from ZB.
+; ;MOV R7,R3	; hmm?
+; ;MOV R0,#&81			; ctrl key (hardwired in :<)
+; ;MOV R1,#&FE
+; ;MOV R2,#&FF
+; ;SWI XOS_Byte
+; ;BL resetatselstart		; adjust drag checking...
+; LDR R0,[R10,#c_off]		; R6=selection start (unless ctrl)
+;; MOV R0,R6
+; MOV R11,#e_lineprev
+; BL call_mode
+; MOV R5,R0			; R5=start of line with sel start
+; LDR R4,[R10,#c_owidth]		; R4=selection end
+; MOV R0,R4
+; MOV R11,#e_lineprev
+; BL call_mode
+; MOV R3,R0			; R3=start of line with sel end
+; TEQ R3,R5
+; BEQ se5			; selection confined to 1 line
+; LDR R14,local_offsetofclik
+; TEQ R5,R14
+; BEQ se4			; already at logical line start
+;
+; FNLDR R2,fnd_word ; fnd_word	; regain start position...? *bad code; *
+; CMP R2,#0
+; MOVMI R2,R5 ; ?
+; MOV R3,R4			; selection end
+; FNcall Zap_AlterSel		; alter selected region
+; FNRTS VS
+;se1
+; ;STR R4,[R10,#c_owidth]
+;se3
+; ;LDR R0,[R10,#c_owidth]		; old offset
+; ;FNcall Zap_OffLineCol
+; ;FNRTS VS
+; ;STR R2,[R10,#c_ocol]
+; ;STR R3,[R10,#c_oline]
+; ;FNRTS
+;;se3a
+;; LDR R0,[R10,#c_owidth]		; old offset - hmm.
+;; FNcall Zap_OffLineCol
+;; FNRTS VS
+;; STR R2,[R10,#c_ocol]
+;; STR R3,[R10,#c_oline]
+;; FNRTS
+;
+;se4
+; ;STR R3,[R10,#c_owidth]
+; ;B se3
+;
+;se5
+; ; end of new from ZB
+ BL test_shiftctrl
+ TST R1,#2			; ctrl key?
+ BNE dontcheck$l		; was BNE ?????????????????
+ BL returnneiftwctrlemul
+ BNE eeektwsortout$l
+dontcheck$l
+ MOV R5,R1			; STORE IT...
+ TST R5,#2
+ FNLDR R10,car_cursor,EQ	; control not pressed
+ FNLDR R10,car_input,NE		; control pressed
+; MOV R2,R6
+; MOV R3,R7
+; BL find_offset
+; LDR R0,[R10,#c_wind]
+; BL conv_wind_off		; bad, bad, bad...
+ BL goto_offset			; 's OK...
+
+ ; /maybe/ if caret mode is split and ctrl pressed then return here...?
+
+ ;
+
+ BLVC poscursoratxcommay
+ FNRTS VS
+ CMP R11,#0
+ BLNE wiggleabit
+
+; BL test_shiftctrl
+ TST R5,#2
+; BLEQ returnneiftwctrlemul
+ FNRTS EQ			; don't start drag
+; FNRTS				; don't start drag
+
+ ;SWI &107			; ????????? never fires...?
+ BL update_caret		; goto_offset
+ MOV R0,#5
+ BL set_caret_mode		; start new drag selection
+ BLVC get_wind_off
+ FNSTR R0,wimp_drag,VC		; set drag window
+ BLVC drag_point
+ FNRTS
+
+specialshiftselect
+ PUSH "R1-R9"
+ BL find_offset
+ BLVC testifinsideselection
+ PULL "R1-R9"
+ BNE notinsideselforclick
+; BL update_caret		; goto_offset
+ FNRTS
+
+eeektwsortout$l			; is the cursor in this window?
+ PUSH "R0,R1"
+ PUSH "R8,R9"
+ MOV R1,R8
+ FNLDR R0,car_cursor
+ LDR R0,[R0,#c_wind]
+ BL conv_wind_off		; gets R8,R9...
+ TEQ R1,R8
+ PULL "R8,R9"
+ PULL "R0,R1",EQ
+ BEQ dontcheck$l
+ BLVC enter_window		; was  BLVC gain_input ; ??? ???
+; BL gain_input			; cursor not in this window...
+; SWI &107			; beep if here...
+ PULL "R0,R1"
+ FNRTS
+; B dontcheck$l
+
+;resetatselstart
+ ;FNLDR R1,wimp_buffer		; scrap... :/
+ ;ADD R1,R1,#&A0
+ ;SWI XWimp_GetPointerInfo
+ ;LDR R1,[R1,#8]
+ ;TST R1,#1
+ ;MOVEQ PC,R14			; not a ctrl-adjust drag.
+ ;MVN R6,#0
+ ;FNSTR R6,fnd_word ; fnd_word	; save actual selected region start
+; MOV PC,R14
+
+;storenewcolumn
+; FNJSR
+; LDR R14,[R10,#c_off]
+; FNSTR R10,car_cursor		; control not pressed
+; FNRTS
+
+quitkeyboardselections
+ FNLDR R0,car_mode
+ CMP R0,#3
+ MOVNE PC,R14
+ FNJSR "R1"
+ MOV R0,#1
+ BL set_caret_mode		; start new drag selection
+ FNRTS
+
+wiggleabit
+ FNJSR "R0-R12"
+ ;SWI &107
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_softwrap
+ FNRTS EQ
+
+ LDR R0,[R10,#c_col]
+ LDR R14,[R8,#w_margin]
+ CMP R0,R14
+ FNRTS GT
+ LDR R0,[R10,#c_off]
+ SUBS R0,R0,#1
+ FNRTS MI
+ BL cln_readc
+ LDRB R14,[R8,#w_cr]
+ CMP R0,R14 ; ret
+ FNRTS EQ
+
+ MOV R1,#1
+ MVN R2,#0
+ MOV R3,#0
+ BL move_cursor
+ MOV R1,#1
+ MOV R2,#1
+ MOV R3,#0
+ BL move_cursor
+ ;SWI &107
+ FNRTS
+
+wiggleabit2
+ FNJSR "R0-R12"
+ ;SWI &107
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_softwrap
+ FNRTS EQ
+
+ LDR R0,[R10,#c_col]
+ LDR R14,[R8,#w_margin]
+ CMP R0,R14
+ FNRTS GT
+ LDR R0,[R10,#c_off]
+ SUBS R0,R0,#1
+ FNRTS MI
+ BL cln_readc
+ LDRB R14,[R8,#w_cr]
+ CMP R0,R14 ; ret
+ FNRTS EQ
+ MOV R1,#1
+ MVN R2,#0
+ MOV R3,#0
+ BL move_cursor
+
+ MOV R1,#1
+ MOV R2,#1
+ MOV R3,#0
+ BL move_cursor
+
+ MOV R1,#1
+ MOV R2,#3
+ MOV R3,#0
+ BL move_by ; cursor
+ ;SWI &107
+ FNRTS
+
+ LOCAL
+
+;E R2,R3 x,y
+poscursoratxcommay
+ FNJSR "R2"
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_freeclick
+ FNRTS EQ
+ LDR R14,[R8,#w_margin]
+ CMP R2,R14
+ MOVCC R2,R14
+ STR R2,[R10,#c_col]
+ BL plot_caret
+ FNRTS
+
+columntemp
+ DCD 0
+
+;E as for mouse click R2/R3=xycol
+;  adjust clicked on the window
+
+mc_place_adjust
+ FNJSR "R1-R11"
+ ; SWI &107 ;
+ FNLDR R0,car_mode
+ CMP R0,#0
+ BLE nocaret$l			; Zap hasn't got input focus so place
+ BL quitkeyboardselections
+ BL get_wind_off
+ FNLDR R10,car_cursor
+ LDR R14,[R10,#c_wind]
+ TEQ R0,R14
+ BNE nocaret$l			; Input focus in a different window so place
+ FNLDR R10,car_selection
+ BL test_cblk
+ BNE nosel$l			; no selection here
+ LDR R14,[R10,#c_off]
+ LDR R11,[R10,#c_owidth]
+ CMP R11,R14
+ BEQ nosel$l
+ BL order_selection
+ MOV R11,R2
+ BL find_offset
+ FNRTS VS
+ STR R2,columntemp
+ MOV R4,R0			; save offset of click
+ LDR R2,[R10,#c_off]		; selection start
+ LDR R3,[R10,#c_owidth]		; selection end
+ ADD R1,R2,R3
+ CMP R0,R1,ASR#1		; compare with the average
+ MOVLT R2,R3			; make old end the start
+ MOV R3,R0			; new end
+ BL select_region		; alter selected region
+ FNRTS VS
+
+ FNLDR R10,car_cursor		; tt new code...
+ BL test_cblk			; no caret in this window
+ BNE nocaret$l			; works okish...
+
+ MOV R0,R4			; new offset for cursor
+ B move$l
+
+nosel$l
+ ; SWI &107
+ MOV R11,R2
+ BL find_offset			; R0=file offset
+ FNRTS VS
+ ;SWI &107
+ STR R2,columntemp
+ MOV R3,R0			; region end (current mouse)
+ FNLDR R10,car_cursor
+ BL test_cblk			; no caret in this window
+ BNE nocaret$l
+ LDR R2,[R10,#c_off]
+ BL select_region
+ FNRTS VS
+ MOV R0,R3
+move$l				; R0=new offset
+ MOV R4,R0			; new offset
+ BL test_shiftctrl
+ TST R1,#2
+ BLEQ returnneiftwctrlemul
+ MOV R5,R1			; control status
+ BEQ noctrl$l
+ BL ctrladjdrag_savecurs
+ MOV R0,#5
+ FNSTR R0,car_mode		; in drag mode
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_wind]
+ FNSTR R0,wimp_drag		; wimp drag window
+noctrl$l
+ FNLDR R10,car_cursor		; control not pressed
+ MOV R0,R4
+ BL goto_offset			; goto this offset
+ FNRTS VS
+ LDR R2,columntemp		; from the last find_offset...
+ BL poscursoratxcommay		; adjust too...
+ LDRB R14,[R8,#w_margin]
+ CMP R11,R14
+ ;CMP R11,#0
+ BLNE wiggleabit
+; BL storenewcolumn
+ TST R5,#2
+ FNRTS EQ			; don't start drag
+ BL clear_caret_always		; remove caret image
+ BLVC drag_point		; start the drag
+ FNRTS
+
+nocaret$l			; no caret so place cursor at point
+ LDR R0,[R8,#w_poff]
+ FNLDR R10,car_cursor
+ BL goto_offset			; goto this offset
+ FNRTS
+
+;E R8/R9
+;X Wimp put into drag a point mode starting with infinite
+;  bounding box WB process_drag set up to handle it #
+
+drag_point2
+ MVN R0,#&0
+ STR R0,escapedragflag
+
+drag_point
+ FNJSR "R1-R3"
+ ADR R2,process_drag
+ FNLDR R1,wimp_block
+ LDR R0,[R8,#w_handle]
+ MOV R14,#7
+ STMIA R1,{R0,R14}
+ MOV R0,#0
+ STR R0,[R1,#8]
+ STR R0,[R1,#12]
+ STR R0,[R1,#16]
+ STR R0,[R1,#20]		; initial pos
+ MOV R0,#&4000
+ STR R0,[R1,#32]
+ STR R0,[R1,#36]		; bbox max
+ RSB R0,R0,#0
+ STR R0,[R1,#24]
+ STR R0,[R1,#28]		; bbox min
+ MOV R0,#1			; call back
+ BL drag_box
+ FNRTS
+
+escapedragflag
+ & &0
+
+; process_drag_escape ?
+
+ LOCAL
+
+;E as for a standard drag sub
+;X drag seleceted region dealt with.
+
+process_drag
+ FNJSR "R1-R11"
+ MOV R2,R0			; save drag state
+ FNLDR R11,wimp_buffer		; use main buffer
+ MOV R1,R11
+ SWI XWimp_GetPointerInfo	; find mouse position
+ FNRTS VS
+ ;SWI &107			; gets this far...
+ TEQ R2,#1			; adjust being pressed...
+ BNE theexit$l
+a$l
+ FNLDR R0,wimp_drag
+ CMP R0,#0
+ FNRTS MI			; no drag set up
+ BL conv_wind_off		; get R8/R9 of dragged window
+ LDR R2,[R11,#0]		; mouse x
+ LDR R3,[R11,#4]		; mouse y
+ MOV R1,R8
+ BL convert_coords		; convert R2/R3 to work pixels
+ FNRTS VS
+ CMP R2,#0
+ MOVMI R2,#0
+ CMP R3,#0
+ MOVMI R3,#0			; clip below
+ BL ccd_xypix_xyline		; convert R2/R3 to col/row
+ BLVC find_offset		; get file offset in R0
+ FNRTS VS
+ ;STR R0,local_tmpstre + 4
+ ;FNLDR R10,car_selection
+ ;LDR R14,[R10,#c_owidth]	; selection start
+ ;STR R14,local_tmpstre
+ ;BL consider_modifying_the_pos	; position change...?
+ ADD R1,R12,#car_left		; start of left indent
+ LDMIA R1,{R2,R3,R4,R5}		; read indents
+ MOV R14,#0			; zero indents (eg drag restricted to
+ STR R14,[R1]			; middle line)
+ STR R14,[R1,#4]
+ STR R14,[R1,#8]
+ STR R14,[R1,#12]		; clear indents
+ FNLDR R10,car_cursor
+ BL goto_file_offset		; move the cursor ; ...????
+ STMIA R1,{R2,R3,R4,R5}		; restore indents
+ FNRTS
+
+theexit$l
+ BL default_caret		; drag finished
+; SWI &107			; this point is never reached when bug fires
+ BL remove_zero_size_selections
+ FNRTS
+
+remove_zero_size_selections
+ FNJSR
+ BL get_selection
+ BLCS clear_selection
+ FNRTS
+
+;local_tmpstre
+; DCD 0
+; DCD 0
+
+;consider_modifying_the_pos
+; FNJSR "R11"
+; LDR R14,[R8,#w_info]
+; TST R14,#1<<6
+; FNRTS EQ
+;
+; FNLDR R3,fnd_word
+; CMP R3,#0
+; FNRTS MI
+;
+; MOV R7,R0			; save proposed offset of cursor
+; MOV R11,#e_lineprev
+; BL call_mode
+; MOV R6,R0
+; FNLDR R10,car_selection
+;
+; LDR R2,[R10,#c_off]		; selection start
+; MOV R0,R2
+; MOV R11,#e_lineprev
+; BL call_mode
+; MOV R4,R0
+;
+; LDR R3,[R10,#c_owidth]	; selection end
+; MOV R0,R3
+; MOV R11,#e_lineprev
+; BL call_mode
+;
+; CMP R4,R0
+; CMPEQ R4,R6
+; MOVNE R0,R6
+; MOVEQ R0,R7 ; all on the same line...?
+;; SWINE &107
+; FNRTS
+;
+;consider_modifying_the_sel
+; FNJSR "R11"
+; LDR R14,[R8,#w_info]
+; TST R14,#1<<6
+; FNRTS EQ
+;
+; FNLDR R10,car_selection
+;
+;; MOV R0,R11			; original offset
+;; MOV R11,#e_lineprev
+;; BL call_mode
+;; MOV R6,R0
+;
+; LDR R4,[R10,#c_off]		; selection start
+; MOV R0,R4
+; MOV R11,#e_lineprev
+; BL call_mode
+; MOV R2,R0
+;
+; LDR R3,[R10,#c_owidth]		; selection end
+; MOV R0,R3
+; MOV R11,#e_lineprev
+; BL call_mode
+;
+; CMP R2,R0
+; BEQ back_as_before$l
+;
+; MOV R3,R0
+; FNLDR R14,fnd_word
+; CMP R14,#0
+; BLMI set_up_FTFT
+;
+; BL alter_selected_region ; alter_selection
+; FNRTS
+;
+;set_up_FTFT
+; LDR R0,local_tmpstre ; [R10,#c_owidth]		; selection start
+; FNSTR R0,fnd_word
+; MOV PC,R14
+;
+;back_as_before$l
+; FNLDR R3,fnd_word
+; CMP R3,#0
+; FNRTS MI
+; LDR R2,local_tmpstre + 4; [R10,#c_owidth]		; selection start
+;; LDR R2,[R10,#c_owidth] ;c_off]		; selection start
+; BL alter_selected_region ; alter_selection
+; MOV R14,#-1
+; FNSTR R14,fnd_word
+; FNRTS
+
+;insert_selected_text
+; SWI &107
+; BL Copy
+; FNRTS
+
+;E R2/R3=xycol R8/R9 (inc margin)
+;X R0=file offset R1=loff R2/R3=xycol (inc margin) with y clipped #
+
+find_offset
+ STMFD R13!,{R2,R11,R14}
+ LDR R0,[R8,#w_height]
+ CMP R3,R0
+ SUBCS R3,R0,#1
+; LDRCS R2,[R8,#w_width]		; ensure not off bottom of file
+ LDR R0,[R8,#w_margin]
+ ;LDRB R14,[R8,#w_format]
+ ;CMP R14,#2
+ ;BEQ modetwofindoffset
+ SUB R2,R2,R0			; take off margin
+ MOV R0,R3
+ BL cln_phy			; get file offset of start of line
+ MOVVC R11,R0			; save start of line file offset
+ MOVVC R1,R2			; column offset
+ BLVC cln_linecol		; get file offset
+ MOVVC R1,R11			; start offset of line
+ LDMFD R13!,{R2,R11,PC}
+
+;modetwofindoffset
+; SUB R2,R2,R0			; take off margin
+; MOV R0,R3
+; BL cln_phy			; get file offset of start of line
+; LDMVSFD R13!,{R2,R11,PC}
+; ADD R0,R0,#3
+; BIC R0,R0,#3
+; MOV R11,R0			; save start of line file offset
+; MOV R1,R2			; column offset
+; BL cln_linecol			; get file offset
+; LDMVSFD R13!,{R2,R11,PC}
+; MOV R1,R11			; start offset of line
+; LDMFD R13!,{R2,R11,PC}
+
+;E R10=caret block
+;X caret updated from c_off and caret plotted #
+
+reflect_caret
+ FNJSR
+ BL update_caret
+ BLVC plot_caret
+ ; BLVC clear_caret
+ FNRTS
+
+	MACRO
+$l	IsCur	$r
+$l	FNLDR	$r,car_input
+	TEQ	R10,$r
+	FNLDR	$r,car_cursor,NE
+	TEQNE	R10,$r
+	FNLDR	$r,car_selection,NE
+	TEQNE	R10,$r
+	MEND
+
+;E R10=caret block
+;X caret vals updated from c_off but caret not plotted #
+
+update_caret
+	STMFD	R13!,{R1-R3,R8-R9,R14}
+	LDR	R0,[R10,#c_wind]
+	BL	conv_wind_off
+	TEQ	R8,#0
+	LDMEQFD	R13!,{R1-R3,R8-R9,PC}
+	LDR	R0,[R10,#c_off]
+	BL	offset_line_column		; get posn in work area
+	LDMVSFD	R13!,{R1-R3,R8-R9,PC}
+	STR	R0,[R10,#c_loff]
+	STR	R1,[R10,#c_width]
+	STR	R2,[R10,#c_col]
+	STR	R3,[R10,#c_line]		; save coords
+	IsCur	R1
+	MOVEQ	R0,#0
+	STREQ	R0,[R10,#c_charoff]
+	LDMFD	R13!,{R1-R3,R8-R9,PC}
+
+;X Input focus gained/lost according to caret mode R8??? #
+
+gain_input_with_service
+; STMFD R13!,{R1-R5,R8-R9,R14}
+; MVN R5,#&0
+; B into_gain_input$l
+
+gain_input
+ STMFD R13!,{R1-R5,R8-R9,R14}
+; MOV R5,#&0
+into_gain_input$l
+; SWI &107
+ FNLDR R0,car_mode
+ CMN R0,#1
+ FNSTR R0,car_omode,NE		; show that carets gained
+ FNLDR R0,opt_flags
+ TST R0,#1<<25
+ LDMNEFD R13!,{R1-R5,R8-R9,PC}	; Ignore gain input calls
+ FNLDR R0,car_input
+ LDR R0,[R0,#c_wind]
+ CMP R0,#0
+ BPL ga1
+ FNLDR R0,car_cursor
+ LDR R0,[R0,#c_wind]
+ CMP R0,#0
+ LDMMIFD R13!,{R1-R5,R8-R9,PC}
+ga1
+; MOV R5,R8			; ASSUMES R8 set up?
+ BL conv_wind_off
+; CMP R5,R8
+; LDMEQFD R13!,{R1-R5,R8-R9,PC}
+
+ LDR R0,[R8,#w_handle]		; window handle
+ MVN R1,#0
+ MOV R2,#0
+ MOV R3,#0
+ MOV R4,#1<<25			; invisible
+; CMP R5,#0
+ ;BEQ withservice$l
+ MVN R5,#0
+ SWI XWimp_SetCaretPosition
+
+ FNLDR R14,clk_depth
+ CMP R14,#1
+ MOVEQ R1,#5			; tell ZapButtons...
+ BLEQ issue_service
+
+ LDMFD R13!,{R1-R5,R8-R9,PC}
+
+;withservice$l
+; MVN R5,#0
+; SWI XWimp_SetCaretPosition
+;
+; MOV R1,#5			; tell ZapButtons...
+; BL issue_service
+;
+; LDMFD R13!,{R1-R5,R8-R9,PC}
+; ...
+
+;E R8
+;X returns EQ if cursor caret in this window |
+
+test_caret
+ FNJSR
+ FNLDR R0,car_cursor
+ LDR R0,[R0,#c_wind]
+ FNLDR R14,wind_list
+ ADD R14,R14,R0,LSL#w_shift
+ TEQ R14,R8
+ FNRTS
+
+;E R8
+;X Returns EQ if input caret in this window |
+
+test_input
+ FNLDR R0,car_input
+ LDR R0,[R0,#c_wind]
+ CMP R0,#0
+ BMI test_caret
+ FNJSR
+ FNLDR R14,wind_list
+ ADD R14,R14,R0,LSL#w_shift
+ TEQ R14,R8
+ FNRTS
+
+;E R10=caret block
+;X old caret posn and new caret posn redrawn #
+
+plot_caret
+ FNJSR
+ BL clear_caret			; hmm.
+ BL set_caret
+ FNRTS
+
+;E R10=caret block and car_mode 1/2
+;X caret posn redrawn without setting as old posn #
+
+set_caret_update
+ FNJSR "R1,R8,R9"
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ TEQ R8,#0
+ FNRTS EQ
+ FNLDR R1,car_block
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ LDR R0,[R10,#c_col]
+ LDR R14,[R10,#c_width]
+ STR R0,[R1,#4]			; x min
+ ADD R0,R0,R14
+ STR R0,[R1,#12]		; x max
+ LDR R0,[R10,#c_line]
+ STR R0,[R1,#8]			; y min
+ ADD R0,R0,#1
+ STR R0,[R1,#16]		; y max
+ BL check_to_see_if_deep_change
+ BLEQ update_area
+ FNRTS
+
+;E R10=caret block
+;X caret posn redrawn and this posn set as old posn #
+
+; set_caret
+;  FNLDR R0,car_mode
+;  CMP R0,#3
+;  BGE se10
+;  STMFD R13!,{R1,R8-R9,R14}
+;  LDR R0,[R10,#c_wind]
+;  BL conv_wind_off
+;  TEQ R8,#0
+;  LDMEQFD R13!,{R1,R8-R9,PC}
+;  FNLDR R1,car_block
+;  LDR R0,[R8,#w_handle]
+;  STR R0,[R1]
+;  LDR R0,[R10,#c_col]
+;  LDR R14,[R10,#c_width]
+;  STR R0,[R1,#4]			; x min
+;  ADD R0,R0,R14
+;  STR R0,[R1,#12]		; x max
+;  LDR R0,[R10,#c_line]
+;  STR R0,[R1,#8]			; y min
+;  ADD R0,R0,#1
+;  STR R0,[R1,#16]		; y max
+;  BL update_area
+;  LDMVSFD R13!,{R1,R8-R9,PC}
+;  LDR R0,[R10,#c_col]
+;  STR R0,[R10,#c_ocol]
+;  LDR R0,[R10,#c_line]
+;  STR R0,[R10,#c_oline]
+;  LDR R0,[R10,#c_wind]
+;  STR R0,[R10,#c_owind]
+;  LDR R0,[R10,#c_width]
+;  STR R0,[R10,#c_owidth]		; caret plotted
+;  LDMFD R13!,{R1,R8-R9,PC}
+; se10
+;  STMFD R13!,{R1-R11,R14}
+;  LDR R0,[R10,#c_wind]
+;  BL conv_wind_off
+;  TEQ R8,#0			; check valid selection window
+;  LDMEQFD R13!,{R1-R11,PC}
+;  MOV R11,R10			; R11=cursor caret (can't split)
+;  FNLDR R10,car_selection	; R10=selection caret
+;  LDR R0,[R11,#c_off]
+;  STR R0,[R10,#c_owidth]		; save offset
+;  LDR R3,[R10,#c_oline]
+;  LDR R2,[R10,#c_ocol]		; old end
+;  LDR R5,[R11,#c_line]
+;  LDR R4,[R11,#c_col]		; new end
+;  STR R5,[R10,#c_oline]
+;  STR R4,[R10,#c_ocol]		; save as new end
+;  MOV R0,#1
+;  MOV R11,#e_selection
+;  BL call_mode			; clip selection end due to mode
+;  LDMVSFD R13!,{R1-R11,PC}
+;  LDR R5,[R10,#c_oline]
+;  LDR R4,[R10,#c_ocol]		; get (possibly new) end
+;  BL correct_region		; get right way round
+;  ADD R5,R5,#1			; line after end
+;  BL update_region
+;  LDMFD R13!,{R1-R11,PC}
+
+; above is original set_caret.  This is OK too...
+
+;E R10=caret block
+;X caret posn redrawn and this posn set as old posn #
+
+set_caret
+ FNLDR R0,car_mode
+ CMP R0,#3
+ BGE se10
+ STMFD R13!,{R1,R8-R9,R14}
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ TEQ R8,#0
+ LDMEQFD R13!,{R1,R8-R9,PC}
+	BL	set_charoff
+ FNLDR R1,car_block
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ LDR R0,[R10,#c_col]
+ LDR R14,[R10,#c_width]
+ STR R0,[R1,#4]			; x min
+ ADD R0,R0,R14
+ STR R0,[R1,#12]		; x max
+ LDR R0,[R10,#c_line]
+ STR R0,[R1,#8]			; y min
+ ADD R0,R0,#1
+ STR R0,[R1,#16]		; y max
+ BL check_to_see_if_deep_change
+ BLEQ update_area
+ BLVC set_old_caret_pos
+ LDMFD R13!,{R1,R8-R9,PC}
+se10
+ STMFD R13!,{R1-R11,R14}
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ TEQ R8,#0			; check valid selection window
+ LDMEQFD R13!,{R1-R11,PC}
+ MOV R11,R10			; R11=cursor caret (can't split)
+ FNLDR R10,car_selection	; R10=selection caret
+ LDR R0,[R11,#c_off]
+ STR R0,[R10,#c_owidth]		; save offset
+ LDR R3,[R10,#c_oline]
+ LDR R2,[R10,#c_ocol]		; old end
+ LDR R5,[R11,#c_line]
+ STR R5,[R10,#c_oline]
+ LDR R4,[R11,#c_col]		; new end
+ STR R4,[R10,#c_ocol]		; save as new end
+ BL adjustduetoselaslines
+ FNLDR R10,car_selection,VC	; R10=selection caret
+ MOVVC R0,#1
+ MOVVC R11,#e_selection
+ BLVC call_mode			; clip selection end due to mode
+ LDMVSFD R13!,{R1-R11,PC}
+ LDR R5,[R10,#c_oline]
+ LDR R4,[R10,#c_ocol]		; get (possibly new) end
+ BL correct_region		; get right way round
+ ADD R5,R5,#1			; line after end
+ BL check_to_see_if_deep_change
+ BLEQ update_region
+ LDMFD R13!,{R1-R11,PC}
+
+set_old_caret_pos
+ FNJSR
+ LDR R14,[R10,#c_col]
+ STR R14,[R10,#c_ocol]
+ LDR R14,[R10,#c_line]
+ STR R14,[R10,#c_oline]
+ LDR R14,[R10,#c_wind]
+ STR R14,[R10,#c_owind]
+ LDR R14,[R10,#c_width]
+ STR R14,[R10,#c_owidth]		; caret plotted
+ FNRTS
+
+adjustduetoselaslines
+ FNJSR "R1-R9,R11"
+
+ LDR R14,[R8,#w_info]
+ TST R14,#bit_selaslines
+ FNRTS EQ
+
+ MOV R7,R3
+
+; is selection even in this window?
+ MOV R6,R8
+; MOV R7,R9
+ BL get_selection
+ CMP R6,R8
+ FNRTS NE
+
+; BL test_shiftctrl		; code not used...!!!
+; TST R1,#2
+; BLEQ returnneiftwctrlemul	; ...till here.
+
+; BEQ noctrl$l
+;
+; MOV R0,#&81			; ctrl key (hardwired in :<)
+; MOV R1,#&FE
+; MOV R2,#&FF
+; SWI XOS_Byte
+ BL resetatselstart		; adjust drag checking...
+
+ LDR R6,[R10,#c_off]		; R6=selection start (unless ctrl)
+ MOV R0,R6
+ MOV R11,#e_lineprev
+ BL call_mode
+ ;ADD R14,R0,#4
+ ;CMP R6,R14
+ ;FNSTR R6,fnd_word,GT		; save actual selected region start
+ MOVVC R5,R0			; R5=start of line with sel start
+ LDRVC R4,[R10,#c_owidth]		; R4=selection end
+ MOVVC R0,R4
+ MOVVC R11,#e_lineprev
+ BLVC call_mode
+ FNRTS VS
+ MOV R3,R0			; R3=start of line with sel end
+ TEQ R3,R5
+ BEQ se5			; selection confined to 1 line
+ ;TEQ R6,R3
+ ;BEQ se4a			; other end of selection at log, line start
+ ;MOV R2,R5			; new selection start (R3=end)
+ ;BNE adjustdragging
+ FNLDR R1,wimp_buffer ; buf_detoken		; scrap... :/
+; FNLDR R1,buf_detoken		; scrap... :/
+ SWI XWimp_GetPointerInfo
+ LDR R1,[R1,#8]
+ TST R1,#1
+ FNRTS NE			; not pressing select...
+
+; TEQ R6,R5
+; STREQ R3,[R10,#c_owidth]
+; BEQ se3			; already at logical line start
+
+ MOV R2,R5			; new selection start (R3=end)
+ BL alter_selected_region
+; FNcall Zap_AlterSel,R11	; alter selected region
+ TEQ R6,R5
+ STREQ R3,[R10,#c_owidth]
+ BEQ se3			; already at logical line start
+ ; problems...?
+ B se3			; already at logical line start
+; SWI &107
+; FNRTS VS
+;se4a
+; SWI &107
+; STR R5,[R10,#c_owidth]
+; B se3
+se5
+ TEQ R6,R5
+ BNE se1			; already confined
+ ;LDR R2,[R10,#c_owidth]	; R4=selection end
+ ;LDR R1,[R9,#f_splito]		; this code is all junk...
+ ;CMP R2,R1
+ ;LDR R1,[R9,#f_splits]
+ ;ADDCS R2,R2,R1
+ ;LDR R1,[R9,#f_ptr]
+ ;ADD R1,R1,R2
+ ;LDRB R1,[R1]
+ ;CMP R1,#&0D
+ ;SUBEQ R4,R4,#1
+
+ ;LDR R2,[R10,#c_off]		; *good* code !tt!
+ FNLDR R2,fnd_word		; regain start position...? *bad code*
+ CMP R2,#0
+ MOVMI R2,R5 ; ?
+ MOV R3,R4			; selection end
+ BL alter_selected_region
+ ;SWIVC &107 fires if old selection recovered...
+; FNcall Zap_AlterSel,R11		; alter selected region
+ FNRTS VS
+se1
+ STR R4,[R10,#c_owidth]
+se3
+ LDR R0,[R10,#c_owidth]		; old offset
+ BL offset_line_column
+ STRVC R2,[R10,#c_ocol]
+ STRVC R3,[R10,#c_oline]
+ FNRTS
+;se3a
+; LDR R0,[R10,#c_owidth]		; old offset - hmm.
+; FNcall Zap_OffLineCol
+; LDMVSFD R13!,{R1-R7,PC}
+; STR R2,[R10,#c_ocol]
+; STR R3,[R10,#c_oline]
+; LDMFD R13!,{R1-R7,PC}
+
+resetatselstart
+ FNLDR R1,wimp_buffer ; buf_detoken		; scrap... :/
+ SWI XWimp_GetPointerInfo
+ LDR R1,[R1,#8]
+ TST R1,#1
+ MVNNE R6,#0			; if a ctrl-adjust drag
+ FNSTR R6,fnd_word,NE		; save actual selected region start
+ MOV PC,R14
+
+set_charoff
+	FNJSR	"R11"
+	IsCur	R11
+	FNRTS	NE
+	LDR	R0,[R10,#c_loff]
+	LDR	R1,[R10,#c_off]
+	MOV	R11,#e_lineoff
+	BL	call_mode
+	LDR	R1,[R10,#c_col]
+	LDR	R14,[R8,#w_margin]
+	SUB	R0,R1,R0
+	SUBS	R0,R0,R14
+	LDRMI	R1,[R8,#w_width]
+	SUBMI	R0,R0,R14
+	ADDMI	R0,R0,R1
+	STR	R0,[R10,#c_charoff]
+	FNRTS
+
+;E R10=caret blk
+;X old caret posn redrawn and then marked null #
+
+clear_caret
+ FNLDR R0,car_mode
+ CMP R0,#3
+ MOVGE PC,R14
+clear_caret_always
+ STMFD R13!,{R1,R8-R9,R14}
+ LDR R0,[R10,#c_owind]
+ BL conv_wind_off
+ TEQ R8,#0
+ LDMEQFD R13!,{R1,R8-R9,PC}
+ FNLDR R1,car_block
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ LDR R0,[R10,#c_ocol]
+ LDR R14,[R10,#c_owidth]
+ STR R0,[R1,#4]			; x min
+ ADD R0,R0,R14
+ STR R0,[R1,#12]		; x max
+ LDR R0,[R10,#c_oline]
+ STR R0,[R1,#8]			; y min
+ ADD R0,R0,#1
+ STR R0,[R1,#16]		; y max
+ BL check_to_see_if_deep_change
+ BLEQ update_area
+ MVNVC R0,#0
+ STRVC R0,[R10,#c_owind]	; not plotted
+ LDMFD R13!,{R1,R8-R9,PC}
+
+;E R8
+;X Position at point coord updated #
+
+clear_point
+ STMFD R13!,{R1,R14}
+ FNLDR R1,car_block
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ LDR R0,[R8,#w_pcol]
+ LDR R14,[R8,#w_pwidth]
+ STR R0,[R1,#4]			; x min
+ ADD R0,R0,R14
+ STR R0,[R1,#12]		; x max
+ LDR R0,[R8,#w_pline]
+ STR R0,[R1,#8]			; y min
+ ADD R0,R0,#1
+ STR R0,[R1,#16]		; y max
+ BL check_to_see_if_deep_change	; are we 'outside' all start_op/stop_ops?
+ BLEQ update_area
+ LDMFD R13!,{R1,PC}
+
+;E R8
+;X point caret scrubbed out #
+
+scrub_point
+ STMFD R13!,{R1,R14}
+ FNLDR R1,car_mode
+ MVN R0,#1			; -2
+ FNSTR R0,car_mode
+ BL clear_point
+ FNSTR R1,car_mode
+ LDMFD R13!,{R1,PC}
+
+;E R10=caret block
+;X Old caret posn rubbed out even if new pos=old pos
+
+scrub_caret
+ STMFD R13!,{R1,R14}
+ FNLDR R1,car_mode
+ MVN R0,#1			; -2
+ FNSTR R0,car_mode
+ BL clear_caret
+ FNSTR R1,car_mode
+ LDMFD R13!,{R1,PC}
+
+;E R0=file offset (it is clipped by this routine) R8/R9
+;X R0=loff R1=caret width R2/R3=xycol of this char (inc margin) #
+
+offset_line_column
+ FNJSR "R4"
+ LDR R4,[R9,#f_len]		; clip (eg taskwindow width change)
+ CMP R0,R4
+ MOVCC R4,R0			; save the file offset
+; MOVCS R0,R4			; check! (debug code?!) /still/ fires!!!
+ BL cln_off			; get start of line & phy line no
+; FNRTS VS
+ MOVVC R3,R0			; save phy line
+ MOVVC R0,R1			; start of line off
+ MOVVC R1,R4			; char file offset
+ MOVVC R4,R0			; save start of line off
+ BLVC cln_lineoff		; get col offset on screen
+ LDRVC R14,[R8,#w_margin]
+ ADDVC R2,R0,R14		; add margin
+ MOVVC R0,R4			; start offset of line
+ FNRTS
+
+;E R0=new caret mode
+;X R0 set as new caret mode & carets not needed nullified #
+
+set_caret_mode
+ FNJSR "R1"
+ MOV R1,#0
+ FNSTR R1,car_hex		; zero hex mode count
+ FNLDR R1,car_mode
+ TEQ R0,R1
+ FNRTS EQ			; already in this mode
+ TEQ R1,#1			; is old mode 1
+ MOV R1,R0			; save new mode
+ BLNE set_caret_mode_to1	; set caret mode to 1
+ FNRTS VS
+ TEQ R1,#1
+ MOVNE R0,R1
+ BLNE set_caret_mode_from1	; set new caret mode
+ BLVC gain_input
+ FNRTS
+
+ LOCAL
+
+; set caret mode to 1 #
+
+set_caret_mode_to1
+ FNJSR "R1-R11"
+ FNLDR R11,car_mode		; save old mode
+ MOV R0,#1
+ FNSTR R0,car_mode		; set new mode
+ CMP R11,#6
+ ADDCC PC,PC,R11,LSL#2		; dispatch
+ B default$l			; mode -1 or not recognised
+ B default$l			; split cases depending on from mode
+ B default$l
+ B fromcopy$l
+ B fromsel$l
+ B fromsel$l
+ B fromctrlsel$l
+default$l
+ FNLDR R10,car_input		; make sure the input caret is dead
+ BL null_caret			; EG return to window from another app
+ FNRTS				; while car_omode in copy mode
+fromcopy$l
+ FNLDR R10,car_cursor
+ BL null_caret			; twice...?
+ BL null_caret			; remove cursor
+ FNLDR R1,car_input,VC
+ FNLDR R2,car_cursor,VC
+ MOVVC R3,#cusr_blk
+ SWIVC XZapRedraw_MoveBytes	; copy input caret to cursor caret
+ FNLDR R10,car_input,VC
+ BLVC null_caret		; null input caret
+ FNRTS
+fromsel$l
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_col]
+ STR R0,[R10,#c_ocol]
+ LDR R0,[R10,#c_line]
+ STR R0,[R10,#c_oline]
+ LDR R0,[R10,#c_wind]
+ STR R0,[R10,#c_owind]
+ LDR R0,[R10,#c_width]
+ STR R0,[R10,#c_owidth]		; pretend caret plotted
+ FNRTS				; as end of selection already set
+fromctrlsel$l
+ FNLDR R1,car_input
+ FNLDR R2,car_cursor
+ MOV R3,#cusr_blk
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; restore cursor caret
+ FNLDR R10,car_input
+ BL null_caret
+ FNRTS
+
+; R0=new caret mode. Caret is in mode 1 at this point #
+
+set_caret_mode_from1
+ STMFD R13!,{R1-R11,R14}
+ FNSTR R0,car_mode		; set new mode
+ CMP R0,#6
+ ADDCC PC,PC,R0,LSL#2		; dispatch
+ LDMFD R13!,{R1-R11,PC}
+ B cmode0			; split cases depending on from mode
+ LDMFD R13!,{R1-R11,PC}
+ B cmode2
+ B cmode3
+ B cmode4
+ B cmode5
+
+cmode0
+ FNLDR R10,car_cursor
+ BL null_caret
+ LDMFD R13!,{R1-R11,PC}
+
+cmode2
+ FNLDR R1,car_cursor
+ FNLDR R2,car_input
+ MOV R3,#cusr_blk
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy caret position (but dont update
+ LDMFD R13!,{R1-R11,PC}		; or caret would vanish!)
+
+cmodeahalf
+ FNJSR
+ LDR R14,[R10,#c_off]
+ FNSTR R14,fnd_word		; save actual selected region start
+ FNRTS
+
+cmode3
+cmode4
+ BL clear_selection		; remove any old selection
+ LDMVSFD R13!,{R1-R11,PC}
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_wind]
+ CMP R0,#0
+ BMI cm15			; no caret
+ BL conv_wind_off		; set up R8/R9
+ BL cmodeahalf			; harmless?
+ MOV R0,#0			; start selection
+ MOV R11,#e_selection
+ BL call_mode			; alter R10 to new position
+ LDMVSFD R13!,{R1-R11,PC}
+cm15
+ FNLDR R11,car_selection	; copy caret posn to selection
+ LDR R0,[R10,#c_wind]
+ STR R0,[R11,#c_wind]
+ STR R0,[R11,#c_owind]
+ LDR R0,[R10,#c_line]
+ STR R0,[R11,#c_line]
+ STR R0,[R11,#c_oline]
+ LDR R0,[R10,#c_col]
+ STR R0,[R11,#c_col]
+ STR R0,[R11,#c_ocol]
+ LDR R0,[R10,#c_off]
+ STR R0,[R11,#c_off]
+ STR R0,[R11,#c_owidth]
+ LDR R0,[R10,#c_loff]
+ STR R0,[R11,#c_loff]
+ BL clear_caret_always
+ LDMFD R13!,{R1-R11,PC}		; remove cursor caret (as not sel)
+
+cmode5
+ FNLDR R1,car_cursor
+ FNLDR R2,car_block
+ MOV R3,#cusr_blk
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; save cursor block
+ FNLDR R1,car_input
+ FNLDR R2,car_cursor
+ MOV R3,#cusr_blk
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; set selection start
+ FNLDR R1,car_block
+ FNLDR R2,car_input
+ MOV R3,#cusr_blk
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; save cursor block in input caret
+ B cmode4			; start a new selection
+
+;E R10=caret blk
+;X caret nulled if it existed #
+
+null_caret
+	FNJSR
+	LDR	R0,[R10,#c_wind]
+	CMP	R0,#0
+	FNRTS	LT
+	MOV	R0,#-1			; if not already dead...
+	STR	R0,[R10,#c_wind]	; mark as dead
+	BL	clear_caret		; remove image
+
+;	MOV	R1,#7			; focus lost: tell ZapButtons...
+;	BL	issue_service
+
+	FNRTS
+
+scrub_input_carets
+ STMFD R13!,{R1-R11,R14}
+ FNLDR R10,car_cursor ; input
+ BL update_caret
+; LDR R7,[R10,#c_off]		; file offset
+; LDR R0,[R10,#c_wind]
+; FNcall Zap_ConvWindOff
+ LDR R0,[R10,#c_wind] ; o
+ BL conv_wind_off
+ TEQ R8,#0
+ LDMEQFD R13!,{R1-R11,PC}
+ FNLDR R1,car_block
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ LDR R0,[R10,#c_col]
+ LDR R14,[R10,#c_width]
+ STR R0,[R1,#4]			; x min
+ ADD R0,R0,R14
+ STR R0,[R1,#12]		; x max
+ LDR R0,[R10,#c_line]
+ STR R0,[R1,#8]			; y min
+ ADD R0,R0,#1
+ STR R0,[R1,#16]		; y max
+; LDR R14,[R9,#f_depth]		; only if not in so/so loop
+; CMP R14,#0
+ BL update_area			;EQ
+; LDMVSFD R13!,{R8,R9,R10,PC}
+; MVN R0,#0
+; STR R0,[R10,#c_owind]		; not plotted
+;
+; ;;;BL scrub_caret
+; SWI &107
+ LDMFD R13!,{R1-R11,PC}
+
+scrub_all_on_this_file
+ FNJSR "R1-R11"
+ ADR R10,remove_carets2 ; new_carets_sub
+ BL do_eachwindow		; update the point carets
+ FNRTS
+
+;X All carets have their old posns redrawn #
+
+remove_carets
+ STMFD R13!,{R10,R14}
+ FNLDR R10,car_cursor
+ BL clear_caret
+ FNLDR R10,car_input,VC
+ BLVC clear_caret
+ LDMFD R13!,{R10,PC}
+
+;X All carets have their old posns redrawn #
+
+remove_carets2
+ STMFD R13!,{R10,R14}
+ FNLDR R10,car_cursor
+ BL test_fblk
+ BLEQ scrub_caret
+ LDMVSFD R13!,{R10,PC}
+ FNLDR R10,car_input
+ BL test_fblk
+ BLEQ scrub_caret
+ LDMFD R13!,{R10,PC}
+
+;E R8/R9
+;X All carets in this window reflect_caret'd inc point #
+
+reflect_carets
+ STMFD R13!,{R10,R14}
+ FNLDR R10,car_cursor
+ BL test_cblk
+ BLEQ reflect_caret
+ LDMVSFD R13!,{R10,PC}
+ FNLDR R10,car_input
+ BL test_cblk
+ BLEQ reflect_caret
+ ADDVC R10,R8,#w_pwind
+ BLVC update_caret
+ BLVC clear_point
+ LDMFD R13!,{R10,PC}
+
+;E R10=caret blk R8
+;X EQ if this caret in this window |
+
+test_cblk
+ FNJSR
+ LDR R0,[R10,#c_wind]
+ FNLDR R14,wind_list
+ ADD R14,R14,R0,LSL#w_shift
+ TEQ R8,R14
+ FNRTS
+
+;E R10=caret blk R9
+;X EQ if this caret in this file
+
+test_fblk
+ FNJSR
+ LDR R0,[R10,#c_wind]
+ CMP R0,#0
+ FNRTS MI			; note return NE as well
+ FNLDR R14,wind_list
+ ADD R14,R14,R0,LSL#w_shift
+ LDR R0,[R14,#w_file]
+ FNLDR R14,file_list
+ ADD R14,R14,R0,LSL#f_shift
+ TEQ R14,R9
+ FNRTS
+
+;E R8/R9
+;X all carets in this window removed #
+
+delete_carets
+ STMFD R13!,{R10,R14}
+ FNLDR R10,car_selection
+ BL test_cblk
+ MVNEQ R0,#0
+ STREQ R0,[R10,#c_wind]		; null any selection in this window
+ FNLDR R10,car_input
+ LDR R0,[R10,#c_wind]
+ CMP R0,#0
+ BPL de25			; split cursors
+ FNLDR R10,car_cursor
+ BL test_cblk
+ LDMNEFD R13!,{R10,PC}
+de5
+ MOV R0,#0
+ BL set_caret_mode		; no caret
+ LDMFD R13!,{R10,PC}
+de25
+ BL test_cblk
+ BEQ de5			; input cursor here so lose input
+ FNLDR R10,car_cursor
+ BL test_cblk
+ MOVEQ R0,#1			; only copy cursor here so unsplit
+ BLEQ set_caret_mode		; standard cursor caret
+ ; ... tell ZB...?
+ LDMFD R13!,{R10,PC}
+
+;X mode 1 forced for caret if it is in mode >=1 #
+
+default_caret
+ FNJSR
+ FNLDR R0,car_mode
+ CMP R0,#1
+ FNRTS LE
+ MOV R0,#1
+ BL set_caret_mode
+ FNLDR R10,car_cursor
+; BL set_caret
+ BL plot_caret			; should be OK...?
+ ;BL update_selection		; redisplay selected area (?)
+ FNRTS
+
+;X car mode forced to 1/2 #
+
+caret_writable
+ FNJSR
+ FNLDR R0,car_mode
+ TEQ R0,#1
+ TEQNE R0,#2
+ MOVNE R0,#1
+ BLNE set_caret_mode		; default caret mode
+ FNRTS
+
+;X old mode restored if nec, input gained and carets set #
+
+restore_carets
+ STMFD R13!,{R10,R14}
+ FNLDR R0,car_mode		; get caret mode
+ CMN R0,#1			; was it lost
+ FNLDR R0,car_omode,EQ
+ FNSTR R0,car_mode,EQ		; restore previous mode if it was
+ BL gain_input			; make sure got input
+ FNLDR R10,car_cursor,VC
+ BLVC set_caret
+ FNLDR R10,car_input,VC
+ BLVC set_caret
+ LDMFD R13!,{R10,PC}
+
+;X reclaim carets for the duration of a menu/mouse click
+
+reclaim_caret
+ FNJSR
+ FNLDR R0,car_mode
+ CMN R0,#1
+ FNLDR R14,car_omode,EQ
+ FNSTR R14,car_mode,EQ
+ FNSTR R0,car_omode,EQ		; caret temporarily reclaimed
+ FNRTS
+
+;X Carets which were reclaimed are now declaimed provided that
+;  no one has called gain_input to grab the caret.
+;  This call saves flags and R0 |
+
+declaim_caret
+ STMFD R13!,{R14}
+ FNLDR R14,car_omode
+ CMN R14,#1			; is caret still lost
+ FNLDR R14,car_mode,EQ
+ FNSTR R14,car_omode,EQ		; restore lost status
+ MVNEQ R14,#0
+ FNSTR R14,car_mode,EQ		; caret mode to -1
+ LDMFD R13!,{PC}^
+
+;X R10=input caret R8/R9 related window / CS if none |
+
+get_input_caret
+ FNJSR
+ FNLDR R10,car_input
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ LDMFD R13!,{R14}
+ ADDS R0,R0,#0			; clc
+ TEQ R8,#0
+ MOVNE PC,R14			; ok so return with CC
+; B get_cursor_caret ; fall through...!
+
+;X R10=cursor caret R8/R9 related window / CS if none |
+
+get_cursor_caret
+ FNJSR
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ CMP R8,#0
+ ADDNES R0,R0,#0		; CLC
+ FNRTS
+
+;X R0=address of window block with input focus or 0 if none |
+
+get_input_window
+ FNJSR
+ FNLDR R0,car_input
+ LDR R14,[R0,#c_wind]
+ CMP R14,#0
+ BPL gi1
+ FNLDR R0,car_cursor
+ LDR R14,[R0,#c_wind]
+ CMP R14,#0
+ MOVMI R0,#0
+ FNRTS MI
+gi1
+ FNLDR R0,wind_list
+ ADD R0,R0,R14,LSL#w_shift
+ FNRTS
+
+;E R10=caret
+;X caret word aligned if window in mode 2/4 #
+
+word_align_caret
+ STMFD R13!,{R8-R9,R14}
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ TEQ R8,#0
+ LDMEQFD R13!,{R8-R9,PC}
+ LDRB R0,[R8,#w_format]		; get draw type
+ TEQ R0,#2
+ TEQNE R0,#4
+ LDMNEFD R13!,{R8-R9,PC}
+ LDR R0,[R10,#c_off]
+ TST R0,#3
+ BICNE R0,R0,#3
+ STRNE R0,[R10,#c_off]
+ BLNE reflect_caret
+ LDMFD R13!,{R8-R9,PC}
+
+;E R8/R9
+;X R0=offset of input caret if in the window
+;  or best input posn o/w (ie point posn) |
+
+find_input
+ STMFD R13!,{R1-R2,R8-R10,R14}
+ MOV R1,R8			; save old R8
+ MOV R2,R9
+ BL get_input_caret		; R8/R9=input caret
+ BCS fi13			; no input caret
+ TEQ R2,R9
+ LDREQ R0,[R10,#c_off]		; in this window
+ LDMEQFD R13!,{R1-R2,R8-R10,PC}
+fi13
+ LDR R0,[R1,#w_poff]		; get the point offset
+ LDMFD R13!,{R1-R2,R8-R10,PC}
+
+;E R8/R9
+;X caret put in that window at 'input' offset #
+
+enter_window
+ FNJSR
+ BL find_input
+ BLVC put_caret
+; MOV R1,#5			; tell ZapButtons...
+; BL issue_service
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Flashing of cursor!					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;X flash event started if switches flag set
+
+init_flash
+ FNJSR "R1-R3"
+ FNLDR R0,opt_switches
+ TST R0,#1
+ FNRTS EQ			; no flashing cursor
+ MOV R1,#0			; no delay
+ ADR R2,sub$l			; flash cursor sub
+ BL call_back			; schedule
+ FNRTS
+sub$l
+ FNJSR "R1-R3,R10"
+; SWI &107			; IRRITATING DEBUG...
+ FNLDR R3,opt_switches
+ TST R3,#1
+ FNRTS EQ			; cursor no longer flashes - kill interrupt
+ EOR R3,R3,#2			; new state
+ FNSTR R3,opt_switches
+ TST R3,#2
+ FNLDR R1,car_flashon,EQ
+ FNLDR R1,car_flashoff,NE	; cursor blanked now
+ RSB R1,R1,#0			; negate
+ ADR R2,sub$l
+ BL call_back			; reschedule
+ FNRTS VS
+ FNLDR R0,car_mode
+ TEQ R0,#1
+ TEQNE R0,#2
+ FNRTS NE			; not in the correct mode
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_width]		; width of the cursor
+ CMP R0,#4
+ FNRTS GE			; don't flash if too big
+ TST R3,#2
+ BLEQ set_caret_update		; redraw it
+ FNRTS EQ
+off$l
+ FNLDR R1,car_mode
+ MVN R0,#1			; -2
+ FNSTR R0,car_mode		; pretend it's not there
+ BL set_caret_update		; update the square
+ FNSTR R1,car_mode
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Selection subs					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E none (not R0=&FF000000 if the region is to be preserved!????)
+;X current selected area cleared & caret mode unchaged #
+
+clear_selection
+ FNJSR "R1-R5,R8-R11"
+ FNLDR R10,car_selection
+ BL update_if_in_compound
+ LDRVC R0,[R10,#c_wind]
+ BLVC conv_wind_off		; set up R8/R9
+ FNRTS VS
+ TEQ R8,#0
+ FNRTS EQ
+ BL get_selection
+ MOV R0,R1
+ CMP R0,#0
+ SUBGT R0,R0,#1
+ ADD R1,R1,R2
+ ADD R1,R1,#1
+ MVN R14,#0
+ STR R14,[R10,#c_wind]
+ BL check_to_see_if_deep_change
+; FNRTS NE
+ BLEQ update_between_offsets
+ FNRTS
+
+;X car_selection ordered so start off<=end off |
+
+order_selection
+ STMFD R13!,{R0,R10,R14}
+ FNLDR R10,car_selection
+ LDR R0,[R10,#c_wind]
+ CMP R0,#0			; any selection?
+ LDMMIFD R13!,{R0,R10,PC}
+ LDR R0,[R10,#c_off]
+ LDR R14,[R10,#c_owidth]
+ CMP R0,R14			; correct way around?
+ LDMLEFD R13!,{R0,R10,PC}
+ STR R0,[R10,#c_owidth]
+ STR R14,[R10,#c_off]
+ LDR R0,[R10,#c_line]
+ LDR R14,[R10,#c_oline]
+ STR R0,[R10,#c_oline]
+ STR R14,[R10,#c_line]
+ LDR R0,[R10,#c_col]
+ LDR R14,[R10,#c_ocol]
+ STR R0,[R10,#c_ocol]
+ STR R14,[R10,#c_col]
+ LDMFD R13!,{R0,R10,PC}
+
+;X CC R1=file off of sel R2=len of sel R8/R9 / CS if no valid sel |
+
+get_selection
+ FNJSR ;"R0"
+ FNLDR R14,car_selection
+ LDR R0,[R14,#c_wind]
+ BL conv_wind_off		; set R8/R9
+ CMP R8,#0
+ FNRTS EQ			; return CS if no selection
+ FNLDR R14,car_selection
+ LDR R1,[R14,#c_off]		; selection 'start'
+ LDR R2,[R14,#c_owidth]		; selection 'end'
+ CMP R1,R2
+ FNRTS EQ			; ret CS if null selection
+ MOVHI R0,R1
+ MOVHI R1,R2
+ MOVHI R2,R0			; swap over if start>end
+ SUB R2,R2,R1			; length of selection
+ ADDS R0,R0,#0			; clc
+ FNRTS
+
+;E R8,R9
+;X R1,2,3,8,corrupted / selection completely redrawn...
+
+update_selection
+ FNJSR
+ BL get_selection
+ FNRTS CS
+ ADD R3,R1,R2
+ MOV R2,R1
+ BL alter_selected_region
+ BL get_selection
+ MOV R0,R1
+ CMP R0,#0
+ SUBGT R0,R0,#1
+ ADD R1,R1,R2
+ ADD R1,R1,#1
+ BL update_between_offsets
+ FNRTS
+
+;X R3=heap block containing selected data R2=length / R3=0 if none
+;  Note that R3 should be freed once the data has been used #
+
+read_selection
+ STMFD R13!,{R1,R8-R11,R14}
+ BL get_selection
+ MOVCS R3,#0			; no valid selection
+ LDMCSFD R13!,{R1,R8-R11,PC}
+ MOV R10,R2			; save selection len
+ MOV R3,R1			; save sel offset
+ LDR R0,[R9,#f_len]
+ MOV R1,#0
+ BL split_buffer		; coagulate buffer
+ LDMVSFD R13!,{R1,R8-R11,PC}
+ MOV R0,R10			; selection length
+ BL heap_claim
+ LDMVSFD R13!,{R1,R8-R11,PC}
+ MOV R11,R0			; save start of heap block
+ LDR R1,[R9,#f_ptr]
+ ADD R1,R1,R3			; data start
+ MOV R2,R11			; dest
+ MOV R3,R10			; data len
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy data
+ MOV R2,R10
+ MOV R3,R11			; pointers to data
+ LDMFD R13!,{R1,R8-R11,PC}
+
+; chkwereinitiw0
+;  FNJSR "R0,R8-R10"
+;  MOV R10,R9
+;  MOV R8,R0
+;  BL get_wind_off
+;  BL conv_wind_off
+;  CMP R9,R10			; same as this window?
+;  FNRTS
+
+;soontoretn0
+; FNJSR
+; MOV R11,#0
+; MOV R1,#0
+; FNLDR R10,car_cursor
+; LDR R2,[R10,#c_off]
+; FNRTS
+
+;E R0=off of first changed char R1=sgnd change R2=new input car posn R9
+;X Caret and marker positions updated but /not/ redrawn #
+
+alter_all_carets
+ FNJSR "R3,R10-R11"
+ MOV R11,R0			; save first changed offset
+ BL correct_markers		; update marker offsets
+ FNRTS VS
+ BL get_input_window		; R0=input window - Bummer? :(
+ CMP R0,#0
+ FNRTS LE
+; BL chkwereinitiw0		; ??????????????????????????????
+; FNRTS NE			; R* - what is R8 here?
+ PUSH "R2"
+ ADR R10,correct_points
+ MOV R2,R11			; first changed offset
+ BL do_eachwindow		; update point offsets
+ PULL "R2"
+ FNRTS VS
+ FNLDR R10,car_cursor
+ FNLDR R0,car_mode
+ TEQ R0,#1
+ BEQ co9			; cursor caret=input caret
+ TEQ R0,#2
+ BNE backasnormal$l
+; B backasnormal$l
+ BL alter_caret
+
+ BLVC getr3offset
+; MOV R3,#0
+; BLVC restorer3offset
+ FNRTS VS
+backasnormal$l
+ FNLDR R10,car_input
+co9
+ BL test_fblk
+ FNRTS NE			; input not in this window
+ LDR R14,[R9,#f_flags]
+ TST R14,#1<<14
+ BNE co17			; input caret not linked to input
+ STR R2,[R10,#c_off]		; new offset
+ BL update_caret		; update the caret position
+ FNRTS
+co17
+ BL alter_caret
+ FNRTS
+
+getr3offset
+ FNJSR "R0-R2,R8,R9"
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; get R8...
+ LDRVC R0,[R10,#c_off]		; new column
+ BLVC offset_line_column
+ LDRVC R1,[R10,#c_col]		; new column
+ SUBVC R3,R1,R2
+; FNRTS
+
+ BLVC update_caret		; update the caret position
+;restorer3offset
+; FNJSR "R0-R2,R8,R9"
+ LDRVC R0,[R10,#c_wind]
+ BLVC conv_wind_off
+ LDRVC R1,[R10,#c_col]		; new column (too crude)...?
+
+ ADDVC R1,R1,R3
+ LDRVC R14,[r8,#w_width]
+ FNRTS VS
+ CMP R1,R14
+ SUBGE R1,R14,#1
+ STR R1,[R10,#c_col]
+ FNRTS
+
+ LOCAL
+
+;E R1=sgnd change R9=file R10=caret block R11=first changed off
+;X If the caret is in the file then posn updated #
+
+alter_caret
+ FNJSR "R1-R2,R8"
+ BL test_fblk			; check in this file
+ FNRTS NE
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; set up R8/R9
+ LDR R0,[R10,#c_off]
+ CMP R0,R11
+ FNRTS CC			; no change in posn
+ LDR R14,[R8,#w_savedo]		; first shiftable line offset
+ LDR R2,[R9,#f_len]
+ CMP R14,R2
+ BCS calc$l			; shiftable posn is end of file - no good
+ CMP R0,R14
+ BCS shift$l			; we can shift it
+calc$l
+	ADD	R0,R0,R1			; update the offset
+	CMP	R0,R11
+	MOVLT	R0,R11			; new posn
+	STR	R0,[R10,#c_off]
+	IsCur	R14
+	LDREQ	R2,[R10,#c_charoff]
+	MOVNE	R2,#0
+	BL	update_caret		; update the caret position...:-/
+	TEQ	R2,#0
+	FNRTS	EQ
+	STR	R2,[R10,#c_charoff]
+	LDR	R0,[R10,#c_col]
+	LDR	R1,[R8,#w_width]
+	ADD	R0,R0,R2
+	CMP	R0,R1		; wrapped?
+	LDRHS	R2,[R8,#w_margin]
+	SUBHS	R0,R0,R1	; ... yes
+	ADDHS	R0,R0,R2
+	STR	R0,[R10,#c_col]
+	FNRTS	LO
+	LDR	R0,[R10,#c_off]
+	LDR	R1,[R10,#c_line]
+	ADD	R0,R0,#1	; new line offset
+	ADD	R1,R1,#1	; new line number
+	STR	R0,[R10,#c_loff]
+	STR	R1,[R10,#c_line]
+	FNRTS
+shift$l
+ ;??????????????????????????????
+ LDR R14,[R9,#f_depth]
+ CMP R14,#0
+ BGT calc$l			; don't try shifting in a multi op
+ ;??????????????????????????????
+
+ ADD R0,R0,R1			; add change
+ STR R0,[R10,#c_off]		; new offset
+ LDR R0,[R10,#c_loff]
+ ADD R0,R0,R1
+ STR R0,[R10,#c_loff]		; new line offset
+ LDR R0,[R10,#c_line]
+ LDR R1,[R8,#w_savedc]		; change in phy line
+; ADDS R0,R0,R1			; doesn't work/wrong,wrong,wrong
+ SUBS R0,R0,R1
+ MOVLE R0,#0
+ STR R0,[R10,#c_line]		; new caret line
+ FNRTS
+
+;E before screen update with R0=first changed R1=signed change R9
+;X Selection ordered and ends moved #
+
+alter_selection
+ STMFD R13!,{R1-R3,R8-R11,R14}
+ MOV R11,R0			; save first changed offset
+ FNLDR R10,car_selection
+ BL test_fblk			; check in this file
+ LDMNEFD R13!,{R1-R3,R8-R11,PC}
+ BL order_selection		; make sure start<=end
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; set up R8/R9
+ LDR R0,[R10,#c_off]		; start offset
+ CMP R0,R11
+ BLE al11			; keep selected if start here
+; BLT al11			; keep selected if start just before here
+ ADD R0,R0,R1
+ CMP R0,R11
+ MOVLT R0,R11
+ STR R0,[R10,#c_off]
+ BL update_caret
+ LDMVSFD R13!,{R1-R3,R8-R11,PC}
+al11
+ LDR R0,[R10,#c_owidth]		; end offset
+ CMP R0,R11
+; LDMLEFD R13!,{R1-R3,R8-R11,PC}
+ LDMCCFD R13!,{R1-R3,R8-R11,PC}
+ ADD R0,R0,R1			; update the offset
+ CMP R0,R11
+ MOVLT R0,R11			; new posn
+ STR R0,[R10,#c_owidth]
+ BL offset_line_column		; update the caret position
+ STRVC R2,[R10,#c_ocol]
+ STRVC R3,[R10,#c_oline]
+ LDMFD R13!,{R1-R3,R8-R11,PC}
+
+;E R8/R9
+to_new_carets
+; STMFD R13!,{R10,R14}	; identical to code below...
+; BL get_wind_off		; R0=window with input focus
+; B in_new_carets
+
+;E R9=file being changed
+;X Replots the carets after a sequence of operations. Makes
+;  the cursor visible if input caret linked.
+;  Point redrawn on windows on this file without input focus.
+;  Point never made visible (eg multiple views!).
+;  R0=0 if not on screen...
+
+new_carets
+ STMFD R13!,{R10,R14}
+ BL get_wind_off		; R0=window (probably) with input focus
+in_new_carets
+ ADR R10,new_carets_sub
+ BL do_eachwindow		; update the point carets
+ LDMVSFD R13!,{R10,PC}
+ FNLDR R10,car_cursor
+ FNLDR R0,car_mode
+ TEQ R0,#1
+ BEQ ne11			; linked cursors
+ TEQ R0,#2
+ LDMNEFD R13!,{R10,PC}		; not in a valid mode
+ BL test_fblk
+ BLEQ clear_caret			; remove the input caret???
+ LDMVSFD R13!,{R10,PC}
+;  ;BL scrub_caret
+ BL test_fblk
+ BLEQ set_caret
+ LDMVSFD R13!,{R10,PC}
+ ;LDR R14,[R9,#f_depth]
+ ;CMP R14,#0
+ ;BLNE scrub_caret		; is this right??? multi op
+ FNLDR R10,car_input
+ne11
+ BL test_fblk
+ LDMNEFD R13!,{R10,PC}		; not in this file
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<24
+ LDMNEFD R13!,{R10,PC}		; does not 'exist'
+ BL clear_caret			; remove the input caret???
+ ;BL scrub_caret
+ BL set_caret			; print the input caret
+ LDMVSFD R13!,{R10,PC}
+ ;LDR R14,[R9,#f_depth]
+ ;CMP R14,#0
+ ;BLNE scrub_caret
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<14			; is input linked?
+ ;LDMNEFD R13!,{R10,PC}
+ BLEQ make_cursor_visible
+ LDMFD R13!,{R10,PC}
+
+;E R0=address of window with input focus R8/R9
+;X point caret updated if this window doesn't have input #
+
+new_carets_sub
+ TEQ R0,R8
+ MOVEQ PC,R14			; has the input focus
+ B scrub_point			; ??????? was ...
+
+;E R0=window with input focus R1=sgn change R2=first changed off
+;X point carets not in input focus window updated #
+
+correct_points
+ TEQ R0,R8
+ MOVEQ PC,R14			; has the input focus
+ STMFD R13!,{R10-R11,R14}
+ ADD R10,R8,#w_pwind
+ MOV R11,R2
+ BL alter_caret
+ LDMFD R13!,{R10-R11,PC}
+
+;E R0=file offset of first changed R1=signed change R9
+;X markers in the marker buffer updated according to this change #
+
+correct_markers
+ TEQ R1,#0
+ MOVEQ PC,R14			; no change
+ STMFD R13!,{R1-R4,R10,R14}
+ MOV R4,R0			; first changed offset
+ ADR R10,correct_links
+ BL do_linked_files
+ LDMVSFD R13!,{R1-R4,R10,PC}
+ LDR R2,[R9,#f_mptr]
+ LDR R3,[R9,#f_mlen]
+ CMP R3,#0
+ LDMLEFD R13!,{R1-R4,R10,PC}
+co14
+ LDR R0,[R2]			; offset of mark
+ CMP R0,R4
+ BCC co15
+ ADD R0,R0,R1			; affect change
+ CMP R0,R4
+ MOVLT R0,R4			; mark was in deleted area
+ STR R0,[R2]			; save updated mark
+co15
+ ADD R2,R2,#8
+ SUBS R3,R3,#8
+ BGT co14			; next mark
+ LDMFD R13!,{R1-R4,R10,PC}
+
+;E R0=file offset of first changed R1=signed change
+;  R7=linke entry R9=search file
+;X link list in this file updated #
+
+correct_links
+ STMFD R13!,{R2,R14}
+ LDR R2,[R7,#4]			; links list for this entry
+co1
+ LDR R14,[R2],#4
+ CMP R14,#0
+ LDMMIFD R13!,{R2,PC}		; end of list
+ CMP R14,R0
+ BCC co1			; before change
+ ADD R14,R14,R1
+ CMP R14,R0
+ MOVLT R14,R0			; in the deleted area
+ STR R14,[R2,#-4]
+ B co1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Goto and marker handling subs					     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+; ;E R0=file offset R8/R9=dest wind R10=caret
+; ;X Caret moved to this window & offset without marking #
+;
+; goto_file_offset
+;  FNJSR "R1-R11"
+;  MOVS R4,R0			; save required offset
+;  MOVMI R4,#0			; and clip below
+;  FNLDR R0,car_mode
+;  CMP R0,#1
+;  BGE modeok$l
+;  MOV R0,#1
+;  BL set_caret_mode		; set caret mode to 1 if none exits
+;  FNRTS VS
+; modeok$l			; caret mode ok
+;  BL test_cblk
+;  BNE newwind$l			; caret moving window
+;  LDR R3,[R10,#c_line]
+;  BL ccd_yline_yos		; yos of caret
+;  LDR R0,[R8,#w_scrolly]
+;  SUB R1,R3,R0			; os offset from top of window
+;  MOV R2,#0			; not moving window flag
+;  B wind$l
+; newwind$l
+;  BL update_point		; store old posn
+;  FNRTS VS
+;  MOV R1,#0			; os offset
+;  MOV R2,#1			; moving window flag
+; wind$l				; sorted out which window
+;  BL get_wind_off		; R0=window offset
+;  STR R0,[R10,#c_wind]		; new window
+;  LDR R14,[R9,#f_len]
+;  CMP R4,R14
+;  MOVGT R4,R14			; clip above
+;  STR R4,[R10,#c_off]
+;  BL update_caret		; find new work area posn of caret
+;  BLVC update_wind_state
+;  FNRTS VS
+;  MOV R11,R8
+;  BL ccd_blk_yrow
+;  LDR R0,[R10,#c_line]
+;  CMP R0,R3
+;  BCC scroll$l
+;  CMP R0,R5
+;  BCC scrolled$l
+; scroll$l			; scroll window as cursor moving outside
+;  LDR R3,[R10,#c_line]
+;  BL ccd_yline_yos
+;  SUBS R3,R3,R1			; attempt at new scroll offset
+;  MOVPL R3,#0			; clip at top
+;  STR R3,[R8,#w_scrolly]
+;  LDR R0,[R8,#w_flags]
+;  ORR R0,R0,#1<<30		; mark changed
+;  STR R0,[R8,#w_flags]
+; scrolled$l			; window at correct scroll offset
+;  TEQ R2,#0
+;  BLNE caret_writable		; caret moving / starting in new window
+;  FNRTS VS
+;  TEQ R2,#0
+;  BLNE clear_point		; scrub out point if marked
+;  BLVC gain_input
+;  BLVC plot_caret
+;  BLVC make_cursor_visible
+;  FNRTS
+
+; This above is the original routine.
+
+;E R0=file offset R8/R9=dest wind R10=caret
+;X Caret moved to this window & offset without marking #
+
+goto_file_offset
+ FNJSR "R1-R11"
+ MOVS R4,R0			; save required offset
+ MOVMI R4,#0			; and clip below
+ BL test_andgetcaret
+ MOVEQ R5,#0
+ MOVNE R5,#1
+ FNLDR R0,car_mode
+ CMP R0,#1
+ BEQ maybenothingatall$l
+ BLLE import_the_caret		; !?!?!?!?
+ FNRTS VS
+modeok$l			; caret mode ok
+ BL test_cblk
+ BNE newwind$l			; caret moving window
+ LDR R3,[R10,#c_line]
+ BL ccd_yline_yos		; yos of caret
+ LDR R6,[R10,#c_col]		; for later reference...
+ LDR R0,[R8,#w_scrolly]
+ SUB R1,R3,R0			; os offset from top of window
+ MOV R2,#0			; not moving window flag
+ B wind$l
+newwind$l
+ BL update_point		; store old posn...?
+ FNRTS VS
+ MOV R1,#0			; os offset
+ MOV R2,#1			; moving window flag
+ ;SWI &107			; doesn't get here very much...
+wind$l				; sorted out which window
+ BL get_wind_off		; R0=window offset
+ STR R0,[R10,#c_wind]		; new window
+ LDR R14,[R9,#f_len]
+ CMP R4,R14
+ MOVGT R4,R14			; clip above
+ STR R4,[R10,#c_off]
+ BL update_caret		; find new work area posn of caret
+ MOV R11,R8
+ TEQ R7,R4
+ BEQ setnotplot$l
+notsetnotplot$l
+; BLVC update_wind_state		; what is thepoint of this...?
+; FNRTS VS
+ TEQ R2,#0
+ BLNE caret_writable		; caret moving / starting in new window
+ FNRTS VS
+; FNLDR R10,car_cursor ; ;???????????????????????
+ TEQ R2,#0
+ BLNE scrub_point		; scrub out point if marked - YES.
+; TEQ R2,#0			; ???
+ BLVC gain_input		; ???
+ BLVC plot_caret
+; BLVC update_caret		; find new work area posn of caret
+ BLVC make_cursor_visible	; this one calls it...
+ FNRTS
+
+setnotplot$l
+ LDR R14,[R10,#c_col]
+ CMP R14,R6
+ BNE notsetnotplot$l
+ BLVC update_wind_state
+ FNRTS VS
+ TST R5,#1
+ BNE fromanotherwind$l
+ TEQNE R2,#0
+ BLNE clear_point		; scrub out point if marked
+; TEQ R2,#0			; ???
+ BLVC gain_input		; ??? ???
+ BLVC set_old_caret_pos ; call_set_caret
+ BLVC make_cursor_visible
+ FNRTS
+;
+fromanotherwind$l
+ TEQNE R2,#0
+ BLNE clear_point		; scrub out point if marked
+; TEQ R2,#0			; ???
+ BL gain_input_with_service 	; gain_input	; ??? ???
+; BLVC gain_input
+ BLVC plot_caret ; set_old_caret_pos ; call_set_caret
+ BLVC make_cursor_visible
+ FNRTS
+;
+maybenothingatall$l
+; SWI &107
+ PUSH "R8,R9"
+ LDR R0,[R10,#c_wind]
+ MOV R6,R8
+ BL conv_wind_off		; get R8/R9 of dragged window
+ CMP R6,R8
+ BNE tomodeok$l
+ LDR R14,[R10,#c_off]
+ CMP R4,R14
+ BNE tomodeok$l
+;
+ PULL "R8,R9"
+ MOV R0,R4
+ BL offset_line_column		; convert to x,y for point cursor
+; FNcall Zap_OffLineCol,R11
+ LDR R14,[R10,#c_col]
+ CMP R14,R2
+ BNE modeok$l
+ FNRTS
+tomodeok$l
+ PULL "R8,R9"
+ B modeok$l
+;
+test_andgetcaret
+ FNJSR
+ BL test_cblk
+ LDREQ R6,[R10,#c_col]
+ LDRNE R6,[R8,#w_pcol]
+ LDREQ R7,[R10,#c_off]
+ LDRNE R7,[R8,#w_poff]
+ FNRTS
+;
+import_the_caret
+ FNJSR
+ MOV R0,#1
+ BL set_caret_mode		; set caret mode to 1 if none exits
+
+ MOV R1,#5			; tell ZapButtons...
+ BL issue_service
+ FNRTS
+
+; call_set_caret
+;  FNJSR
+;  ;LDR R11,[R8,#w_format]
+;  ;BIC R14,R11,#1<<29		; ignore next redraw.
+;  ;STR R14,[R8,#w_format]
+;  BL store_old__caret_position
+;  ;STR R11,[R8,#w_format]
+;  FNRTS
+
+;E R0=file offset R8/R9=window to move to R10=caret
+;X Offset gone to and position marked #
+
+goto_offset
+ FNJSR "R4"
+ MOV R4,R0			; save offset
+ BL mark_caret			; mark source (if not already)
+ MOVVC R0,R4
+ BLVC goto_file_offset
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; MARKER INSERTION AND DELETION					  ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R10=caret
+;X Point (in the window of the caret) updated to this position |
+
+update_point
+ STMFD R13!,{R8-R10,R14}
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ CMP R8,#0
+ LDMLEFD R13!,{R8-R10,PC}
+ ADD R8,R8,#w_pline
+ ADD R10,R10,#c_line
+ LDMIA R10!,{R0,R9,R14}		; line col off
+ STMIA R8!,{R0,R9,R14}
+ LDMIA R10!,{R0,R9}		; loff width
+ STMIA R8!,{R0,R9}
+ LDMFD R13!,{R8-R10,PC}
+
+;E R10=caret
+;X caret position marked (and mark inc) if valid #
+
+mark_caret
+ STMFD R13!,{R8-R9,R14}
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off
+ TEQ R8,#0
+ LDMEQFD R13!,{R8-R9,PC}	; window not valid
+ LDR R0,[R10,#c_off]
+ BL insert_marker		; insert marker
+ LDMFD R13!,{R8-R9,PC}
+
+;E R0=file offset R8/R9
+;X marker inserted in marker buffer at f_mark-8 unless already there #
+
+insert_marker
+ STMFD R13!,{R1-R7,R10,R14}
+ MOV R10,R0			; save file offset
+ LDR R0,[R9,#f_mbufl]
+ LDR R1,[R9,#f_mlen]
+ SUB R0,R0,R1			; bytes free in buffer
+ CMP R0,#8
+ BGE in13			; buffer big enough
+ LDR R0,[R9,#f_mptr]
+ ADD R1,R1,#&40			; make room for 8 more entries
+ BL heap_ensure
+ LDMVSFD R13!,{R1-R7,R10,PC}
+ STR R0,[R9,#f_mptr]
+ STR R1,[R9,#f_mbufl]		; new vals
+in13
+ LDR R7,[R9,#f_mptr]		; start of buffer
+ LDR R6,[R9,#f_mark]		; current offset
+ FNLDR R5,wind_list
+ SUB R5,R8,R5
+ MOV R5,R5,LSR#w_shift		; get window offset
+ LDR R4,[R9,#f_mlen]
+ CMP R6,#8
+ BLT in19			; no mark below this
+ ADD R1,R7,R6			; current mark
+ LDR R0,[R1,#-8]		; previous offset
+ LDR R1,[R1,#-4]		; previous window
+ TEQ R0,R10
+ TEQEQ R1,R5
+ LDMEQFD R13!,{R1-R7,R10,PC}	; this mark already there
+in19
+ ADD R1,R7,R6			; source
+ ADD R2,R1,#8			; dest
+ SUB R3,R4,R6			; amount above current mark
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; shift up
+ ADD R7,R7,R6			; address of new mark
+ STR R10,[R7]			; save offset
+ STR R5,[R7,#4]			; and wind offset
+ ADD R4,R4,#8
+ ADD R6,R6,#8
+ STR R4,[R9,#f_mlen]		; new len
+ STR R6,[R9,#f_mark]		; new mark
+ LDMFD R13!,{R1-R7,R10,PC}
+
+;E R9=file
+;X marker at offset f_mark-8 deleted and data shifted down #
+
+delete_marker
+ STMFD R13!,{R1-R7,R14}
+ LDR R7,[R9,#f_mptr]
+ LDR R6,[R9,#f_mlen]
+ LDR R5,[R9,#f_mark]
+ CMP R5,#8
+ LDMLTFD R13!,{R1-R7,PC}	; none to delete
+ ADD R1,R7,R5			; source
+ SUB R2,R1,#8			; dest
+ SUB R3,R6,R5			; len
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy down data
+ SUB R5,R5,#8
+ SUB R6,R6,#8
+ STR R6,[R9,#f_mlen]
+ STR R5,[R9,#f_mark]		; new vals
+ LDMFD R13!,{R1-R7,PC}
+
+;E R8/R9=dest window R10=caret
+;X previous mark gone to if exists
+
+previous_mark
+ STMFD R13!,{R1-R11,R14}
+ LDR R7,[R9,#f_mptr]
+ LDR R6,[R9,#f_mlen]
+ LDR R5,[R9,#f_mark]
+ LDR R4,[R10,#c_off]
+ LDR R3,[R10,#c_wind]
+ge3
+ SUBS R5,R5,#8
+ LDMLTFD R13!,{R1-R11,PC}	; no more markers
+ ADD R1,R7,R5			; mark address
+ LDR R0,[R1]
+ LDR R1,[R1,#4]
+ TEQ R0,R4
+ BNE ge2			; offset different
+ CMP R1,#0
+ BLT ge3			; no window (so same)
+ TEQ R1,R3
+ BEQ ge3			; already there so continue
+ge2
+ ADD R7,R7,R5
+ ADD R5,R5,#8			; new marker offset
+ LDR R0,[R7,#4]			; window offset
+ MOVS R0,R0
+ BLPL conv_wind_off		; move window if given
+ LDR R0,[R7]			; new offset
+ BL goto_offset			; goto offset marking if nec
+ STR R5,[R9,#f_mark]		; new pointer to be at (override)
+ LDMFD R13!,{R1-R11,PC}
+
+;E R8/R9=dest window R10=caret
+;X next mark gone to if existing
+
+next_mark
+ STMFD R13!,{R1-R11,R14}
+ LDR R7,[R9,#f_mptr]
+ LDR R6,[R9,#f_mlen]
+ LDR R5,[R9,#f_mark]
+ LDR R4,[R10,#c_off]
+ LDR R3,[R10,#c_wind]
+ge1
+ CMP R5,R6
+ LDMGEFD R13!,{R1-R11,PC}	; no more markers
+ ADD R1,R7,R5
+ LDR R0,[R1]
+ LDR R1,[R1,#4]
+ TEQ R0,R4
+ BNE ge2			; file offset different
+ CMP R1,#0
+ ADDLT R5,R5,#8
+ BLT ge1			; no window (so same)
+ TEQ R1,R3
+ ADDEQ R5,R5,#8
+ BEQ ge1			; already there so continue
+ B ge2				; new position & or window
+
+;E R0=file offset to toggle R8/R9
+;X mark at f_mark-8 toggled #
+
+toggle_mark
+ STMFD R13!,{R0,R10,R14}
+ BL ensure_mark
+ BNE to1			; not same window offset
+ BL delete_marker
+ LDMFD R13!,{R0,R10,PC}
+to1
+ MOV R0,R10
+ BL insert_marker
+ LDMFD R13!,{R0,R10,PC}
+
+ LOCAL
+
+;E R0=file offset to toggle R8/R9
+;X mark at f_mark-8 toggled #
+
+set_mark
+ STMFD R13!,{R0,R10,R14}
+ BL ensure_mark
+ MOVNE R0,R10
+ BLNE insert_marker
+ LDMFD R13!,{R0,R10,PC}
+
+ LOCAL
+
+;E R0=file offset to toggle R8/R9
+;X EQ if there is an existing mark at this mosition.
+
+ensure_mark
+ STMFD R13!,{R5,R11,R14}
+ FNLDR R5,wind_list
+ SUB R5,R8,R5
+ MOV R5,R5,LSR#w_shift		; window offset
+ MOV R10,R0			; save offset
+ LDR R11,[R9,#f_mptr]
+ LDR R0,[R9,#f_mark]
+ SUBS R0,R0,#8
+ LDMLTFD R13!,{R5,R11,PC}
+ ADD R11,R11,R0			; mark address
+ LDR R0,[R11]			; previous offset
+ TEQ R0,R10
+ LDREQ R0,[R11,#4]
+ TEQEQ R0,R5
+ LDMFD R13!,{R5,R11,PC}
+
+;E R8/R9
+;X default cursor mode and buffer selected #
+
+select_buffer
+ STMFD R13!,{R1-R2,R14}
+ MOV R2,#0
+ LDR R3,[R9,#f_len]
+ BL select_region
+ LDMFD R13!,{R1-R2,PC}
+
+;E R2=start offset R3=end offset R8/R9
+;X Default caret set & this region selected and highlighted #
+
+select_region
+ FNJSR
+ BL default_caret
+ BLVC alter_selected_region
+ FNRTS
+
+;E R2=start off R3=end off R8/R9
+;X region marked on screen without drawing bits already marked
+
+alter_selected_region
+ FNJSR "R1-R7,R10"
+ FNLDR R10,car_selection
+ BLVC update_if_in_compound
+ BLVC test_cblk
+ BNE al15			; selection is in this window
+al10
+ LDR R6,[R10,#c_off]		; sel start
+ LDR R7,[R10,#c_owidth]		; sel end
+al12
+ MOV R4,R2
+ MOV R5,R3			; R4/R5=new sel
+ BL get_wind_off
+ STR R0,[R10,#c_wind]
+ STR R0,[R10,#c_owind]
+ MOV R0,R4
+ BL offset_line_column
+; FNRTS VS
+ STRVC R3,[R10,#c_line]
+ STRVC R2,[R10,#c_col]
+ STRVC R4,[R10,#c_off]
+ STRVC R0,[R10,#c_loff]
+ STRVC R1,[R10,#c_width]
+ MOVVC R0,R5
+ BLVC offset_line_column
+ FNRTS VS
+ STR R3,[R10,#c_oline]
+ STR R2,[R10,#c_ocol]
+ STR R5,[R10,#c_owidth]		; enter new selection vals
+ CMP R4,R5
+ MOVGT R0,R4
+ MOVGT R4,R5
+ MOVGT R5,R0			; ensure R4<=R5
+ CMP R6,R7
+ MOVGT R0,R6
+ MOVGT R6,R7
+ MOVGT R7,R0			; ensure R6<=R7
+ CMP R6,R4
+ MOVGT R0,R4			; selection was ( ) [ ]
+ MOVGT R1,R5
+ MOVGT R4,R6
+ MOVGT R5,R7
+ MOVGT R6,R0
+ MOVGT R7,R1			; ensure R6<=R4
+ CMP R4,R7
+ BGT al13			; regions separate [ ] ( )
+ CMP R7,R5
+ BLT al14			; regions overlap  [ ( ] )
+ MOV R0,R7			; regions embedded [ ( ) ]
+ MOV R7,R4
+ MOV R4,R5
+ MOV R5,R0
+ B al13
+al14
+ MOV R0,R7
+ MOV R7,R4
+ MOV R4,R0
+al13
+ BL check_to_see_if_deep_change
+ FNRTS NE
+
+ MOV R0,R6
+ MOV R1,R7
+ BL update_between_offsets
+ MOVVC R0,R4
+ MOVVC R1,R5
+ BLVC update_between_offsets
+ FNRTS
+
+al15			; selection is in this window
+ BL clear_selection		; clear old selection
+ MOVVC R6,#0
+ MOVVC R7,#0			; old selection start/end
+ BVC al12
+ FNRTS
+
+; EQ if OK, NE if possible problems...
+check_to_see_if_deep_change
+ FNJSR
+ LDR R14,[R9,#f_depth]
+ CMP R14,#0
+ FNRTS EQ
+ LDR R14,[R9,#f_altered]
+ CMP R14,#-1
+ FNRTS
+
+; This doesn't work but I don't know why not...
+; scrub that - it now works, but the whole idea is an appalling hack...
+; still, at least it doesn't insert junk into the undo buffer any more :-)
+
+; alas, it /does/ insert junk into the undo buffer
+; what is the problem this code was written to cure?
+
+;E R8,R9,R10
+update_if_in_compound
+	FNJSR
+	BL	check_to_see_if_deep_change	; are we 'outside' all start_op/stop_ops?
+	FNRTS	EQ
+	BLVC	test_cblk
+	FNRTS	VS
+	BLEQ	update_if_in_this_wind
+	FNRTS
+
+;E R8,R9,R10
+update_if_in_this_wind
+	FNJSR	"R2,R3"
+	BL	check_to_see_if_deep_change	; are we 'outside' all start_op/stop_ops?
+	FNRTS	EQ
+ ;
+	FNLDR	R14,car_mode
+	TEQ	R14,#1
+	TEQNE	R14,#2
+	LDREQ	R2,[R10,#c_off]
+	LDREQ	R3,[R10,#c_owidth]
+	BLEQ	add_and_delete_spaces	; update_anyway$l
+	FNRTS
+
+;E \R2=c_off
+;  \R3=c_owidth	R8/R9
+add_and_delete_spaces
+	FNJSR	"R10,R11"
+	LDR	R11,[R9,#f_flags]
+	ORR	R14,R11,#1<<14		; input is linked?
+	STR	R14,[R9,#f_flags]
+	LDR	R10,[R8,#w_flags]
+	BIC	R14,R10,#2		; insert mode...
+	STR	R14,[R9,#w_flags]
+
+	MOV	R0,R2
+	BL	space_at_offset
+	MOVVC	R0,R3
+	BLVC	space_at_offset
+
+	STR	R10,[R8,#w_flags]
+	STR	R11,[R9,#f_flags]
+
+	FNRTS
+
+;E R0,R9...
+space_at_offset
+	FNJSR	"R1,R2,R3,R7"
+	MOV	R7,R0
+
+	MOV	R1,R7
+	MOV	R0,#1
+	MOV	R2,#1
+	ADR	R3,local_space$l
+	BL	do_command ; command_primative
+
+	MOVVC	R1,R7
+	MOVVC	R0,#2
+	MOVVC	R2,#1
+	BLVC	do_command ; command_primative ; do_command
+
+	FNRTS
+
+local_space$l
+	DCD	&20202020
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Moving/Branching Subs					 ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=num of times R2/R3 gives movement direction
+;X executes the movement command R0+ corrupt
+
+move_cursor
+ FNJSR
+ BL checkescapemovement
+ CMP R3,#0
+ RSBMI R3,R3,#0
+ MULNE R3,R1,R3
+ RSBMI R3,R3,#0			; multiply by number of lines
+ MOVNE R1,#1			; do once
+ ADRL  R10,move_by
+ MOV R11,R1
+ MOV R14,#1
+ STR R14,local_dont_update	; inhibit goto box updates...
+ BL do_ntimes
+ MOV R14,#0
+ STR R14,local_dont_update
+ BLVC get_cursor_caret
+ BLVC update_wind_state
+ BLVC plot_caret
+ BLVC make_cursor_visible
+ ; SWI &107
+ FNRTS
+
+checkescapemovement
+ FNJSR "R0"
+ MOV R0,#&70 ; escape
+ BL test_forkey
+ FNRTS CC
+ FNLDR R0,car_mode
+ TEQ R0,#3
+ FNRTS EQ
+ PUSH "R1-R12"			; pah!
+ BL Selregion
+ MOV R1,#-8
+ ADR R2,escapetestingcallback
+ BL call_back
+ PULL "R1-R12"
+ FNRTS
+
+escapetestingcallback
+ FNJSR "R0-R5"
+ MOV R0,#&70 ; escape
+ BL test_forkey
+ BCS escapetestingcallbackagain
+ FNLDR R0,car_mode
+ TEQ R0,#3
+ FNRTS NE
+ PUSH "R6-R12"
+ BL Selregion
+ PULL "R6-R12"
+ FNRTS
+escapetestingcallbackagain
+ MOV R1,#-8
+ ADR R2,escapetestingcallback
+ BL call_back
+ FNRTS
+
+;E R1=num of times R3=scroll dir
+;X executes the movement command R0+ corrupt
+
+pagemove_cursor
+ FNJSR
+ BL checkescapemovement
+ BL get_cursor_caret
+ BL update_wind_state
+ ADRVCL R10,shift_by
+ MOVVC R11,R1
+ MOVVC R1,R8
+ MOVVC R2,#0			; no x shift
+ LDRVC R4,[R8,#w_scrolly]	; save y scroll offset
+ BLVC do_ntimes			; shift the window n times
+ FNRTS VS
+ LDR R0,[R8,#w_scrolly]		; new y scroll
+ SUBS R4,R0,R4			; y change in os (+ up)
+ MOVMI R3,R4
+ RSBPL R3,R4,#0			; get -ve coord
+ BL ccd_yos_yline		; R3 number of lines to move
+ MOVS R4,R4
+ RSBPL R3,R3,#0			; signed line offset
+ MOV R2,#0
+ BL move_by			; move cursor (ONCE)
+ FNLDR R10,car_cursor,VC
+ BLVC plot_caret
+ LDRVC R0,[R8,#w_flags]
+ ORRVC R0,R0,#1<<30
+ STRVC R0,[R8,#w_flags]		; mark changed
+ FNLDR R10,car_cursor,VC
+ BLVC make_cursor_visible
+ FNRTS
+
+;X perform scroll cursor command
+
+scroll_cursor
+ FNJSR
+ BL get_cursor_caret
+ BL update_wind_state
+ ADRVCL R10,shift_by
+ MOVVC R11,R1
+ MOVVC R1,R8
+ BLVC do_ntimes			; shift the window n times
+; FNRTS VS
+ MOVVC R1,R8
+ BLVC open_window		  ; re????
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Move window to keep cursor visable			    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R10=caret block (with valid window state)
+;X if caret not visible then window reopened (and left al if col 0) #
+;  R0=-1 if moved /vertically/
+
+make_cursor_visible
+ STMFD R13!,{R1-R11,R14}
+ ; SWI &107
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; set up R8/R9...
+ TEQ R8,#0
+ LDMEQFD R13!,{R1-R11,PC}	; no cursor
+; MOV R1,R8			; this is /not/ the problem...
+; SWI XWimp_GetWindowInfo	; State	; make sure valid!
+ MOV R11,R8			; window state
+ LDR R4,[R11,#w_scrollx]
+ CMP R4,#0
+ MOVMI R4,#0
+ FNLDR R14,wimp_leftgap
+ FNLDR R0,scn_magx
+ SUB R4,R4,R14			; need to remove left margin now...
+ MOV R4,R4,ASR R0		; x scroll in pixels
+ BL ccd_blk_xrow_vis		; R3/R5/R6/R7 of visible area
+ ;CMP R3,#0 ; ???
+ ;MOVMI R3,#0 ; ???
+ FNLDR R0,car_left
+ ADD R3,R3,R0
+ LDR R1,[R8,#w_format]
+ TST R1,#bit_windowwrap		; window wrap
+ FNLDR R0,car_right,EQ
+ MOVNE R0,#-1			; ww - car_right setting to be ignored...
+ SUB R5,R5,R0			; add in edges
+ LDR R0,[R10,#c_col]		; first col
+ LDR R1,[R10,#c_width]
+ ADD R1,R0,R1			; last col
+ LDR R2,[R8,#w_margin]
+ CMP R0,R2
+ BGT ma4			; not in left column
+ FNLDR R0,wimp_leftgap
+ RSB R0,R0,#0
+ LDR R14,[R11,#w_scrollx]	; x scroll
+ CMP R0,R14			; is scroll offset <=0
+ BEQ ma1			; if so already left aligned
+ STR R0,[R11,#w_scrollx]	; new x scroll
+ LDR R0,[R8,#w_flags]
+ ORR R0,R0,#1<<30		; altered
+ STR R0,[R8,#w_flags]
+ B ma1				; do y
+ma4
+ ;;;;;;ADD R14,R1,#1
+ CMP R1,R5
+ BGE skpprbckkforlhsjiggl
+ CMP R0,R3
+ BLE skpprbckkforlhsjiggl
+ LDR R14,[R11,#w_scrollx]	; current x scroll offset
+ CMP R14,#0			; in case it's negative already...
+ BLE ma1			; bug?
+skpprbckkforlhsjiggl
+ LDR R2,[R8,#w_rw]
+ BL new_scroll
+ BCC ma1			; unchanged - this is OK.
+ ;SWI &107
+ FNLDR R0,wimp_leftgap
+ FNLDR R14,scn_magx
+ ADD R4,R0,R4,ASL R14
+ STR R4,[R11,#w_scrollx]	; new x scroll offset
+ma1
+ LDR R4,[R11,#w_scrolly]
+ STR R4,local_initialscrollys
+ RSB R4,R4,#0
+ FNLDR R0,scn_magy
+ MOV R4,R4,ASR R0		; y pixel scroll offset
+ BL ccd_blk_yrow_vis		; R3/R5/R6/R7 of visible area
+ FNLDR R0,car_top
+ ADD R3,R3,R0
+ FNLDR R0,car_bottom
+ SUB R5,R5,R0			; add in edges
+ LDR R0,[R10,#c_line]		; first row
+ ADD R1,R0,#1			; last row
+ LDR R2,[R8,#w_rl]
+ BL new_scroll
+ BCC ma2			; unchanged
+ FNLDR R0,scn_magy
+ MOV R4,R4,ASL R0
+ RSB R4,R4,#0
+ STR R4,[R11,#w_scrolly]	; new y scroll offset
+ma2
+ LDR R0,[R8,#w_flags]
+ TST R0,#1<<30			; Not -1 - don't redraw...
+ BEQ exitasnormal$l
+ ;LDMEQFD R13!,{R1-R11,PC}	; return if not changed
+ BIC R0,R0,#1<<30		; Hmm...?
+ STR R0,[R8,#w_flags]		; Hmm...?
+; BL blat_window_wrap_cache ; needed - no - bug !?
+ FNLDR R1,wimp_block		; not DATA or an UNDO bug...
+ ADD R1,R1,#64
+ LDR R14,[R8,#w_handle]
+ STR R14,[R1]
+ SWI XWimp_GetWindowState	; update state of window
+ LDR R14,[R1,#28]		; maintain position in window stack...
+ STR R14,[R8,#28]
+ MOV R1,R8			; NE on WW?
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_windowwrap
+ BNE alternative_mcv_exit
+ ;;FNLDR R0,opt_switches		; confine cursor on?
+ ;;TST R0,#1<<6
+ ;;BNE alternative_mcv_exit
+ BL reopen_window_noconstriction ; reopen_window ; update hmm...!
+; BL reopen_window		; constricts...
+ BLVC to_tellzapspell
+ BLVC cw_Goto_update_update
+ MOVVCS R0,#0
+ LDMFD R13!,{R1-R11,PC}
+
+to_tellzapspell
+ FNJSR "R0,R1,R5"
+ FNLDR R0,car_mode
+ CMP R0,#2			; was 3...
+ FNRTS GE			; already started a drag
+; FNLDR R0,wimp_drag
+; CMP R0,#0
+; FNRTS PL			; drag set up...
+ ;ADR R1,gpibuffer$l
+ ;SWI XWimp_GetPointerInfo
+ ;LDR R0,[R1,#8]
+ ;ANDS R0,R0,#7
+ ;FNRTS NE			; buttons held down...?
+ MOV R5,#1
+ ADR R0,gfoptrtotfs$l
+ BL tellzapspell
+ FNRTS
+
+gpibuffer$l
+ DCD 0
+ DCD 0
+ DCD 0
+ DCD 0
+ DCD 0
+
+gfoptrtotfs$l
+ DCD 65 ; lie...
+
+ ;B alternative_mcv_exit2
+ ;MOV R0,#0
+ ;LDMFD R13!,{R1-R11,PC}
+
+alternative_mcv_exit
+ BL reopen_window		; constricts...
+;alternative_mcv_exit2
+ ;LDR R14,[R11,#w_scrolly]
+ ;LDR R0,local_initialscrollys
+ ;CMP R0,R14
+ ;MOVEQ R0,#0
+ ;MVNNE R0,#0
+ ; next ?
+ ;MOVS R0,#0
+exitasnormal$l
+ BL to_tellzapspell
+ BL cw_Goto_update_update
+ MOVS R0,#0
+ LDMFD R13!,{R1-R11,PC}
+
+local_initialscrollys
+ DCD 0
+
+;E R0 = new w_bpl value, R8=window
+update_w_bpl
+ STR R0,[R8,#w_bpl]
+ B cw_Goto_update_update
+
+;ma2
+; LDR R0,[R8,#w_flags]
+; TST R0,#1<<30
+; LDMEQFD R13!,{R1-R11,PC}	; return if not changed
+; BIC R0,R0,#1<<30
+; STR R0,[R8,#w_flags]
+; MOV R1,R8
+; BL open_window			; update
+; LDMFD R13!,{R1-R11,PC}
+
+; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; ; Move window to keep cursor visible			    ;
+; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; ;E R10=caret block (with valid window state)
+; ;X if caret not visible then window reopened (and left al if col 0) #
+; ;    R0 = -1 if the window has had to be moved; VS if error...?
+;
+; make_cursor_visible
+;  STMFD R13!,{R1-R11,R14}
+;  LDR R0,[R10,#c_wind]
+;  BL conv_wind_off
+;  TEQ R8,#0
+;  LDMEQFD R13!,{R1-R11,PC}	; no cursor
+;  MOV R11,R8			; window state
+;  LDR R4,[R11,#w_scrollx]
+;  FNLDR R0,scn_magx
+;  MOV R4,R4,ASR R0		; x scroll in pixels
+;  CMP R4,#0
+;  MOVMI R4,#0
+;  BL ccd_blk_xrow_vis		; R3/R5/R6/R7 of visible area
+;  ;CMP R3,#0			; for LHS margins...
+;  ;MOVMI R3,#0			; for LHS margins...
+;  FNLDR R0,car_left
+;  ADD R3,R3,R0
+;  FNLDR R0,car_right
+;  LDR R1,[R8,#w_format]
+;  ;TST R1,#bit_windowwrap
+;  ;BNE ma1
+;  ;MOVNE R0,#-1		; ww - car_right setting to be ignored...
+;  SUB R5,R5,R0			; add in edges
+;  LDR R0,[R10,#c_col]		; first col
+;  LDR R1,[R10,#c_width]
+;  ADD R1,R0,R1			; last col
+;  LDR R2,[R8,#w_margin]
+;  CMP R0,R2
+;  BGT ma4			; not in left column
+;  CMP R4,#0			; is scroll offset <=0
+;  BLE ma1			; if so already left aligned
+;  LDR R14,[R8,#w_flags]
+;  ORR R14,R14,#1<<30		; altered
+;  STR R14,[R8,#w_flags]
+;  FNLDR R0,wimp_leftgap
+;  RSB R0,R0,#0
+;  STR R0,[R11,#w_scrollx]	; new x scroll (what? - TT)
+;  B ma1				; do y
+; ma4
+;  LDR R2,[R8,#w_rw]
+;  BL new_scroll
+;  BCC ma1			; unchanged
+;  FNLDR R0,scn_magx
+;  MOV R4,R4,LSL R0
+;  CMP R4,#0
+;  FNLDR R4,wimp_leftgap,EQ
+;  RSBEQ R4,R4,#0
+;  ;SWIEQ &107
+;  STR R4,[R11,#w_scrollx]	; new x scroll offset
+; ma1
+;  LDR R4,[R11,#w_scrolly]
+;  RSB R4,R4,#0
+;  FNLDR R0,scn_magy
+;  MOV R4,R4,ASR R0		; y pixel scroll offset
+;  BL ccd_blk_yrow_vis
+;  FNLDR R0,car_top
+;  ADD R3,R3,R0
+;  FNLDR R0,car_bottom
+;  SUB R5,R5,R0			; add in edges
+;  LDR R0,[R10,#c_line]		; first row
+;  ADD R1,R0,#1			; last row
+;  LDR R2,[R8,#w_rl]
+;  BL new_scroll
+;  BCC ma2			; unchanged
+;  FNLDR R0,scn_magy
+;  MOV R4,R4,LSL R0
+;  RSB R4,R4,#0
+;  STR R4,[R11,#w_scrolly]	; new y scroll offset
+; ma2
+;  LDR R0,[R8,#w_flags]
+;  TST R0,#1<<30
+;  LDMEQFD R13!,{R1-R11,PC}	; return if not changed
+;  BIC R0,R0,#1<<30
+;  STR R0,[R8,#w_flags]
+;  ;
+; BL blat_window_wrap_cache	; needed?
+;  FNLDR R1,wimp_block		; not DATA or an UNDO bug...
+;  ADD R1,R1,#64
+;  LDR R14,[R8,#w_handle]
+;  STR R14,[R1]
+;  SWI XWimp_GetWindowState	; update state of window
+;  LDR R14,[R1,#28]		; maintain position in window stack...
+;  STR R14,[R8,#28]
+;  LDR R14,[R8,#w_format]
+;  TST R14,#bit_windowwrap
+;  BNE alternative_mcv_exit
+;  MOV R1,R8
+;  BL reopen_window_noconstriction ; reopen_window ; update hmm...!
+;  MVN R0,#0
+;  LDMFD R13!,{R1-R11,PC}
+;
+; alternative_mcv_exit
+;  MOV R1,R8
+;  BL reopen_window
+;  SWI &107
+;  MVN R0,#0
+;  LDMFD R13!,{R1-R11,PC}
+
+	LOCAL
+
+;E R0=first col of cursor
+;  R1=last col of cursor
+;  R2=num rasters (pixels) per column
+;  R3/R6=start of visible area (col/pix off)
+;  R4=pix scroll offset
+;  R5/R7=end of visible area
+;  R8=window
+;X changes R4 to new pix scroll offset & sets b30 of w_flag
+;  & CS if altered. Corrupts R0-R1,R3-R7
+
+new_scroll
+	MLA	R6,R3,R2,R6	; pixel distance edge->visible
+	MLA	R7,R5,R2,R7	; pixel distance edge->visible rhs
+	SUB	R3,R1,R0
+	MLA	R3,R2,R3,R6	; left edge + cursor width
+	CMP	R3,R7
+	BGT	neg$l		; branch if not enough space for cursor
+	LDR	R3,[R8,#w_flags]
+	MUL	R0,R2,R0	; cursor offset (pixels)
+	SUBS	R0,R6,R0	; if <, window must be scrolled l/u
+	SUBGT	R4,R4,R0	; scroll it
+	BGT	done$l
+	MUL	R0,R1,R2	; cursor end offset pixels)
+	SUBS	R0,R0,R7	; if >, window must be scrolled r/d
+	ADDGT	R4,R4,R0	; scroll it
+done$l	ORRGT	R3,R3,#1<<30
+	STR	R3,[R8,#w_flags]
+	TST	R3,R3,LSL #2	; set/clear carry appropriately
+	MOV	PC,R14
+neg$l	SUB	R7,R7,R3	; => window width less cursor width
+	MUL	R0,R2,R0	; pixel dist edge->cur
+	SUB	R0,R0,R7,ASR #1	; new scroll offset (if no margin)
+	SUB	R1,R6,R4	; margin
+	SUB	R0,R0,R1	; new scroll offset, allowing for margin
+	TEQ	R0,R4
+	LDR	R1,[R8,#w_flags]
+	MOV	R4,R0		; new scroll offset
+	ORRNE	R1,R1,#1<<30
+	STRNE	R1,[R8,#w_flags]
+	TST	R1,R1,LSL #2	; set/clear carry appropriately
+	MOV	PC,R14
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Move cursor to keep cursor visable			    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;ORIG ;E Cursor caret is in a window with R8 updated
+;ORIG ;X Cursor caret moved if necessary to keep it visable #
+;ORIG
+;ORIG constrict_cursor
+;ORIG  STMFD R13!,{R1-R11,R14}
+;ORIG  FNLDR R10,car_cursor		; cursor caret
+;ORIG  LDR R0,[R10,#c_wind]
+;ORIG  BL conv_wind_off		; set up R8/R9
+;ORIG  TEQ R8,#0
+;ORIG  LDMEQFD R13!,{R1-R11,PC}	; no cursor
+;ORIG  MOV R11,R8			; set up block for ccd calls
+;ORIG  LDR R4,[R8,#w_scrollx]
+;ORIG  FNLDR R0,scn_magx
+;ORIG  MOV R4,R4,ASR R0		; x scroll in pixels
+;ORIG  BL ccd_blk_xrow_vis		; R3/R5/R6/R7 of visible area
+;ORIG  LDR R0,[R10,#c_col]		; first col
+;ORIG  LDR R1,[R10,#c_width]
+;ORIG  ADD R1,R0,R1			; last col
+;ORIG  LDR R2,[R8,#w_rw]
+;ORIG  BL new_constrict
+;ORIG  LDR R2,[R8,#w_margin]
+;ORIG  CMP R0,R2
+;ORIG  MOVLT R0,R2			; clip to the margin
+;ORIG  STMFD R13!,{R0}		; save the new start column
+;ORIG  LDR R4,[R8,#w_scrolly]
+;ORIG  RSB R4,R4,#0
+;ORIG  FNLDR R0,scn_magy
+;ORIG  MOV R4,R4,ASR R0		; y pixel scroll offset
+;ORIG  BL ccd_blk_yrow_vis
+;ORIG  LDR R0,[R10,#c_line]		; first row
+;ORIG  ADD R1,R0,#1			; last row
+;ORIG  LDR R2,[R8,#w_rl]
+;ORIG  BL new_constrict
+;ORIG  LDMFD R13!,{R2}		; restore the new start column
+;ORIG  MOV R3,R0			; new start row
+;ORIG  LDR R4,[R10,#c_col]		; old column
+;ORIG  LDR R5,[R10,#c_line]		; old line
+;ORIG  TEQ R2,R4
+;ORIG  TEQEQ R3,R5
+;ORIG  LDMEQFD R13!,{R1-R11,PC}	; no changes
+;ORIG  BL find_offset			; convert x,y to file offset
+;ORIG  LDMVSFD R13!,{R1-R11,PC}
+;ORIG  STR R0,[R10,#c_off]
+;ORIG  STR R1,[R10,#c_loff]
+;ORIG  STR R2,[R10,#c_col]
+;ORIG  STR R3,[R10,#c_line]
+;ORIG  BL plot_caret			; draw the caret
+;ORIG  LDMFD R13!,{R1-R11,PC}
+
+;E R0=first col of cursor
+;  R1=last col of cursor
+;  R2=num rasters (pixels) per column
+;  R3/R6=start of visible area (col/pix off)
+;  R4=pix scroll offset (not used...)
+;  R5/R7=end of visible area
+;  R8=window
+;X R0=new first column of cursor (clipped to 0)
+;  Corrupts R0-R1,R3-R7 (?)
+
+new_constrict
+ CMP R3,R5			; has the cursor region +ve width?
+ BGE ne32			; no
+ TEQ R6,#0
+ ADDNE R3,R3,#1			; first totally visible col
+ CMP R0,R3			; is start of cursor visible?
+ MOVLT R0,R3			; new start column
+ BLT ne31
+ CMP R1,R5
+ MOVLE PC,R14			; return if in area
+ SUB R1,R1,R0			; cursor size
+ SUB R0,R5,R1			; new start column
+ne31
+ CMP R0,#0
+ MOVMI R0,#0			; clip to 0
+ MOV PC,R14
+ne32
+ ADD R0,R3,R5
+ MOV R0,R0,ASR#1		; average column
+ MOV PC,R14			; do nothing atm
+
+;E Cursor caret is in a window with R8 updated
+;X Cursor caret moved if necessary to keep it visible #
+
+constrict_cursor
+ STMFD R13!,{R1-R11,R14}
+ ;SWI &107			; testing...
+ FNLDR R10,car_cursor		; cursor caret
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; set up R8/R9
+ TEQ R8,#0
+ LDMEQFD R13!,{R1-R11,PC}	; no cursor
+ MOV R11,R8			; set up block for ccd calls
+ LDR R4,[R8,#w_scrollx]
+ MOV R4,R4,ASR R0		; x scroll in pixels
+ BL ccd_blk_xrow_vis_margin ; ccd_blk_xrow_vis ; R3/R5/R6/R7 of visible area
+
+ ;FNLDR R14,wimp_leftgap
+ ;FNLDR R0,scn_magx
+ ;SUB R3,R3,R14,ASR R0		; x start in pixels
+ ;SUB R5,R5,R14,ASR R0		; x end in pixels
+ LDR R0,[R10,#c_col]		; first col
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_confinevertical
+ BLNE confiningsubroutine
+
+ LDR R1,[R10,#c_width]
+ ADD R1,R0,R1			; last col
+ LDR R2,[R8,#w_rw]
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_windowwrap
+ BLEQ new_constrict		; not if WW is on...
+ LDR R2,[R8,#w_margin]
+ CMP R0,R2
+ MOVLT R0,R2			; clip to the margin
+ STMFD R13!,{R0}		; save the new start column
+ LDR R4,[R8,#w_scrolly]
+ RSB R4,R4,#0
+ FNLDR R0,scn_magy
+ MOV R4,R4,ASR R0		; y pixel scroll offset
+ BL ccd_blk_yrow_vis
+ LDR R0,[R10,#c_line]		; first row
+ ADD R1,R0,#1			; last row
+ LDR R2,[R8,#w_rl]
+ BL new_constrict
+ LDMFD R13!,{R2}		; restore the new start column
+ MOV R3,R0			; new start row
+ LDR R4,[R10,#c_col]		; old column
+ LDR R5,[R10,#c_line]		; old line
+ TEQ R2,R4
+ TEQEQ R3,R5
+ LDMEQFD R13!,{R1-R11,PC}	; no changes
+ BL find_offset			; convert x,y to file offset
+ LDMVSFD R13!,{R1-R11,PC}
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_confinevertical
+ BLNE secondconfiningsubroutine
+ LDMVSFD R13!,{R1-R11,PC}
+ STR R0,[R10,#c_off]
+ STR R1,[R10,#c_loff]
+ STR R2,[R10,#c_col]
+ STR R3,[R10,#c_line]
+; LDR R14,[R9,#f_depth] ; untested R9
+; MOV R14,#0
+ BL plot_caret
+ LDMFD R13!,{R1-R11,PC}
+
+; E R0=column.
+; X R0=column.
+confiningsubroutine
+ FNJSR
+ FNLDR R2,car_column		; column preferred by cursor
+ CMP R2,#-1
+ FNSTR R0,car_column,EQ
+ MOVNE R0,R2
+ FNRTS
+
+secondconfiningsubroutine
+ FNJSR "R0,R1"
+ TEQ R3,R5
+ BLNE offset_line_column	; convert to nearest character...
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Move by						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R2=col change (-3 cLeft -2 sLeft -1 Left 0  1 Right 2 sRight 3 cRight)
+;  R3=row change if R2=0 R8/R9
+;X cursor caret moved by this amount #
+
+move_by
+ FNJSR "R1-R11" ; STMFD R13!,{R1-R11,R14}
+ BL get_cursor_caret
+ BCS rts_from_move_by
+; FNRTS CS ; LDMCSFD R13!,{R1-R11,PC}
+ TEQ R2,#0
+ BEQ mo2			; row move
+ ADD R2,R2,#3
+ CMP R2,#6
+ MOVHI R11,#0
+ BHI rts_from_move_by
+ ADR R11,mo_table
+ LDR R11,[R11,R2,LSL #2]
+
+ MOV R0,#-1			;
+ FNSTR R0,car_column		; trash column preferred by cursor
+
+ LDR R0,[R10,#c_loff]
+ LDR R1,[R10,#c_off]
+ LDR R2,[R10,#c_col]
+ LDR R3,[R8,#w_margin]
+ SUBS R2,R2,R3
+ MOVMI R2,#0
+ BL call_mode			; perform the move
+ FNRTS VS ; LDMVSFD R13!,{R1-R11,PC}
+ ; SWI &107 ; always gets here...
+ CMP R2,#0
+ STRPL R1,[R10,#c_off]		; new offset
+ ADDPL R2,R2,R3			; add margin
+ STRPL R2,[R10,#c_col]		; new column
+ BPL rts_from_move_by
+; FNRTS
+mo9
+ CMN R2,#1
+ BEQ mo6			; move to file offset
+ CMN R2,#3
+ BNE rts_from_move_by
+ ;LDMNEFD R13!,{R1-R11,PC}	; don't move to x,y
+mo10
+ ADD R2,R0,R3			; new x (add margin)
+ MOV R3,R1			; new y
+ B mo11
+mo_table
+ & e_cminus, e_sminus, e_minus, 0, e_plus, e_splus, e_cplus
+
+mo2				; E: column change in r3
+; BL shift_the_window		; makes no difference to bug...
+ FNLDR R14,car_mode
+ CMP R14,#3
+ BEQ confinedVhere
+ LDR R2,[R8,#w_format]
+ TST R2,#bit_confinevertical
+ LDR R2,[R10,#c_col]		; column
+ BEQ notconfinedV
+confinedVhere
+ LDR R2,[R10,#c_col]		; column
+ FNLDR R0,car_column		; column preferred by cursor
+ CMP R0,#-1
+ FNSTR R2,car_column,EQ
+ MOVNE R2,R0
+notconfinedV
+ LDR R0,[R10,#c_line]
+ ADDS R3,R0,R3			; new line offset
+ MOVMI R3,#0			; clip to start
+mo11
+ MOV R11,R2
+ BL find_offset
+ FNRTS VS ; LDMVSFD R13!,{R1-R11,PC}
+
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_confinevertical
+ BNE secondaryconfinement
+ FNLDR R14,car_mode
+ CMP R14,#3
+ BNE nosecondaryconfinement
+secondaryconfinement
+ PUSH "R0,R1"
+ BL offset_line_column
+ PULL "R0,R1"
+ FNRTS VS
+ ;LDMVSFD R13!,{R1-R11,PC}
+nosecondaryconfinement
+ LDR R14,[R8,#w_margin]
+ CMP R2,R14
+ MOVLE R2,R14			; clip margin
+ STR R0,[R10,#c_off]
+ STR R1,[R10,#c_loff]
+ STR R2,[R10,#c_col]		; in case R2 changed (eg before B mo11)
+ STR R3,[R10,#c_line]		; new vals
+ FNLDR R0,car_column		; column preferred by cursor
+ CMP R11,#0
+ LDRB R14,[R8,#w_margin]
+ CMP R11,R14
+ BLNE wiggleabit2
+ FNSTR R0,car_column		; column preferred by cursor
+ LDMFD R13!,{R1-R11,PC}
+mo6
+ CMP R1,#0
+ MOVMI R1,#0			; base of file
+ LDR R0,[R9,#f_len]
+ CMP R1,R0
+ MOVCS R1,R0			; top of file
+ STR R1,[R10,#c_off]
+ BL update_caret
+rts_from_move_by
+ ;BL make_cursor_visible		; TT new!!!
+ LDR R14,local_dont_update
+ TST R14,#1
+ FNRTS NE
+ BL to_tellzapspell
+ BL cw_Goto_update_update
+ MOVS R0,#0
+ FNRTS
+
+local_dont_update
+ DCD 0
+
+;E R3 = scrolly shift...
+shift_the_window
+ FNJSR "R0-R12"
+
+ MOV R1,R8
+ SWI XWimp_GetWindowState
+
+ FNLDR R4,scn_magy
+ LDR R2,[R8,#w_rl]
+ CMP R3,#0
+ RSBMI R3,R3,#0
+ MUL R3,R2,R3
+ MOV R3,R3,LSL R4
+ RSBMI R3,R3,#0
+
+ LDR R0,[R1,#w_scrolly]		; new scroll offset
+ SUB R0,R0,R3
+ STR R0,[R1,#w_scrolly]		; new scroll offset
+ BL reopen_window
+ FNRTS
+
+shift_by
+ STMFD R13!,{R1-R11,R14}
+ MOV R11,R1			; window block
+ MOV R10,R3			; save y shift
+ BL ccd_blk_xrow
+ ;CMP R3,#0
+ ;MOVMI R3,#0			; allow for -ve LHS margin...???
+ CMP R6,#0
+ MOVMI R6,#0			; allow for -ve LHS margin...???
+ MOV R0,R2			; x scroll dir
+ LDR R2,[R8,#w_rw]
+ BL alter_scroll
+ BL ccd_xpair_xos
+ STR R3,[R11,#20]		; new x scroll offset
+; STR R3,[R11,#w_scrollx]	; new x scroll offset
+ BL ccd_blk_yrow
+ MOV R0,R10			; y scroll dir
+ LDR R2,[R8,#w_rl]
+ BL alter_scroll
+ BL ccd_ypair_yos		; convert to scroll offset
+ STR R3,[R11,#24]		; new scroll offset
+; STR R3,[R11,#w_scrolly]	; new scroll offset
+ ; SWI &107			; this one's OK.
+ LDMFD R13!,{R1-R11,PC}
+
+ LOCAL
+
+;E R0=string to indent by (number or actual string)
+;  set b31 to do an outdent instead
+;X selection (if it exists) indented by R0 #
+
+indent_selection
+ FNJSR "R1-R11"
+ MOV R5,R0,LSR#31		; save indent/outdent bit
+ BIC R0,R0,#1<<31
+ MOV R7,R0			; save indent string
+ BL minibuffer_eval
+ FNRTS VS
+ BCC num$l			; valid number
+ MOV R0,R7
+ BL str_len
+ MOV R6,R0			; length of string
+ TST R5,#1
+ RSBNE R6,R6,#0			; outdent instead?
+ B start$l
+num$l
+ TST R5,#1
+ RSBNE R0,R0,#0			; do opposite!
+ MOVS R6,R0			; save the number
+ BMI start$l
+ BL ensure_redblk
+ FNRTS VS
+ FNLDR R7,red_blkbuf
+start$l				; R0=string pointer / -ve to outdent
+ BL get_selection		; R8/R9 for selection
+ FNRTS CS			; no selection
+
+ BL start_operation		; multiop
+
+ LDR R4,[R8,#w_format]
+ PUSH "R4"
+ BIC R4,R4,#1<<15		; non-standard edit...
+ STR R4,[R8,#w_format]
+
+ MOV R4,R1			; sel start
+ ADD R5,R1,R2			; sel end
+ MOV R0,R4
+ MOV R11,#e_linestart
+ BL call_mode
+ BVS error$l ; end$l		; find start of line
+ CMP R4,R0
+ MOVLE R4,R0			; at line start
+ BLE atstart$l
+loop$l
+ MOV R0,R4
+ MOV R11,#e_linenext		; move to next line
+ BL call_mode
+; BVS end$l
+ MOVVC R11,#e_linestart		; find line start
+ BLVC call_mode
+ BVS error$l ; end$l
+ CMP R0,R4			; ?
+ BLE end$l			; no line to move to so end or
+ MOV R4,R0			; there will be an infinite loop!
+ MOV R5,R0
+atstart$l			; R4=start of line to indent
+ BL get_selection		; R8/R9 for selection
+ ADD R2,R1,R2			; sel end
+ CMP R4,R2			; was in R5...
+ BGE end$l			; out of selected area
+
+ CMP R6,#0			; indent length
+ MOV R1,R4			; file offset
+ MOV R5,R4
+ MOVPL R2,#0			; remove none
+ RSBMI R2,R6,#0			; remove -R6
+ MOV R3,R7			; replacement string
+ MOVPL R4,R6			; replacement length
+ MOVMI R4,#0			; don't replace with anything
+ MOV R11,#e_lineend
+ MOV R0,R1
+ BL call_mode			; find end of line
+ BVS error$l ; end$l
+ MOV R10,R0			; save the end of line???
+ SUB R0,R0,R1			; length of line
+ CMP R2,R0
+ MOVGT R2,R0			; clip amount to delete
+ MOV R11,#e_replace
+ BL call_mode			; alter the line (may word wrap)
+ BVS error$l ; end$l
+; CMP R6,#0
+
+; ADDPL R5,R5,R4		;
+; ADDPL R4,R10,R4		; R10 = ?
+; SUBMI R5,R5,R2		; get new start and end of selection
+; SUBMI R4,R10,R2
+
+ ;BL get_selection		; R8/R9 for selection
+ ;ADD R5,R1,R2			; sel end
+ MOV R4,R5			; stored SOL...
+
+; MOVVC R11,#e_linestart		; find line start
+; BLVC call_mode
+; BVS error$l ; end$l
+; CMP R0,R4			; ?
+
+ B loop$l			; do next line
+end$l				; end/error
+ PULL "R0"
+ STR R0,[R8,#w_format]
+ BL stop_operation
+ FNRTS
+error$l				; end/error
+ MOV R11,R0
+ PULL "R14"
+ STR R14,[R8,#w_format]
+ BL stop_operation
+ MOV R0,R11
+ FNRTV
+
+;E R2-R5=region R8
+;X region corrected so that R2R3 <= R4R5 and clipped to margin
+
+correct_region
+ CMP R5,R3
+ BGT co16
+ BLT in25
+ CMP R4,R2
+ BGE co16
+in25
+ MOV R0,R3
+ MOV R3,R5
+ MOV R5,R0
+ MOV R0,R2
+ MOV R2,R4
+ MOV R4,R0
+co16
+ LDR R0,[R8,#w_margin]
+ CMP R2,R0
+ MOVLE R2,#0
+ CMP R4,R0
+ MOVLE R4,#0
+ MOV PC,R14
+
+ END

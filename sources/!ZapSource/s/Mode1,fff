@@ -1,0 +1,1269 @@
+; Contains mode entry points for byte mode.
+; $Id: Mode1,fff,v 1.2 1999/01/12 18:23:57 dj Exp $
+
+ GET h.ZapHeader
+ GET h.Mode0
+ GET h.Commands
+ GET h.Execute
+ GET h.AlterTxt
+ GET h.Cursors
+ GET h.Menus
+ GET h.ModeBits
+ GET h.Redraw
+ GET h.Strings
+ GET h.MiniBuff
+ GET h.Mode2
+ GET h.Mode3
+ GET h.Mode4
+ GET h.TMTVars
+
+ EXPORT mode_table_1
+ EXPORT mode1_author
+ EXPORT mode1_cols
+ EXPORT mode1_cminus
+ EXPORT mode1_cplus
+ EXPORT mode1_linestart
+ EXPORT mode1_lineend
+ EXPORT mode1_minus
+ EXPORT mode1_plus
+ EXPORT mode1_delete
+ EXPORT mode1_init
+ EXPORT mode1_aligncaret
+ EXPORT mode1_clnlog
+ EXPORT mode1_clnphy
+ EXPORT mode1_clnoff
+ EXPORT mode1_nextline
+ EXPORT mode1_redrawlnum
+
+ EXPORT mode1_2_init
+
+ EXPORT modes_linecol
+ EXPORT modes_getmodeword
+ EXPORT modes_interrogate_width
+ EXPORT modes_linecol_breaks
+ EXPORT modes_click
+
+ EXPORT CmdBYTEctrlreplace
+ EXPORT CmdBYTEflagstoggle
+ EXPORT CmdBYTEgroupsize
+
+ EXPORT CmdBYTEWORDctrlreplace
+ EXPORT CmdBYTEWORDflagstoggle
+ EXPORT CmdBYTEWORDgroupsize
+
+mode_table_1
+ DCD mode_table_1
+ DCD mode1_title
+ DCD mode1_author
+ DCD 0
+ DCD 1+(1<<11)
+ DCD mode1_init
+ DCD 0
+ DCD mode1_table_end-mode_table_1
+
+ DCD Null			; postload
+ DCD Null
+ DCD Null
+ DCD mode1_start
+ DCD mode1_end
+ DCD mode1_width
+ DCD mode1_linecol
+ DCD mode1_lineoff
+ DCD mode1_clnlog
+ DCD mode1_clnphy
+ DCD mode1_clnoff
+ DCD mode1_nextline
+ DCD mode1_minus
+ DCD mode1_plus
+ DCD mode1_minus
+ DCD mode1_plus
+ DCD mode1_cminus
+ DCD mode1_cplus
+ DCD mode1_redrawline
+ DCD mode1_redrawlnum
+ DCD mode1_char
+ DCD mode1_delete
+ DCD Null
+ DCD mode1_return
+ DCD Null
+ DCD Null
+ DCD mode1_linestart
+ DCD mode1_lineend
+ DCD mode1_lineend
+ DCD mode1_linestart
+ DCD mode1_copy
+ DCD Null
+ DCD Null
+ DCD mode1_aligncaret		; align caret
+ DCD command_primative
+ DCD Null
+ DCD Null
+ DCD Null
+ DCD Null			; runandquit
+ DCD Null
+ DCD Null
+ DCD replace_area
+ DCD Null			; selection
+ DCD modes_click ; default_click	; click
+ DCD Null			; messages
+ DCD mode4_setwidth		; mode0_setwidth ; Null
+ DCD Null			; list fns
+ DCD mode0_prevline		; Null
+ DCD Null			; Open window
+ DCD mode1_interrogate		; Answer all Zap's questions...
+ DCD mode1_returnword		; for SH etc...
+mode1_table_end
+
+mode1_title
+ FNS ("Byte")
+
+mode1_author
+ = "Dominic Symes, James Aylett and Tim Tyler", 0
+ ALIGN
+
+mode1_init
+ FNJSR "R2"
+ ADR R2,mode1_init_data
+ BL mode1_2_init
+ FNRTSS	; return no error
+
+mode1_2_init
+ TEQ R1,#7
+ BEQ mode1_2_menu
+ TEQ R1,#6
+ ADDEQ R1,R2,#8 ; colours
+ TEQ R1,#0
+ MOVEQ R0,#-1			; don't kill this module
+ MOVEQ PC,R14
+ TEQ R1,#2
+ MOVNE PC,R14
+
+ FNJSR "R0-R4,R8"
+ MOV R8,#0			; setting defaults
+ LDRB R1,[R2]			; mode number
+ BL get_mode_word
+ FNRTS VS
+ TEQ R0,#0
+ LDREQ R0,[R2,#4]		; default mode word
+ BLEQ put_mode_word		; write it out
+ FNRTS
+
+;X R1=pointer to the menu
+mode1_2_menu
+ FNJSR "R0"
+ LDRB R0,[R2,#1]		; [R2,#1]th menu in file
+ BL read_menu_handle		; create the mode menu
+ FNRTS
+
+mode1_init_data
+	=	1		; mode number (!)
+	=	5		; menu number
+	ALIGN
+	&	&82E0200	; default mode word
+				; 8 bytes to a group,
+				; group in number dump,
+				; and '.' as (disabled)
+				; control char replacement
+mode1_cols
+ = "ASCII chars"
+ = 0
+ = 0
+ ALIGN
+
+ LOCAL
+
+ DCD (7) + (3:SHL:3) + (1:SHL:6) + (1:SHL:17)
+ 				; "No" R8-R10
+ 				; string argument
+ 				; call me before minibuffer
+ 				; can set up menu
+CmdBYTEgroupsize
+ ADR R3,data$l
+CmdBYTEWORDgroupsize
+ FNJSR
+ CMP R2,#6
+ BEQ mini$l
+
+ CMP R2,#17
+ BEQ menu$l
+
+ MOV R1,R0
+ MOV R2,#16			; maximum value
+ MOV R0,#(10 + 1:SHL:29)	; base 10 default & flags
+ SWI XOS_ReadUnsigned
+ FNRTSS VS			; bomb out and clv
+ TEQ R2,#0
+ LDREQB R2,[R3,#1]		; default group size
+ AND R2,R2,#&F			; 0 represents 16
+ MOV R2,R2,LSL #24		; 'n'
+ LDRB R1,[R3]			; mode number
+ BL get_mode_word
+ BIC R0,R0,#(&F:SHL:24)
+ ORR R0,R0,R2
+ BL put_mode_word
+
+ CMP R8,#0
+ BLNE but_sortwwout
+
+ FNRTS
+
+mini$l
+ LDR R0,[R3,#4]			; offset to prompt
+ ADD R0,R0,R3
+ BL minibuffer_prompt
+ LDRB R1,[R3]			; mode number
+ BL get_mode_word
+ MOV R0,R0,LSR #24
+ ANDS R1,R0,#&F
+ MOVEQ R1,#16
+ CMP R1,#10
+ MOVEQ R0,#'1'
+ SUBEQ R1,R1,#10
+ BLEQ minibuffer_writec
+ ADD R0,R1,#'0'
+ BL minibuffer_writec
+ FNRTS
+
+menu$l
+ CMP R0,#0
+ LDREQ R0,[R3,#8]		; offset to menu
+ ADDEQ R0,R0,R3
+ FNRTS EQ
+
+ CMP R0,#2
+ MOVEQ R0,#1
+ FNRTS EQ
+
+ CMP R0,#1
+ FNRTS NE
+
+ LDRB R1,[R3]			; mode number
+ BL get_mode_word
+ MOV R0,R0,LSR #24
+ ANDS R0,R0,#&F
+ MOVEQ R0,#16
+; AND R0,R0,#&FF ; ???
+ ORR R0,R0,#(1:SHL:31)		; +ve number
+ FNRTS
+
+data$l
+	=	1	; mode number
+	=	4	; default group size
+	ALIGN
+	&	miniprompt$l-data$l
+	&	menutitle$l-data$l
+
+miniprompt$l	= "Byte group size: ",0
+menutitle$l	= "Group size",0
+	ALIGN
+
+	LOCAL
+
+ DCD (7) + (3:SHL:3) + (1:SHL:6) + (1:SHL:17)
+ 				; "No" R8-R10
+ 				; string argument
+ 				; call me before minibuffer
+ 				; can set up menu
+CmdBYTEctrlreplace
+ ; we ignore number of repetitions, since they'll
+ ; do exactly the same thing each time
+ ; we only take the first character given to us
+ ;
+ ;\E R0=ptr to 0-term string
+ ; R2=0/1 go, =6 pre-minibuffer, =7 pre-menu
+ MOV R1,#1		; mode number
+CmdBYTEWORDctrlreplace
+ FNJSR
+ CMP R2,#6
+ BEQ mini$l
+
+ CMP R2,#17
+ BEQ menu$l
+
+ ; actually do it
+ LDRB R2,[R0]
+ BL get_mode_word
+ BIC R0,R0,#(&FF:SHL:16)
+ MOV R2,R2,LSL #16		; move into place
+ ORR R0,R0,R2
+ BL put_mode_word
+
+ CMP R8,#0
+ BLNE but_sortwwout		; this is overkill - UpdateWindow should do
+
+ FNRTS
+
+mini$l
+ ADR R0,miniprompt$l
+ BL minibuffer_prompt
+ BL get_mode_word
+ MOV R0,R0,LSR #16
+ AND R0,R0,#&FF			; current replace char
+ BL minibuffer_writec
+ FNRTS
+
+miniprompt$l
+ = "Control replace character: ", 0
+menutitle$l
+ = "Replacement", 0
+ ALIGN
+
+menu$l
+ CMP R0,#0			; rq for title
+ ADREQ R0,menutitle$l
+ FNRTS EQ
+
+ CMP R0,#2			; rq for buffer size
+ MOVEQ R0,#1
+ FNRTS EQ
+
+ CMP R0,#1			; rq for default
+ FNRTS NE
+
+ BL get_mode_word
+ MOV R1,R0,LSR #16
+ AND R1,R1,#&FF			; current replace char
+ SUB R0,R13,#4			; temp place below stack
+ STR R1,[R0]
+ FNRTS
+
+ LOCAL
+
+ DCD (7) + (2:SHL:3) + (1:SHL:13) + (1:SHL:15)
+ 				; I'm lazy, and so multiple words only get done singly
+CmdBYTEflagstoggle
+ MOV R1,#1			; mode number
+CmdBYTEWORDflagstoggle
+ FNJSR
+ LDR R6,[R0]			; word argument
+ BL get_mode_word
+
+ MOV R3,#1
+ MOV R3,R3,LSL R6
+
+ CMP R2,#15
+ BEQ tickquery$l
+
+ TST R0,R3			; if clear already then
+ ORREQ R0,R0,R3			; ... set flag ...
+ BICNE R0,R0,R3			; else ... clear it
+
+ BL put_mode_word
+
+ CMP R8,#0
+ BLNE but_sortwwout		; window redraw as necessary
+
+ FNRTS
+
+ ; \E R0 mode word, R3 mask to check
+tickquery$l
+ TST R0,R3
+ MOVNE R0,#1
+ MOVEQ R0,#0
+ FNRTS
+
+ LOCAL
+
+; \E R2=mode word number, R8
+; \X R0=mode word
+modes_getmodeword
+ FNJSR "R1"
+ TEQ R8,#0
+ FNLDRB R1,opt_format,EQ	; default mode number
+ LDRNEB R1,[R8,#w_format]	; window specific mode number
+ MOV R0,#-1			; read
+ BL mode_data
+ FNRTS
+
+mode1_width
+ STMFD R13!,{R1-R5,R14}
+ MOV R2,#0
+ BL modes_getmodeword
+
+ MOV R0,R0,LSL #16
+ MOV R0,R0,LSR #16		; clear to width field
+ CMP R0,#&FF
+ MOVGT R0,#&FF			; more than this is too much!
+ CMP R0,#1
+ MOVLT R0,#1
+
+ STR R0,[R8,#w_bpl]
+ LDR R5,[R8,#w_mode1]		; load our mode word
+ BIC R5,R5,#&FF
+
+ ; Now calculate what the actual width will be.
+ MOV R4,R5,LSR #24
+ ANDS R4,R4,#&F			; r2 = 'n'
+ MOVEQ R4,#16
+; AND R4,R4,#&F			; r2 = 'n'
+ MOV R1,R4
+ ; r3 = r0 (width) DIV r2 (n)
+ ; r4 = r0 (width) MOD r2 (n)
+ ; if r4 > 0, inc r3
+; MOV R4,R0
+; DIVIDE R0,R1,R3,R5
+ SWI XZapRedraw_Divide ; BL div_mod	; R0=phy line R2=col byte offset
+
+; LDR R0,[R8,#w_bpl]
+ CMP R2,#0
+ ADDGT R0,R0,#1 ; remainder...
+
+ CMP R0,#&FF
+ MOVGT R0,#&FF			; more than this is not permitted
+ ORR R5,R5,R0			; put the DIV value in
+ STR R5,[R8,#w_mode1]		; and store it
+
+ MOV R1,R5			; mode word...
+ LDR R0,[R8,#w_bpl]
+; MOV R0,R4			; w_bpl
+ BL mode1_calc_width
+ MOV R0,R2			; returned value...
+
+ LDMFD R13!,{R1-R5,PC}
+
+mode1_redrawlnum
+ FNJSR
+ ADDS R0,R0,#0			; clc
+ FNRTS
+
+; \E R0 = bytes per line, R1 = mode word
+; \X R2 = width in characters needed, R0,R1 preserved
+;    R3 is "corrupted" (number of breaks - ie number of groups - 1)
+mode1_calc_width
+ FNJSR "R0,R4"
+
+ AND R3,R1,#&FF			; number of groups
+ SUB R3,R3,#1			; number of breaks
+
+ MOV R2,#0			; amount to add for spacing
+ TST R1,#(1:SHL:9)		; break hex/bin dump
+ ADDNE R2,R2,R3			; 1 * = " "
+
+ TST R1,#(1:SHL:10)		; break ascii dump
+ ADDNE R2,R2,R3			; 1 * = " "
+
+ ADD R4,R0,R2			; ascii bit plus breaks
+ TST R1,#(1:SHL:11)		; binary dump
+ ADDNE R0,R0,R0,LSL#3		; R0*9 (8 + space)
+ ADDEQ R0,R0,R0,LSL#1		; R0*3 (2 + space)
+ ADD R0,R0,#2			; colon
+ ADD R2,R4,R0			; add it all together
+
+ FNRTS
+
+localmodeword
+ DCD &0				; temp storage space
+localmoden
+ DCD &0
+localmode_colon
+ DCD &0				; where the colon sits
+
+mode1_redrawline
+ FNJSR
+
+ LDR R1,[R8,#w_mode1]		; our mode word
+ STR R1,localmodeword
+
+ LDR R0,[R8,#w_bpl]		; num chars
+ BL mode1_calc_width		; \X R3 = number of breaks
+ TST R1,#(1:SHL:11)
+ ADDEQ R4,R0,R0,LSL#1		; "xx "
+ ADDNE R4,R0,R0,LSL#3		; "bbbbbbbb "
+ TST R1,#(1:SHL:9)
+ ADDNE R4,R4,R3			; Add " " for each break
+ MOV R1,R4
+
+ ; R1 is now the offset of where the colon sits / width of number dump
+ ADD R3,R1,R6
+ STR R3,localmode_colon
+ SUB R2,R2,R1			; find out the width of ascii stuff
+
+ MOV R0,#9
+ BL colour_chars		; _both (nope) - _both sets background to 1
+ 				; colours the ascii section
+ STMFD R13!,{R5,R7,R10}		; save start of line
+ LDR R2,[R8,#w_bpl]		; line width - number of bytes
+ MOV R3,R2			; width count
+
+ LDR R4,localmodeword		; get our mode word again
+ TST R4,#(1:SHL:9)
+ MOVEQ R4,#-1			; no byte groups
+ MOVNE R4,R4,LSR #24
+ ANDNE R4,R4,#&F		; 'n'
+ TEQ R4,#0
+ MOVEQ R4,#16
+ STR R4,localmoden
+
+red_c1_l1
+ CMP R7,R10			; off end of file?
+ BLCS red_overflow
+ BVS red_cl_l4
+
+ LDR R0,localmodeword
+ TST R0,#(1:SHL:11)		; binary dump?
+ BEQ red_c1_l1_hex
+
+ ; binary
+
+ LDRB R0,[R7],#1
+
+ ; get background right
+ PUSH "R2,R6"
+ LDR R14,[R8,#w_txtw]
+ ADD R6,R6,R14,LSL #1		; background area
+ MOV R14,#1			; background 1
+ MOV R2,#8
+red_c1_l1_binbackground
+ STRB R14,[R6],#1
+ SUBS R2,R2,#1
+ BPL red_c1_l1_binbackground
+ PULL "R2,R6"
+
+ BL bin8			; write eight char bin
+
+ B red_c1_l1_afterwrite
+
+red_c1_l1_hex
+ LDRB R0,[R7],#1
+ BL storebackgroundforhex2	; get background for two char hex
+ BL hex2			; write two char hex
+
+red_c1_l1_afterwrite
+ ADD R6,R6,#1			; skip a space
+
+ ; byte groups
+ SUB R4,R4,#1
+ CMP R4,#0
+ MOVLT R4,#-1			; so it doesn't underflow
+ BNE red_c1_l1_no_group
+
+ ; Faster to write and get rid of later
+ ; Can't do this later on because we might
+ ; stomp past the buffer end
+; CMP R4,#1			; if we're about to end,
+; BLS red_c1_l2_no_group	; don't write a break
+
+ LDR R0,[R8,#w_txtw]
+ ADD R0,R6,R0,LSL #1		; background position
+ MOV R4,#0			; background colour 0
+ STRB R4,[R0,#-1]		; overwrite bg col 1 trailing
+
+ ADD R6,R6,#1			; " "
+
+ LDR R4,localmoden
+
+red_c1_l1_no_group
+
+ SUBS R3,R3,#1
+ BHI red_c1_l1			; next byte
+
+ LDR R0,localmoden
+ CMP R0,#-1
+ BEQ red_cl_l3
+ CMP R4,R0			; if we stopped on writing a break,
+ SUBEQ R6,R6,#1			; get rid of it again
+
+red_cl_l3
+ LDMFD R13!,{R5,R7,R10}		; get start of line
+ MOV R3,R2			; chars per line
+
+ LDR R0,[R8,#w_txtw]
+ ADD R0,R6,R0,LSL #1		; background position
+ MOV R4,#0			; background colour 0
+ STRB R4,[R0,#-1]		; overwrite bg col 1 trailing
+
+ BL colon			; write colon
+
+ LDR R0,localmodeword		; get our mode word again
+ TST R0,#(1:SHL:10)
+ MOVEQ R4,#-1			; no breaks in this case
+ MOVNE R4,R0,LSR #24
+ ANDNE R4,R4,#&F
+ TEQ R4,#0
+ MOVEQ R4,#16
+ STR R4,localmoden
+
+ STMFD R13!,{R4}		; store temp n
+ MOV R4,R0
+
+red_c1_l2
+ CMP R7,R10
+ BLCS red_overflow
+ BVS red_cl_l5
+ LDRB R0,[R7],#1
+
+ CMP R0,#32			; is it a ctrl char?
+ BGE red_c1_l2_writechar
+ TST R4,#(1:SHL:8)		; are we replacing them?
+ BEQ red_c1_l2_writechar
+
+ MOV R0,#8			; write the 'ctrl char' colour
+ LDR R1,[R8,#w_txtw]		; width of a cache line
+ STRB R0,[R6,R1]		; store in foreground colour section
+
+ MOV R0,R4,LSR #16
+ AND R0,R0,#&FF			; replace with configured char
+red_c1_l2_writechar
+ STRB R0,[R6],#1		; write ascii char
+
+ ; byte groups
+ LDMFD R13!,{R0}
+ SUB R0,R0,#1
+ CMP R0,#0
+ MOVLT R0,#-1			; so it doesn't underflow
+ BNE red_c1_l2_no_group
+
+ CMP R3,#1			; if we're going to stop here,
+ BLS red_c1_l2_no_group		; don't write a break
+
+ ADD R6,R6,#1			; " "
+
+ LDR R0,localmoden
+
+red_c1_l2_no_group
+
+ STMFD R13!,{R0}
+ LDR R4,localmodeword
+
+ SUBS R3,R3,#1
+ BHI red_c1_l2
+
+red_cl_l5
+ LDMFD R13!,{R0}		; discard final bit
+ ADD R11,R11,#1			; inc log line
+ FNRTSS				; return without error
+red_cl_l4
+ LDR R6,localmode_colon		; move to place to put colon
+ ADDS R6,R6,#0			; clv
+ B red_cl_l3			; ascii bit
+
+mode1_clnphy
+ MOV R1,R0			; phy line=log line
+ LDR R0,[R8,#w_bpl]
+ MUL R0,R1,R0			; offset
+ MOV PC,R14
+
+mode1_clnlog
+ MOV R1,R0
+ LDR R0,[R8,#w_bpl]
+ MUL R0,R1,R0
+ MOV PC,R14
+
+mode1_clnoff
+ STMFD R13!,{R3-R4,R14}
+ LDR R1,[R9,#f_len]
+ CMP R0,R1
+ MOVCC R4,R0
+ MOVCS R4,R1			; search offset in file or on end
+ MOV R0,R4
+ LDR R1,[R8,#w_bpl]
+ SWI XZapRedraw_Divide ; BL div_mod	; R0=phy line R2=col byte offset
+ SUB R1,R4,R2			; offset of start of line
+ MOV R2,R0			; log line
+ LDMFD R13!,{R3-R4,PC}
+
+mode1_lineoff
+ FNJSR "R2-R6"
+ LDR R4,[R8,#w_mode1]
+
+ TST R4,#(1:SHL:11)		; binary or hex number dump
+ MOVEQ R5,#3
+ MOVNE R5,#9
+
+ MOV R6,R4,LSR #24
+
+ SUB R0,R1,R0			; offset of char in line
+
+ ANDS R1,R6,#&F			; n
+ MOVEQ R1,#16
+
+ MOV R6,R0			; saved
+
+; DIVIDE R3,R4,R1,R6		; R6 scratch
+ SWI XZapRedraw_Divide ; BL div_mod	; R0=phy line R2=col byte offset
+ MOV R3,R0			; (x/n)
+
+ MUL R0,R6,R5			; {3,9} * x
+
+; LDR R2,[R8,#w_mode1]
+ TST R4,#(1:SHL:9)
+ ADDNE R0,R3,R0			; {3,9} * x + {1,0} * x/n
+
+ SUB R1,R5,#1			; width of cursor
+ FNRTS
+
+ LOCAL
+
+mode1_linecol
+ FNJSR "R1-R7"
+ LDR R4,[R8,#w_mode1]
+ MOV R2,#2			; hex width
+ MOV R3,#1			; in bytes
+
+;\E R1-R7 stacked R0=file offset of physical line start
+;   R1=column R8/R9
+;   R2=chars per screen column if hex (*4 if binary)
+;   R3=bytes per screen column
+;   R4=display format word (b9 => groups, b11 => binary
+;			    b24-b27 = bytes per group)
+;\X R0=file offset of the column
+;
+;Temp R5=grouping counter, R7=characters remaining per line
+;     R6=col offset currently under test, R4=n
+modes_linecol_breaks
+ STMFD R13!,{R0,R4}
+ LDR R7,[R8,#w_bpl]		; bytes per line (NOT columns)
+
+ TST R4,#(1:SHL:11)
+ MOVNE R2,R2,LSL #2		; *4 if binary
+ ADD R2,R2,#1			; and the single space at the end
+
+ TST R4,#(1:SHL:9)
+ MOVEQ R5,#-1			; no groups
+ MOVNE R5,R4,LSR #24
+ ANDNE R5,R5,#&F		; n
+ TEQ R5,#0
+ MOVEQ R5,#16
+ MOV R4,R5			; also n
+
+ MOV R6,R2			; col offset
+loop$l
+ ; Do the breaks first because we start with col offset of the
+ ; end of the first screen column, and we're told to return the
+ ; next on the left.
+ SUBS R5,R5,#1			; can't do this in one? :-(
+; MOVLT R5,#-1			; breaks not enabled
+ ADDEQ R6,R6,#1			; ' '
+ MOVEQ R5,R4			; return grouping counter
+; SUB R5,R5,#1			; can't do this in one? :-(
+; CMP R5,#0
+; MOVLT R5,#-1			; breaks not enabled
+; BNE nobreak$l
+
+; ADD R6,R6,#1			; ' '
+; MOV R5,R4			; return grouping counter
+
+;nobreak$l
+ CMP R1,R6
+ BLT done$l
+
+ ADD R6,R6,R2			; screen column
+ ADD R0,R0,R3			; file offset catches up
+ SUBS R7,R7,R3			; off end of line?
+ BGT loop$l
+
+ TEQ R5,R4
+ SUBEQ R6,R6,#1			; allow for gap...
+
+ LDMIA R13,{R0,R4}		; read but don't unstack
+ LDR R7,[R8,#w_bpl]		; bytes per line (NOT columns)
+
+ TST R4,#(1:SHL:10)
+ MOVEQ R5,#-1			; no groups
+ MOVNE R5,R4,LSR #24
+ ANDNE R5,R5,#&F		; n
+ TEQ R5,#0
+ MOVEQ R5,#16
+
+ SUB R6,R6,R2
+ ADD R6,R6,#2
+ ADD R6,R6,R3			; adjust col offset
+
+ MOV R4,R5			; also n
+loop2$l
+ SUBS R5,R5,#1			; can't do this in one? :-(
+; MOVLT R5,#-1			; breaks not enabled
+ ADDEQ R6,R6,#1			; ' '
+ MOVEQ R5,R4			; return grouping counter
+
+ CMP R1,R6
+ BLT done$l
+
+ ADD R6,R6,R3			; screen column
+ ADD R0,R0,R3			; file offset catches up
+
+ SUBS R7,R7,R3			; off end of line?
+ BGT loop2$l
+ LDR R0,[R13]
+ LDR R7,[R8,#w_bpl]
+ SUB R0,R0,#1
+ ADD R0,R0,R7			; point to last char on line
+
+done$l
+ ADD R13,R13,#8			; discard stacked file offset + flags
+ LDR R1,[R9,#f_len]		; off end of file?
+ CMP R0,R1
+ MOVCS R0,R1			; if so, position at EOF
+ FNRTS
+
+mode1_plus
+ MVN R2,#0
+ ADD R1,R1,#1
+ MOV PC,R14
+
+mode1_minus
+ MVN R2,#0
+ SUB R1,R1,#1
+ MOV PC,R14
+
+mode1_linestart
+ STMFD R13!,{R1-R3,R14}
+ LDR R1,[R8,#w_bpl]
+ SWI XZapRedraw_Divide ; BL div_mod
+ LDR R1,[R8,#w_bpl]
+ MUL R0,R1,R0
+ LDMFD R13!,{R1-R3,PC}
+
+mode1_lineend
+ STMFD R13!,{R1-R3,R14}
+ LDR R1,[R8,#w_bpl]
+ SWI XZapRedraw_Divide ; BL div_mod
+ LDR R1,[R8,#w_bpl]
+ MLA R0,R1,R0,R1
+ LDR R1,[R9,#f_len]
+ CMP R0,R1
+ MOVCS R0,R1
+ LDMFD R13!,{R1-R3,PC}
+
+mode1_cplus
+ MVN R2,#0
+ LDR R1,[R8,#w_bpl]
+ ADD R0,R0,R1
+ SUB R1,R0,#1
+ MOV PC,R14
+
+mode1_cminus
+ MVN R2,#0
+ MOV R1,R0
+ MOV PC,R14
+
+;E R0=file offset R1=signed change (0 for a replace) R8/R9 (e_nextline)
+;X R0=file offset R1=phy ln / R0=file len R1=w_height (of next logical
+;  line which may be shifted down regardless of text inserted before it)
+
+mode1_nextline
+ STMFD R13!,{R2-R3,R14}
+ TEQ R1,#0
+ BNE cl7			; not a replace
+ BL cln_off			; R0=phy line R1=line offset
+ LDMVSFD R13!,{R2-R3,PC}
+ LDR R2,[R8,#w_bpl]
+ ADD R2,R1,R2			; offset of start of next line
+ ADD R1,R0,#1			; next phy line
+ LDR R0,[R9,#f_len]
+ CMP R2,R0
+ MOVCC R0,R2			; next shiftable line is next line
+ LDMCCFD R13!,{R2-R3,PC}
+cl7
+ LDR R0,[R9,#f_len]
+ LDR R1,[R8,#w_bpl]
+ SWI XZapRedraw_Divide ; BL div_mod			; get line in R0
+ MOV R1,R0			; phy line of end
+ LDR R0,[R9,#f_len]
+ LDMFD R13!,{R2-R3,PC}
+
+mode1_aligncaret
+ FNLDR R0,car_hex		; copy so can be recovered only
+ FNSTR R0,car_hexold		; by e_char entry point
+ MOV R0,#0
+ FNSTR R0,car_hex		; zero current value
+ MOV PC,R14
+
+; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
+
+mode1_char
+ TST R4,#1<<5
+ BEQ mode3_char			; ascii mode entry
+ FNJSR
+ FNLDR R0,car_hexold
+ FNSTR R0,car_hex
+ LDR R6,[R8,#w_mode1]
+in20
+ TST R6,#(1:SHL:11)		; binary
+ BNE in24
+
+ LDRB R0,[R7]
+ BL hex_char			; \X R0 = hex value
+ BCS in21			; char no good
+ STRB R0,[R7]			; save the char
+ FNLDR R0,car_hex
+ TEQ R0,#0			; entering first nibble?
+ BNE in22			; wrap round
+
+ LDR R0,[R9,#f_len]
+ LDR R1,[R10,#c_off]
+ CMP R1,R0
+ MOV R0,#4			; replace without cursor inc
+ MOVCS R0,#1			; cursor at end of file
+
+ TST R4,#2
+ MOVEQ R0,#1			; insert not overtype
+
+ TEQ R0,#1
+ MOVEQ R11,#-1			; need to correct caret
+ MOVNE R11,#0			; no caret change
+ B in23
+
+in22				; rotate and add new nibble
+ LDR R0,[R10,#c_off]
+ BL cln_readc			; \X R0 = char at cursor
+ MOV R1,R0,LSL#4		; shift the lower nibble
+ LDRB R0,[R7]
+ ORR R0,R1,R0			; insert the new lower nibble
+ STRB R0,[R7]			; return to buffer
+ MOV R0,#4			; replace no inc
+ MOV R11,#0			; no caret change
+
+in23				; do alteration
+ LDR R1,[R10,#c_off]		; at the cursor
+ MOV R2,#1			; one byte
+ MOV R3,R7			; data buffer
+ BL execute_command		; do it
+ FNRTS VS
+
+ TST R6,#(1:SHL:11)		; binary
+ BNE in27
+
+ FNLDR R0,car_hex
+ ADD R0,R0,#1
+ ANDS R0,R0,#1
+ FNSTR R0,car_hex		; update nibble position
+ MOVEQ R11,#1			; inc cursor if start of new
+
+in26				; update caret
+ TEQ R11,#0
+ BEQ in21			; carry on
+ LDR R0,[R10,#c_off]
+ ADD R0,R0,R11			; inc after last nibble, or dec
+ STR R0,[R10,#c_off]		; if insert first nibble
+ BL reflect_caret
+ FNRTS VS
+in21				; go on to next character
+ ADD R7,R7,#1
+ SUBS R5,R5,#1
+ BGT in20			; do next char
+ BL make_cursor_visible
+ FNRTS
+
+in24				; binary entry
+ LDRB R0,[R7]
+ CMP R0,#'0'
+ BLT in21			; bad binary char
+ MOVEQ R1,#0
+ STREQB R1,[R7]
+ CMP R0,#'1'
+ BGT in21			; bad binary char
+ MOVEQ R1,#1
+ STREQB R1,[R7]
+
+ FNLDR R0,car_hex
+ TEQ R0,#0			; entering first bit?
+ BNE in25
+
+ LDR R0,[R9,#f_len]
+ LDR R1,[R10,#c_off]
+ CMP R1,R0
+ MOV R0,#4			; replace without cursor inc
+ MOVCS R0,#1			; end of file, so insert
+
+ TST R4,#2
+ MOVEQ R0,#1			; insert not overtype
+
+ TEQ R0,#1
+ MOVEQ R11,#-1			; correct caret inc
+ MOVNE R11,#0
+ B in23				; do it
+
+in25				; rotate and add new bit
+ LDR R0,[R10,#c_off]
+ BL cln_readc			; \X R0 = char at cursor
+ MOV R1,R0,LSL#1		; shift lower bits
+ LDRB R0,[R7]
+ ORR R0,R1,R0			; insert new lowest bit
+ STRB R0,[R7]
+ MOV R0,#4			; replace no inc
+ MOV R11,#0			; no caret change
+ B in23
+
+in27				; update bit position
+ FNLDR R0,car_hex
+ ADD R0,R0,#1
+ ANDS R0,R0,#7
+ FNSTR R0,car_hex
+ MOVEQ R11,#1			; inc cursor if start of new
+ B in26
+
+;E R5=number of bytes R7=del type (0/1) R8-R10=input caret
+;X The R5 bytes are deleted R0-R11 corrupted
+
+mode1_delete
+ FNJSR
+ TST R7,#1
+ BNE de7			; delete next
+ LDR R1,[R10,#c_off]
+ CMP R5,R1
+ MOVGT R5,R1			; clip
+ SUB R1,R1,R5			; new pointer
+de8
+ CMP R5,#1
+ FNRTS LT			; none to delete
+ MOVEQ R0,#2			; delete char
+ MOVGT R0,#&12			; delete block
+ MOV R2,R5
+thedelete$l
+; FNLDR R14,opt_switches
+; ORR R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ BL execute_command		; delete the chars
+; FNLDR R14,opt_switches
+; BIC R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ FNRTS
+
+de7				; delete next
+ LDR R1,[R10,#c_off]
+ LDR R2,[R9,#f_len]
+ SUB R2,R2,R1			; max number to delete
+ CMP R5,R2
+ MOVGT R5,R2			; clip
+ CMP R5,#1
+ FNRTS LT			; none to delete
+ MOVEQ R0,#5			; delete char
+ MOVGT R0,#&15			; delete block
+ MOV R2,R5
+ ;B thedelete$l
+ BL execute_command		; delete the chars
+ FNRTS
+
+mode1_return
+ FNJSR
+ ADR R0,mo_s0			; command to execute
+ ORR R0,R0,#1 << 31		; don't learn
+ BL command_string
+ FNRTS
+mo_s0
+ FNS ("EDITBYTE")
+
+mode1_start
+ MOV R0,#1
+ B modes_start
+
+mode1_end
+ MOV R0,#1
+ B modes_end
+
+;E R1-R6 stacked R0=file offset R1=column
+;  R2=chars per screen column R3=bytes per screen column
+;X R0=file offset of the character
+
+modes_linecol
+ LDR R4,[R8,#w_bpl]
+ MOV R6,R2			; col offset
+cln_lc_4
+ CMP R1,R6
+ BLT cl14
+ ADD R0,R0,R3		; these two lines?		| Think not since
+ ADD R6,R6,R2		; swap with line below...?	| condition is LE? - sja
+ SUBS R4,R4,R3		; off end of line ?
+ BLE cl14
+ B cln_lc_4
+cl14
+ LDR R1,[R9,#f_len]
+ CMP R0,R1
+ MOVCS R0,R1
+ LDMFD R13!,{R1-R6,PC}
+
+mode1_copy
+ TEQ R0,#2
+ MOVEQ R0,#1
+ MOVEQ PC,R14			; ask copy to enter the text automatically
+ B modes_copy
+
+ LOCAL
+
+binarytest$l
+ LDR R0,[R8,#w_mode1]		; load in our mode word
+ TST R0,#1 << 11		; binary?
+ MOVNE R0,#2
+ MOVEQ R0,#16
+ MOV PC,R14
+
+mode1_returnword
+; LDR R0,[R10,#c_off] ; offset
+ MOV R1,#1 ; one byte long
+ MOV PC,R14
+
+mode1_interrogate
+ CMP R0,#14			; what sort of mode?
+ CMPNE R0,#23			; block editing?
+ CMPNE R0,#13			; SAYT
+ MOVEQ R0,#0			; binary
+ CMPNE R0,#11			; elaborate font sub-style processing?
+ MOVEQ PC,R14			; nope
+
+ CMP R0,#2			; softwrap
+ CMPNE R0,#5			; ConfineH
+ CMPNE R0,#6			; ConfineV
+ CMPNE R0,#7			; Free click
+ CMPNE R0,#8			; Smart cursors
+ MOVEQ R0,#-1			; none of the above
+
+ CMP R0,#3			; what width is wanted for this window?
+ BEQ whatwidthplease		; send bpl straight to e_setwidth
+
+ TEQ R0,#16			; binary
+ BEQ binarytest$l
+ CMP R0,#0			; what width is this window-wrapped window?
+ 				; R1 = width of window if displayed in text mode.
+ 				; we have to convert back to get bpl
+ MOVNE PC,R14
+ SUB R1,R1,#2			; colon
+
+ FNJSR "R4"			; store our R14, R4
+ ADR R14,return$l		; where we come back to
+ STMFD R13!,{R1-R3,R5-R7,R14}	; stack for procedure
+ LDR R4,[R8,#w_mode1]
+ MOV R2,#2			; hex width
+ MOV R3,#1			; in bytes
+ B modes_interrogate_width
+
+return$l
+ STR R4,[R8,#w_mode1]		; store result
+ FNRTS
+
+;\E R1-R3,R5-R7 stacked R1=width in window columns R8/R9
+;   R2=chars per screen column in hex (*4 if binary); add R3 for ascii
+;   R3=bytes per screen column
+;   R4=display format word
+;\X R0=bpl, R4=new display format word (number of groups updated)
+;
+;Temp R5=grouping counter, R6=col of current bpl, R7=break width
+;     R0=current bpl, R4=n
+
+modes_interrogate_width
+ TST R4,#(1:SHL:11)
+ MOVNE R2,R2,LSL #2		; *4 if binary
+ ADD R2,R2,#1			; space at end
+ ADD R2,R2,R3			; ascii dump
+
+ MOV R7,#0
+ TST R4,#(1:SHL:9)
+ ADDNE R7,R7,#1			; ' '
+
+ TST R4,#(1:SHL:10)
+ ADDNE R7,R7,#1			; ' '
+
+ MOV R5,R4,LSR #24
+ ANDS R5,R5,#&F			; n
+ MOVEQ R5,#16
+; AND R5,R5,#&F			; n
+ CMP R7,#0
+ MOVEQ R5,#-1			; no groups
+ PUSH "R4"			; format word
+ MOV R4,R5
+
+ MOV R6,R2			; cols for one screen column
+ MOV R0,R3			; first column
+loop$l
+ CMP R1,R6
+ SUBLT R0,R0,R3			; correct if we over-calculated
+ BLE done$l
+
+ ; Do the breaks next (cf modes_linecol_breaks) because
+ ; the last byte on a line never has a break after it.
+ SUBS R5,R5,#1
+ MOVLT R5,#-1
+ ADDEQ R6,R6,R7
+ MOVEQ R5,R4
+
+ ADD R6,R6,R2
+ ADD R0,R0,R3
+ B loop$l			; no EOL check for obvious reasons ...
+
+done$l
+ CMP R0,#&FF
+ MOVGT R0,#&100			; restriction
+ SUBGT R0,R0,R3
+ CMP R0,#0
+ MOVLE R0,R3			; minimum
+
+ ; Having done this we have w_bpl - this is poked directly (narg).
+ ; Usually this is then dropped through e_interrogate #3 to e_setwidth
+ ; (which is the mode0 version which just pumps it into mode word #0)
+ ; and then e_width is called to sort out the window width.
+ ; However in window wrap mode without infinite wrap turned on,
+ ; e_interrogate #3, e_setwidth and e_width won't be called, and so
+ ; this is the only chance we get in this situation to update our
+ ; internal number-of-groups counter.
+ PULL "R4"
+
+ ; \E R0=w_bpl, R4=mode word
+ ;MOV R4,R4,LSR #8
+ ;MOV R4,R4,LSL #8
+ BIC R4,R4,#&FF
+ MOV R2,R4,LSR #24
+ ANDS R2,R2,#&F			; r2 = 'n'
+ MOVEQ R2,#16
+ MUL R1,R3,R2			; correct because n isn't always in bytes
+ MOV R6,R0			; save for later...
+
+ SWINE XZapRedraw_Divide
+
+ CMP R2,#0
+ ADDGT R0,R0,#1			; r3 = number of groups
+
+ CMP R0,#&FF
+ MOVGT R0,#&FF			; more than this is silly!
+ ORR R4,R4,R0			; put the value in
+ MOV R0,R6			; returned width...
+
+ LDMFD R13!,{R1-R3,R5-R7,PC}	; return result
+
+whatwidthplease			; \E R1=w_bpl, \X R0=width to send to e_setwidth
+ MOV R0,R1
+ MOV PC,R14
+
+	LOCAL
+
+modes_click
+	CMP	R1,#2
+	BLT	default_click
+	TST	R4,#8
+	BNE	default_click
+0	CMP	R1,#5
+	SUBHS	R1,R1,#3
+	BHS	%BT0
+	STMFD	R13!,{R1,R14}
+	LDRB	R14,[R8,#w_format]	; mode no.
+	TEQ	R14,#3
+	TEQEQ	R1,#2
+	BEQ	tomode3_line
+	BL	find_offset
+	LDMFD	R13!,{R14}
+	CMP	R14,#3			; can only be 2,3,4
+	BLT	sel_char$l
+	BEQ	sel_line$l
+;sel_all$l
+	LDMFD	R13!,{R14}
+	B	select_buffer
+sel_char$l
+	MOV	R2,R0
+	BL	find_caret_pos
+	LDR	R3,[R10,#c_width]
+	SUB	R3,R3,#1
+sel_doit$l
+	LDR	R14,[R9,#f_len]
+	ADD	R3,R2,R3
+	CMP	R3,R14
+	MOVHS	R3,R14
+	LDMFD	R13!,{R14}
+	B	select_region
+sel_line$l
+	MOV	R2,R1
+	LDR	R3,[R8,#w_bpl]
+	B	sel_doit$l
+tomode3_line
+	LDMFD	R13!,{R1,R14}
+	B	mode0_click
+
+ END

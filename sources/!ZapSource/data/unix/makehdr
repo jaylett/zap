@@ -1,0 +1,55 @@
+#!/usr/bin/perl
+#
+# makehdr v0.1
+# (c) James Aylett 1998
+#
+# Takes an ObjAsm input file, creates a header file with its
+# EXPORTed symbols (using IMPORT, so you can just GET it in a file that
+# needs them), and optionally touches a third file in you're using a
+# two-phase build system.
+
+$VERSION = "makehdr v0.1 (c) James Aylett 1998";
+
+my ($t, $h, $s, $line);
+
+while (@ARGV)
+{
+  if ($ARGV[0] eq "-t")
+  {
+    shift;
+    $t = $ARGV[0];
+  }
+  elsif ($ARGV[0] eq "-h")
+  {
+    shift;
+    $h = $ARGV[0];
+  }
+  elsif ($ARGV[0] eq "-s")
+  {
+    shift;
+    $s = $ARGV[0];
+  }
+  else
+  {
+    die "Unrecognised option: $ARGV[0]\n";
+  }
+  shift;
+}
+
+defined($s) || $s ne "" || defined($h) || $h ne "" || die "Must specify both -s and -h\n";
+
+open (SOURCE, $s) || die "Couldn't open source file %s\n";
+open (HEADER, ">$h") || die "Couldn't open header file $s\n";
+
+print HEADER "; $h generated from $s\n; by $VERSION\n\n";
+
+while (defined($line = <SOURCE>))
+{
+  $line =~ s/EXPORT/IMPORT/ && print HEADER $line;
+}
+
+close (SOURCE);
+close (HEADER);
+
+# Finally, touch the 't' file ...
+defined($t) && $t ne "" && ( open (T, ">$t") && close (T) )

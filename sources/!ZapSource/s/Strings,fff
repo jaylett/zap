@@ -1,0 +1,1478 @@
+; Contains misc string handling subs
+; $Id: Strings,fff,v 1.2 1999/01/12 18:24:12 dj Exp $
+
+ GET h.ZapHeader
+ GET h.Heap
+
+ IMPORT check_object_type
+
+; EXPORT div_mod
+ EXPORT strcopy
+ EXPORT strcpy
+ EXPORT strdup
+ EXPORT strmove
+ EXPORT strbuf
+ EXPORT strcmp
+ EXPORT strCMP
+ EXPORT strcmpstr
+ EXPORT strCMPstr
+ EXPORT strstr
+ EXPORT strnum
+ EXPORT strover
+ EXPORT str_len
+ EXPORT str_jump
+ EXPORT str_skip
+ EXPORT str_separator
+ EXPORT str_fnseparator
+ EXPORT str_next
+ EXPORT str_readfile
+ EXPORT str_readnum
+ EXPORT str_comma
+ EXPORT str_strlen
+ EXPORT str_strcopy
+ EXPORT str_strncopy
+ EXPORT expr_strcopy
+ EXPORT expr_strlen
+ EXPORT do_longop
+ EXPORT long_op_on
+ EXPORT long_op_off
+ EXPORT long_op_display
+ EXPORT hex_read
+ EXPORT hex_char
+ EXPORT hex2
+ EXPORT hex8
+ EXPORT bin8
+ EXPORT reverse_word
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; DIVISION						      ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R0=numerator	  R1=denominator
+;X R0=R0 Div R1	  R2=R0 Mod R1	  R0-R3 corrupted |
+
+;div_mod
+;	MOV PC,R14
+;	CMP	R1,#40
+;	ADDLO	PC,PC,R1,LSL #2
+;	B	divbyn
+;	B	divby0
+;	B	divby1
+;	B	divby2
+;	B	divby3
+;	B	divby4
+;	B	divby5
+;	B	divby6
+;	B	divby7
+;	B	divby8
+;	B	divby9
+;	B	divby10
+;	B	divby11
+;	B	divby12
+;	B	divby13
+;	B	divby14
+;	B	divby15
+;	B	divby16
+;	B	divby17
+;	B	divby18
+;	B	divby19
+;	B	divby20
+;	B	divby21
+;	B	divby22
+;	B	divby23
+;	B	divby24
+;	B	divby25
+;	B	divby26
+;	B	divby27
+;	B	divby28
+;	B	divby29
+;	B	divby30
+;	B	divby31
+;	B	divby32
+;	B	divby33
+;	B	divby34
+;	B	divby35
+;	B	divby36
+;	B	divby37
+;	B	divby38
+;	B	divby39
+;divby0	MOV	R2,#0
+;	MVN	R0,#1<<31	; error!
+;	MOVS	PC,R14
+;divby1	MOV	R2,#0
+;	MOVS	PC,R14
+;divby2	AND	R2,R0,#1
+;	MOV	R0,R0,LSR #1
+;	MOVS	PC,R14
+;divby3	ADD	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #2
+;	RSB	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#3
+;	CMP	R2,#3
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#3
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby4	AND	R2,R0,#3
+;	MOV	R0,R0,LSR #2
+;	MOVS	PC,R14
+;divby5	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #2
+;	ADD	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#5
+;	CMP	R2,#5
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#5
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby6	ADD	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #3
+;	RSB	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#6
+;	CMP	R2,#6
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#6
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby7	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #2
+;	RSB	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#7
+;	CMP	R2,#7
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#7
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby8	AND	R2,R0,#7
+;	MOV	R0,R0,LSR #3
+;	MOVS	PC,R14
+;divby9	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #3
+;	ADD	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#9
+;	CMP	R2,#9
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#9
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby10	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #3
+;	ADD	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0A
+;	CMP	R2,#&0A
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0A
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby11	SUB	R1,R0,R0,LSR #2
+;	SUB	R1,R1,R0,LSR #5
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #10
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #3
+;	RSB	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0B
+;	CMP	R2,#&0B
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0B
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby12	ADD	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2,LSL #2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0C
+;	CMP	R2,#&0C
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0C
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby13	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #7
+;	SUB	R1,R1,R0,LSR #9
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #3
+;	RSB	R2,R1,R1,LSL #2
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0D
+;	CMP	R2,#&0D
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0D
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby14	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #3
+;	RSB	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0E
+;	CMP	R2,#&0E
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0E
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby15	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #3
+;	RSB	R2,R1,R1,LSL #4
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&0F
+;	CMP	R2,#&0F
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&0F
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby16	AND	R2,R0,#15
+;	MOV	R0,R0,LSR #4
+;	MOVS	PC,R14
+;divby17	SUB	R1,R0,R0,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #4
+;	ADD	R2,R1,R1,LSL #4
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&11
+;	CMP	R2,#&11
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&11
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby18	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #4
+;	ADD	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&12
+;	CMP	R2,#&12
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&12
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby19	SUB	R1,R0,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #5
+;	SUB	R1,R1,R0,LSR #9
+;	ADD	R1,R1,R0,LSR #12
+;	ADD	R1,R1,R0,LSR #14
+;	ADD	R1,R1,R1,LSR #18
+;	MOV	R1,R1,LSR #4
+;	ADD	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&13
+;	CMP	R2,#&13
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&13
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby20	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #4
+;	ADD	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2,LSL #2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&14
+;	CMP	R2,#&14
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&14
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby21	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #4
+;	ADD	R2,R1,R1,LSL #2
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&15
+;	CMP	R2,#&15
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&15
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby22	SUB	R1,R0,R0,LSR #2
+;	SUB	R1,R1,R0,LSR #5
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #10
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&16
+;	CMP	R2,#&16
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&16
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby23	SUB	R1,R0,R0,LSR #2
+;	SUB	R1,R1,R0,LSR #4
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #11
+;	ADD	R1,R1,R1,LSR #22
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&17
+;	CMP	R2,#&17
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&17
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby24	ADD	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #5
+;	RSB	R2,R1,R1,LSL #2
+;	SUBS	R2,R0,R2,LSL #3
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&18
+;	CMP	R2,#&18
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&18
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby25	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R0,LSR #3
+;	ADD	R1,R1,R0,LSR #6
+;	SUB	R1,R1,R0,LSR #11
+;	SUB	R1,R1,R0,LSR #13
+;	SUB	R1,R1,R0,LSR #16
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #2
+;	ADD	R2,R1,R2,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&19
+;	CMP	R2,#&19
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&19
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby26	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #7
+;	SUB	R1,R1,R0,LSR #9
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #2
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1A
+;	CMP	R2,#&1A
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1A
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby27	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #5
+;	SUB	R1,R1,R0,LSR #10
+;	SUB	R1,R1,R0,LSR #12
+;	ADD	R1,R1,R0,LSR #14
+;	ADD	R1,R1,R1,LSR #18
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #3
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1B
+;	CMP	R2,#&1B
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1B
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby28	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2,LSL #2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1C
+;	CMP	R2,#&1C
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1C
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby29	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R0,LSR #4
+;	SUB	R1,R1,R0,LSR #6
+;	ADD	R1,R1,R0,LSR #8
+;	ADD	R1,R1,R0,LSR #10
+;	SUB	R1,R1,R0,LSR #15
+;	SUB	R1,R1,R0,LSR #18
+;	ADD	R1,R1,R0,LSR #20
+;	SUB	R1,R1,R0,LSR #22
+;	SUB	R1,R1,R0,LSR #24
+;	ADD	R1,R1,R1,LSR #28
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #3
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1D
+;	CMP	R2,#&1D
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1D
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby30	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #4
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1E
+;	CMP	R2,#&1E
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1E
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby31	MOV	R1,R0,LSR #1
+;	ADD	R1,R1,R1,LSR #5
+;	ADD	R1,R1,R1,LSR #10
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #4
+;	RSB	R2,R1,R1,LSL #5
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&1F
+;	CMP	R2,#&1F
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&1F
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby32	AND	R2,R0,#31
+;	MOV	R0,R0,LSR #5
+;	MOVS	PC,R14
+;divby33	SUB	R1,R0,R0,LSR #5
+;	ADD	R1,R1,R1,LSR #10
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #5
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&21
+;	CMP	R2,#&21
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&21
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby34	SUB	R1,R0,R0,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #4
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&22
+;	CMP	R2,#&22
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&22
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby35	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R0,LSR #5
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&23
+;	CMP	R2,#&23
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&23
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby36	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2,LSL #2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&24
+;	CMP	R2,#&24
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&24
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby37	SUB	R1,R0,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #7
+;	SUB	R1,R1,R0,LSR #9
+;	SUB	R1,R1,R0,LSR #11
+;	ADD	R1,R1,R0,LSR #13
+;	SUB	R1,R1,R0,LSR #18
+;	ADD	R1,R1,R0,LSR #21
+;	ADD	R1,R1,R0,LSR #25
+;	ADD	R1,R1,R0,LSR #27
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&25
+;	CMP	R2,#&25
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&25
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby38	SUB	R1,R0,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #5
+;	SUB	R1,R1,R0,LSR #9
+;	ADD	R1,R1,R0,LSR #12
+;	ADD	R1,R1,R0,LSR #14
+;	ADD	R1,R1,R1,LSR #18
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&26
+;	CMP	R2,#&26
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&26
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby39	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R0,LSR #4
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&27
+;	CMP	R2,#&27
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&27
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divbyn
+; MOV R2,#0			; clear remainder
+; RSB R1,R1,#0			; negate denom
+; MOV R3,#32
+;; MOV R0,R0,LSL #8
+; TST R0,#&FF000000		; dispose of zero bytes
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8			; ???
+;; MOV R0,R0,LSL #8
+; TST R0,#&FF000000		; dispose of zero bytes
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8
+; TST R0,#&FF000000		; dispose of zero bytes
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8
+; ADDS R0,R0,R0			; double numerator
+;div_mod_1
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; SUB R3,R3,#4
+; TEQ R3,#0
+; BNE div_mod_1			; DO NOT CORRUPT CARRY
+;; BNE a$l			; DO NOT CORRUPT CARRY
+; MOVS PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; STRING HANDLING					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;; find string length
+
+ LOCAL
+
+;E R0=pointer to string terminated by 0 or 10 or 13
+;  May contain tabs or other ctrl chars
+;X R0=length of string not including the terminator |
+
+str_len
+ FNJSR "R1"
+ MOV R1,R0
+a$l
+ LDRB R14,[R0],#1
+ TEQ R14,#0
+ TEQNE R14,#10
+ TEQNE R14,#13
+ BNE a$l
+ SUB R0,R0,R1			; length including terminator
+ SUB R0,R0,#1			; length excluding terminator
+ FNRTS
+
+;;;; copy strings
+
+;E R1=dest R2=source (copy till <32 and zero added)
+;X R0=0 R1=end of dest (after 0) R2=char after terminator |
+
+strcopy
+ LDRB R0,[R2],#1
+ CMP R0,#32
+ STRCSB R0,[R1],#1
+ BCS strcopy
+ MOV R0,#0
+ STRB R0,[R1],#1
+ MOVS PC,R14
+
+;E R1=dest R2=source (copy till <32 and add no zero)
+;X R0=terminatior R1=end of dest R2=char after terminator |
+
+strcpy
+ LDRB R0,[R2],#1
+ CMP R0,#32
+ STRCSB R0,[R1],#1
+ BCS strcpy
+ MOVCC PC,R14
+
+	LOCAL
+
+;E R1=src (NUL-terminated)
+;X R0=copy of src (new heap block)
+
+strdup
+	FNJSR	"R1-R3"
+	MOV	R2,R1
+len$l	LDRB	R14,[R2],#1
+	TEQ	R14,#0
+	BNE	len$l
+	SUB	R3,R2,R1
+	MOV	R0,R3
+	BL	heap_claim
+	MOVVC	R14,R0
+	MOVVC	R2,R0
+	SWIVC	XZapRedraw_MoveBytes
+	MOVVC	R0,R14
+	FNRTS
+
+	LOCAL
+
+;E R1=dest R2=source R3=dest buf size R4=max terminating char
+;X str moved R1=dest 0 term R2=source term+1 R3=amount left in buf |
+
+strmove
+ SUBS R3,R3,#1			; remove room for terminator
+ MOVMI PC,R14			; no room
+a$l
+ CMP R3,#1
+ BLT b$l			; buffer full
+ LDRB R0,[R2],#1
+ CMP R0,R4
+ STRHIB R0,[R1],#1
+ SUBHI R3,R3,#1
+ BHI a$l			; not at end so fill and loop
+ MOV R0,#0
+ STRB R0,[R1]			; add term and return
+ MOV PC,R14
+b$l
+ MOV R0,#0
+ STRB R0,[R1]			; add terminator
+c$l
+ LDRB R0,[R2],#1
+ CMP R0,R4
+ BHI c$l			; move to end of source
+ MOV PC,R14
+
+ LOCAL
+
+;E R0=dest buffer size (>0) R1=dest buf R2=source (0,10,13 terminated)
+;X R0=bytes left in buffer R1=first free byte in buffer
+;  R2=first uncopied byte or the terminator if finished
+;  Zero terminator added to the string
+
+strbuf
+ FNJSR
+a$l
+ SUBS R0,R0,#1			; next character
+ BLE b$l			; only room for the terminator
+ LDRB R14,[R2],#1		; next source byte
+ TEQ R14,#0
+ TEQNE R14,#10
+ TEQNE R14,#13
+ STRNEB R14,[R1],#1		; done next byte
+ BNE a$l
+ SUB R2,R2,#1			; terminator
+b$l
+ MOV R14,#0
+ STRB R14,[R1],#1
+ FNRTS
+
+;E R1=dest string (0 term) R2=source string
+;X Source string copied 'over' the destination string R1-R2 corrupt.
+
+strover
+ LDRB R0,[R1]
+ CMP R0,#&20
+ MOVCC PC,R14
+ LDRB R0,[R2],#1
+ CMP R0,#&20
+ STRCSB R0,[R1],#1
+ BCS strover
+ MOV PC,R14
+
+ LOCAL
+
+;E R1=first str R2=second str
+;X Z flag returned R0-R2 corrupted case sensitive |
+
+strcmp
+ FNJSR
+a$l
+ LDRB R0,[R1],#1
+ LDRB R14,[R2],#1
+ CMP R0,#&20
+ TEQCS R0,R14
+ BEQ a$l			; next char
+; FNRTS CS			; not equal
+ CMPCC R14,#&1F
+ TEQCC R14,R14		; equal if R14 was a terminator
+ FNRTS
+
+ LOCAL
+
+;E R1=first string R2=second string
+;X Z flag returned R0-R2 corrupted. Not case sensitive |
+
+strCMP
+ FNJSR
+a$l
+ LDRB R0,[R1],#1
+ CMP R0,#'a'
+ RSBHSS R14,R0,#'z'
+ LDRB R14,[R2],#1
+ SUBHS R0,R0,#32
+ SUB R14,R14,#'a'
+ CMP R14,#26
+ ADDCS R14,R14,#'a'
+ ADDCC R14,R14,#'A'
+ CMP R0,#&20
+ TEQCS R0,R14
+ BEQ a$l
+; FNRTS CS
+ CMPCC R14,#&1F
+ TEQCC R14,R14
+ FNRTS
+
+ LOCAL
+
+;E R1=string R2=text (NB null strings R1 always fail to match)
+;X EQ if R1 matches start of text and R0=next point in text |
+
+strcmpstr
+ FNJSR "R1-R2"
+ LDRB R0,[R1]
+ CMP R0,#&20			; is R1 null
+ FNRTS CC			; return if so (with NE)
+a$l
+ LDRB R0,[R1],#1
+ CMP R0,#&20
+ LDRCSB R14,[R2],#1
+ TEQCS R0,R14			; does the match continue
+ BEQ a$l
+; FNRTS CS
+ MOVCC R0,R2
+ TEQCC R0,R0			; EQ
+ FNRTS
+
+ LOCAL
+
+;E R1=string R2=text (NB null strings R1 always fail to match)
+;X EQ if R1 matches start of text and R0=next point in text |
+;  Match is case insensitive
+
+strCMPstr
+ FNJSR "R1-R2"
+ LDRB R0,[R1]
+ CMP R0,#&20			; is R1 null
+ FNRTS CC			; return if so (with NE)
+a$l
+ LDRB R0,[R1],#1
+ CMP R0,#&20
+ BCC b$l			; reached end of R1 string so matches
+ CMP R0,#'a'
+ RSBHSS R14,R0,#'z'
+ LDRB R14,[R2],#1
+ SUBHS R0,R0,#32
+ SUB R14,R14,#'a'
+ CMP R14,#26
+ ADDCS R14,R14,#'a'
+ ADDCC R14,R14,#'A'
+ TEQ R0,R14			; does the match continue
+ BEQ a$l
+ FNRTS
+b$l
+ MOV R0,R2
+ TEQ R0,R0			; EQ
+ FNRTS
+
+; ;E R1=string R2=text (NB null strings R1 always fail to match)
+; ;X EQ if R2 matches a substring of R1, NE otherwise.
+; ;  Match is case insensitive
+;
+; str_instr
+;  FNJSR "R1-R2"
+;  LDRB R0,[R1]
+;  CMP R0,#&20			; is R1 null
+;  FNRTS CC			; return if so (with NE)
+;  LDRB R0,[R2]
+;  CMP R0,#&20			; is R1 null
+;  FNRTS CC			; return if so (with NE)
+; a$l
+;  LDRB R0,[R1],#1
+;  CMP R0,#&20
+;  BCC b$l			; reached end of R1 string so matches
+;  LDRB R14,[R2],#1
+;  SUB R0,R0,#'a'
+;  CMP R0,#26
+;  ADDCS R0,R0,#'a'
+;  ADDCC R0,R0,#'A'
+;  SUB R14,R14,#'a'
+;  CMP R14,#26
+;  ADDCS R14,R14,#'a'
+;  ADDCC R14,R14,#'A'
+;  TEQ R0,R14			; does the match continue
+;  FNRTS NE
+;  B a$l
+; b$l
+;  MOV R0,R2
+;  TEQ R0,R0			; EQ
+;  FNRTS
+
+;E R0=byte R1=buffer R2=number
+;X R0 saved R1=next byte after R2 R0's R2 undef |
+
+strstr
+ SUBS R2,R2,#1
+ STRGEB R0,[R1],#1
+ BGE strstr
+ MOV PC,R14
+
+;E R0=number R1=buffer
+;X number inserted into buffer, R1 updated to number end |
+
+strnum
+ STMFD R13!,{R2,R14}
+ MOV R2,#16
+ SWI XOS_ConvertInteger4
+ LDMFD R13!,{R2,PC}^		; no error
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Long op subs						       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0-R9=args R10=address of sub
+;X R0-R9=returned args & sub executed with long_op on/errors handled #
+
+do_longop
+ STMFD R13!,{R11,R14}
+ MOV R11,R0
+ BL long_op_on
+ LDMVSFD R13!,{R11,PC}
+ MOV R0,R11
+ MOVS R14,PC
+ MOV PC,R10			; call the sub
+ BVS do10
+ MOV R11,R0			; save output
+ BL long_op_off
+ MOVVC R0,R11			; output
+ LDMFD R13!,{R11,PC}
+do10
+ ADDS R11,R0,#0			; save error and clv
+ BL long_op_off			; switch off hourglass
+ MOV R0,R11
+ LDMFD R13!,{R11,R14}
+ ORRS PC,R14,#Vbit		; return with error
+
+;X Hourglass on and escape enabled #
+
+long_op_on
+ STMFD R13!,{R1,R2,R14}
+ SWI XHourglass_On
+ MOVVC R0,#229
+ MOVVC R1,#0			; new escape state
+ MOVVC R2,#0
+ SWIVC XOS_Byte			; enable escape
+ LDMFD R13!,{R1,R2,PC}
+
+;X Hourglass off and escape disabled #
+
+long_op_off
+ STMFD R13!,{R1,R2,R14}
+ SWI XHourglass_Off
+ MOVVC R0,#229
+ MOVVC R1,#1
+ MOVVC R2,#0
+ SWIVC XOS_Byte			; disable escape
+ MOVVC R0,#124
+ SWIVC XOS_Byte			; clear escape condition
+ LDMFD R13!,{R1,R2,PC}
+
+;E R0=numerator R1=denominator
+;X percentage shown on hourglass #
+
+long_op_display
+ STMFD R13!,{R1-R3,R14}
+ MOV R2,#100
+ MUL R0,R2,R0
+ SWI XZapRedraw_Divide ; BL div_mod
+ CMP R0,#99
+ MOVCS R0,#99
+ SWI XHourglass_Percentage
+ LDMFD R13!,{R1-R3,PC}
+
+;E R1=pointer to string of hex digits
+;X R1=first non hex digit found & R0=value of those found |
+
+hex_read
+ STMFD R13!,{R2,R14}
+ MOV R2,#0			; accumulated value
+he1
+ LDRB R0,[R1]
+ BL hex_char
+ ORRCC R2,R0,R2,LSL#4
+ ADDCC R1,R1,#1
+ BCC he1			; next digit
+ MOV R0,R2
+ LDMFD R13!,{R2,PC}
+
+ LOCAL
+
+;E R0=ascii character (upper or lower case)
+;X R0=hex value (0-15) / CS if not valid |
+
+hex_char
+; CMP R0,#'f'
+; ORRHIS PC,R14,#Cbit
+ CMP R0,#'a'
+ SUBHS R0,R0,#32
+ CMP R0,#'F'
+ ORRHIS PC,R14,#Cbit
+ CMP R0,#'A'
+ SUBCS R0,R0,#'A'-10
+ BICCSS PC,R14,#Cbit
+ CMP R0,#'9'
+ ORRHIS PC,R14,#Cbit
+ CMP R0,#'0'
+ SUBCS R0,R0,#'0'
+ BICCSS PC,R14,#Cbit
+ ORRS PC,R14,#Cbit
+
+;E R0=value (bottom 8 bits) R6=buffer
+;X 2 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
+
+hex2
+ AND R1,R0,#&F0
+ MOV R1,R1,LSR#4
+ CMP R1,#10
+ ADDCC R1,R1,#'0'
+ ADDCS R1,R1,#'A'-10
+ STRB R1,[R6],#1
+ AND R1,R0,#&0F
+ CMP R1,#10
+ ADDCC R1,R1,#'0'
+ ADDCS R1,R1,#'A'-10
+ STRB R1,[R6],#1
+ MOVS PC,R14
+
+;E R0=value (bottom 8 bits) R6=buffer
+;X 8 digit bin of value put in buffer R0 saved (R1 corrupted/R6 inc)
+
+bin8
+ STMFD R13!,{R14}
+ MOV R1,#'0'
+ MOV R14,#'1'
+ TST R0,#&80
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&40
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&20
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&10
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&8
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&4
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&2
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ TST R0,#&1
+ STRNEB R14,[R6],#1
+ STREQB R1,[R6],#1
+ LDMFD R13!,{PC}^
+
+;E R0=value (all 32 bits) R6=buffer
+;X 8 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
+
+hex8
+ FNJSR
+ MOV R0,R0,ROR#24
+ BL hex2
+ MOV R0,R0,ROR#24
+ BL hex2
+ MOV R0,R0,ROR#24
+ BL hex2
+ MOV R0,R0,ROR#24
+ BL hex2
+ FNRTSS
+
+;E R0=word
+;X Byte order reversed (little endian -> big endian) |
+
+reverse_word
+ FNJSR				; label bytes abcd
+ EOR R14,R0,R0,ROR#16		; (aEORc)(bEORd)(aEORc)(bEORd)
+ BIC R14,R14,#&FF0000		; (aEORc)   0	(aEORc)(bEORd)
+ MOV R0,R0,ROR#8		;    d	    a	   b	  c
+ EOR R0,R0,R14,LSR#8		;    d	    c	   b	  a
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read setup file - subs to read from a 'keys like' file ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R10=keys file pointer
+;X R10=rest of current string skipped then spaces skipped
+;  Returns line terminator if reached |
+
+str_jump
+ SUB R10,R10,#1
+a$l
+ LDRB R0,[R10,#1]!
+ TEQ R0,#0
+ TEQNE R0,#&0A
+ MOVEQ PC,R14			; reached end of line so can't continue
+ TEQ R0,#&20			; space
+ TEQNE R0,#9			; tab
+ BNE a$l			; haven't found seperator yet
+; B str_skip
+
+;E R10=keys file pointer
+;X R10=pointer after spaces/tabs skipped |
+
+str_skip
+ LDRB R0,[R10],#1
+ TEQ R0,#&20
+ TEQNE R0,#9
+ BEQ str_skip			; skip following spaces/tabs
+ SUB R10,R10,#1
+ MOVS PC,R14
+
+ LOCAL
+
+;E R10=keys file pointer
+;X R10=start of next argument if spaces used as a separator
+;  Start of separator otherwise. Separators are any punctuation symbol
+;  in ascii range !-/ :-? [-^ {-}
+
+str_separator
+ SUB R10,R10,#1			; compensate
+a$l
+ LDRB R0,[R10,#1]!
+ TEQ R0,#0
+ TEQNE R0,#&0A
+ MOVEQS PC,R14			; reached end of line so can't continue
+ TEQ R0,#&20			; space
+ TEQNE R0,#9			; tab
+ BEQ str_skip
+ CMP R0,#'!'
+ BLT a$l
+ CMP R0,#'/'
+ MOVLES PC,R14
+ CMP R0,#':'
+ BLT a$l
+ CMP R0,#'?'
+ MOVLES PC,R14
+ CMP R0,#'['
+ BLT a$l
+ CMP R0,#'^'
+ MOVLES PC,R14
+ CMP R0,#'{'
+ BLT a$l
+ CMP R0,#'}'
+ MOVLES PC,R14
+ B a$l
+
+	LOCAL
+
+;E R10=keys file pointer
+;X R10=start of next argument if spaces used as a separator
+;  Start of separator otherwise. Separators are in range \[^A-Za-z0-9_]
+;  Flags preserved (unlike str_separator)
+
+str_fnseparator
+	SUB	R10,R10,#1			; compensate
+a$l	LDRB	R0,[R10,#1]!
+	TEQ	R0,#32
+	BEQ	skip$l
+	CMP	R0,#'0'
+	RSBHSS	R1,R0,#'z'
+	MOVLOS	PC,R14
+	CMP	R0,#'9'
+	RSBHIS	R1,R0,#'A'
+	MOVHIS	PC,R14
+	CMP	R0,#'_'
+	CMPNE	R0,#'Z'
+	RSBHIS	R1,R0,#'a'
+	BLS	a$l
+	MOVS	PC,R14
+skip$l	LDRB	R0,[R10,#1]!
+	TEQ	R0,#32
+	BEQ	skip$l
+	MOVS	PC,R14
+
+ LOCAL
+
+;E R10=keys file pointer
+;X R10=start of next line CS if reached 0 at end of file
+;  In this case R0 points to the terminator.
+
+str_next
+ LDRB R0,[R10],#1
+ TEQ R0,#10
+ BEQ a$l			; found the start of next line
+ TEQ R0,#0
+ BNE str_next			; not yet at file end
+ SUB R10,R10,#1			; terminator
+ SUBS R0,R0,#0			; sec
+ MOV PC,R14
+a$l
+ ADDS R0,R0,#0			; clc
+ MOV PC,R14
+
+ LOCAL
+
+;E R10=pointer in file of signed integer
+;X R0=number read at this point VS if not valid.
+;  R10=next arg, calls str_separator so arg may start with ':' etc
+
+str_readnum
+ FNJSR "R1-R2"
+ MOV R1,R10			; string
+ MOV R2,#0
+ LDRB R0,[R10]
+ TEQ R0,#'-'
+ ADDEQ R1,R1,#1
+ MOV R0,#10			; base
+ SWI XOS_ReadUnsigned
+ FNRTS VS
+ LDRB R0,[R10]
+ TEQ R0,#'-'
+ RSBEQ R2,R2,#0			; negate the argument
+ MOV R10,R1			; terminator
+ BL str_separator		; jump to next argument
+ MOV R0,R2			; result
+ FNRTS
+
+	LOCAL
+
+;E R10=pointer in file of string argument (eg "fred" inc quotes)
+;X R10=pointer to char following comma or end of string
+;  R0=char at [R10,#-1] (comma or <' ')
+;  Commas in "" are ignored
+
+str_comma
+a$l	LDRB	R0,[R10],#1
+	CMP	R0,#','
+	CMPNE	R0,#&1F
+	MOVLS	PC,R14
+	TEQ	R0,#'"'
+	BNE	a$l
+b$l	LDRB	R0,[R10],#1
+	CMP	R0,#&1F
+	MOVLS	PC,R14
+	TEQ	R0,#'"'
+	BNE	b$l
+	B	a$l
+
+ LOCAL
+
+;E R10=pointer in file of string argument (eg (fred) inc quotes)
+;X R0=length of the string argument or -1 if invalid or quotes mismatched
+;  before a terminating character (eg 0 or LF)
+
+expr_strlen
+ FNJSR "R1,R2,R10"
+ MOV R2,#0
+ MOV R1,#0
+ MOV R0,#0
+ LDRB R14,[R10],#1		; first character
+ TEQ R14,#'('
+ BNE bad$l
+a$l
+ LDRB R14,[R10],#1
+ ADD R1,R1,#1
+ CMP R14,#'"'
+ EOREQ R2,R2,#1
+ CMP R14,#&20
+ BCC bad$l			; reached a terminator
+ TST R2,#1			; inside quotes...?
+ BNE a$l
+ TEQ R14,#'('                   ; single open br
+ ADDEQ R0,R0,#1
+ TEQ R14,#')'                   ; single close br
+ BNE a$l
+ SUBS R0,R0,#1
+ BPL a$l
+ SUBS R0,R1,#1			; we counted the end quote
+ ;MOV R0,R1			; we didn't count the end quote
+ FNRTS
+bad$l
+ MOVS R0,#-1
+ FNRTS
+
+ LOCAL
+
+;E R10=pointer in file of string argument (eg "fred" inc quotes)
+;X R0=length of the string argument or -1 if invalid or quotes mismatched
+;  before a terminating character (eg 0 or LF)
+
+str_strlen
+ FNJSR "R1,R10"
+ LDRB R0,[R10],#1		; first character
+ TEQ R0,#'"'
+ BNE bad$l
+ MOV R1,#0			; length count
+a$l
+ LDRB R14,[R10],#1
+ ADD R1,R1,#1
+ CMP R14,#&20
+ BCC bad$l			; reached a terminator
+ TEQ R14,#'"'                   ; single quote
+ BNE a$l
+ LDRB R14,[R10],#1
+ TEQ R14,#'"'                   ; check for double quote
+ BEQ a$l
+ SUBS R0,R1,#1			; we counted the end quote
+ FNRTS
+bad$l
+ MOVS R0,#-1
+ FNRTS
+
+ LOCAL
+
+;E R1=destination buffer
+;  R10=pointer in file of string argument (eg (fred) inc brackets)
+;X String copied to dest buffer and 0 added on the end
+;  R1 updated to byte after 0
+;  R10 updated to bytes after quote or pointer to file terminator
+
+expr_strcopy
+ FNJSR "R2,R3"
+ MOV R2,#0
+ MOV R3,#0
+ LDRB R0,[R10],#1		; first character
+ TEQ R0,#'('
+ BNE end$l
+a$l
+ LDRB R14,[R10],#1		; get next char
+ CMP R14,#&20
+ BCC end$l			; reached a terminator
+ STRB R14,[R1],#1		; output if not
+ CMP R14,#'"'
+ EOREQ R3,R3,#1
+ TEQ R3,#0
+ BNE a$l
+ TEQ R14,#'('
+ ADDEQ R2,R2,#1
+ TEQ R14,#')'
+ BNE a$l
+ SUBS R2,R2,#1
+ BPL a$l
+ ADD R10,R10,#1			; pointer to the terminator / after...!? )
+ SUB R1,R1,#1
+end$l
+ SUB R10,R10,#1			; pointer to the terminator / after )
+ MOV R0,#0
+ STRB R0,[R1],#1		; add terminator
+ FNRTS
+
+ LOCAL
+
+;E R1=destination buffer
+;  R10=pointer in file of string argument (eg "fred" inc quotes)
+;X String copied to dest buffer and 0 added on the end
+;  R1 updated to byte after 0
+;  R10 updated to bytes after quote or pointer to file terminator
+
+str_strcopy
+ FNJSR "R2"
+ MVN R2,#1<<31
+str_strcopy_entry
+ LDRB R0,[R10],#1		; first character
+ TEQ R0,#'"'
+ BNE end$l
+a$l
+ SUBS R2,R2,#1
+ BEQ limit$l
+ SUBMI R1,R1,#1
+ LDRB R14,[R10],#1		; get next char
+ CMP R14,#&20
+ BCC end$l			; reached a terminator
+ TEQ R14,#'"'                   ; a quote
+ STRNEB R14,[R1],#1		; output if not
+ BNE a$l
+ LDRB R14,[R10],#1		; byte following the quote
+ TEQ R14,#'"'                   ; check for double quote
+ STREQB R14,[R1],#1		; output if so
+ BEQ a$l
+end$l
+ SUBS R2,R2,#1
+ BEQ limit$l
+end2$l
+ SUB R10,R10,#1			; pointer to the terminator / after quote
+ MOV R0,#0
+ STRB R0,[R1],#1		; add terminator
+ FNRTS
+limit$l
+ LDRB R14,[R10],#1		; get next char
+ CMP R14,#&20
+ BCC end$l			; reached a terminator
+ TEQ R14,#'"'                   ; a quote
+ BNE limit$l
+ LDRB R14,[R10],#1		; byte following the quote
+ TEQ R14,#'"'                   ; check for double quote
+ BEQ limit$l
+ B end2$l
+
+;E R1=destination buffer
+;  R2=max length (inc. terminator)
+;  R10=pointer in file of string argument (eg "fred" inc quotes)
+;X String copied to dest buffer and 0 added on the end
+;   - if len >= R2 then truncated to (R2-1) characters plus terminator
+;  R1 updated to byte after 0
+;  R10 updated to bytes after quote or pointer to file terminator
+
+str_strncopy
+	FNJSR	"R2"
+	B	str_strcopy_entry
+
+ LOCAL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read a string file for processing ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=routine to read the file R1=pointer to file name
+;X R0=output from the routine & file read #
+;  Internal rountine called with R10=start of the file in a buffer and
+;  the file terminated by 0.
+
+str_readfile
+ FNJSR "R1-R7,R10-R11"
+ MOV R7,R0			; address of the sub to call
+ MOV R0,#5
+ SWI XOS_File			; get length in R4
+ BLVC check_object_type		; file found?
+ ADDVC R0,R4,#4			; length +4
+ BLVC heap_claim		; make room for file to R0
+ MOVVC R11,R4			; save length
+ MOVVC R10,R0			; save heap block
+ MOVVC R0,#&FF
+ MOVVC R2,R10
+ MOVVC R3,#0
+ SWIVC XOS_File			; load the file
+ MOVVC R0,#0
+ STRVCB R0,[R10,R11]		; add file terminator
+ FNRTS VS
+ MOVS R14,PC
+ MOV PC,R7			; call the sub
+ MOVVC R7,R0			; save the return register
+ MOVVC R0,R10
+ BLVC heap_free			; free the file
+ MOVVC R0,R7
+ FNRTS
+
+ END

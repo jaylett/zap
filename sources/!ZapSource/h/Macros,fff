@@ -1,0 +1,208 @@
+; Macros used in Zap assembly
+; $Id: Macros,fff,v 1.1 1999/01/06 16:59:23 dj Exp $
+
+; local labels use label$l to get a local label and LOCAL to start a new
+; area
+
+	GBLA LocalCount
+	GBLS l
+LocalCount SETA 1
+l	SETS "x$LocalCount"
+
+; increment local variable number
+
+	MACRO
+	LOCAL
+LocalCount SETA LocalCount+1
+l	SETS "x$LocalCount"
+	MEND
+
+; start of sub. If you specify a list of registers then these are stored as
+; well and will be pulled on an RTS.
+
+	GBLS StackedRegs
+
+	MACRO
+$la	FNJSR $a
+StackedRegs SETS "$a"
+$la	[ StackedRegs=""
+	STMFD R13!,{R14}
+	|
+	STMFD R13!,{$StackedRegs,R14}
+	]
+	MEND
+
+; end of sub + pull all stacked registers
+
+	MACRO
+$la	FNRTS $cc
+$la	[ StackedRegs=""
+	LDM$cc.FD R13!,{PC}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,PC}
+	]
+	MEND
+
+; just pulls stacked registers and R14
+
+	MACRO
+$la	FNPULL $cc
+$la	[ StackedRegs=""
+	LDM$cc.FD R13!,{R14}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,R14}
+	]
+	MEND
+
+; end of sub saving flags + pull all stacked registers
+
+	MACRO
+$la	FNRTSS $cc
+$la	[ StackedRegs=""
+	LDM$cc.FD R13!,{PC}^
+	|
+	LDM$cc.FD R13!,{$StackedRegs,PC}^
+	]
+	MEND
+
+; end sub with an error + pull all stacked registers (must not contain R0)
+
+	MACRO
+$la	FNRTV	$cc
+$la	[ StackedRegs=""
+	LDM$cc.FD R13!,{R14}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,R14}
+	]
+	ORR$cc.S PC,R14,#Vbit
+	MEND
+
+; end sub *without* an error + pull all stacked registers
+
+	MACRO
+$la	FNRTVC $cc
+$la	[ StackedRegs=""
+	LDM$cc.FD R13!,{R14}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,R14}
+	]
+	BIC$cc.S PC,R14,#Vbit
+	MEND
+
+; define a zero terminated string
+
+	MACRO
+$la	FNS $a
+$la	= $a,0
+	ALIGN
+	MEND
+
+; long adds $a=$b+#$c fixed length, $c must be word aligned
+
+	MACRO
+$la	FNADD $a,$b,$c,$cc
+$la	ADD$cc $a,$b,#($c:AND:&000003FF)
+	ADD$cc $a,$a,#($c:AND:&FFFFFC00)
+	MEND
+
+; ADR between files. $a=destination register $b=label of the word contaning
+; the module offset to ADR to. R12 must be set up. Uses R14.
+
+	MACRO
+$la	FNADR $a,$b
+$la	LDR $a,[R12,#env_modstart]	; start address of the module
+	LDR R14,$b			; offset in the module we want
+	ADD $a,$a,R14			; address in the module we want
+	MEND
+
+; Call a Zap entry point ($a=name of entry point as in ZapLibrary)
+
+	MACRO
+$la	FNcall $a,$r
+ [ "$r">""
+$la	LDR $r,[R12]
+	MOV R14,PC
+	ADD PC,$r,#$a
+ |
+$la	LDR R14,[R12]
+	ADD R14,R14,#$a
+	STMFD R13!,{R14}
+	MOV R14,PC
+	LDMFD R13!,{PC}
+ ]
+	MEND
+
+	MACRO
+$la	FNcallc $a,$cc,$r
+ [ "$r">""
+$la	LDR$cc $r,[R12]
+	MOV$cc R14,PC
+	ADD$cc PC,$r,#$a
+ |
+$la	LDR$cc R14,[R12]
+	ADD$cc R14,R14,#$a
+	STM$cc.FD R13!,{R14}
+	MOV$cc R14,PC
+	LDM$cc.FD R13!,{PC}
+ ]
+	MEND
+
+; Produce a general purpose error sub generating the given error $a
+
+	MACRO
+$la	ERR $a
+$la	ADD R0,PC,#0			; address of the error message
+	ORRS PC,R14,#Vbit		; return with an error
+	DCD ENUM			; error number
+	= "$a",0			; error message
+	ALIGN
+	MEND
+
+; Push a register list $a onto the stack
+
+	MACRO
+$la	PUSH $a,$cc
+$la	STM$cc.FD R13!,{$a}
+	MEND
+
+; Pull a register list $a from the stack
+
+	MACRO
+$la	PULL $a,$cc
+$la	LDM$cc.FD R13!,{$a}
+	MEND
+
+; Pulls a register list $a from the stack, leaving the SP alone...
+
+	MACRO
+$la	PULLS $a,$cc
+$la	LDM$cc.FD R13,{$a}
+	MEND
+
+; Divide...
+
+	MACRO
+$la	DIVIDE  $a,$b,$c,$d
+	LOCAL
+$la     CMP     $b,#0
+        MOVEQ   $b,#1
+        MOV     $d,#1
+div1A$l CMP     $a,$b,ASL #1
+        MOVGE   $b,$b,ASL #1
+        MOVGE   $d,$d,ASL #1
+        BGE     div1A$l
+        MOV     $c,#0
+div2A$l CMP     $a,$b
+        SUBGE   $a,$a,$b
+        ADDGE   $c,$c,$d
+        MOV     $b,$b,LSR #1
+        MOVS    $d,$d,LSR #1
+        BNE     div2A$l
+
+	LOCAL
+
+	MEND
+
+; end of macros
+
+	END

@@ -1,0 +1,2390 @@
+; Contains code for handling extension modes.
+; $Id: ModeBits,fff,v 1.2 1999/01/12 18:24:03 dj Exp $
+
+ GET h.ZapHeader
+ GET h.Fonts
+ GET h.Mode0
+ GET h.CreateFile
+ GET h.CreateWind
+ GET h.Search
+ GET h.Strings
+ GET h.Redraw
+ GET h.Heap
+ GET h.AlterTxt
+ GET h.Commands
+ GET h.TMTVars
+ GET h.Mode4
+
+ IMPORT err23
+ IMPORT read_given_config_block
+ IMPORT remove_external_object
+ IMPORT create_menu_structure
+ IMPORT are_we_initialising
+ IMPORT init_basemap
+
+ EXPORT init_modes
+ EXPORT init_comms
+ EXPORT call_mode
+ EXPORT call_given_mode
+ EXPORT call_base_mode
+ EXPORT call_given_base_mode
+ EXPORT broadcast
+ EXPORT read_mode
+ EXPORT kill_modes
+ EXPORT kill_commands
+ EXPORT add_new_mode
+ EXPORT read_var
+ EXPORT write_var
+ EXPORT choose_mode_format
+ EXPORT find_file_mode
+ EXPORT cln_phy
+ EXPORT cln_log
+ EXPORT cln_off
+ EXPORT cln_count
+ EXPORT cln_lineoff
+ EXPORT cln_linecol
+ EXPORT cln_txt_splus
+ EXPORT new_mode
+ EXPORT mode_colour
+ EXPORT mode_colour_all
+ EXPORT mode_data
+ EXPORT issue_service
+ EXPORT find_mode_number
+ EXPORT test_mode_name
+ EXPORT get_mode_params
+ EXPORT modes_start
+ EXPORT modes_end
+ EXPORT get_mode_word
+ EXPORT put_mode_word
+ EXPORT read_conf_mode_data
+ EXPORT create_modedata
+ EXPORT mode_colour_num
+ EXPORT make_default_mode
+ EXPORT post_load
+ EXPORT pre_save
+ EXPORT mode_name
+ EXPORT load_mode_module
+ EXPORT loaddisasmwithcare
+ EXPORT loaddisasm
+ EXPORT loadhidepointer
+ EXPORT loadflashcar
+ EXPORT loadlineeditor
+; EXPORT loadzapredraw
+ EXPORT loadiclear
+ EXPORT loadkeyextend
+; EXPORT checkseeifzapredrawloaded
+ EXPORT checkseeifdisasmloaded
+ EXPORT checkseeiflineeditorloaded
+ EXPORT checkseeifFTEloaded
+ EXPORT quick_read_mode_colour
+ EXPORT getmoduleversionnumber
+ EXPORT kill_if_on_kill_list
+ EXPORT init_kill_list
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Mode loading / initialisation				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R10=mode number for which a module table pointer exists
+;X 1. New Zap dispatch table created
+;  2. Mode's e_init called with R1=1 (mode about to start up)
+
+init_a_mode
+ FNJSR "R1-R11"
+ MOV R0,R10
+ BL read_mode			; R0=unlinked table pointer
+ FNRTS VS
+ ADDS R9,R0,#0			; unlinked module table pointer
+ FNRTS LE			; mode not valid
+ LDR R8,[R9,#e_module]
+ SUB R8,R9,R8			; R8=module start address
+ MOV R1,#0
+ MOV R2,#0
+find$l				; find the module in the OS list
+ MOV R0,#12
+ SWI XOS_Module			; get workspace pointer in R4
+ BLVS err$l			; Mode table corrupt
+ FNRTS VS
+ TEQ R3,R8
+ BNE find$l			; not matched yet
+ FNADR R6,ext1$l		; start of mode table 0
+ LDR R6,[R6,#e_len]		; R6=length of unliked mode table
+ MOV R0,R6,LSL#1		; 2 words per entry
+ BL heap_claim			; claim the Zap dispatch table
+ FNRTS VS
+ MOV R7,R0			; dispatch table (don't write 'till complete)
+ STR R8,[R7]			; module address
+ STR R4,[R7,#4]			; module workspace
+ LDR R0,[R9,#e_mode]		; mode it wanted to be + flags
+ BIC R0,R0,#&FF
+ ORR R0,R0,R10			; add mode actually is
+ STR R0,[R7,#2*e_mode]		; actual mode number + flags
+ LDR R0,[R9,#e_basemode]
+ STR R0,[R7,#2*e_basemode]	; basemode number
+ LDR R0,[R9,#e_title]
+ ADD R0,R0,R8
+ STR R0,[R7,#2*e_title]		; title
+ LDR R0,[R9,#e_author]
+ ADD R0,R0,R8
+ STR R0,[R7,#2*e_author]	; author
+ LDR R0,[R9,#e_init]
+ ADD R0,R0,R8
+ STR R0,[R7,#2*e_init]		; initialise sub
+ STR R4,[R7,#2*e_init+4]	; workspace
+ LDR R0,[R9,#e_menu]
+ TEQ R0,#0
+ ADDNE R0,R0,R8
+ STR R0,[R7,#2*e_menu]		; menu pointer /0
+ MOV R2,R4			; save module workspace
+ LDR R5,[R9,#e_len]		; length of valid data in table
+ MOV R4,#&20			; start of subs
+ LDR R0,[R9,#e_basemode]	; basemode
+ BL read_mode			; R1=linked basemode table
+ FNRTS VS
+ MOV R3,R1			; linked table (may be invalid - mode 0)
+entry$l				; next entry loop
+ CMP R4,R6			; have we reached the table end?
+ BCS end$l
+ CMP R4,R5
+ BCS usebase$l			; off end of table
+ LDR R0,[R9,R4]
+ CMP R0,#0
+ BLE usebase$l			; use basemode offset
+ ADD R0,R8,R0			; address of sub
+ MOV R1,R2			; workspace pointer
+ B fillin$l
+usebase$l			; use the basemode value for this offset
+ CMP R3,#&8000			; NOW check if R3 valid
+ BLE err2$l			; base mode not valid
+ FNRTS VS
+ ADD R14,R3,R4,LSL#1		; basemode entry
+ LDMIA R14,{R0,R1}		; address and workspace
+fillin$l			; R0,R1=sub,workspace ptr
+ ADD R14,R7,R4,LSL#1
+ STMIA R14,{R0,R1}		; save the entry
+ ADD R4,R4,#4			; next sub
+ B entry$l			; loop
+end$l				; table completed
+ FNADD R14,R12,mode_store
+ ADD R14,R14,R10,LSL#3
+ STR R7,[R14,#4]		; write the address of the linked table
+ MOV R0,R10			; mode number
+ MOV R1,#1			; about to start mode
+ MOV R11,#e_init		; (menus and options word not yet set up)
+ BL call_given_mode             ; OK...
+ FNRTS
+ext1$l DCD mode_table_0
+err$l  ERR "Extension mode table corrupt"
+err2$l ERR "Base mode invalid"
+
+ LOCAL
+
+;E R10=mode number for which a module table pointer exists
+;X 1. New Zap dispatch table created
+;  2. Mode's e_init called with R1=1 (mode about to start up)
+
+;init_a_mode2
+; FNJSR "R1-R11"
+; MOV R0,R10
+; BL read_mode			; R0=unlinked table pointer
+; FNRTS VS
+; ADDS R9,R0,#0			; unlinked module table pointer
+; FNRTS LE			; mode not valid
+; LDR R8,[R9,#e_module]
+; SUB R8,R9,R8			; R8=module start address
+; MOV R1,#0
+; MOV R2,#0
+;find$l				; find the module in the OS list
+; MOV R0,#12
+; SWI XOS_Module			; get workspace pointer in R4
+; BLVS err$l			; Mode table corrupt
+; FNRTS VS
+; ;FNRTS
+; TEQ R3,R8
+; BNE find$l			; not matched yet
+; FNADR R6,ext1$l		; start of mode table 0
+; LDR R6,[R6,#e_len]		; R6=length of unliked mode table
+; MOV R0,R6,LSL#1		; 2 words per entry
+; BL heap_claim			; claim the Zap dispatch table
+; FNRTS VS
+; MOV R7,R0			; dispatch table (don't write 'till complete)
+; STR R8,[R7]			; module address
+; STR R4,[R7,#4]			; module workspace
+; LDR R0,[R9,#e_mode]		; mode it wanted to be + flags
+; BIC R0,R0,#&FF
+; ORR R0,R0,R10			; add mode actually is
+; STR R0,[R7,#2*e_mode]		; actual mode number + flags
+; LDR R0,[R9,#e_basemode]
+; STR R0,[R7,#2*e_basemode]	; basemode number
+; LDR R0,[R9,#e_title]
+; ADD R0,R0,R8
+; STR R0,[R7,#2*e_title]		; title
+; LDR R0,[R9,#e_author]
+; ADD R0,R0,R8
+; STR R0,[R7,#2*e_author]	; author
+; LDR R0,[R9,#e_init]
+; ADD R0,R0,R8
+; STR R0,[R7,#2*e_init]		; initialise sub
+; STR R4,[R7,#2*e_init+4]	; workspace
+; LDR R0,[R9,#e_menu]
+; TEQ R0,#0
+;; ADDNE R0,R0,R8
+;; STR R0,[R7,#2*e_menu]		; menu pointer /0
+;; MOV R2,R4			; save module workspace
+;; LDR R5,[R9,#e_len]		; length of valid data in table
+;; MOV R4,#&20			; start of subs
+;; LDR R0,[R9,#e_basemode]	; basemode
+; BL read_mode			; R1=linked basemode table
+; FNRTS VS
+; MOV R3,R1			; linked table (may be invalid - mode 0)
+;entry$l				; next entry loop
+; CMP R4,R6			; have we reached the table end?
+; BCS end$l
+; CMP R4,R5
+; BCS usebase$l			; off end of table
+; LDR R0,[R9,R4]
+; CMP R0,#0
+; BLE usebase$l			; use basemode offset
+; ADD R0,R8,R0			; address of sub
+; MOV R1,R2			; workspace pointer
+; B fillin$l
+;usebase$l			; use the basemode value for this offset
+; CMP R3,#&8000			; NOW check if R3 valid
+; BLE err2$l			; base mode not valid
+; FNRTS VS
+; ADD R14,R3,R4,LSL#1		; basemode entry
+; LDMIA R14,{R0,R1}		; address and workspace
+;fillin$l			; R0,R1=sub,workspace ptr
+; ADD R14,R7,R4,LSL#1
+; STMIA R14,{R0,R1}		; save the entry
+; ADD R4,R4,#4			; next sub
+; B entry$l			; loop
+;end$l				; table completed
+; FNADD R14,R12,mode_store
+; ADD R14,R14,R10,LSL#3
+; STR R7,[R14,#4]		; write the address of the linked table
+; MOV R0,R10			; mode number
+; MOV R1,#1			; about to start mode
+; MOV R11,#e_init		; (menus and options word not yet set up)
+; BL call_given_mode             ; OK...
+; FNRTS
+;ext1$l DCD mode_table_0
+;err$l  ERR "Extension mode table corrupt"
+;err2$l ERR "Base mode invalid"
+
+;E R10=mode number
+;X Config file block for this mode read and opt_moden,opt_modedata updated
+;  (don't do for windows until after e_init 2!)
+
+init_mode_config
+ FNJSR "R1,R8-R10"
+ MOV R0,#2			; mode block
+ MOV R1,R10
+ BL read_given_config_block	; read the block if it exists
+ FNRTS VS
+ FNLDR R0,opt_modedata
+ LDR R0,[R0,R10,LSL#2]
+ CMP R0,#0
+ FNRTS GT			; mode block adready set up
+ MOV R8,R10			; mode
+ ADR R9,default$l		; default block
+ MOV R10,#12			; length (old format)
+ BL read_conf_mode_data		; set up the default block
+ FNRTS
+default$l
+ DCD 77+&12010000
+ DCD &97070077
+ DCD &B
+
+ LOCAL
+
+;X All newly initialsed modes have their e_init entry points called with
+;  R1=2 (started up). All modes in the module must have been started up.
+;  Don't copy options to window block 'till after this
+
+init_modes_init
+ FNJSR "R1-R11"			; some inits may corrupt registers :(
+ ADR R9,init_mode_list
+a$l
+ LDRB R10,[R9],#1
+ TEQ R10,#&FF
+ FNRTS EQ			; finished
+ MOV R0,#136			; *** Zap version number ***
+ MOV R1,#11			; advise vsn no >= 136
+ MOV R11,#e_init
+ BL call_given_mode
+ MOVVC R0,R10			; mode number
+ MOVVC R1,#2			; started mode
+ MOVVC R11,#e_init
+ BLVC call_given_mode
+ BVC a$l
+ FNRTS
+
+ LOCAL
+
+;X It looks through the list of modes and all modes that have been loaded
+;  (module table address set up) but not but initialised (linked table
+;  address not set up) are initialised, ready to go.
+
+init_modes			; /the/ problem routine...
+ FNJSR "R1,R9-R10"
+ MOV R10,#0			; current mode (note: must set up in order)
+ ADR R9,init_mode_list		; keep a list of loaded modes
+a$l
+ MOV R0,R10
+ BL read_mode
+ FNRTS VS
+ CMP R0,#0
+ BLE next$l			; no mode loaded in this slot
+ CMP R1,#0
+ BGT next$l			; mode already set up and running
+ STRB R10,[R9],#1		; this is a new mode
+ BL init_a_mode			; create dispatch table for this mode
+ BLVC init_mode_config		; read the config block (or default)
+ FNRTS VS
+next$l
+ ADD R10,R10,#1
+ CMP R10,#max_mode
+ BCC a$l
+ MOV R0,#&FF
+ STRB R0,[R9]			; terminate list
+ BL init_modes_init		; call e_init with R1=2 to init options
+ FNRTS VS			; blocks
+ ADR R10,init_mode_window
+ BL do_allwindow		; update open windows options blocks
+ ; SUBS R14,R14,R14		; clv...? (????)
+ BLVC init_mode_menu		; initialise the menus - a problem?
+ FNRTS
+
+;init_modes2			; /the/ problem routine...
+;; FNJSR "R1,R9-R10"
+; FNJSR "R1-R12"
+; MOV R10,#0			; current mode (note: must set up in order)
+; ADR R9,init_mode_list		; keep a list of loaded modes
+;a1$l
+; MOV R0,R10
+; BL read_mode
+; FNRTS VS
+; CMP R0,#0
+; BLE next1$l			; no mode loaded in this slot
+; CMP R1,#0
+; BGT next1$l			; mode already set up and running
+; STRB R10,[R9],#1		; this is a new mode
+; BL init_a_mode2			; create dispatch table for this mode
+; BLVC init_mode_config		; read the config block (or default)
+; FNRTS VS
+;next1$l
+; ADD R10,R10,#1
+; CMP R10,#max_mode
+; BCC a1$l
+; MOV R0,#&FF
+; STRB R0,[R9]			; terminate list
+; BL init_modes_init		; call e_init with R1=2 to init options
+; FNRTS VS			; blocks
+; ADR R10,init_mode_window
+; BL do_allwindow		; update open windows options blocks
+; SUBS R14,R14,R14		; clv...?
+; BLVC init_mode_menu		; initialise the menus - a problem?
+; FNRTS
+
+init_mode_list % (max_mode+1)	; &FF terminated list of modes being loaded
+ ALIGN
+
+ LOCAL
+
+;E R8/R9=window
+;X Options blocks for newly create modes set up for this window
+
+init_mode_window
+ FNJSR "R1-R4"
+ ADR R3,init_mode_list		; list of the new modes
+a$l				; next mode
+ LDRB R4,[R3],#1
+ TEQ R4,#&FF
+ FNRTS EQ
+ MOV R0,R4
+ FNLDR R1,opt_modedata
+ LDR R2,[R8,#w_modedata]
+ BL create_modedata_block
+ MOVVC R0,R4
+ ADDVC R1,R12,#opt_mode0
+ BLVC copy_a_mode_buffer
+ BVC a$l
+ FNRTS
+
+;X All newly initialised modes have their e_menus looked at and set up
+
+init_mode_menu
+ FNJSR "R1-R3,R10-R11"
+ ADR R3,init_mode_list		; list of the new modes
+loop$l
+ LDRB R10,[R3],#1		; get next mode
+ TEQ R10,#&FF
+ FNRTS EQ			; finished
+ MOV R11,#e_init
+ MOV R1,#7
+ BL call_given_mode		; see if it's got a new menu
+ FNRTS VS
+ MOV R2,R1			; save the new menu pointer
+ MOV R0,R10
+ BL read_mode			; R1=linked address
+ TEQ R2,#7
+ BNE got$l
+ LDR R0,[R1,#2 * e_menu]	; get pointer to menu
+ CMP R0,#0
+ MOVLE R2,#0
+ BLE got$l			; none!
+ PUSH "R1"
+ LDR R1,[R1]			; module address (base for offsets)
+ BL create_menu_structure
+ PULL "R1"
+ FNRTS VS
+ MOV R2,R0
+got$l				; R2=new menu pointer
+ STR R2,[R1,#2 * e_menu]	; fix new menu pointer
+ B loop$l			; next mode
+
+ LOCAL
+
+;E R0=filename of module to load with * command on end / 0 if loaded
+;  Bit 31 set if no * command present
+;X Module loaded and all modes/command tables it contains installed #
+
+load_mode_module
+ FNJSR "R1-R2" ; was 1-2
+ ADDS R1,R0,#0
+ FNRTS EQ			; filename is null (already loaded)
+ TST R1,#1 << 31
+ BICNE R1,R1,#1 << 31
+ BNE load$l			; only module name given
+ BL str_len
+ ADD R0,R1,R0
+ ADD R0,R0,#1			; address of * command
+ LDRB R14,[R0]
+ CMP R14,#&20
+ BLE load$l
+; PUSH "R1-R12"			; needed?
+ SWI XWimp_StartTask		; execute it (non null) ('s OK...)
+; PULL "R1-R12"			; needed?
+load$l
+ FNLDR R2,com_number		; save current number of command tables
+ MOV R0,#1
+ SWI XOS_Module			; load the module
+ MOVVC R0,R1
+ BLVC remove_external_object	; prevent it from being reloaded
+ FNRTS VS
+ BL are_we_initialising
+ BLNE init_modes		; initialise all new modes
+ MOVVC R0,R2
+ BLVC init_comms
+ FNRTS
+
+;load_mode_module
+; FNJSR "R1-R2" ; was 1-2
+; ADDS R1,R0,#0
+; FNRTS EQ			; filename is null (already loaded)
+; TST R1,#1 << 31
+; BICNE R1,R1,#1 << 31
+; BNE load$l			; only module name given
+; BL str_len
+; ADD R0,R1,R0
+; ADD R0,R0,#1			; address of * command
+; LDRB R14,[R0]
+; CMP R14,#&20
+; BLE load$l
+;; PUSH "R1-R12"			; needed?
+; SWI XWimp_StartTask		; execute it (non null) ('s OK...)
+;; PULL "R1-R12"			; needed?
+;load$l
+; FNLDR R2,com_number		; save current number of command tables
+; MOV R0,#1
+; SWI XOS_Module			; load the module
+;; FNRTS VS
+; MOVVC R0,R1
+; BLVC remove_external_object	; prevent it from being reloaded
+; BLVC init_modes		; initialise all new modes
+;
+;; FNRTS VS			; if active this line can cause terrible
+;				; problems with taskwindows...???
+; MOVVC R0,R2
+; BLVC init_comms
+;; SWI &107 ;;;;;;;;;;;;;;;;;;;;;;:????????????????????????
+;; SUBS R14,R14,R14		; clv
+; FNRTS
+
+ LOCAL
+
+;E R0=first command table to initialise
+;X Command tables between R0 and com_number initialised #
+
+init_comms
+ FNJSR "R1-R11"
+ ADD R10,R12,#command_store	; start of list
+ FNLDR R11,com_number		; number of command tables
+ ADD R11,R10,R11,LSL #2		; last table
+ ADD R10,R10,R0,LSL #2		; current table
+next$l
+ CMP R10,R11			; reached the end?
+ FNRTS GE
+ LDR R0,[R10],#4		; get table address
+ LDR R14,[R0,#4]		; find the service call offset
+ CMP R14,#0
+ BLE next$l			; none
+ LDR R1,[R0]			; find offset from module start
+ SUB R0,R0,R1			; address of module start
+ ADD R9,R0,R14			; offset of service call handler
+ MOV R1,#1
+ MOVS R14,PC			; return address
+ MOV PC,R9			; call the service call with R1=1
+ MOVVC R1,#2
+ FNRTS VS
+ MOVS R14,PC			; return address
+ MOV PC,R9			; call the service call with R1=2
+ BVC next$l
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Calling a mode entry point				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0-R10=args R8=wind block giving mode R11=entry point offset
+;X R0-R11=as returned by the sub (R11 usually subs workspace)
+
+call_mode
+ STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ LDRB R0,[R8,#w_format]		; display mode
+ ADD R1,R12,#(command_store + 4)
+ ADD R1,R1,#(mode_store - command_store); start of list+4
+ LDR R0,[R1,R0,LSL #3]		; mode dispatch table in R0
+ LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
+ LDR R11,[R0,#4]		; workspace pointer to use
+ STR R1,[R13,#8]		; overwrite the blank with the address
+ LDMFD R13!,{R0-R1,PC}		; restore args and call the sub (R14=ret)
+
+;E R0-R9=args R10=mode number to call R11=entry point offset
+;X R0-R11=as returned by sub & mode called if valid (returns o/w)
+
+call_given_mode
+ STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ ADD R1,R12,#(command_store + 4); start of list+4
+ ADD R1,R1,#(mode_store - command_store); start of list+4
+ LDR R0,[R1,R10,LSL #3]		; mode dispatch table in R0
+ CMP R0,#0			; do nothing if mode blank
+ LDRGT R1,[R0,R11,LSL #1]!	; address of the sub + save
+ LDRGT R11,[R0,#4]		; workspace pointer
+ STRGT R1,[R13,#8]		; overwrite the blank with the address
+ LDMFD R13!,{R0-R1,PC}		; restore args and call the sub (R14=ret)
+
+;E R0-R9=args R8 gives mode R11=entry point offset
+;X R0-R11 as returned by sub #
+; NOW OBSOLETE!!
+
+call_base_mode
+ STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ LDRB R0,[R8,#w_format]		; display mode
+ ADD R1,R12,#(command_store + 4)	; start of list+4
+ ADD R1,R1,#(mode_store - command_store)	; start of list+4
+ LDR R0,[R1,R0,LSL #3]		; linked table
+ LDRB R0,[R0,#2*e_basemode]	; base mode
+ LDR R0,[R1,R0,LSL #3]		; linked table
+ LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
+ LDR R11,[R0,#4]		; workspace pointer
+ STR R1,[R13,#8]		; address to jump to
+ LDMFD R13!,{R0-R1,PC}		; restore args and jump
+
+;E R0-R7=args R8=window R9=mode calling R10=arg R11=e_ offset
+;X R9 set up to file block then entry point called
+;  R0-R11 as returned by sub #
+
+call_given_base_mode
+ STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ ADD R1,R12,#(command_store + 4) ; start of list+4
+ ADD R1,R1,#(mode_store - command_store) ; start of list+4
+ LDR R0,[R1,R9,LSL #3]		; linked table
+ LDRB R0,[R0,#2*e_basemode]	; base mode
+ LDR R0,[R1,R0,LSL #3]		; linked table
+ LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
+ LDR R11,[R0,#4]		; workspace pointer
+ STR R1,[R13,#8]		; address to jump to
+ LDR R0,[R8,#w_file]		; file block offset
+ FNLDR R9,file_list
+ ADD R9,R9,R0,LSL #f_shift	; create file block pointer
+ LDMFD R13!,{R0-R1,PC}		; restore args and jump
+
+ LOCAL
+
+;E R1-R9=args R11=entry point offset
+;X each valid mode called with R0=mode number on entry #
+
+broadcast
+ FNJSR "R1-R10"
+ MOV R10,#0			; start mode
+next$l
+ PUSH "R11"
+ MOV R0,R10
+ BL call_given_mode
+ PULL "R11"
+ FNRTS VS
+ ADD R10,R10,#1
+ CMP R10,#max_mode
+ BCC next$l
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read mode name, number, table pointer			;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=mode number
+;X R0=unlinked table pointer/0 R1=linked table pointer/0 if invalid #
+
+read_mode
+ FNJSR
+ MOV R1,#0
+ CMP R0,#max_mode
+ MOVHS R0,#0			; not a valid mode
+ FNADD R14,R12,mode_store,LO
+ ADDLO R14,R14,R0,LSL #3
+ LDMLOIA R14,{R0,R1}
+ FNRTS
+
+ LOCAL
+
+;E R0=mode number
+;X R2=mode name string/ VS if not found #
+
+mode_name
+ FNJSR "R1"
+ BL read_mode			; R1=linked table pointer
+ FNRTS VS
+ CMP R1,#0
+ BLLE err$l
+ LDRVC R2,[R1,#e_title*2]	; mode name address
+ FNRTS
+err$l ERR "Bad mode name"
+
+ LOCAL
+
+;X kill extension modes and command tables WB #
+
+kill_modes
+ FNJSR "R1-R11"
+ FNADD R7,R12,mode_store	; mode pointer
+ MOV R10,#0			; current mode
+loop$l
+ LDR R9,[R7,#4]			; linked table
+ CMP R9,#0
+ BLE next$l			; no mode on this number
+ CMP R10,#11
+ CMPNE R10,#4			; in Zap...?
+ BLE next$l
+ LDR R8,[R9]			; module address
+ MOV R0,R10			; mode assigned to module
+ MOV R1,#0			; reason code quit
+ MOV R11,#e_init
+ BL call_given_mode		; can I kill the module ?
+ FNRTS VS
+ CMP R0,#-1
+ BEQ next$l			; don't kill
+ MOV R0,R8
+ BL add_to_kill_list		; kill_module
+ FNRTS VS
+next$l
+ ADD R7,R7,#8
+ ADD R10,R10,#1
+ CMP R10,#max_mode
+ BCC loop$l			; do the next mode
+ FNRTS
+
+kill_commands
+ FNJSR "R1-R11"
+ ADD R7,R12,#command_store	; start on the commands
+ FNLDR R10,com_number		; number of command tables
+comloop$l
+ CMP R10,#0			; finished (zap mode table...?)
+ FNRTS LE
+ SUB R10,R10,#1
+ LDR R9,[R7],#4			; address of command table
+ LDR R8,[R9]
+ SUB R8,R9,R8			; module address
+ LDR R0,[R9,#4]			; service call offset
+ CMP R0,#0
+ BLE comloop$l			; none - don't kill
+ ADD R0,R8,R0			; service call entry point
+ MOV R1,#0			; dying
+ MOVS R14,PC
+ MOV PC,R0			; call the handler
+ CMP R0,#-1
+; BEQ comloop$l			; don't kill it off
+ MOVNE R0,R8
+ BLNE add_to_kill_list		; kill_module	; kill it off
+; FNRTS VS
+ B comloop$l
+
+ LOCAL
+
+;E R0=address of mode table (probably in SVC mode)
+;X mode table added to list #
+
+add_new_mode
+ FNJSR "R1-R4"
+ MOV R4,R0			; save table address
+ FNADD R2,R12,mode_store	; mode blocks (2 words each)
+ LDR R1,[R4,#e_mode]		; mode & flags
+ AND R0,R1,#&FF			; mode it wants to become
+ TST R1,#1<<31
+ BNE end$l			; force this mode
+ MOV R3,R0			; save the mode
+next$l
+ LDR R14,[R2,R0,LSL #3]		; get pointer
+ TEQ R14,#0
+ BEQ end$l			; mode free
+ ADD R0,R0,#1
+ CMP R0,#max_mode
+ MOVCS R0,#0			; cycle
+ TEQ R0,R3			; back to where we started?
+ BNE next$l			; if not try next mode
+ BL err$l			; too many modes
+ FNRTS
+end$l				; R0=mode it is being assigned to
+ STR R4,[R2,R0,LSL #3]		; new table pointer
+ FNRTS
+err$l ERR "Too many edit modes"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; read/write zap vars						  ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+read_var
+ FNJSR
+ BL conv_var_number
+ FNRTS VS
+ TEQ R0,#0			; -ve if w_*
+ LDRPL R0,[R12,R0]
+ FNRTS PL
+ TEQ R8,#0
+ FNLDR R0,key_default,EQ	; read key_default if R8=0
+ LDRNEB R0,[R8,-R0]
+ FNRTS
+
+write_var
+ STMFD R13!,{R2,R14}
+ MOV R2,R0			; save value to write
+ BL conv_var_number
+ LDMVSFD R13!,{R2,PC}
+ TEQ R0,#0			; -ve if w_*
+ STRPL R2,[R12,R0]
+ LDMPLFD R13!,{R2,PC}
+ TEQ R8,#0
+ STRNEB R2,[R8,-R0]		; write only if R8<>0
+ LDMFD R13!,{R2,PC}
+
+
+ LOCAL
+
+;E R1=variable number
+;X R0=variable offset from R12 #
+
+conv_var_number
+ FNJSR
+ CMP R1,#&100
+ BCC co13
+ SUB R0,R1,#&100
+ CMP R0,#max_mode
+ MOVCC R0,R0,LSL #2
+ ADDCC R0,R0,#opt_mode0
+ BLCS err$l
+ FNRTS
+co13
+ CMP R1,#(var_list_end-var_list):SHR:2
+ BLCS err$l
+ ADRVC R14,var_list
+ LDRVC R0,[R14,R1,LSL #2]
+ FNRTS
+err$l ERR "Bad Zap variable number"
+
+var_list
+ DCD scn_xos
+ DCD scn_yos
+ DCD opt_flags
+ DCD opt_format
+ DCD wimp_task
+ DCD car_cursor
+ DCD car_input
+ DCD car_selection
+ DCD wind_num
+ DCD file_num
+ DCD car_mode
+ DCD wimp_version
+ DCD -:INDEX:w_defaultmap
+ DCD -:INDEX:w_basemap
+ DCD key_last
+ DCD key_lastcom
+ DCD mini_ptr
+ DCD mini_bufl
+ DCD mini_len
+ DCD mini_off
+ DCD mini_mark
+ DCD yank_ptr
+ DCD yank_len
+ DCD -:INDEX:w_currentmap
+ DCD opt_res8
+ DCD opt_tab
+ DCD opt_addr
+ DCD opt_stline
+ DCD opt_linesp
+ DCD env_start
+ DCD env_top
+ DCD wimp_iconbar
+ DCD wimp_timeformat
+ DCD wimp_dateformat
+ DCD key_flags
+ DCD wimp_kbdbuf
+var_list_end
+
+ LOCAL
+
+;E R8/R9
+;X R0=wimp_modelist block for the installed mode
+;  w_* updated according to file type of file
+;      (eg forced to given mode, basemap set, etc.)
+;  e_postload and e_start called #
+
+choose_mode_format
+ FNJSR "R1,R10-R11"
+ LDR R0,[R9,#f_load]		; load address
+ BL calc_ftype
+ STRCC R0,[R8,#w_addr]		; force start address if valid
+ BCC setaddr$l
+ SUB R14,R0,#&F00
+ TEQ R14,#&FA			; module
+ TEQNE R14,#&FC			; utility
+ MOVEQ R14,#&0
+ STREQ R14,[R8,#w_addr]		; set module+util files address
+ TEQ R14,#&F8			; absolute
+ TEQNE r14,#&d3			; absolute (debugable)
+ MOVEQ R14,#&8000
+ STREQ R14,[R8,#w_addr]		; set absolute files address
+setaddr$l
+ LDR R0,[R9,#f_load]		; load address
+ LDR R1,[R9,#f_name]		; file name
+ BL find_file_mode		; find mode number to use
+ FNRTS VS			; (must be valid)
+ LDR R1,[R9,#f_cmode]
+ TEQ R1,#11			; special checks for taskwindow/throwback
+ TEQNE R1,#12
+ MOVEQ R10,R1
+ MOV R1,#0			; new file (just loaded)
+ STRB R10,[R8,#w_format]	; force this mode
+ MOV R10,R0			; save wimp_modelist blk pointer
+ BL post_load			; doctor file for this mode
+; FNRTS VS
+ BLVC init_basemap
+ MOVVC R0,#0
+ MOVVC R11,#e_start
+ BLVC call_mode			; set up w_format for this mode
+ BLVC checkforautosoftwrap	; check the file
+ BLVC ensure_bitmap_fonts	; make sure bitmap fonts are available.
+ MOVVC R0,R10			; modelist block (containing the command)
+ FNRTS
+
+ LOCAL
+
+;E R0=load address (containing filetype)
+;  R1=filename / 0 if none to test
+;     b31 flag which indicates whether the mode is needed or not
+;X R0 = wimp_modelist block for this file
+;  If b31 clear then
+;   R10 = mode num used for this filetype (loaded if needed) #
+;  If b31 set then
+;   R10 = pointer to the mode name (mode may not be loaded)
+;  (see rk_mode for format of wimp_modelist) #
+
+find_file_mode
+ FNJSR "R1-R9"
+ MOV R7,R1			; keep a copy of filename ptr + flags
+ FNLDR R14,opt_format
+ TST R14,#1<<31
+ BNE default$l			; mode forced
+ BL calc_ftype			; get filetype
+ MOVCC R0,#&1000		; untyped file
+ MOV R2,R0			; save the file type
+ FNLDR R10,wimp_modelist	; start of the list
+ BICS R9,R1,#1<<31		; filename / 0 if none
+ BEQ type$l			; none
+ MOV R0,R9
+ BL str_len			; find length of the file name
+ MOV R8,R0			; length
+type$l				; check file type main loop
+ LDR R3,[R10]			; block length
+ CMP R3,#0
+ BLE default$l			; end of list
+ ADD R3,R10,R3			; start of next block
+ LDR R0,[R10,#4]		; filetype to match
+ BIC R0,R0,#&FF000000		; remove flags
+ CMP R0,#&1000
+ BHI typematched$l		; always matches
+ TEQ R0,R2
+ MOVNE R10,R3
+ BNE type$l			; no match
+typematched$l
+ LDRB R0,[R10,#16]		; first char of string
+ TEQ R0,#0
+ BNE fname$l			; string to match
+matched$l			; block R10 matches
+ ADD R0,R10,#16			; filename to match
+ BL str_len
+ ADD R1,R10,#17
+ ADD R0,R1,R0			; start of mode name to use
+ TST R7,#1<<31
+ BNE end$l			; just wanted mode name
+ BL find_mode_number		; get the mode number (loading if needed)
+ FNRTS VS
+ CMP R0,#0
+ BMI default$l			; mode doesn't exist
+end$l				; R0=mode pointer or mode name
+ MOV R1,R0
+ MOV R0,R10			; matching block
+ MOV R10,R1			; mode number/name
+ FNRTS
+default$l			; file type forced or no match found
+ ADR R0,defblk$l		; default block
+ FNLDRB R10,opt_format		; default mode
+ TST R7,#1<<31
+ ADRNE R10,deftxt$l		; default mode name
+ FNRTS
+fname$l				; check filename matches
+ CMP R9,#0
+ MOVLE R10,R3
+ BLE type$l			; no filename given (so no match)
+ PUSH "R5,R8"
+ MOV R5,#1<<29			; don't expand macros
+ MOV R8,#0			; no window
+ ADD R0,R10,#16			; search string
+ BL search_init			; set up the search tree
+ PULL "R5,R8"
+ FNRTS VS
+ PUSH "R1-R4"
+ MOV R0,#0			; node offset
+ MOV R1,#-1			; reset
+ MOV R2,R8			; filename length
+ MOV R3,#0			; flags
+ FNLDR R4,fnd_tree		; search tree
+ BL wildcard_match		; set up tree
+loop$l				; loop through all possible matches
+ MOV R0,#0
+ MOV R1,#0
+ BL wildcard_match
+ CMP R0,#0
+ PULL "R1-R4",MI
+ MOVMI R10,R3
+ BMI type$l			; run out of matches
+ TEQ R0,R8			; is end of match at and of name
+ BNE loop$l			; try again
+ PULL "R1-R4"
+ B matched$l			; found the match
+defblk$l			; default modelist block (not auto load!)
+ DCD &14,&FFF,0,0
+ = 0
+deftxt$l
+ = "Text",0
+ ALIGN
+
+;E R1=create block R8 (giving mode)
+;X block filled with default opening window for current mode |
+
+get_mode_params
+ STMFD R13!,{R2-R3,R14}
+ FNLDR R3,wimp_sizelist
+ LDRB R2,[R8,#w_format]		; current mode
+ge15
+ LDR R0,[R3]
+ CMP R0,#0
+ ADRMI R3,ge_d0			; default table
+ BMI ge16
+ TEQ R0,R2
+ ADDNE R3,R3,#32
+ BNE ge15			; loop until match
+ ADD R3,R3,#4			; start of offsets
+ge16
+ FNLDR R2,scn_xos		; screen width
+
+ LDR R0,[R3]
+ MUL R0,R2,R0
+ MOV R0,R0,ASR#16
+ STR R0,[R1]
+
+ LDR R0,[R3,#8]
+ MUL R0,R2,R0
+ MOV R0,R0,ASR #16
+ STR R0,[R1,#8]
+
+ FNLDR R2,scn_yos
+
+ LDR R0,[R3,#4]
+ MUL R0,R2,R0
+ MOV R0,R0,ASR #16
+ STR R0,[R1,#4]
+
+ LDR R0,[R3,#12]
+ MUL R0,R2,R0
+ MOV R0,R0,ASR #16
+ STR R0,[R1,#12]
+
+ LDMFD R13!,{R2-R3,PC}
+ge_d0
+ DCD &2999
+ DCD &4800
+ DCD &D000
+ DCD &C800
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CONVERT LINE NUMBER TO TEXT OFFSET & VICA VERSA	     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=phy ln R8/R9 (uses e_clnphy)
+;X R0=file off R1=log ln # (R0/R1 off end of file o/w)
+
+cln_phy
+ FNJSR "R11"
+ MOV R11,#e_clnphy
+ BL call_mode
+ FNRTS
+
+;E R0=log ln R8/R9 (uses e_clnlog)
+;X R0=file off R1=phy ln # (R0/R1 off end of file o/w)
+
+cln_log
+ FNJSR "R11"
+ MOV R11,#e_clnlog
+ BL call_mode
+ FNRTS
+
+;E R0=file off R8/R9 (uses e_clnoff)
+;X R0=phy ln R1=file off of phy line R2=log ln # (if R0 off end of file
+;  then vals set to an 'imaginary' char at end of file)
+
+cln_off
+ FNJSR "R11"
+ MOV R11,#e_clnoff
+ BL call_mode
+ FNRTS
+
+ LOCAL
+
+;E R8/R9
+;X R0=length of longest logical line in file less than w_bpl #
+
+cln_count
+ FNJSR "R1-R11"
+ MOV R2,R9
+ LDR R3,[R8,#w_bpl]
+ LDR R4,[R8,#w_tabc]
+ LDR R5,[R8,#w_cr]		; set up standard vars
+ MOV R6,#0
+ MOV R7,#0
+ MOV R9,#0			; start of text
+ MOV R10,#0			; longest phy line
+a$l
+ BL cln_FORWARD			; move forward a phy line
+ BVS fileend$l
+ CMP R8,R10
+ MOVHI R10,R8			; update longest line
+ CMP R10,R3
+ BCC a$l			; if still less than max then loop
+ B end$l
+fileend$l
+ CMP R8,R10			; clears the V flag
+ MOVHI R10,R8			; special case of last line with no 0A
+end$l
+ MOV R0,R10			; longest line
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CONVERT LINE NUMBER FOR CURSOR POSITIONING		      ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=file off of line R1=file off R8/R9 (uses e_lineoff)
+;X R0=col offset (exc margin) on screen R1=caret width #
+
+cln_lineoff
+ FNJSR "R11"
+ MOV R11,#e_lineoff
+ BL call_mode
+ FNRTS
+
+;E R0=file off of line R1=screen col (exc margin) R8/R9 (uses e_linecol)
+;X R0=file off of nearest char (on or to left) #
+
+cln_linecol
+ FNJSR "R11"
+ MOV R11,#e_linecol
+ BL call_mode
+ FNRTS
+
+;E R0=file off R8/R9
+;X R0=off of next word |
+
+cln_txt_splus
+ FNJSR "R1-R2"
+ MOV R1,R0
+ BL mode0_splus
+ MOV R0,R1
+ FNRTS
+
+;E R0=new display mode R8/R9 / R8=0 for main menu change
+;X Display mode set to R0 #
+
+new_mode
+ FNJSR "R7-R11"
+ MOV R7,R0			; save new mode
+ CMP R7,#max_mode
+ BLGE err23
+ FNRTS VS
+ ADD R11,R12,#(command_store + 4)	; start of list+4 ; ?? TT
+ ADD R11,R11,#(mode_store - command_store)	; start of list+4
+ LDR R14,[R11,R7,LSL #3]
+ CMP R14,#0
+ BLLE err23			; no such mode
+ FNRTS VS
+ TEQ R8,#0
+ FNLDRB R10,opt_format,EQ
+ LDRNEB R10,[R8,#w_format]	; current mode
+ MOV R11,#e_end
+ BL call_given_mode		; inform old mode that we're changing mode
+ BLVC save_window_status	; save window status
+ FNRTS VS
+ MOV R10,R7			; new mode
+ TEQ R8,#0
+ FNLDR R0,opt_format,EQ
+ LDRNE R0,[R8,#w_format]	; get old format
+; BLNE init_basemap
+ BIC R0,R0,#&FF
+ ORR R0,R0,R10			; switch to new mode
+ FNSTR R0,opt_format,EQ
+ STRNE R0,[R8,#w_format]	; save new format
+ BLNE init_basemap		; select basemap
+ MOV R0,#1
+ MOV R11,#e_start
+ BL call_given_mode		; tell new mode to set up its options
+ FNRTS VS
+ BL checkforautosoftwrap	; check the file
+ TEQ R8,#0
+ BLNE create_title		; update title header data
+; TEQ R8,#0
+; BLNE setup_fontmc		; make sure cached fonts are available.
+ ;BLNE ensure_bitmap_fonts	; make sure bitmap fonts are available.
+ BLVC new_window_status		; recreate window
+ FNRTS
+
+ensure_bitmap_fonts
+ ;FNJSR
+; BL choose_fontm		; make sure bitmap fonts available.
+; B 	setup_fontmc		; make sure cached fonts are available.
+ ;FNRTS
+
+;E R1=mode number R8=window/0
+;X R0=mode word
+
+get_mode_word
+ FNJSR
+ TEQ R8,#0
+ ADDEQ R14,R12,#opt_mode0
+ ADDNE R14,R8,#w_mode0
+ LDR R0,[R14,R1,LSL #2]
+ FNRTS
+
+;E R0=word R1=mode number R8=window/0
+
+put_mode_word
+ FNJSR
+ TEQ R8,#0
+ ADDEQ R14,R12,#opt_mode0
+ ADDNE R14,R8,#w_mode0
+ STR R0,[R14,R1,LSL #2]
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Colour handling					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R0=colour to write R1=mode number/-1 for all modes
+;  R2=zap colour number R8=window / 0 for default.
+;X Colour written to all mode(s) #
+;  Fonts recached if changing text options cols
+
+mode_colour_all
+ FNJSR
+ BL sub$l
+ FNRTS VS
+ TEQ R8,#0			; not options
+ FNRTS NE
+ CMP R1,#1			; not text mode
+ CMPLT R2,#3
+ FNRTS GE			; >2
+ CMP R2,#0
+ FNRTS LE			; not 1,2
+ BL read_font_info
+ FNRTS
+sub$l
+ CMP R1,#-1
+ BNE mode_colour		; just do the one colour
+ FNJSR "R1-R3"
+ MOV R1,#0			; current mode
+ MOV R3,R0			; save colour
+a$l
+ MOV R0,R3
+ BL mode_colour
+ FNRTS VS
+ ADD R1,R1,#1
+ CMP R1,#max_mode
+ BCC a$l
+ FNRTS
+
+ LOCAL
+
+;E R1=service call number R2-R9=data
+;X service call issued to all command tables #
+
+issue_service
+ FNJSR "R10-R11"
+ FNLDR R11,com_number		; number of command tables
+ ADD R10,R12,#command_store	; start of list
+next$l
+ CMP R11,#0
+ FNRTS LE
+ SUB R11,R11,#1
+ LDR R0,[R10],#4		; get table address
+ LDR R14,[R0,#4]		; find the service call offset
+ CMP R14,#0
+ BLE next$l			; none
+ PUSH "R1"
+ LDR R1,[R0]			; find offset from module start
+ SUB R0,R0,R1			; address of module start
+ PULL "R1"
+ ADD R0,R0,R14			; offset of service call handler
+ MOVS R14,PC			; return address
+ MOV PC,R0			; call the service call
+ BVC next$l
+ FNRTS
+
+ LOCAL
+
+;E R0=pointer to mode name terminated by <= spaces
+;X R0=number of this mode / -1 if not found #
+;  (loads the mode if need be)
+
+find_mode_number
+ FNJSR "R1-R4,R10"
+ MOV R10,R0			; save mode name
+ BL test_mode_name		; is it already loaded?
+ FNRTS VS
+ CMP R0,#0
+ FNRTS GE			; yes
+ FNLDR R4,ext_modes		; list of externally stored modes
+loop$l
+ LDR R0,[R4]
+ TEQ R0,#0
+ MOVEQ R0,#-1			; not found
+ FNRTS EQ			; reached the end of the list
+ MOV R0,R4
+ BL str_len			; get length of string
+ MOV R1,R4			; string pointer
+ MOV R2,R10			; text
+ ADD R4,R4,R0
+ ADD R4,R4,#8
+ BIC R4,R4,#3			; skip terminator and pointer
+ BL strCMPstr
+ BNE loop$l			; doesn't match start
+ LDRB R0,[R0]
+ CMP R0,#&20
+ BGT loop$l			; didn't match
+ LDR R0,[R4,#-4]		; name of module to load
+ BL load_mode_module
+ MOVVC R0,R10
+ BLVC test_mode_name		; try again!
+ FNRTS
+
+ LOCAL
+
+;E R0=pointer to a mode name terminated by <= space
+;X R0=number of this mode if already loaded / -1 if not yet loaded #
+
+test_mode_name
+ FNJSR "R1-R10"
+ MOV R10,R0			; save mode name pointer
+ ADD R7,R12,#(command_store + 4)	; start of list+4
+ ADD R7,R7,#(mode_store - command_store)	; start of list+4
+ MOV R6,#0			; mode number
+loop$l
+ LDR R0,[R7],#8			; load mode linked table
+ CMP R0,#0
+ BLE next$l			; no mode here
+ MOV R2,R10
+ LDR R1,[R0,#2*e_title]		; name of mode
+ BL strCMPstr			; case insensitive
+ BNE next$l			; no match
+ LDRB R0,[R0]			; character after the match
+ CMP R0,#&20
+ BGT next$l			; not a terminator
+ MOV R0,R6			; mode number
+ FNRTS
+next$l
+ ADD R6,R6,#1
+ CMP R6,#max_mode
+ BCC loop$l
+ MOV R0,#-1			; not found
+ FNRTS
+
+ LOCAL
+
+; ;E R0=address of the module's name
+; ;X Module is checked...
+;
+; check_module
+;  FNJSR "R1-R2"
+;  LDR R1,[R0,#&10]		; offset of module title
+;  ADD R2,R0,R1			; address of module title
+;  FNLDR R1,wimp_block
+;  BL strcopy			; copy name to wimp block
+;  MOV R0,#12			; (so don't get any crashes!!)
+;  FNLDR R1,wimp_block
+;  MOV R2,#0
+;  SWI XOS_Module			; check the module...?
+;  FNRTS
+
+;E R0=address of the module's start ('s name??)
+; The module /may/ not be present... if so this routine /should/ try to
+; fail gracefully.
+;X Module is killed WB #
+
+kill_module
+ FNJSR "R1-R2"
+ LDR R1,[R0,#&10]		; offset of module title
+ ADD R2,R0,R1			; address of module title
+ FNLDR R1,wimp_block
+ BL strcopy			; copy name to wimp block
+ MOV R0,#4			; (so don't get any crashes!!)
+ FNLDR R1,wimp_block
+ SWI XOS_Module			; kill the module
+ SUBS R14,R14,R14		; clv...
+ FNRTS
+
+;E R0=address of the module
+;X Module kill list is set up... WB #
+
+init_kill_list
+ FNJSR "R1-R2"
+ FNLDR R1,wimp_block
+ MOV R2,#-1
+ STR R2,[R1,#&40]
+ FNRTS
+
+;E R0=address of the module
+;X Module is added to kill list... WB #
+
+add_to_kill_list
+ FNJSR "R1-R2"
+; SWI &107
+ FNLDR R1,wimp_block
+ ADD R1,R1,#&40
+loop$l
+ LDR R2,[R1],#4
+ CMP R2,R0
+ FNRTS EQ
+ CMP R2,#-1
+ BNE loop$l
+ STR R0,[R1,#-4]
+ MOV R2,#-1
+ STR R2,[R1]
+ FNRTS
+
+;E R0=address of the module
+;X Module is added to kill list...
+
+kill_if_on_kill_list
+ FNJSR "R1"
+; SWI &107			; never reached... :-(
+ FNLDR R1,wimp_block
+ ADD R1,R1,#&40
+loop2$l
+ LDR R0,[R1],#4
+ CMP R0,#-1
+ FNRTS EQ
+ BL kill_module
+ B loop2$l
+
+ LOCAL
+
+;E R0=mode number R8=window/0 for options
+;X Set up wimp_format/wimp_flags (restore mode word) #
+
+modes_start
+ FNJSR "R1-R3"
+ MOV R1,R0			; mode number
+ MVN R0,#0			; read
+ MOV R2,#1			; variable no...
+ BL mode_data			; R0=the width word
+ MOV R3,R0			; save width word
+ TEQ R8,#0
+ FNLDR R0,opt_format,EQ
+ LDRNE R0,[R8,#w_format]	; get the format word
+ MOV R14,R3,LSR #19
+ MOV R14,R14,LSL #23
+; MOV R14,R14,LSR #4
+ BIC R0,R0,#&0F000000
+ BIC R0,R0,#&00FA0000
+ ORR R0,R0,R14,LSR #4		; fill bits of x_format word
+ TST R3,#1<<8
+ ORRNE R0,R0,#1<<17		; big endian.
+ TEQ R8,#0
+ FNSTR R0,opt_format,EQ
+ STRNE R0,[R8,#w_format]	; new w_format
+
+ TEQ R8,#0
+ FNLDR R0,opt_info,EQ
+ LDRNE R0,[R8,#w_info]		; get the format word
+ MOV R14,R3,LSL #16
+ MOV R0,R0,LSR #16
+ MOV R0,R0,LSL #16
+ ORR R0,R0,R14,LSR #16
+ TEQ R8,#0
+ FNSTR R0,opt_info,EQ
+ STRNE R0,[R8,#w_info]		; new w_info
+
+ FNLDR R0,opt_flags,EQ
+ LDRNE R0,[R8,#w_flags]		; get flags word
+ AND R14,R3,#1<<13		; wordwrap
+ BIC R0,R0,#1<<13
+ ORR R0,R0,R14
+ TST R3,#1<<12			; linewrap
+ BIC R0,R0,#1<<26
+ ORRNE R0,R0,#1<<26
+ TEQ R8,#0
+ FNSTR R0,opt_flags,EQ
+ STRNE R0,[R8,#w_flags]		; save flags word
+
+ MVN R0,#0			; read
+ MOV R2,#0
+ BL mode_data			; R0=the width word
+ MOV R3,R0			; save width word
+ TEQ R8,#0
+ FNLDR R0,opt_format,EQ
+ LDRNE R0,[R8,#w_format]	; get the format word
+ AND R14,R3,#&FF000000
+ BIC R0,R0, #&0000FF00
+ ORR R0,R0,R14,LSR #16		; fill bits 8-15
+ AND R14,R3,#&00050000
+ BIC R0,R0, #&00050000
+ ORR R0,R0,R14			; auto indent + space stripping bits
+ TEQ R8,#0
+ FNSTR R0,opt_format,EQ
+ STRNE R0,[R8,#w_format]	; new w_format
+ FNLDR R0,opt_flags,EQ
+ LDRNE R0,[R8,#w_flags]		; get flags word
+ AND R14,R3,#7<<19		; tab type bits
+ BIC R0,R0,#7<<9
+ ORR R0,R0,R14,LSR #10
+ BIC R0,R0,#2:OR:1<<5:OR:1<<6
+ TST R3,#1<<23
+ ORRNE R0,R0,#2			; overwrite bit
+ TST R3,#1<<22
+ ORRNE R0,R0,#1<<5		; hex/ascii entry
+ TST R3,#1<<17
+ ORRNE R0,R0,#1<<6		; auto width
+ TEQ R8,#0
+ FNSTR R0,opt_flags,EQ
+ STRNE R0,[R8,#w_flags]		; save flags word
+ FNRTS
+
+;E R0=mode number R8=window/0 for options
+;X Saved the current options in flags/format (save_mode_word) #
+
+modes_end
+ FNJSR "R1-R3"
+ MOV R1,R0			; mode number
+ MVN R0,#0			; read
+ MOV R2,#1			; word 01
+ BL mode_data			; R0=the width word
+ MOV R14,#&F0000000
+ ORR R14,R14,#&00070000
+ AND R3,R0,R14			; save data from mode word...
+ TEQ R8,#0
+ FNLDR R0,opt_info,EQ
+ LDRNE R0,[R8,#w_info]		; get the info word... (BAD)
+ MOV R0,R0,LSL #16
+ ORR R3,R3,R0,LSR #16		; this scrappy code cause confusion later...
+ BIC R3,R3,#1<<8:OR:1<<12:OR:1<<13 ; due to scrappy code above...
+; TEQ R8,#0			; unnecessary...? maybe later...
+ FNLDR R0,opt_format,EQ
+ LDRNE R0,[R8,#w_format]	; get the format word
+ TST R0,#1<<17
+ ORRNE R3,R3,#1<<8		; big endian...
+ MOV R0,R0,LSR #19
+ MOV R0,R0,LSL #23
+ ORR R3,R3,R0,LSR #4		; fill bits of x_format word
+
+ TEQ R8,#0
+ FNLDR R0,opt_flags,EQ
+ LDRNE R0,[R8,#w_flags]		; get the flags word...
+ TST R0,#1<<13			; wordwrap
+ ORRNE R3,R3,#1<<13
+ TST R0,#1<<26			; linewrap...
+ ORRNE R3,R3,#1<<12		; linewrap...
+
+ MOV R0,R3			; what to store...
+ MOV R2,#1			; word 01
+ BL mode_data			; write the result
+ ; up to here doesn't seem to work...
+ MVN R0,#0			; read
+ MOV R2,#0			; word 00
+ BL mode_data
+ MOV R3,R0			; current mode width word
+ TEQ R8,#0
+ FNLDR R0,opt_format,EQ
+ LDRNE R0,[R8,#w_format]	; get current format
+ BIC R3,R3,#&FF000000
+ BIC R3,R3,#&00FF0000		; clear top 16 bits
+ AND R14,R0,#&000FF00
+ ORR R3,R3,R14,LSL #16		; get bits 8-15
+ AND R14,R0,#&50000
+ ORR R3,R3,R14			; auto indent + strip bit
+ TEQ R8,#0
+ FNLDR R0,opt_flags,EQ
+ LDRNE R0,[R8,#w_flags]
+ AND R14,R0,#7<<9
+ ORR R3,R3,R14,LSL #10		; bits 19-21 (tab bits)
+ TST R0,#2
+ ORRNE R3,R3,#1<<23		; overwrite mode
+ TST R0,#1<<5
+ ORRNE R3,R3,#1<<22		; hex entry mode
+ TST R0,#1<<6
+ ORRNE R3,R3,#1<<17		; auto width
+ MOV R0,R3			; R2 still = 0
+ MOV R2,#0			; word 00
+ BL mode_data			; write the result
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Zap handled mode data						;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; opt_modedata and w_modedata point to a block of Zap hals )
+; Blocks are stored in the Config file by having a -1 terminating the list of
+; mode data words so you know how long it is.
+
+;E R0=value to write / -1 to read
+;  R1=mode number R2=variable number R8=window/0
+;X R0=value read/old value
+
+mode_data			; read/write a mode data value
+ FNJSR "R1-R2"
+ TEQ R8,#0
+ LDRNE R14,[R8,#w_modedata]
+ FNLDR R14,opt_modedata,EQ	; pointer to the list
+ LDR R1,[R14,R1,LSL #2]		; pointer to data for this mode
+ ADD R1,R1,#4			; address of mode data word 0
+ LDR R14,[R1,R2,LSL #2]		; old value
+ CMP R0,#-1
+ STRNE R0,[R1,R2,LSL #2]	; new value
+ MOV R0,R14			; old value
+ FNRTS
+
+ LOCAL
+
+;E R0=Zap colour number R8=window
+;  (internally R1=mode number)
+;X R0=old value, -1 if mode doesn't exist WB #
+
+quick_read_mode_colour		; read colour & style
+ FNJSR "R1"
+ LDR R14,[R8,#w_modedata]
+ LDRB R1,[R8,#w_format]
+ LDR R1,[R14,R1,LSL #2]		; pointer to data for this mode
+ CMP R1,#0
+ FNRTS LE			; doesn't exist (eg mode_colour_all)
+ LDR R14,[R1]			; length word
+ ADD R0,R0,R14,LSR #24		; number of data words to skip
+ MOV R0,R0,LSL#2		; num of bytes to skip
+ ADD R0,R0,#4			; total offset
+ BIC R14,R14,#&FF000000		; total length of the block
+ CMP R0,R14			; off the end of it...?
+ LDRCC R0,[R0,R1]		; read the old value
+ FNRTS				; just reading it
+
+;E R0=colour to write / -1 to read
+;     b0-b7=0-15 => write this wimp colour number
+;     b0-b7>15	 => write this word (with 24 bit colour and Zap style)
+;  R1=mode number
+;  R2=Zap colour number R8=window / 0 for default.
+;X R0=old value, -1 if mode doesn't exist WB #
+
+mode_colour			; read/write colour & style
+ FNJSR "R1-R3"
+ TEQ R8,#0
+ LDRNE R14,[R8,#w_modedata]
+ FNLDR R14,opt_modedata,EQ	; pointer to the list
+ LDR R1,[R14,R1,LSL #2]		; pointer to data for this mode
+ CMP R1,#0
+ MOVLE R0,#-1
+ FNRTS LE			; doesn't exist (eg mode_colour_all)
+ LDR R14,[R1]			; length word
+ ADD R2,R2,R14,LSR #24		; number of data words to skip
+ MOV R2,R2,LSL#2		; num of bytes to skip
+ ADD R2,R2,#4			; total offset
+ BIC R14,R14,#&FF000000		; total length of the block
+ CMP R2,R14
+ BLCS err$l			; off end of block
+ FNRTS VS
+ ADD R3,R1,R2			; pointer to the word
+ LDR R2,[R3]			; read the old value
+ CMP R0,#-1
+ MOVEQ R0,R2
+ FNRTS EQ			; just reading it
+ ANDS R14,R0,#&FF
+ CMP R14,#&10
+ BCS a$l
+ FNLDR R1,wimp_block
+ SWI XWimp_ReadPalette		; read the palette
+ FNRTS VS
+ AND R0,R0,#&FF
+ LDR R0,[R1,R0,LSL #2]		; get the palette entry &BxGxRxxx
+ LDR R14,d$l
+ AND R0,R0,R14
+ ORR R0,R0,R0,LSR #4		; duplicate the nibble
+ ORR R0,R0,#&10			; base style
+a$l				; R0=24 bit palette entry to write
+ STR R0,[R3]
+ MOV R0,R2			; old value
+ FNRTS
+err$l ERR "Bad Zap colour number"
+d$l   DCD &F0F0F000
+
+ LOCAL
+
+;E R0=number of colours/-1 to read R1=mode number R8=window/0 for options
+;X R0=old value / read value
+;  Number of colours available for a given mode in the palette is
+;  read/written. If opt mode block not available on reading then length of
+;  menu list is used as a default.
+;  (colours not given default values)
+
+mode_colour_num
+ FNJSR "R1-R5,R10-R11"
+ TEQ R8,#0
+ LDRNE R3,[R8,#w_modedata]
+ FNLDR R3,opt_modedata,EQ	; pointer to the list
+ MOV R10,R1			; save the mode number
+ LDR R1,[R3,R1,LSL #2]!		; pointer to the data for this mode
+ CMP R1,#0
+ BLE def$l			; not available - use default
+ LDR R2,[R1]			; length word
+ MOV R4,R2,LSR #22		; length of modedata stuff
+ ADD R4,R4,#4			; with word at start
+ BIC R2,R2,#&FF000000		; total block length
+ SUB R2,R2,R4			; colour data length
+ CMP R0,#-1
+ BEQ a$l
+ MOV R0,R0,LSL #2		; new length of colour data
+ SUB R5,R0,R2			; change in length
+ LDR R0,[R1]
+ ADD R0,R0,R5
+ STR R0,[R1]			; undate length word
+ MOV R0,R1			; heap_block
+ MOV R1,R5			; signed change
+ BL heap_extend			; change the size
+ FNRTS VS
+ STR R0,[R3]			; new block pointer
+a$l
+ MOV R0,R2,LSR #2		; old number of colours
+ FNRTS
+def$l				; use default
+ CMP R0,#-1
+ TEQEQ R8,#0
+ BLNE err$l			; only accept read of options size
+ MOVVC R1,#6
+ MOVVC R11,#e_init
+ BLVC call_given_mode
+ FNRTS VS
+ MOV R0,#9			; standard 9 Zap colours
+ CMP R1,#&8000
+ FNRTS LT
+b$l				; count loop
+ LDRB R14,[R1],#1
+ TEQ R14,#0
+ FNRTS EQ
+ ADD R0,R0,#1			; got a new colour
+c$l
+ LDRB R14,[R1],#1
+ TEQ R14,#0
+ BNE c$l
+ B b$l
+err$l ERR "Bad colour block"
+
+ LOCAL
+
+;E R0=source mode data block pointer (eg opt_modedata)
+;X R0=duplicated block (eg to put in w_modedata on a new view/window)
+
+create_modedata
+ FNJSR "R1-R5"
+ MOV R1,R0			; source block pointer
+ MOV R5,#max_mode		; number of modes to do
+ MOV R0,R5,LSL #2
+ BL heap_claim
+ FNRTS VS
+ MOV R2,R0			; destination block pointer
+a$l				; mode loop
+ SUBS R5,R5,#1			; next mode
+ MOVMI R0,R2
+ FNRTS MI			; finished
+ MOV R0,R5
+ BL create_modedata_block
+ BVC a$l
+ FNRTS
+
+;E R0=mode number
+;  R1=source mode data block pointer (eg opt_modedata)
+;  R2=destination mode data pointer (eg w_modedata)
+;X Block for this mode copied if it was valid #
+;  Zero/-ve value copied if it wasn't valid
+
+create_modedata_block
+ FNJSR "R1-R3"
+ LDR R1,[R1,R0,LSL #2]		; address of source block
+ ADD R2,R2,R0,LSL #2		; address of pointer of dest block
+ CMP R1,#0
+ STRLE R1,[R2]			; clear dest pointer in this case! (freeing)
+ FNRTS LE			; source mode absent/not valid
+ LDR R3,[R1]			; block sizes
+ BIC R3,R3,#&FF000000		; total block size
+ MOV R0,R3
+ BL heap_claim
+ STRVC R0,[R2]			; save the destination block
+ MOVVC R2,R0
+ SWIVC XZapRedraw_MoveBytes ; BLVC move_bytes			; copy the block
+ FNRTS
+
+ LOCAL
+
+;E R8=mode R9=start of Zap (config) block for this mode R10=length (!(R9-4))
+;  Unsupported options blocks must be 0
+;X Options block read and stored (WB used for palette)
+;  Unsupported options have default values inserted.
+;  NB Old format block used in default file also so must be supported
+
+read_conf_mode_data
+ FNJSR "R1-R5,R9-R10"
+ MOV R3,#defend$l-default$l	; length of default mode data block
+ TEQ R10,#12
+ BEQ old$l			; old format
+ MOV R1,R9
+a$l
+ LDR R0,[R1],#4
+ CMP R0,#-1
+ BNE a$l			; count the number of mode words
+ SUB R4,R1,R9			; size of mode data part (inc the -1)
+ SUB R10,R10,R4			; size of colour data
+ ADD R0,R10,R3			; size of all data
+ ADD R0,R0,#4			; with size word
+ ADD R2,R0,R3,LSL #22		; length + num of words << 24
+ BL heap_claim			; claim the block
+ FNRTS VS
+ MOV R4,R0			; save the block start
+ STR R2,[R0],#4			; write length word
+ MOV R2,R0			; dest
+ ADR R1,default$l		; shadow source
+b$l
+ LDR R0,[R9]
+ CMP R0,#-1
+ LDREQ R0,[R1],#4
+ ADDNE R9,R9,#4
+ ADDNE R1,R1,#4
+ STR R0,[R2],#4
+ SUBS R3,R3,#4
+ BGT b$l			; still more to do
+ ADD R1,R9,#4			; start of colour data
+ MOV R3,R10			; length of colour dta
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy the block
+ B end$l
+old$l				; old format block (1word+16 nibbles)
+ MOV R0,#-1
+ MOV R1,R8
+ PUSH "R8"
+ MOV R8,#0
+ BL mode_colour_num		; R0=number of colours
+ PULL "R8"
+ MOVVC R10,R0,LSL #2		; save size of colour data
+ ADDVC R0,R10,R3		; size of all data
+ ADDVC R0,R0,#4			; with size word
+ ADDVC R2,R0,R3,LSL #22		; length + num of words << 24
+ BLVC heap_claim		; claim the block
+ FNRTS VS
+ MOV R4,R0			; save the block start
+ STR R2,[R0],#4			; write length word
+ MOV R2,R0			; dest
+ LDR R0,[R9],#4
+ STR R0,[R2],#4			; write the first mode data word
+ ADR R1,default$l+4		; start of rest of data
+c$l
+ SUBS R3,R3,#4
+ LDRGT R0,[R1],#4
+ STRGT R0,[R2],#4
+ BGT c$l
+ FNLDR R1,wimp_block
+ SWI XWimp_ReadPalette		; read palette to R1
+ FNRTS VS
+ LDMIA R9,{R3,R5}		; get the colour nibbles
+ LDR R9,mask$l
+d$l
+ AND R0,R3,#&F			; wimp colour number
+ LDR R0,[R1,R0,LSL #2]		; palette entry
+ AND R0,R0,R9
+ ORR R0,R0,R0,LSR #4
+ ORR R0,R0,#&10
+ STR R0,[R2],#4
+ MOV R3,R3,LSR #4
+ ORR R3,R3,R5,LSL #28
+ MOV R5,R5,LSR #4
+ SUBS R10,R10,#4
+ BGT d$l
+end$l				; R4=pointer to the block R8=mode num
+ FNLDR R0,opt_modedata
+ STR R4,[R0,R8,LSL #2]		; save the block pointer
+ FNRTS
+mask$l DCD &F0F0F000
+default$l			; default mode data words
+ DCD 77+&12010000		; text default vals
+ DCD (1 << 25) + &F	; second mode word ! TT b25 = smart curs (1<<22=ASW)
+ DCD 0			; bottom byte -> basemap; rest unused
+ DCD 0			; <- unused (kludge to get round 12-byte old format)
+defend$l			; length is current size of mode data's.
+
+ LOCAL
+
+;E R1=mode number R8/R9=file
+;X mode data copied to make it default if the mode exists.
+
+make_default_mode
+ FNJSR "R1-R3"
+ FNLDR R3,opt_modedata
+ LDR R3,[R3,R1,LSL#2]
+ CMP R3,#0
+ FNRTS LE			; no mode there
+ LDR R3,[R3]
+ MOV R2,R3,LSR#24		; number of mode data words
+a$l
+ SUBS R2,R2,#1			; mode data word number
+ BMI b$l
+ MOV R0,#-1
+ BL mode_data			; read
+ FNRTS VS
+ PUSH "R8"
+ MOV R8,#0
+ BL mode_data			; write
+ PULL "R8"
+ BVC a$l
+ FNRTS
+b$l
+ MOV R0,#-1
+ BL mode_colour_num
+ FNRTS VS
+ MOV R2,R0			; number of colour in window
+ MOV R0,#-1
+ PUSH "R8"
+ MOV R8,#0
+ BL mode_colour_num		; number of colours in options
+ PULL "R8"
+ FNRTS VS
+ CMP R0,R2
+ MOVLT R2,R0			; R2=min of the two
+c$l
+ SUBS R2,R2,#1			; mode colour number
+ FNRTS MI
+ MOV R0,#-1
+ BL mode_colour			; read
+ FNRTS VS
+ PUSH "R8"
+ MOV R8,#0
+ BL mode_colour			; write
+ PULL "R8"
+ BVC c$l
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Text alteration on saving/loading				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R1 => 0=file just loaded 1=after a save R8/R9
+;  First checks for DOS/SPOOL type file etc then calls mode's e_postload
+
+post_load
+ FNJSR "R1-R2,R11"		; Beware - explicit pull of R1
+ TEQ R1,#0
+ BNE save$l			; after a save
+ FNLDR R0,opt_switches		; start testing on a new file/window
+ TST R0,#1<<8
+ BEQ a$l			; test for DOS flag not set
+ LDRB R0,[R8,#w_format]		; mode
+ BL read_mode
+ LDR R0,[R1,#2*e_mode]		; mode num + flags
+ TST R0,#1<<11
+ BNE a$l			; it's not a textual mode
+ LDR R0,[R9,#f_len]
+ MOV R1,#0
+ BL split_buffer		; split at end (is after a load anyway)
+ FNRTS VS
+ LDR R1,[R9,#f_ptr]		; file start (file can't move on testing)
+ LDR R11,[R9,#f_len]
+ ADD R11,R1,R11			; file end
+ MOV R2,#0			; flags b0=CRLF (Dos) b1=LFCR (Spool)
+b$l				; file check loop
+ CMP R1,R11
+ BCS c$l			; run out of file
+ LDRB R0,[R1],#1
+ TEQ R0,#&09
+ TEQNE R0,#&0C			; form-feed...?
+ TEQNE R0,#&1B			; seems to be in some DOS text files...
+ BEQ b$l			; allow tabs
+ TEQ R0,#&0A
+ BEQ lf$l
+ TEQ R0,#&0D			; line terminator?
+ BEQ d$l			; check it out
+ CMP R0,#&20
+ BCC u$l			; unacceptable control code
+ TEQ R0,#&7F
+ BNE b$l			; valid ASCII character (LE?)
+ B a$l				; no good
+
+u$l				; control code
+ CMP R1,R11
+ BCC a$l			; hadn't reached file end so no good
+ TEQ R0,#&1A			; early DOS terminating character?
+ BEQ c$l
+ B a$l
+				; not a DOS file
+d$l				; found a CR
+ TST R2,#2
+ BNE a$l			; already thought it was a spool file
+ CMP R1,R11
+ BCS a$l			; not followed by a LF
+ LDRB R0,[R1],#1
+ TEQ R0,#&0A
+ BNE a$l
+ ORR R2,R2,#1			; found a valid DOS line ending
+ B b$l
+
+lf$l
+ TST R2,#1
+ BNE a$l			; already thought it was a DOS file
+ CMP R1,R11
+ BCS a$l			; not followed by a CR
+ LDRB R0,[R1],#1
+ TEQ R0,#&0D
+ BNE a$l			; Hmm...
+ ORR R2,R2,#2			; found a valid SPOOL line ending
+ B b$l
+
+c$l				; file passed as a dos file
+ ANDS R14,R2,#3			; found a line ending?
+ BLNE dos_to_text		; if so then convert the file
+ FNRTS VS
+a$l				; DOS status calculated and stored
+ LDMFD R13,{R1}			; get back the status word
+ MOV R11,#e_postload
+ BL call_mode
+ FNRTS
+
+save$l				; after a save
+ MOV R2,#0
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<27
+ ORRNE R2,R2,#1			; DOS file
+ TST R0,#1<<29
+ ORRNE R2,R2,#2			; Spool file
+ TEQ R2,#0
+ BEQ a$l			; not a special file
+ LDR R0,[R9,#f_len]
+ MOV R1,#0
+ BL split_buffer
+ BLVC dos_to_text		; convert back again
+ BVC a$l
+ FNRTS
+
+;E R8/R9
+;  First strips spaces or tabs if asked to do so
+;  Then calls modes e_presave
+;  Finally replaces LF by CRLF/LFCR if the file is marked as a DOS/Spool
+
+pre_save
+ FNJSR "R11"
+ LDR R0,[R8,#w_format]
+ TST R0,#1<<18		; space stripping
+ MOVNE R0,#3
+ BLNE strip_spaces
+ MOVVC R11,#e_presave
+ BLVC call_mode
+ FNRTS VS
+ LDR R11,[R9,#f_flags]
+ TST R11,#(1<<27)+(1<<29)
+ BLNE text_to_dos
+ FNRTS
+
+checkforautosoftwrap
+ CMP R8,#0
+ MOVEQ PC,R14
+ FNJSR "R0-R12"
+ LDR R0,[R8,#w_format]		; format
+ TST R0,#1 << 22
+ FNRTS EQ
+ LDRB R0,[R8,#w_format]		; mode
+ BL read_mode
+ LDR R0,[R1,#2*e_mode]		; mode num + flags
+ TST R0,#1<<11
+ FNRTS NE			; it's not a textual mode
+ MOV R0,#2			; sw?
+ MOV R11,#e_interrogate
+ BL call_mode
+ CMP R0,#2
+ FNRTS NE
+ LDR R0,[R8,#w_format]		; format
+ BIC R0,R0,#bit_softwrap ; (1 << 27)
+ STR R0,[R8,#w_format]		; find the bit
+ LDR R1,[R9,#f_ptr]		; file start (file can't move on testing)
+ LDR R3,[R9,#f_len]
+ ADD R3,R1,R3			; file end
+a2$l
+ MOV R2,#0			; flags b0=CRLF (Dos) b1=LFCR (Spool)
+b2$l				; file check loop
+ LDRB R0,[R1],#1
+ TEQ R0,#&0A
+ BEQ lf2$l
+ ADD R2,R2,#1
+ CMP R1,R3
+ BCC b2$l				; no good
+ FNRTS
+
+lf2$l
+ CMP R2,#100
+ BCC a2$l
+
+ LDR R1,[R9,#f_ptr]		; file start (file can't move on testing)
+a3$l
+ LDRB R0,[R1],#1
+ MOV R14,R0,LSR #4		; lose low bits...
+ TEQ R14,#&1			; test for control character...
+ FNRTS EQ ;			; if found one then *no* softwrap
+ CMP R1,R3
+ BCC a3$l
+d2$l
+ LDR R0,[R8,#w_format]		; find the bit
+ ORR R0,R0,#bit_softwrap	; (1 << 27)
+ STR R0,[R8,#w_format]		; find the bit
+ LDR R0,[R8,#w_flags]		; find the bit
+ BIC R0,R0,#(1 << 26)		; slear linewrap
+ STR R0,[R8,#w_flags]		; find the bit
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; DOS file convertion					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R2=file type b0=>Dos b1=>Spool
+;  R8/R9 R9=Coagulated valid file of above type
+;X Dos/Spool flag set and & CR's removed #
+
+dos_to_text
+ FNJSR "R1-R6"
+ LDR R0,[R9,#f_flags]
+ TST R2,#1
+ ORRNE R0,R0,#1<<27		; mark as a dos file
+ TST R2,#2
+ ORRNE R0,R0,#1<<29		; mark as a spool file
+ STR R0,[R9,#f_flags]
+ LDR R4,[R9,#f_ptr]		; start (of current line)
+ LDR R5,[R9,#f_len]
+ ADD R5,R4,R5			; end (of file)
+ MOV R6,R4			; destination
+newline$l
+ MOV R1,R4			; save start of line (source)
+a$l
+ CMP R4,R5
+ BCS end$l
+ LDRB R0,[R4],#1
+ TEQ R0,#&0D
+ BNE a$l			; find next CR
+ MOV R2,R6			; dest
+ SUB R3,R4,R1
+ SUB R3,R3,#1			; length excluding CR
+ ADD R6,R6,R3			; new dest
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; shift the line
+ B newline$l
+end$l
+ MOV R2,R6			; dest
+ SUBS R3,R5,R1			; length to move
+ ADDNE R6,R6,R3			; new dest
+ SWINE XZapRedraw_MoveBytes ; BLNE move_bytes		; shift the last bit of file
+ LDR R0,[R9,#f_ptr]
+ SUB R6,R6,R0
+ STR R6,[R9,#f_len]
+ STR R6,[R9,#f_splito]
+ LDR R0,[R9,#f_splite]		; same as buffer length
+ SUB R0,R0,R6
+ STR R0,[R9,#f_splits]
+ FNRTS
+
+ LOCAL
+
+;E R8/R9 ordinary text file R11=file flags
+;X CR inserted before every LF if a DOS file
+;  CR inserted after every LF if a spool file
+
+text_to_dos
+ FNJSR "R1-R7"
+ MOV R6,#0
+ BL read$l			; split at offset 0 in the file
+ FNRTS VS			; R4=start R5=end R6=dest R7=splits
+newline$l
+ MOV R1,R4			; save start of line (source)
+a$l
+ CMP R4,R5
+ BCS end$l
+ LDRB R0,[R4],#1
+ TEQ R0,#&0A
+ BNE a$l			; find next LF
+ MOV R2,R6			; dest
+ SUB R3,R4,R1
+ SUB R3,R3,#1			; length excluding LF
+ ADD R6,R6,R3			; new dest
+ SWI XZapRedraw_MoveBytes ; BL move_bytes			; shift the line
+ TST R11,#1<<27			; DOS file?
+ MOV R0,#&0D
+ MOV R14,#&0A
+ STRNEB R0,[R6],#1
+ STRB R14,[R6],#1		; add DOS ending
+ STREQB R0,[R6],#1		; add spool ending
+ SUBS R7,R7,#1			; one less free byte
+ BGT newline$l			; still got bytes free
+ BL write$l
+ BL read$l			; ensure more split
+ BVC newline$l
+ FNRTS
+end$l
+ MOV R2,R6			; dest
+ SUBS R3,R5,R1			; length to move
+ ADDNE R6,R6,R3			; new dest
+ SWINE XZapRedraw_MoveBytes ; BLNE move_bytes		; shift the last bit of file
+ BL write$l			; write new file extent etc
+ FNRTS
+read$l				; R6=split off -> R4-R7 space ensured
+ FNJSR
+ MOV R0,R6
+ MOV R1,#file_size		; default free space
+ BL split_buffer		; split buffer at this offset
+ LDRVC R0,[R9,#f_ptr]		; start of the buffer
+ ADDVC R6,R0,R6			; destination
+ LDRVC R7,[R9,#f_splits]	; amount free in split
+ ADDVC R4,R6,R7			; start of the second half of file
+ LDRVC R5,[R9,#f_bufl]
+ ADDVC R5,R0,R5			; end (of file and buffer)
+ FNRTS
+write$l				; write R4-R6 as new values -> R6=split off
+ SUB R5,R5,R4			; amount left in second half of split
+ LDR R0,[R9,#f_ptr]
+ SUB R6,R6,R0
+ STR R6,[R9,#f_splito]
+ SUB R4,R4,R0
+ STR R4,[R9,#f_splite]
+ SUB R0,R4,R6
+ STR R0,[R9,#f_splits]
+ ADD R0,R5,R6
+ STR R0,[R9,#f_len]
+ MOV PC,R14
+
+loaddisasmwithcare
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 17
+ FNRTS EQ
+ BL checkseeifdisasmloaded
+ FNRTS VC
+ ADR R0,disasmpath
+ SWI XWimp_StartTask
+ SUBS R14,R14,R14
+ FNRTS
+
+loaddisasm
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 17
+ FNRTS EQ
+ BL checkseeifdisasmloaded
+ FNRTS VC
+ ADR R0,disasmpath
+ SWI XWimp_StartTask
+ BL redrawallcodemodewindows
+ SUBS R14,R14,R14
+ FNRTS
+;loadasm
+; FNJSR "R0,R1"
+; FNLDR R14,opt_switches
+; TST R14,#1 << 18
+; FNRTS EQ
+; BL checkseeifasmloaded
+; ADRVS R0,asmpath
+loadamodulefromname ; do nothing if V clear...
+ SWIVS XWimp_StartTask
+ SUBS R14,R14,R14
+ FNRTS
+loadlineeditor
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 16
+ FNRTS EQ
+ BL checkseeiflineeditorloaded
+ ADRVS R0,lineeditorpath
+ B loadamodulefromname
+loadiclear
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 23
+ FNRTS EQ
+ BL checkseeificlearloaded
+ ADRVS R0,iclearpath
+ B loadamodulefromname
+loadflashcar
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 28
+ FNRTS EQ
+ BL checkseeifflashcarloaded
+ ADRVS R0,flashcarpath
+ B loadamodulefromname
+
+loadkeyextend
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 30
+ FNRTS EQ
+ BL checkseeifkeyextendloaded
+ ADRVS R0,keyextendpath
+ B loadamodulefromname
+
+loadhidepointer
+ FNJSR "R0,R1"
+ FNLDR R14,opt_switches
+ TST R14,#1 << 19
+ FNRTS EQ
+ BL checkseeifhidepointerloaded
+ ADRVS R0,hidepointerpath
+ B loadamodulefromname
+;loadzapredraw ; no testing...
+; FNJSR "R0,R1"
+; BL checkseeifzapredrawloaded
+; FNRTS VC
+; ADR R0,zapredrawpath
+; B loadamodulefromname
+
+checkseeifdisasmloaded
+ FNJSR "R0-R5"
+ ;MOV R0,#0
+ ;MOV R1,#0
+ ;SWI XDebugger_63
+ ADR R1,disasmnamed
+ MOV R0,#18
+ SWI XOS_Module
+ FNRTS VS
+ BL getmoduleversionnumber
+ CMP R0,#&200
+ FNRTS CS
+ FNRTV
+
+checkseeifflashcarloaded
+ FNJSR "R0-R5"
+ ADR R1,flashcarnamed
+checkforamodulebyname
+ MOV R0,#18
+ SWI XOS_Module
+ FNRTS
+
+checkseeiflineeditorloaded
+ FNJSR "R0-R5"
+ ADR R1,lineeditornamed
+ B checkforamodulebyname
+
+checkseeifkeyextendloaded
+ FNJSR "R0-R5"
+ ADR R1,keyextendnamed
+ B checkforamodulebyname
+
+checkseeifFTEloaded
+ FNJSR "R0-R5"
+ ADR R1,FTEnamed
+ B checkforamodulebyname
+
+checkseeificlearloaded
+ FNJSR "R0-R5"
+ ADR R1,iclearnamed
+ B checkforamodulebyname
+
+checkseeifhidepointerloaded
+ FNJSR "R0-R5"
+ ADR R1,hidepointernamed
+ B checkforamodulebyname
+
+;checkseeifzapredrawloaded
+; FNJSR "R0-R5"
+; ADR R1,zapredrawnamed
+; MOV R0,#18
+; SWI XOS_Module
+; FNRTS VS
+; BL getmoduleversionnumber
+; CMP R0,#&31
+; FNRTS CS
+; FNRTV
+
+getmoduleversionnumber ; e.g. 1.32 becomes &132 in R0.
+ LDR R0,[R3,#&14]
+ ADD R3,R3,R0
+loop$l
+ LDRB R0,[R3],#1
+ CMP R0,#'.'
+ BNE loop$l
+ LDRB R0,[R3,#-2]
+ SUB R2,R0,#'0'
+ LDRB R0,[R3],#1
+ SUB R1,R0,#'0'
+ LDRB R0,[R3],#1
+ SUB R0,R0,#'0'
+ ADD R0,R0,R1,LSL #4
+ ADD R0,R0,R2,LSL #8
+ MOV PC,R14
+
+flashcarnamed FNS ("FlashCar")
+disasmnamed FNS ("Debugger")
+;asmnamed FNS ("ExtBASICasm")
+lineeditornamed FNS ("LineEditor")
+hidepointernamed FNS ("HidePointer")
+keyextendnamed FNS ("KeyboardExtend")
+;zapredrawnamed FNS ("ZapRedraw")
+iclearnamed FNS ("IClear")
+FTEnamed FNS ("FiletypeExtend")
+disasmpath FNS ("Obey ZapExtensions:BootDisasm")
+;asmpath FNS ("Obey ZapExtensions:BootExtAsm")
+flashcarpath FNS ("Obey ZapExtensions:BootFlash")
+lineeditorpath FNS ("Obey ZapExtensions:BootLineEd")
+keyextendpath FNS ("Obey ZapExtensions:BootKeyExt")
+hidepointerpath FNS ("Obey ZapExtensions:BootHide")
+;zapredrawpath FNS ("Obey ZapExtensions:BootRedraw")
+iclearpath FNS ("Obey ZapExtensions:BootIClear")
+
+ ALIGN
+
+ END

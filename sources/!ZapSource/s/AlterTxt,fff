@@ -1,0 +1,2247 @@
+; Contains code to alter the text in the buffer.
+; $Id: AlterTxt,fff,v 1.2 1999/01/12 18:23:38 dj Exp $
+
+ GET h.ZapHeader
+ GET h.Heap
+ GET h.Strings
+ GET h.Cursors
+ GET h.ModeBits
+ GET h.CreateFile
+ GET h.CreateWind
+ GET h.Redraw
+ GET h.Mode0
+ GET h.MiniBuff
+ GET h.SoftWrap
+ GET h.StartCode
+ GET h.TMTVars
+ GET h.Undo
+ GET h.Update
+
+ IMPORT err12
+ IMPORT zephyr
+
+ EXPORT split_buffer
+ EXPORT change_extent
+ EXPORT cln_readc
+ EXPORT cln_readw
+ EXPORT cln_writew
+ EXPORT copy_text
+ EXPORT insert_tab
+ EXPORT execute_command
+ EXPORT command_primative
+ EXPORT save_txt_status
+ EXPORT new_txt_status
+ EXPORT clip_cache
+ EXPORT update_linenos
+ EXPORT start_operation
+ EXPORT stop_operation
+ EXPORT undo_start_operation
+ EXPORT undo_stop_operation
+ EXPORT swap_case
+ EXPORT insert_date
+ EXPORT insert_string
+ EXPORT insert_returns
+ EXPORT pre_input
+ EXPORT do_command
+ EXPORT insert_chars_at
+ EXPORT do_replace_area
+ EXPORT replace_area
+ EXPORT read_date
+ EXPORT strip_spaces
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; SPLITTING BUFFER FOR TEXT ENTRY			       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+
+;E R0=file offset for new split
+;  R1=minimum size of split
+;  R9=file
+;X file split at this offset #
+
+split_buffer
+ FNJSR "R1-R10"
+ LDR R7,[R9,#f_len]
+ CMP R0,R7
+ MOVCS R0,R7			; clip file offset to end
+ LDR R5,[R9,#f_splits]		; current size of split
+ MOV R10,R0			; new split offset
+ SUBS R1,R1,R5			; amount to enlarge buffer by
+ ADDGE R0,R1,#file_size
+ BLGE enlarge_buffer		; make sure split large enough
+ FNRTS VS
+ LDR R4,[R9,#f_splito]
+ LDR R5,[R9,#f_splits]
+ LDR R6,[R9,#f_ptr]
+ CMP R10,R4			; compare split offsets
+ FNRTS EQ			; already split here
+ BHI down$l			; required split offset greater
+ ADD R1,R6,R10			; source
+ ADD R2,R1,R5			; dest
+ SUB R3,R4,R10			; amount to move
+ B move$l
+down$l
+ ADD R2,R6,R4			; dest
+ ADD R1,R2,R5			; source
+ SUB R3,R10,R4			; amount to move
+move$l
+ SWI XZapRedraw_MoveBytes	; BL move_bytes
+ STR R10,[R9,#f_splito]		; new offset
+ ADD R10,R10,R5
+ STR R10,[R9,#f_splite]		; new end of split
+ FNRTS
+
+ LOCAL
+
+;E R0=signed size change (must not be < -split free)
+;  R9=file
+;X file buffer size changed by this amount (preserving split etc) #
+;  (Affects f_bufl and f_blklen - undo stuff at the end shifted)
+
+enlarge_buffer
+ FNJSR "R1-R11"
+ FNLDR R10,file_list
+ SUB R10,R9,R10
+ MOV R10,R10,LSR#f_shift	; file offset in list
+ LDR R7,[R9,#f_blklen]		; total length of file block
+ LDR R6,[R9,#f_ptr]
+ LDR R5,[R9,#f_splite]
+ LDR R4,[R9,#f_splits]
+ MOVS R11,R0			; signed size change
+ FNRTS EQ			; no change in size
+ BMI shrink$l
+ MOV R0,R10
+ ADD R1,R7,R11
+ BL set_block_size		; enlarge the block the file sits in
+; FNRTS VS			; ???
+ LDRVC R0,[R9,#f_blklen]
+ SUBVC R11,R0,R7		; actual size change (word aligned!)
+ LDRVC R1,[R9,#f_ptr]		; file start
+ ADDVC R1,R1,R5			; start of second half of split
+ ADDVC R2,R1,R11		; new position
+ SUBVC R3,R7,R5			; size of second half + undo data
+ SWIVC XZapRedraw_MoveBytes	; move second half up + undo data
+ B tidy$l
+shrink$l
+ RSB R11,R11,#0			; negate R11 now +ve amount to shrink by
+ BIC R11,R11,#3			; amount to shrink by word aligned
+ ADD R1,R6,R5
+ SUB R2,R1,R11
+ SUB R3,R7,R5
+ SWI XZapRedraw_MoveBytes	; move second half of split down + undo data
+ MOV R0,R10
+ SUB R1,R7,R11
+ BL set_block_size
+; FNRTS VS
+ RSBVC R11,R11,#0		; size change
+tidy$l				; set new split offsets and length
+ ADDVC R5,R5,R11
+ ADDVC R4,R4,R11
+ STRVC R5,[R9,#f_splite]
+ STRVC R4,[R9,#f_splits]	; update split end and size
+ LDRVC R0,[R9,#f_bufl]
+ ADDVC R0,R0,R11
+ STRVC R0,[R9,#f_bufl]		; update the buffer length
+ FNRTS
+
+;E R0=file off R9
+;X R0=character at this offset R1 corrupted (no checking) |
+
+cln_readc
+; CMP R0,#0			; debug code...
+; SWIMI &107			; debug code...
+; LDR R1,[R9,#f_len]
+; CMP R0,R1
+; BCS eof$l
+ LDR R1,[R9,#f_splito]
+ CMP R0,R1
+ LDRCS R1,[R9,#f_splits]
+ ADDCS R0,R0,R1
+ LDR R1,[R9,#f_ptr]
+ LDRB R0,[R1,R0]
+ MOVS PC,R14
+eof$l
+; SWI &107			; debug code... (this fires in TW mode
+ ; 				; upon cursor up/down (if there's LE history)
+; MOV R0,#0			; hope this is OK.
+; MOV PC,R14
+
+ LOCAL
+
+;E R0=file off R8/R9
+;X R0=word at this address (not nec aligned)
+;  Zero bytes inserted into word if word goes off end of file
+;  Endianness of work taken from R8,#w_format |
+
+cln_readw
+ STMFD R13!,{R1-R5,R14}
+ MOV R3,R0			; offset
+ MOV R4,#4			; count
+ LDR R5,[R9,#f_len]		; end of file
+in16
+ MOV R0,R3
+ CMP R0,R5
+ BLCC cln_readc			; read the next byte
+ MOV R2,R2,LSR #8
+ ORRCC R2,R2,R0,LSL #24
+ ADD R3,R3,#1
+ SUBS R4,R4,#1
+ BHI in16
+ MOV R0,R2
+ LDR R1,[R8,#w_format]
+ TST R1,#1<<17
+ BLNE reverse_word		; change to big endian
+ LDMFD R13!,{R1-R5,PC}
+
+;E R0=word R1=offset R8/R9
+;X word replaced/inserted if at end via replace_area #
+; (was exec command) #
+
+cln_writew
+ STMFD R13!,{R1-R3,R14}
+ LDR R2,[R8,#w_format]
+ TST R2,#1<<17
+ BLNE reverse_word
+ STMFD R13!,{R0}
+ MOV R3,R13
+; ADR R3,cln_writew_d0
+; STR R0,[R3]
+ LDR R2,[R9,#f_len]
+ SUBS R2,R2,R1
+ MOVMI R2,#0
+ CMP R2,#4
+ MOVCS R2,#4
+ MOV R4,#4
+ BL replace_area
+; ADD R0,R1,#4			; end offset after a replace
+; CMP R0,R2
+; MOVLE R0,#&13			; replace
+; MOVGT R0,#&11			; insert
+; MOV R2,#4			; len
+; BL execute_command
+ ADD R13,R13,#4
+ LDMFD R13!,{R1-R3,PC}
+
+;cln_writew_d0			; eugh - local storage :-(
+; DCD 0
+;
+ LOCAL
+
+;E R0=coltab width/0 for edit tab
+;  R1=num tabs R2=xcol(em) R3=yline R8/R9
+;X R0=new column position after tab (exc margin) #
+
+cln_tabcol
+ FNJSR "R1-R7,R10,R11"
+ MOV R4,R1			; tab count
+ MOV R6,R2			; current column
+ MOV R11,R3
+ MOV R5,R0			; tab width
+ BL offset_for_tabs
+ SUBS R10,R0,#&400
+ MOVMI R10,#0
+trytabagain
+ CMP R5,#0
+ BGT cl10
+ MOV R2,R6
+ MOV R3,R11
+ BL offset_for_tabs
+ FNRTS VS			; a problem
+ CMP R0,R10
+ MOVLE R5,#8
+ BLE cl14			; no previous line so resort to coltab8
+ MOV R7,R0			; save file offset
+cl11				; edit tab
+ MOV R0,R7			; file offset
+ BL cln_txt_splus
+ MOVVC R7,R0			; new offset
+ BLVC offset_line_column	; get new posn R2,R3
+ FNRTS VS
+ LDR R0,[R8,#w_margin]
+ SUB R2,R2,R0			; new col exc margin
+ CMP R2,R6
+ SUBLE R11,R11,#1
+ BLE trytabagain ; cl13		; column may only increase
+ MOV R6,R2			; new column
+cl12
+ SUBS R4,R4,#1
+ BHI cl10			; do next tab
+cl13
+ MOV R0,R6			; new column
+ FNRTS
+
+cl10				; next tab...
+ CMP R5,#0
+ BEQ cl11			; edit tab
+cl14
+ MOV R0,R6			; current col
+ MOV R1,R5			; tab width
+ SWI XZapRedraw_Divide ; BL div_mod	; R0=div
+ ADD R0,R0,#1			; next tab column
+ MUL R6,R0,R5			; new col
+ B cl12
+
+; should returns file offset in previous logical line which is long enough
+; or -1 if this doesn't exist.
+; in fact returns file offset in previous physical line :(
+
+offset_for_tabs
+; FNJSR
+; MOV R0,R3
+; MOV R11,#e_clnphy
+; BL call_mode ; get offset of line start in R0 ; log in R1
+; MOV R6,R1
+;andagaintogetprevlog
+; SUBS R3,R3,#1			; previous /physical/(?) line
+; MOVMI R0,#0
+; FNRTS MI
+; MOV R0,R3
+; MOV R11,#e_clnphy
+; BL call_mode ; get offset of line start in R0 ; log in R1
+; CMP R1,R6
+; BEQ andagaintogetprevlog
+; MOV R5,R0
+
+ ;SUBS R0,R0,#1
+ ;MVNMI R0,#0
+ ;FNRTS MI
+ ;MOV R11,#e_clnoff ; get previous log line no in R2
+ ;BL call_mode
+ ;MOV R6,R2
+ SUBS R3,R3,#1			; previous /physical/(?) line
+ MVNMI R0,#0
+ MOVMI PC,R14
+ ;FNRTS MI
+ LDR R0,[R8,#w_margin]
+ ADD R2,R2,R0			; add margin for find_offset
+ B find_offset			; find file offset in R0 (from x,y)
+ ;MOV R7,R0
+ ;BL e_lineend
+; FNRTS
+
+ LOCAL
+
+;E R0=number of chars to copy
+;X That number of chars copied from cursor to input #
+
+copy_text
+ STMFD R13!,{R1-R11,R14}
+; PUSH "R0"
+ MOV R1,R0			; number of bytes to copy
+ BL get_cursor_caret		; get copy caret
+ MOVVC R11,#e_aligncaret
+ BLVC call_mode			; align for the mode
+; PULL "R1"
+ MOVVC R0,#1			; fetch
+ MOVVC R11,#e_copy
+ BLVC call_mode			; find out what to copy
+ BLVC make_cursor_visible	; show the (input) cursor
+; doesn't work terribly well at the moment...
+;  LDRVC R14,[R10,#c_col]
+;  STRVC R14,local_regs$l
+;  LDRVC R14,[R10,#c_line]
+;  STRVC R14,local_regs$l + 4
+;  ADRVC R5,local_regs$l + 8
+;  STMVCIA R5,{R8-R10}
+
+; LDMFD R13!,{R1-R11,PC}		; ???????????????
+ BLVC get_input_caret		; find dest
+ MOVVC R0,#2
+ MOVVC R11,#e_copy
+ BLVC call_mode			; see how to enter it
+ LDMVSFD R13!,{R1-R11,PC}
+ TEQ R0,#0
+ LDMEQFD R13!,{R1-R11,PC}	; the mode's done it all
+; MOV R2,#1
+; ADR R3,copy_text
+ TEQ R0,#2
+ BEQ co12			; it wants me to enter as if typed
+ MOV R0,#1
+ LDR R1,[R10,#c_off]
+ BL execute_command		; insert the data
+ BLVC make_cursor_visible	; highlight input caret
+ LDMFD R13!,{R1-R11,PC}
+
+co12
+ MOV R7,R3			; data address
+ MOV R5,R2			; len
+ LDR R6,[R8,#w_format]
+ LDR R4,[R8,#w_flags]
+; MOV R5,#1			; ???
+; ADR R7,copy_text
+; BL get_input_caret		; find dest
+ MOV R11,#e_char
+ BL call_mode			; insert the chars
+; SWI &107
+
+; doesn't work terribly well at the moment...
+;  LDMVSFD R13!,{R1-R11,PC}
+;
+;  ADR R5,local_regs$l
+;  LDMIA R5,{R2,R3,R8-R10}
+;  STR R2,[R10,#c_col]
+;  STR R3,[R10,#c_line]
+;  FNcall Zap_FindOffset		; ???????
+;  STRVC R0,[R10,#c_off]		; anything else...?
+;  BLVC make_cursor_visible	; highlight input caret...?
+
+ LDMFD R13!,{R1-R11,PC}
+
+ LOCAL
+
+; sub for Tab command (with R0=tab mode<<9 and R5=w_flags)
+
+insert_tab
+ FNJSR
+ AND R0,R0,#3<<9		; tab mode
+ CMP R0,#2<<9
+ MOVLT R0,#0			; edit tab
+ LDREQ R0,[R8,#w_tab]		; coltab of width R0
+ MVNGT R0,#0			; auto indent tab
+ LDR R2,[R10,#c_col]
+ LDR R3,[R10,#c_line]
+ LDR R14,[R8,#w_margin]
+ SUB R2,R2,R14			; R2=col exculding margin
+ BL cln_tabcol			; get new col in R0
+ FNRTS VS
+ MOV R4,#0			; num of tabs to insert
+ MOV R3,R0			; dest column
+ TST R5,#1<<11
+ BNE ta2			; don't insert tab chars
+ta3
+ ADD R0,R2,#8			; into next col
+ BIC R0,R0,#7			; start of next col
+ CMP R0,R3
+ ADDLE R4,R4,#1			; add unix tab
+ MOVLE R2,R0			; new col
+ BLE ta3			; next
+ta2
+ SUB R5,R3,R2			; number of spaces to insert
+ FNLDR R0,wimp_kbdbuf
+ ADD R1,R4,R5			; total num of chars
+ BL heap_ensure
+ FNRTS VS
+ FNSTR R0,wimp_kbdbuf		; kbd buf now big enough
+ LDRB R2,[R8,#w_tabc]
+ MOV R3,R0			; buffer
+ta4
+ SUBS R4,R4,#1
+ STRPLB R2,[R3],#1
+ BPL ta4
+ MOV R2,#32
+ta5
+ SUBS R5,R5,#1
+ STRPLB R2,[R3],#1
+ BPL ta5
+ta6
+; MOV R3,R0
+; MOV R2,R1
+; LDR R1,[R10,#c_off]
+; MOV R0,#&11
+; BL execute_command
+ LDR R4,[R8,#w_flags]
+ MOV R5,R1
+ LDR R6,[R8,#w_format]
+ MOV R7,R0
+ MOV R11,#e_char
+ BL call_mode
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; E X E C U T E	  C O M M A N D				     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=command R1-R5=data R8/R9 (R8=0 if don't know which window)
+;   1 Insert text		R1=off R2=num R3=data
+;   2 Delete text		R1=off R2=num
+;   3 Replace text forward	R1=off R2=num R3=data
+;   4 Replace text backward	R1=off R2=num R3=data
+;   5 Delete text backward	R1=off R2=num
+;   6 Insert text backward	R1=off R2=num R3=data
+;  Add &10 if you do not wish the data to be concatonated.
+;  Add &20 if you do not wish the input caret to be updated to the change
+;  Add &40 if the region is/was/should be selected
+;X Command executed, placed in input buffer, and input caret updated to
+;  the end of the block and made visible. #
+; if R0=1/5 then on exit R3=pointer to snipped text...
+
+execute_command
+ TEQ R2,#0
+ MOVEQ PC,R14			; nothing to do
+ STMFD R13!,{R10-R11,R14}
+ LDR R10,[R9,#f_flags]
+ MOV R14,R10
+ TST R0,#&20
+ ORRNE R14,R14,#1<<14		; delink caret
+ ;TST R0,#&40
+ ;SWINE &107			; beep if set...
+ AND R0,R0,#&5F			; get the primative command
+ STR R14,[R9,#f_flags]		; temporary flag format
+ TEQ R8,#0
+ BEQ ex10			; no window given
+ MOV R11,#e_command		; should preserve R10!
+ BL call_mode			; do the command (via the mode)
+ex11
+ LDR R14,[R9,#f_flags]
+ BIC R14,R14,#1<<14
+ AND R10,R10,#1<<14
+ ORR R14,R14,R10		; restore these two(?) flags to their vals
+ STR R14,[R9,#f_flags]		; restore default flag status regardless
+ LDMFD R13!,{R10-R11,PC}	; return (possibly with error)
+ex10
+ BL command_primative		; no window given so use primative
+ B ex11
+
+;E As for execute_command except called by the mode and don't need R8 #
+
+command_primative
+ STMFD R13!,{R1-R11,R14}
+ MOV R10,R0			; save command num
+ FNLDR R0,yank_len
+ FNSTR R0,yank_off		; null yank pointer
+ BL pre_input			; prepare for insertions (add spaces here?)
+ MOVVC R0,R10			; command num
+ BLVC do_command		; do command and get buffer data
+ LDMVSFD R13!,{R1-R11,PC}
+ MOV R11,R1
+ MOV R6,R2			; save length
+ LDR R7,[R9,#f_uptr]
+ LDR R14,[R9,#f_ulen]
+ LDR R1,[R9,#f_undo]
+ LDR R2,[R9,#f_undop]
+ TEQ R2,#0
+ TEQEQ R1,R14			; is undo pointer at current offset?
+ MOV R0,#0
+ BLNE buffer_command		; set up fast undo pointer
+ LDMVSFD R13!,{R1-R11,PC}
+ LDR R0,[R9,#f_flags]
+ TST R0,#1
+ BEQ un14			; no undo
+ MOV R0,R10
+ MOV R1,R11			; command buffered if undo on or a block
+ MOV R2,R6			; delete for yank/paste command
+ BL buffer_command		; buffer the command
+ LDMVSFD R13!,{R1-R11,PC}
+un14
+ MOV R0,#0
+ STR R0,[R9,#f_undop]
+ LDR R0,[R9,#f_ulen]
+ STR R0,[R9,#f_undo]		; set up new undo pointer
+ LDMFD R13!,{R1-R11,PC}
+
+maybe_rapid_not_preinput
+ FNJSR "R8-R9"
+ MOV R7,R9
+ FNLDR R10,car_cursor
+; BL get_file_off		; R0=file offset ; RIDICULOUS.
+ LDR R0,[R10,#c_wind]		; This code doesn't appear to work properly
+ BL conv_wind_off		; Get R8/R9
+; LDR R14,[R14,#w_file]
+ TEQ R7,R9
+ ;TEQ R0,R14			; (is cursor caret in this file?)
+ FNRTS EQ
+ FNLDR R10,car_input
+ LDR R0,[R10,#c_wind]		; This code doesn't appear to work properly
+ BL conv_wind_off		; Get R8/R9
+ TEQ R7,R9
+ ;LDR R14,[R10,#c_wind]		; sake of making the behaviour consistent
+ ;TEQ R0,R14			; but messed up redraw when output in other.
+ ;BEQ pr26			; when there are several views onto a file
+ ;LDMFD R13!,{R10,PC}		; why return here...?
+ FNRTS
+
+;E R9=file
+;X caret mode and selected region status prepared for
+;  insertion of text #
+
+pre_input
+ STMFD R13!,{R10,R14}
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<8			; not 1<<4 too...?
+ BNE pr27			; file read only
+;
+ BL maybe_rapid_not_preinput	; a cursor in this file?
+ LDMNEFD R13!,{R10,PC}		; return here...
+; LDMFD R13!,{R10,PC}		; why return here...?????????????
+
+; LDMFD R13!,{R10,PC}		; why return here...?
+; FNLDR R10,car_cursor
+; BL get_file_off		; R0=file offset ; RIDICULOUS.
+; LDR R0,[R10,#c_wind]		; This code doesn't appear to work properly
+;; LDR R14,[R14,#w_file]
+; TEQ R0,R14			; (is cursor caret in this file?)
+; BEQ pr26			; it /was/ been commented out (by TT) for the
+; FNLDR R10,car_input
+; LDR R14,[R10,#c_wind]		; sake of making the behaviour consistent
+; TEQ R0,R14			; but messed up redraw when output in other.
+; BEQ pr26			; when there are several views onto a file
+; LDMFD R13!,{R10,PC}		; why return here...?
+
+pr26
+ FNLDR R0,car_mode
+ CMP R0,#0
+ BLGT caret_writable		; if caret exists the make mode 1/2
+ LDMVSFD R13!,{R10,PC}
+ FNLDR R0,opt_flags
+ TST R0,#1<<22
+ LDMEQFD R13!,{R10,PC}		; don't auto clear selections
+ FNLDR R0,car_selection
+ LDR R0,[R0,#c_wind]
+ MOVS R0,R0
+ BLPL clear_selection
+ LDMFD R13!,{R10,PC}
+pr27
+ STMFD R13!,{R0,R1}
+ ADR R0,pr_s0
+ MOV R1,#0
+ BL warn_user
+ LDMFD R13!,{R0,R1}
+; LDMVSFD R13!,{R10,PC}
+ BL err12
+; SUBS R14,R14,R14		; clv
+
+ LDMFD R13!,{R10,PC}
+pr_s0
+ FNS ("This file is read only")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Command Subs						   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+local_commandtypestored
+ DCD 0
+
+;E R0=command R1-R5=command data as in execute_command R9
+;X Command action performed and R1-R5=undo data, input caret updated #
+
+do_command
+ STR R0,local_commandtypestored	; get actual command number (0-7)
+ ANDS R0,R0,#&07		; get actual command number (0-7)
+ MOVEQ PC,R14			; pointer (don't mark changed)
+ TEQ R0,#7
+ MOVEQ PC,R14			; pointer (don't mark changed)
+ STMFD R13!,{R0,R14}
+; LDR R0,local_commandtypestored
+ STR R0,[R9,#f_docom]		; save the command type
+ STR R2,[R9,#f_dolen]		; length of the data
+ STR R3,[R9,#f_dodata]		; pointer to the data (if applicable)
+ TEQ R0,#1
+ TEQNE R0,#6
+ LDR R0,[R9,#f_flags]
+ TSTNE R0,#1			; undo enabled? If so, we want deleted block
+ FNLDR R14,opt_switches,NE
+ BICNE R14,R14,#bit_return_deletions
+ FNSTR R14,opt_switches,NE
+; TST R0,#1<<3			; is the file marked changed
+; BLEQ mark_changed		; no so mark changed
+ BVS dc_error
+
+ LDR R0,[R9,#f_depth]
+ CMP R0,#0
+ BLGT maybe_scrub_all_on_this_file
+
+ LDMFD R13!,{R0,R14}
+ ADD PC,PC,R0,LSL#2		; jump to it
+ DCD 0
+ MOV PC,R14			; command 0 (pointer)
+ B insert_text			; command 1 (insert)
+ B delete_text			; command 2 (del)
+ B replace_text			; command 3 (replace for)
+ B replace_text			; command 4 (replace bac)
+ B delete_text			; command 5 (del bac) (PROTOCOL X)
+ B insert_text			; command 6 (insert bac) (PROTOCOL X)
+ MOV PC,R14			; command 7 (mulitop marker)
+dc_error
+ LDMFD R13!,{R14}		; old value of R0
+ LDMFD R13!,{R14}		; old value of R14
+ ORRS PC,R14,#Vbit
+; FNRTV				; return with error (What's stacked?!?!)
+
+maybe_scrub_all_on_this_file
+ LDR R0,[R9,#f_altered]
+ CMP R0,#0
+ MOVPL PC,R14
+ B scrub_all_on_this_file
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Save And New Text Status				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=file offset of first char to change R1=signed change
+;  R2=file offset of first char to be shifted up/down R9
+;  f_docom,f_dolen,f_dodata setup
+;X clear carets and save txt status in each window looking at this file #
+
+save_txt_status
+ STMFD R13!,{R10,R14}
+
+
+ LDR R10,[R9,#f_depth]
+ CMP R10,#0
+ BGT save_txt_status_concat	; concatonise (sic) operations :-)
+sa10
+ STR R0,[R9,#f_altered]
+ STR R1,[R9,#f_change]
+ STR R2,[R9,#f_shiftable]	; save what's happened to the file
+ FNLDR R10,car_cursor
+ BL test_fblk
+ BLEQ scrub_caret		; remove cursor caret
+ LDMVSFD R13!,{R10,PC}
+ FNLDR R10,car_input
+ BL test_fblk
+ BLEQ scrub_caret		; remove input caret
+; LDMVSFD R13!,{R10,PC}
+ BLVC get_input_window		; R0=window with input caret ; !
+ ADRVC R10,save_txt_status_wind
+ BLVC do_eachwindow		; NO DRAW OPS AFTER THIS
+ LDMFD R13!,{R10,PC}		; AS IT MAY CORRUPT THE CACHE PTR
+
+save_txt_status_concat
+ LDR R10,[R9,#f_altered]
+ CMP R10,#0
+ BMI sa10			; continue as usual as nothing to add to
+ CMP R10,R0
+ MOVGE R10,R0			; new first altered byte
+ STRGE R10,[R9,#f_altered]
+ ADR R10,save_txt_concat_wind
+ BL do_eachwindow		; concatonate the w_* vars
+ LDMVSFD R13!,{R10,PC}
+ LDR R14,[R9,#f_change]		; total change so far
+ LDR R10,[R9,#f_shiftable]	; old first shiftable char
+ ADD R10,R10,R14		; offset it will have been shifted to
+ CMP R10,R2
+ MOVLT R10,R2			; new first shiftable char
+ SUB R10,R10,R14		; what it would have been before
+ STR R10,[R9,#f_shiftable]
+ ADD R10,R14,R1			; new total change
+ STR R10,[R9,#f_change]		; add in this change
+ LDMFD R13!,{R10,PC}
+
+;selecttherelregion
+; FNJSR "R2,R3"
+; ADD R3,R1,R0
+; MOV R2,R1
+; BL alter_selected_region
+; FNRTS
+
+; nearly the same as the routine that follows
+new_proposed_txt_status
+ STMFD R13!,{R10-R11,R14}
+ LDR R10,[R9,#f_depth]
+ CMP R10,#0
+ BGT new_proposed_txt_status_concat
+ BL alter_selection
+; LDMVSFD R13!,{R10-R11,PC}	; exit on error
+ LDRVC R0,[R9,#f_altered]	; total altered
+ LDRVC R1,[R9,#f_change]	; total change
+ BLVC alter_all_carets		; update cursor positions
+; LDMVSFD R13!,{R10-R11,PC}
+ BLVC redraw_patching_update
+ BLVC mark_proposed_new_sel	; needs R4,R5
+ LDMFD R13!,{R10-R11,PC}	; way to make sure the screen is OK...?
+
+;E R0=first changed R1=signed change R2=new input car off R9
+;X carets & windows & markers on this file updated due to change #
+
+new_txt_status
+ STMFD R13!,{R10-R11,R14}
+ LDR R10,[R9,#f_depth]
+ CMP R10,#0
+ BGT new_txt_status_concat
+ BL alter_selection
+ ;LDMVSFD R13!,{R10-R11,PC}	; exit on error
+
+ ;LDR R0,local_commandtypestored
+ ;TST R0,#8			; doesn't work...
+ ;BLNE selecttherelregion
+
+ ;PUSH "R10"
+ ;FNLDR R10,car_cursor
+ ;BL scrub_caret
+ ;PULL "R10"
+ LDRVC R0,[R9,#f_altered]	; first altered
+ LDRVC R1,[R9,#f_change]	; total change
+ BLVC alter_all_carets		; update cursor positions
+ ;LDMVSFD R13!,{R10-R11,PC}
+ ;FNLDR R10,car_cursor
+ ;BL scrub_caret
+ ; BL new_carets			; redraw carets on screen
+ ;FNLDR R10,car_cursor
+ ;BL scrub_caret
+ ;ADR R10,try_to_up_carets
+ ;BL do_eachwindow		; update each window's cursors
+ BLVC redraw_patching_update
+
+ ;FNLDR R11,car_mode		; save current caret mode
+ ;MVN R14,#1			; -2
+ ;FNSTR R14,car_mode		; pretend there are no carets
+ ;ADRL R10,new_txt_status_wind
+ ;BL do_eachwindow		; update each window by shifting screen
+ ;FNSTR R11,car_mode		; restore caret mode
+ ;BL new_carets			; redraw carets on screen (before...?)
+ ;CMP R0,#-1
+ ;ADRL R10,new_txt_status_wind2	; update each window completely :(
+ ;BLEQ do_eachwindow		; this code is appalling - is there a better
+ ;BL reselctifneeded
+ LDMFD R13!,{R10-R11,PC}	; way to make sure the screen is OK...?
+
+;reselctifneeded
+; FNJSR "R0,R1,R2,R3,R8,R9,R10"
+;; FNRTS				; ??????????????????????????????????
+; LDR R14,reselect		; flag...
+; CMP R14,#0
+; FNRTS EQ
+; MOV R14,#0
+; STR R14,reselect		; flag...
+; BL clear_selection
+; FNLDR R10,car_cursor
+; LDR R0,[R10,#c_wind]
+; BL conv_wind_off		; get R8/R9...???? DODGY...
+;
+; ;FNLDR R10,car_selection
+; ;LDR R2,[R10,#c_off]		; end offset
+; ;LDR R3,[R10,#c_owidth]	; end offset
+; BL getlastmarkptr
+; LDR R2,[R1,#-8]
+; LDR R3,[R1,#-16]
+; CMP R2,R3
+; MOVCS R14,R2
+; MOVCS R2,R3
+; MOVCS R3,R14
+; ;SUB R14,R3,R2
+; ;MOV R14,R14,LSR #1		; halve...?
+; ;ADD R3,R2,R14
+; MOV R14,#-1
+; STR R14,[R1,#-4]		; delete the links...
+; STR R14,[R1,#-8]		; delete the links...
+; STR R14,[R1,#-12]		; delete the links...
+; STR R14,[R1,#-16]		; delete the links...
+; BL alter_selected_region	; redraw selection...
+; FNRTS
+;
+;;reverse_then
+;; FNJSR
+;; LDR R2,[R1,#-32]
+;; LDR R3,[R1,#-16]
+;; FNRTS
+;
+;reselect ; <-------- this variable should be a f_xyz style variable
+; DCD 0   ;           or there may be problems with redraw of simultaneous
+; 	 ;	     operations in different windows ... :(
+
+; try_to_up_carets
+;  FNJSR "R0-R10"
+;  FNLDR R10,car_cursor
+;  BL scrub_caret
+;  BL new_carets		; redraw carets on screen
+;  FNLDR R10,car_cursor
+;  BL scrub_caret
+;  ;SWI &107
+;  FNRTS
+
+new_txt_concat_wind
+ STMFD R13!,{R1-R2,R14}
+ LDR R0,[R8,#w_savedo]		; current saved line offset
+ LDR R1,[R9,#f_change]		; total change so far
+ ADD R0,R0,R1			; its current offset
+ BL cln_off			; find its new physical line
+; LDMVSFD R13!,{R1-R2,PC}
+ LDRVC R1,[R8,#w_savedlc]	; previous current line
+ STRVC R0,[R8,#w_savedlc]	; new value
+ SUBVC R0,R0,R1			; change
+ LDRVC R1,[R8,#w_height]
+ ADDVC R1,R1,R0
+ STRVC R1,[R8,#w_height]	; new height
+ LDMFD R13!,{R1-R2,PC}
+
+new_proposed_txt_status_concat
+ BL pre_new_txt_status_concat
+ BL mark_proposed_new_sel	; needs R4,R5
+ LDMFD R13!,{R10-R11,PC}
+
+pre_new_txt_status_concat
+ STMFD R13!,{R10-R11,R14}
+new_txt_status_concat
+ MOV R11,R0			; save first changed
+ ADR R10,new_txt_concat_wind
+ BL do_eachwindow		; update w_height
+ MOVVC R0,R11
+ BLVC alter_selection		; update selected area ends
+ MOVVC R0,R11
+ BLVC alter_all_carets		; update caret posns for this op
+ LDMFD R13!,{R10-R11,PC}
+
+call_scrub_point
+ FNJSR
+ BL test_fblk
+ BLEQ scrub_point		; remove cursor caret
+ FNRTS
+
+;E f_*vars set according to change R8/R9
+;  R0=window with input caret (remove point caret if not).
+;X save txt status of this window #
+
+save_txt_status_wind
+ STMFD R13!,{R1,R11,R14}
+ TEQ R0,R8			; has this window got input focus
+ BLNE call_scrub_point		; delete the point caret if not
+ LDR R0,[R8,#w_scrolly]		; first shiftable char
+ STR R0,[R8,#w_savedscy]	; first shiftable char
+ LDR R0,[R8,#w_height]
+ STR R0,[R8,#w_savedh]		; save window height before change
+ LDR R0,[R9,#f_altered]		; offset of first changed char
+; BL zephyr			; OK here, but...
+ TEQ R0,#0
+ SUBNE R0,R0,#1			; this is the first char sure to stay fixed
+ BL clip_cache			; set cached referance point before change
+ ;LDMVSFD R13!,{R1,R11,PC}	; and before mode call!
+ LDRVC R0,[R9,#f_altered]	; offset of first changed char
+ BLVC getprevlineinfo
+ ;MOV R11,#e_prevline
+ ;BL call_mode
+; LDMVSFD R13!,{R1,R11,PC}
+ STRVC R0,[R8,#w_saveds]		; start of redraw offset
+ LDRVC R0,[R9,#f_shiftable]	; first shiftable char
+ LDRVC R1,[R9,#f_change]		; signed change
+ MOVVC R11,#e_nextline
+ BLVC call_mode			; find first shiftable line
+ STRVC R0,[R8,#w_savedo]	; save offset of first shiftable line
+ STRVC R1,[R8,#w_savedl]	; and phy line number of this line
+ STRVC R1,[R8,#w_savedlc]	; and current for multiop
+ LDMFD R13!,{R1,R11,PC}
+
+localtempr0prevline
+ DCD 0
+
+localtempr0prevline2
+ DCD 0
+
+getprevlineinfo
+ FNJSR
+ LDR R14,[R8,#w_format]
+ ANDS R14,R14,#1 << 27
+ BEQ simple_prevline
+ PUSH "R0-R7"			; overkill :-(
+ MOV R11,#e_prevline
+ BL call_mode			; find offset to update from
+ ADDVS R13,R13,#4
+ PULL "R1-R7",VS
+ FNRTS VS
+ LDR R0,[R13],#4
+ LDMIA R13,{R1-R7}
+ STR R14,localtempr0prevline
+ BL modesw_prevline
+ STR R0,localtempr0prevline2
+ LDR R14,localtempr0prevline
+ PULL "R1-R7"
+ CMP R14,R0
+ MOVCC R0,R14
+ FNRTS
+
+simple_prevline
+ MOV R11,#e_prevline
+ BL call_mode			; find offset to update from
+ FNRTS
+
+;E R0=first altered off R1=signed change R2=first shiftable
+;  for the current operation to be concatonated R8/R9
+;  f_change f_shiftable not updated, f_altered is updated
+;X w_savedo and w_savedl updated due to concatonisation #
+
+save_txt_concat_wind
+ STMFD R13!,{R1-R4,R11,R14}
+ MOVS R4,R0			; fist altered char
+ SUBNE R0,R0,#1			; first char sure to stay fixed
+
+; STMFD R13!,{R0} ; - not called!
+; MOV R0,#&99
+; BL zephyr
+; LDMFD R13!,{R0}
+; ADD R0,R0,#3
+; BL zephyr			; OK here, but...
+; SUB R0,R0,#3
+ BL clip_cache			; set cached ref point before change
+; LDMVSFD R13!,{R1-R4,R11,PC}
+ MOVVC R0,R4
+ BLVC getprevlineinfo
+ ;MOV R11,#e_prevline
+ ;BL call_mode			; find offset to update from
+ LDMVSFD R13!,{R1-R4,R11,PC}
+ LDR R4,[R8,#w_saveds]		; old start offset
+ CMP R0,R4
+ STRLT R0,[R8,#w_saveds]	; new start offset
+ LDR R4,[R9,#f_change]		; signed change so far
+ LDR R0,[R9,#f_shiftable]	; old first shiftable char
+ ADD R0,R0,R4			; its current posn
+ CMP R0,R2
+ LDMGEFD R13!,{R1-R4,R11,PC}	; first shiftable won't change
+ MOV R0,R2			; new first shiftable
+ MOV R11,#e_nextline
+ BL call_mode			; find new shiftable line
+ LDMVSFD R13!,{R1-R4,R11,PC}
+ SUB R3,R0,R4			; save new shiftable offset
+ LDR R0,[R8,#w_savedo]		; old shiftable offset
+ CMP R3,R0
+ ADD R0,R0,R4			; its current posn @@@@@
+ LDMLTFD R13!,{R1-R4,R11,PC}	; no point in storing it if <= old offset...
+ MOV R4,R1			; save curr phy line of new shift
+ STR R4,[R8,#w_savedlc]		; and set as current line
+
+; STMFD R13!,{R0}
+; MOV R0,#&9900
+; BL zephyr
+; LDMFD R13!,{R0}
+
+ BL cln_off			; find curr phy line of old savedo
+ SUB R4,R4,R0			; change in phy line
+ LDR R0,[R8,#w_savedl]
+ ADD R0,R0,R4
+ STR R0,[R8,#w_savedl]		; what the phy lnum would have been
+ STR R3,[R8,#w_savedo]		; new savedo
+ LDMFD R13!,{R1-R4,R11,PC}
+
+;E R8/R9 (not updated)
+;X window updated (and R8) and height changed WB #
+
+new_txt_status_wind
+ LDR R0,[R9,#f_altered]		; zero start posn?
+ CMP R0,#-1
+ MOVEQ PC,R14
+ STMFD R13!,{R1-R5,R14}
+; SWI &107			; not called...!
+ LDR R0,[R8,#w_saveds]		; first byte to redraw
+; CMP R0,#0   ; !!!!
+; MOVLS R0,#0 ; !!!!
+ ;STMFD R13!,{R0}
+ ;MOV R0,#&99
+ ;BL zephyr
+ ;LDMFD R13!,{R0}
+ BL offset_line_column		; R2/R3=first char to redraw
+; SUBS R14,R14,R14		; CLV
+; LDMVSFD R13!,{R1-R5,PC}	; error if off eof...
+ ;MOV R1,R8
+ ;SWI XWimp_GetWindowState	; update state of window
+; LDMVSFD R13!,{R1-R5,PC}
+ LDRVC R4,[R8,#w_savedo]	; first saved line offset
+ LDRVC R0,[R9,#f_change]
+ ADDVC R4,R4,R0			; R4=new saved line offset
+ MOVVC R5,R2			; save first changed col
+ MOVVC R0,R4			; start of first saved line
+ ;STMFD R13!,{R0}
+ ;MOV R0,#&9900
+; BL zephyr
+ ;LDMFD R13!,{R0}
+ BLVC cln_off			; R0=new phy of first saved
+;				\E R0=file offset R8/R9
+;				\X R0=physical line number
+;				   R1=file offset of physical line start
+;				   R2=logical line number
+; SUBS R14,R14,R14		; CLV
+ LDMVSFD R13!,{R1-R5,PC}
+
+ MOV R2,R5			; restore R2/R3=first changed char
+ MOV R5,R0			; R5=new phy line of first saved char
+; SWI &107 ; !!!!!!!!!!! gets here...
+ LDR R0,[R8,#w_savedl]		; R0=old phy line
+ SUB R1,R5,R0			; change in phy line
+ STR R1,[R8,#w_savedc]		; save this change
+ LDR R14,[R9,#f_len]
+ CMP R4,R14			; are we at file end
+ ADDCS R0,R0,#1			; if so then R5 wasn't a line start
+ ADDCS R5,R5,#1			; so move to next phy line to shift
+ LDR R14,[R8,#w_savedh]
+ STR R14,[R8,#w_height]		; restore window height before op
+ BL change_work_height		; shift the area at the bottom
+; SWIVC &107 ; !!!!!!!!!!! gets here too :-/
+ ; LDR R4,[R8,#w_scrolly]	; old scrolly
+ ; LDR R14,[R8,#w_savedscy]	; new scrolly
+ ; CMP R4,R14
+ ; BNE update_just_everything	; TT_crude_fix :(
+ LDRVC R4,[R8,#w_width]		; R4=last char of line !?!?!?
+				; E R2-R5 region R8/R9 (correct way around)
+				; R2= first col R4 = last col
+ BLVC update_region		; update entered region
+ MOVVC R0,R3			; ???? ok.
+ BLVC update_linenos		; update any line numbers
+; SWI &107			; not called...!
+ LDMFD R13!,{R1-R5,PC}
+
+; new_txt_status_wind2
+;  FNJSR "R1-R3"
+; ; LDR R0,[R8,#w_format]
+; ; BIC R0,R0,#1<<29		; don't ignore redraws if they come...!
+; ; STR R0,[R8,#w_format]
+;  BL update_whole_window_bar_title ; i.e. *except* update_whole_window
+;  ;FNRTS
+;
+;  ;MOV R1,R8
+;  ;SWI XWimp_GetWindowState	; update state of window
+;  ;LDR R2,[R8,#w_scrolly]		; old scrolly
+;  ;LDR R3,[R8,#w_savedscy]	; new scrolly
+;  ;CMP R2,R3
+;  ;FNRTS
+;
+;  ;BL get_wind_off
+;  ;MVN R1,#8			; why is this needed...?
+;  ;ADR R2,new_txt_status_wind_callb
+;  ;MOV R3,R0			; ??? should convert to offset !!!
+;  ;BL call_back			; possible serious bug - test with EXIT (SJA)
+;  FNRTS
+
+;new_txt_status_wind_callb
+; FNJSR "R0-R12"
+; MOV R0,R11
+; BL conv_wind_off
+; BVS noerrorexitpleasecb
+; LDR R14,[R9,#f_ptr]
+; CMP R14,#0
+; BMI noerrorexitpleasecb
+; BL update_whole_window_bar_title ; i.e. *except* update_whole_window
+;noerrorexitpleasecb
+; SWI &107 ; on f10...?
+; TSTP R14,#0
+; FNRTS
+
+;E R8/R9
+;X w_height updated due to change #
+
+;E R0=first line R8 (updated)/R9
+;X Line numbers redrawn from this line if they exit WB #
+
+update_linenos
+ STMFD R13!,{R1-R3,R14}
+ LDR R1,[R8,#w_format]
+ TST R1,#1<<8
+ LDMEQFD R13!,{R1-R3,PC}	; no line numbers
+ MOV R3,R0			; save first line
+ FNLDR R1,wimp_block
+ MOV R0,#0
+ STR R0,[R1,#w_minx]
+ LDR R14,[R8,#w_info]
+ AND R2,R14,#7
+ ADD R2,R2,#2
+ TST R14,#8
+ ADDNE R2,R2,#2
+ ;MOV R2,#11			; max col & R3=line of first changed char
+ BL ccd_xyline_xyos
+ STR R2,[R1,#w_maxx]
+ STR R3,[R1,#w_maxy]
+ LDR R2,[R8,#w_maxy]
+ LDR R0,[R8,#w_miny]
+ SUB R2,R2,R0			; os height visible
+ LDR R0,[R8,#w_scrolly]
+ SUB R2,R0,R2			; min y visible
+ CMP R2,R3
+ LDMGEFD R13!,{R1-R3,PC}	; nothing to update
+ STR R2,[R1,#w_miny]		; min y redraw
+ LDR R0,[R8,#w_handle]
+ STR R0,[R1]
+ BL update_window		; redraw
+ ;SWI &107
+ LDMFD R13!,{R1-R3,PC}
+
+;E R0=first phy line to move from R1=signed move R8 (updated)
+;X changes height of window and shifts the lines R0+ from margin WB #
+
+change_work_height
+ STMFD R13!,{R1-R7,R10-R11,R14}
+ MOV R10,R0			; save first line to move from
+ MOVS R11,R1			; signed move
+ LDMEQFD R13!,{R1-R7,R10-R11,PC} ; no move
+ LDR R2,[R8,#w_margin]		; start col
+ MOVS R3,R11
+ RSBMI R3,R3,#0			; abs size of move
+ BL ccd_xyline_xyos
+ FNLDR R2,wimp_leftgap
+ RSB R2,R2,#0
+ MOV R5,R2			; R5=start os x col
+ RSB R7,R3,#0			; R7=os height of move (now +ve)
+ MOV R3,R10
+ BL ccd_yline_yos
+ MOV R10,R3			; R10=y os of first line to move
+ LDR R0,[R8,#w_scrolly]		; top of window
+ CMP R10,R0
+ BGE ch2			; whole of window to be shifted???
+notch2
+ ; new lines March...
+; LDR R3,[R8,#w_scrolly]		; (ie multiple views)
+; CMP R11,#0
+; SUBPL R0,R0,R7
+; ADDMI R0,R0,R7
+; STR R0,[R8,#w_scrolly]		; new window scroll offset
+; SWI &107
+
+ CMP R11,#0
+ BMI ch1			; move negative (up)
+ 				; move positive (down)
+ LDR R3,[R8,#w_height]
+ ADD R3,R3,R11
+ STR R3,[R8,#w_height]		; new window height
+ BL change_extent
+ BLVC ccd_workxy
+ MOVVC R6,R3			; dest min y
+ MOVVC R4,R10			; source max y
+ MOVVC R3,R2			; source max x
+ ADDVC R2,R6,R7			; source min y
+ MOVVC R1,R5			; source min x=dest min x
+ LDRVC R0,[R8,#w_handle]
+ SWIVC XWimp_BlockCopy
+ LDMFD R13!,{R1-R7,R10-R11,PC}
+ch1
+ BL ccd_workxy			; R2/R3 =max values
+ MOV R6,R3			; dest min y
+ MOV R4,R10			; source max y
+ MOV R3,R2			; source max x
+ SUB R2,R6,R7			; source min y
+ MOV R1,R5			; source min x=dest min x
+ LDR R0,[R8,#w_handle]
+ SWI XWimp_BlockCopy
+ LDRVC R3,[R8,#w_height]
+ ADDVC R3,R3,R11			; new height as R11 -ve
+ STRVC R3,[R8,#w_height]
+ BLVC change_extent
+ LDMFD R13!,{R1-R7,R10-R11,PC}
+ch2
+ LDR R14,local_storedreight	; window the cursor is in (I hope)...
+ CMP R14,R8
+ BEQ notch2			; this is a bit of a fudge - I hope it's
+; SWI &107 ; :-(		; called from the right spot :-/
+
+ LDR R3,[R8,#w_scrolly]		; (ie multiple views)
+ CMP R11,#0
+ SUBPL R3,R3,R7
+ ADDMI R3,R3,R7
+ LDR R1,[R8,#w_height]
+ STR R3,[R8,#w_scrolly]		; new window scroll offset
+ ADD R1,R1,R11			; new height as R11 -ve
+ STR R1,[R8,#w_height]
+ BL change_extent		; set new extent
+; BLVC isitopen$l
+; LDR R0,[R8,#28]		; ?
+; TST R0,#1<<16			; ?
+; LDMEQFD R13!,{R1-R7,R10-R11,PC}; cure of iconisation bug?
+
+ LDRVC R3,[R8,#w_scrolly]	; store (not needed...)
+ MOVVC R1,R8			; new
+ SWIVC XWimp_GetWindowState	; get the state of the window from the WIMP
+ STRVC R3,[R8,#w_scrolly]	; restore
+
+ BLVC invalidate_window		; :-(
+ MOVVC R0,#0
+ MOVVC R1,R8
+ BLVC open_window		; open the window at new scroll off
+
+ LDRVC R0,[R8,#w_format]
+ ORRVC R0,R0,#1<<29		; causes iconisation bug?
+ STRVC R0,[R8,#w_format]	; ignore the redraws when they come??;?
+
+ LDMFD R13!,{R1-R7,R10-R11,PC}
+
+;E R8/R9 with R8 updated
+
+;X window extent set according to w_height if it can WB #
+
+change_extent
+ STMFD R13!,{R1-R3,R14}
+ FNLDR R1,wimp_block
+; LDR R0,[R8,#w_handle]
+; STR R0,[R1]
+; SWI XWimp_GetWindowInfo
+; LDR R14,[R8,#w_maxx]		; new maxx
+; STR R0,[R1,#52]		; new maxx
+; STR R14,[R1,#8]		; new maxx
+ ;CMP R2,#0			; TT fix.
+ FNLDR R0,wimp_leftgap		; TT fix.
+ RSB R0,R0,#0			; TT fix.
+ ;LDR R0,[R8,#w_minx]		; wrong :(
+ ;MOV R0,#0
+ STR R0,[R1]			; new minx
+ ;LDR R0,[R8,#w_maxy]		; wrong :(
+ MOV R0,#0
+ STR R0,[R1,#12]		; new maxy
+ BL ccd_workxy			; R2/R3=workxy
+ STR R2,[R1,#8]			; new maxx
+ LDR R14,[R8,#w_format]
+ TST R14,#bit_windowwrap	; this is now being done twice independently
+ LDRNE R14,[R8,#w_info]
+ TSTNE R14,#bit_infiniteww
+ MOVNE R14,#&8000
+ STRNE R14,[R1,#8]
+ LDR R2,[R8,#w_maxy]
+ LDR R0,[R8,#w_miny]
+ SUB R2,R2,R0			; os height visible
+ LDR R0,[R8,#w_scrolly]
+ SUB R2,R0,R2			; min y visible
+ CMP R3,R2			; is the next line right? TT.
+ BGT needtoopenwindow$l		;
+ ;LDMGTFD R13!,{R1-R3,PC}	; return as this would encroach on vis area
+ STR R3,[R1,#4]			; new min y
+ LDR R0,[R8,#w_handle]
+ SWI XWimp_SetExtent
+ LDMFD R13!,{R1-R3,PC}
+
+needtoopenwindow$l
+ STR R3,[R1,#4]			; new min y
+ LDR R0,[R8,#w_handle]
+ SWI XWimp_SetExtent
+; MOV R0,#0			; just reopening/resizing...?
+ MOVVC R1,R8			; NEWNEWNEW!!!
+ SWIVC XWimp_GetWindowState	; update state of window
+ MOVVC R1,R8
+ BLVC reopen_window
+ LDMFD R13!,{R1-R3,PC}
+
+; ;E R8=window
+; ;X Force redraw called to invalidate window area #
+;
+invalidate_window		; Tim thinks this is dirty code...
+ STMFD R13!,{R1-R4,R14}
+ BL ccd_workxy
+ MOV R14,R2
+ LDR R0,[R8,#w_handle]
+ MOV R1,#0			; min x
+ MOV R2,R3			; min y
+ MOV R3,R14			; max x
+ MOV R4,#0			; max y
+ SWI XWimp_ForceRedraw
+ LDMFD R13!,{R1-R4,PC}
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Multiple operations concatonated				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R9=file you are going to operate on or 0 if none
+;X Operation set up. Call stop_operation to print results |
+;  Flags and R0 are saved.
+
+start_operation
+ STMFD R13!,{R0,R14}
+ CMP R9,#0
+ LDMLEFD R13!,{R0,PC}^
+
+ LDR R0,[R9,#f_depth]		; current depth
+ CMP R0,#0
+ ADDGT R0,R0,#1			; increase depth
+ STRGT R0,[R9,#f_depth]		; save new depth
+ LDMGTFD R13!,{R0,PC}^		; already in an operation
+ ; the first time...
+ SWI XHourglass_On
+
+; BL scrub_all_on_this_file	; get rid of any cursors /before/ op start
+; SWI &107
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<8
+ MOV R0,#7
+ BLEQ command_primative		; insert marker for multiop start
+; LDMVSFD R13!,{R0,PC}^		; failed
+ MVNVC R14,#0
+ STRVC R14,[R9,#f_altered]	; zero start posn
+ MOVVC R14,#0
+ STRVC R14,[R9,#f_change]		; ...
+ LDRVC R14,[R9,#f_flags]
+ STRVC R14,[R9,#f_oflags]
+ MOVVC R14,#1
+ STRVC R14,[R9,#f_depth]		; now at depth 1
+ LDMFD R13!,{R0,PC}^
+
+;E R0=error pointer if VS R9=file or 0 for none
+;X Current operation displayed (and error preserved) #
+
+stop_operation
+ STMFD R13!,{R10-R11,R14}
+ MOVVS R10,R0
+ MOVVC R10,#0			; error pointer
+ CMP R9,#0
+ BLE st13
+st15
+ LDR R0,[R9,#f_depth]
+ SUBS R0,R0,#1			; new level (&clv)
+ STRPL R0,[R9,#f_depth]		; new depth
+ BNE st13			; wasn't in an operation, or still nested
+; MOVMI R0,#0
+; STR R0,[R9,#f_depth]		; new depth
+; BMI st13			; wasn't in an operation
+; BGT st13			; still nested
+ SWI XHourglass_Off
+ ;FNLDR R11,car_mode		; save current caret mode
+ ;MVN R14,#1			; -2
+ ;FNSTR R14,car_mode		; pretend there are no carets
+ BL maybe_test_changed		; this may mark the file 'unchanged'
+ LDR R0,[R9,#f_flags]
+ LDR R14,[R9,#f_oflags]
+ EOR R14,R14,R0
+ TST R14,#8
+ BLNE new_file_title		; ensure 'changed' state is correct
+ BL redraw_patching_update
+ LDR R0,[R9,#f_altered]
+ CMP R0,#0			; nothing done?
+ BMI st13			; finished
+ ; STMFD R13!,{R0,R10,R11}
+ ; ; new bit to cure redraw probs!
+ ; FNLDR R11,car_mode		; save current caret mode
+ ; MVN R14,#1			; -2
+ ; FNSTR R14,car_mode		; pretend there are no carets
+ ; ADRL R10,new_txt_status_wind
+ ; BL do_eachwindow		; update each window by shifting screen
+ ; FNSTR R11,car_mode		; restore caret mode
+ ; BL new_carets		; redraw carets on screen (before...?)
+ ; CMP R0,#-1
+ ; ADRL R10,new_txt_status_wind2	; update each window completely :(
+ ; BLEQ do_eachwindow		; this code is appalling - is there a better
+ ; BL reselctifneeded
+ ;
+ ; ;ADRL R10,new_txt_status_wind
+ ; ;BL do_eachwindow		; update each window by shifting screen
+ ; LDMFD R13!,{R0,R10,R11}
+ ;FNSTR R11,car_mode		; restore caret mode
+ ; ;BVS st14
+ BVS st14
+ LDR R0,[R9,#f_flags]
+ TST R0,#1<<8
+ MOVEQ R0,#&17			; is file r/w and
+ TSTEQ R10,#1<<31		; have we been called by undo?
+; BNE st14			; file is read only
+; MOV R0,#&17
+; TST R10,#1<<31			; have we been called by undo?
+ BLEQ command_primative		; add stop marker if not
+st14
+ MOVVS R10,R0
+st13
+; LDR R11,[R9,#f_flags]
+; ORR R14,R11,#1<<14		; input linked (so it doesn't update cursor)
+; STR R14,[R9,#f_flags]
+; LDR R0,[R9,#f_altered]
+; CMP R0,#0			; nothing done?
+; BMI st13			; finished
+
+ BLVC to_new_carets$l		; redraw carets on screen (before...?)
+; BLVC new_carets		; redraw carets on screen (before...?)
+
+; STR R11,[R9,#f_flags]
+
+ BICS R0,R10,#1<<31		; clear flag
+ LDMFD R13!,{R10-R11,R14}
+ MOVEQ PC,R14
+ ORRS PC,R14,#Vbit
+
+to_new_carets$l		; redraw carets on screen (before...?)
+ LDR R0,[R9,#f_altered]
+ CMP R0,#0		; nothing done?
+ BPL new_carets		; redraw carets on screen (before...?)
+ MOV PC,R14
+
+local_storedreight
+ DCD 0
+
+ ; note that r8 not known at this point...
+ ; new bit to cure redraw probs!
+redraw_patching_update
+ FNJSR "R0-R11"
+; SWI &107			; gets here...
+ MOV R11,R9
+ FNLDR R10,car_cursor
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; may destroy R9 :-(
+ CMP R9,R11
+ MOVNE R9,R11			; wrong window...!
+ MOVNE R8,R14			; wrong window...!
+ STR R8,local_storedreight
+; LDR R0,[R8,#w_format]
+; BIC R0,R0,#1<<29		; don't ignore redraws if they come...!
+; STR R0,[R8,#w_format]
+ FNLDR R11,car_mode		; save current caret mode
+ PUSH "R10,R11"
+ MVN R14,#1			; -2
+ FNSTR R14,car_mode		; pretend there are no carets
+ ADR R10,new_txt_status_wind
+ BL do_eachwindow		; update each window by shifting screen
+ PULL "R10,R11"
+ FNSTR R11,car_mode		; restore caret mode (not VC!)
+ FNRTS VS
+
+ LDR R0,[R9,#f_altered]
+ CMP R0,#0			; anything done?
+ BMI nuffindone$l
+ BL new_carets			; redraw carets on screen (before...?)
+
+ ;;;CMP R0,#-1
+ ;;;ADRL R10,new_txt_status_wind2	; update each window completely :(
+ ;;;BLEQ do_eachwindow		; this code is appalling - is there a better
+ ;;;FNRTS VS
+ ;ADRL R10,reselctifneeded	; needs R8...?
+ ;BL do_eachwindow		; this code is appalling - is there a better
+; BLVC reselctifneeded
+ FNRTS
+
+nuffindone$l
+ LDR R11,[R9,#f_flags]
+ ORR R14,R11,#1<<14		; input linked (so it doesn't update cursor)
+ STR R14,[R9,#f_flags]
+ BL new_carets		; redraw carets on screen (before...?)
+ ; condition GT above???
+ STR R11,[R9,#f_flags]
+
+; BLVC reselctifneeded
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; INSERT AND CRUNCH						  ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=file off R2=num of bytes R3=ptr to data R9
+;X text inserted, window & caret updated #
+
+insert_text
+ STMFD R13!,{R1-R5,R8,R10,R14}
+ ;BL maybe_adjust_insert_offset
+ MOV R8,R0
+ MOV R10,R3			; save address of text
+ MOV R4,R1			; save offset
+ MOV R3,R2			; save num of bytes
+ MOV R0,R1			; offset of split
+ MOV R1,R2			; min size of split
+ BL split_buffer
+; LDMVSFD R13!,{R1-R5,R8,R10,PC}
+ LDRVC R5,[R9,#f_splito]	; get split offset
+ MOVVC R0,R5			; first changed offset
+ MOVVC R1,R2			; signed change
+ MOVVC R2,R0			; first shiftable char
+ BLVC save_txt_status		; save text status after this point
+ MOVVC R1,R10			; address of text
+ LDRVC R2,[R9,#f_ptr]
+ ADDVC R2,R2,R5			; address of split
+ ADDVC R0,R5,R3
+ STRVC R0,[R9,#f_splito]		; new split offset
+ LDRVC R0,[R9,#f_splits]
+ SUBVC R0,R0,R3
+ STRVC R0,[R9,#f_splits]		; new split size
+ LDRVC R0,[R9,#f_len]
+ ADDVC R0,R0,R3
+ STRVC R0,[R9,#f_len]		; new file length
+ MOVVC R4,R3			; save num of bytes
+ SWI XZapRedraw_MoveBytes	; BL move_bytes	; copy data
+ LDMVSFD R13!,{R1-R5,R8,R10,PC}
+ MOV R0,R5			; offset of first changed char
+ MOV R1,R4			; signed change
+ CMP R8,#1
+ ADDEQ R2,R0,R1			; new input caret posn
+ MOVNE R2,R0
+ BL new_proposed_txt_status
+
+; LDR R0,[R9,#f_flags]
+; TST R0,#1<<3			; is the file marked changed
+; BLEQ mark_changed		; no so mark changed
+ BL mark_changed		; no so mark changed
+; SWI &107
+
+ LDMFD R13!,{R1-R5,R8,R10,PC}
+
+;E R5 start R4 length...
+mark_proposed_new_sel
+; FNJSR "R2,R3,R8,R9,R10"
+ FNJSR "R0-R11"
+ LDR R14,local_commandtypestored
+ TST R14,#&40
+ FNRTS EQ
+; FNRTS
+
+ FNLDR R10,car_cursor		; *only* works if cursor linked!? :-(
+ LDR R0,[R10,#c_wind]
+ BL conv_wind_off		; get R8/R9...
+;
+; LDR R1,reselect
+; CMP R1,#0
+; MVN R14,#0
+; STR R14,reselect		; flag...
+; BNE alter_existing_markers
+;
+; ADD R10,R5,R4 ; end offset
+; MOV R0,R5
+; BL insert_marker
+;; FNcall Zap_InsertMark,R1	; zap call???
+; MOVVC R0,R10
+; BLVC insert_marker
+; FNcall Zap_InsertMark,R1	; zap call???
+
+ MOVVC R2,R5
+ ADDVC R3,R5,R4 ; end offset
+ BLVC alter_selected_region	; redraw selection...
+ SUBS R14,R14,R14		; restore flags...
+ FNRTS
+
+;discard_any_reselection
+; MOV R0,#0
+; STR R0,reselect		; flag...
+; MOV PC,R14
+
+;alter_existing_markers
+; LDR R1,[R9,#f_mptr]
+; LDR R14,[R9,#f_mark]
+; ADD R1,R1,R14
+; ADD R14,R5,R4 ; end offset
+; STR R14,[R1,#-16]
+; STR R5,[R1,#-8]
+; FNRTS
+;
+;getlastmarkptr
+; FNJSR
+; LDR R1,[R9,#f_mptr]
+; LDR R14,[R9,#f_mark]
+; ADD R1,R1,R14
+;; LDR R1,[R9,#f_links]
+;;loop$l
+;; LDR R14,[R1],#16
+;; CMP R14,#0
+;; BPL loop$l
+;; SUB R1,R1,#16 ; ptr to the -1
+; FNRTS
+
+ LOCAL
+
+;maybe_adjust_insert_offset
+; FNJSR
+;
+; FNRTS
+
+;E R1=file offset R2=num of bytes R9
+;X #
+
+delete_text
+ STMFD R13!,{R1-R3,R4-R5,R14}
+ FNLDR R14,opt_switches
+ TST R14,#bit_return_deletions
+ BEQ delete_text_blk
+ MOV R4,R1			; save file offset of del start
+ MOV R5,R2			; save length of delete
+ ADD R0,R4,R5			; offset after chars to delete
+ MOV R1,#0
+ BL split_buffer		; split buffer to just after del block
+; LDMVSFD R13!,{R1-R3,R4-R5,PC}
+ MOVVC R0,R4			; first offset
+ RSBVC R1,R5,#0			; signed change
+ ADDVC R2,R4,R5			; first shiftable character
+ BLVC save_txt_status
+ LDMVSFD R13!,{R1-R3,R4-R5,PC}
+ LDR R0,[R9,#f_len]
+ SUBS R0,R0,R5
+ BLMI err$l			; negative file offset
+; LDMVSFD R13!,{R1-R3,R4-R5,PC}
+ STRVC R0,[R9,#f_len]		; new file len
+ LDRVC R0,[R9,#f_splito]
+ SUBVC R0,R0,R5
+ STRVC R0,[R9,#f_splito]		; new split offset
+ LDRVC R0,[R9,#f_splits]
+ ADDVC R0,R0,R5
+ STR R0,[R9,#f_splits]		; new split size
+ ;LDR R1,[R9,#f_ptr]
+ ;ADD R1,R1,R4			; start of deleted data
+ ;FNLDR R2,wimp_data		; block for data ; no heap ensure...?
+ ;MOV R3,R5
+ ;SWI XZapRedraw_MoveBytes ; BL move_bytes	; copy deleted data
+ MOVVC R0,R4			; offset in file
+ RSBVC R1,R5,#0			; change in cursor posn
+ ;TEQ R8,#5
+ ;SUBEQ R2,R4,R5		; cursor after block
+ ;MOVEQ R2,R4			; cursor start of block
+ MOVVC R2,R4			; cursor start of block
+ BLVC new_txt_status
+; LDMVSFD R13!,{R1-R3,R4-R5,PC}
+
+ BLVC mark_changed		; no so mark changed
+
+ LDMFD R13!,{R1-R3,R4-R5,PC}
+err$l ERR "Internal error: delete_text"
+
+;E R1=file offset R2=num of bytes R9
+;X R3=temp ptr to deleted data (in split) #
+
+delete_text_blk
+ LDMFD R13!,{R1-R3,R4-R5,R14}	; :-(
+ STMFD R13!,{R1-R2,R4-R5,R14}
+ MOV R4,R1			; save file offset of del start
+ MOV R5,R2			; save length of delete
+ FNLDR R0,wimp_data
+ MOV R1,R5
+ BL heap_ensure
+; LDMVSFD R13!,{R1-R2,R4-R5,PC}
+ FNSTR R0,wimp_data,VC		; ensure data buffer big enough
+ ADDVC R0,R4,R5			; offset after chars to delete
+ MOVVC R1,#0
+ BLVC split_buffer		; split buffer to just after del block
+; LDMVSFD R13!,{R1-R2,R4-R5,PC}
+ MOVVC R0,R4			; first offset
+ RSBVC R1,R5,#0			; signed change
+ ADDVC R2,R4,R5			; first shiftable character
+ BLVC save_txt_status
+ LDMVSFD R13!,{R1-R2,R4-R5,PC}
+ LDR R0,[R9,#f_len]
+ SUBS R0,R0,R5
+ BLMI err$l			; negative file offset
+ STR R0,[R9,#f_len]		; new file len
+ LDR R0,[R9,#f_splito]
+ SUB R0,R0,R5
+ STR R0,[R9,#f_splito]		; new split offset
+ LDR R0,[R9,#f_splits]
+ ADD R0,R0,R5
+ STR R0,[R9,#f_splits]		; new split size
+ LDR R1,[R9,#f_ptr]
+ ADD R1,R1,R4			; start of deleted data
+ FNLDR R2,wimp_data		; block for data ; no heap ensure...?
+ MOV R3,R5
+ SWI XZapRedraw_MoveBytes	; BL move_bytes	; copy deleted data
+ MOVVC R0,R4			; offset in file
+ RSBVC R1,R5,#0			; change in cursor posn
+ ;TEQ R8,#5
+ ;SUBEQ R2,R4,R5		; cursor after block
+ ;MOVEQ R2,R4			; cursor start of block
+ MOVVC R2,R4			; cursor start of block
+ BLVC new_txt_status
+
+ BLVC mark_changed		; no so mark changed
+
+ FNLDR R3,wimp_data		; deleted data pointer
+ LDMFD R13!,{R1-R2,R4-R5,PC}
+
+;E R0=command num R1=file offset R2=num of bytes R3=replacement blk R9
+;X R4=temp ptr to original (deleted) data (was in split :<) #
+
+replace_text
+ STMFD R13!,{R1-R3,R5-R8,R14}
+ MOV R8,R0			; save command num 3 or 4
+ MOV R4,R1			; save offset to replace text
+ MOV R6,R2			; save number of bytes
+ MOV R5,R3			; save addr of replacement block
+ FNLDR R0,wimp_data
+ MOV R1,R6
+ BL heap_ensure
+; LDMVSFD R13!,{R1-R3,R5-R8,PC}
+ FNSTR R0,wimp_data,VC		; make sure there's enough room for data
+ ADDVC R0,R4,R6			; offset of split (after block)
+ MOVVC R1,R6			; size of split
+ BLVC split_buffer
+; LDMVSFD R13!,{R1-R3,R5-R8,PC}
+ MOVVC R0,R4			; first affected offset
+ MOVVC R1,#0			; signed change
+ ADDVC R2,R4,R6			; first shiftable offset
+ BLVC save_txt_status
+ LDRVC R7,[R9,#f_ptr]		; start of file
+ ADDVC R1,R7,R4			; source data (old data)
+ FNLDR R2,wimp_data,VC		; buffer for old data
+ MOVVC R3,R6
+ SWIVC XZapRedraw_MoveBytes	; move the old data to wimp_data
+ MOVVC R1,R5			; new data
+ ADDVC R2,R7,R4			; dest for new data
+ MOVVC R3,R6
+ SWIVC XZapRedraw_MoveBytes	; BL move_bytes	; copy in new data
+ LDMVSFD R13!,{R1-R3,R5-R8,PC}
+ MOV R0,R4			; offset of first changed
+ MOV R1,#0			; signed change
+ TEQ R8,#3
+ ADDEQ R2,R0,R6			; cursor after block
+ MOVNE R2,R0			; cursor start of block
+ BL new_txt_status
+; LDMVSFD R13!,{R1-R3,R5-R8,PC}
+ FNLDR R4,wimp_data,VC		; old data
+
+ BL mark_changed		; no so mark changed
+
+ LDMFD R13!,{R1-R3,R5-R8,PC}
+
+;E R0=char
+;X R0=char with case swapped |
+
+swap_case
+ CMP R0,#'z'
+ MOVHI PC,R14
+ CMP R0,#'a'
+ SUBCS R0,R0,#'a'-'A'
+ MOVCS PC,R14
+ CMP R0,#'Z'
+ MOVHI PC,R14
+ CMP R0,#'A'
+ ADDCS R0,R0,#'a'-'A'
+ MOV PC,R14
+
+;E R0=date format string
+;X R0=date length and date read to wimp_kbdbuf WB KB #
+
+read_date
+ STMFD R13!,{R1-R11,R14}
+ MOV R10,R0			; date format string
+ FNLDR R11,wimp_block		; buffer
+ MOV R1,R11
+ MOV R0,#3
+ STRB R0,[R1]
+ MOV R0,#14
+ SWI XOS_Word			; read 5 byte time to WB
+; LDMVSFD R13!,{R1-R11,PC}
+ MOVVC R0,R11			; 5 byte time block
+ FNLDR R1,wimp_kbdbuf,VC	; dest buffer
+ MOVVC R2,#kbdbuf_size		; keyboard buffer size
+ MOVVC R3,R10			; format string
+ SWIVC XOS_ConvertDateAndTime	; put string in buffer
+ FNLDR R3,wimp_kbdbuf,VC	; data
+ SUBVC R0,R1,R3			; data length
+ LDMFD R13!,{R1-R11,PC}
+
+;E R0=date format string R8/R9/R10=input caret
+;X date inserted KB WB #
+
+insert_date
+ STMFD R13!,{R1-R3,R14}
+ BL read_date			; read date to KB
+ MOVVC R2,R0			; length
+ FNLDR R3,wimp_kbdbuf,VC	; data
+ LDRVC R1,[R10,#c_off]		; offset
+ MOVVC R0,#&11			; block insert
+ BLVC execute_command
+ LDMFD R13!,{R1-R3,PC}
+
+ LOCAL
+
+;E R0=pointer to string (0 terminated Only) R8/R9
+;X string entered at file end (using execute command) #
+
+insert_string
+ FNJSR "R1-R3"
+ MOV R3,R0			; string
+a$l
+ LDRB R14,[R0],#1
+ TEQ R14,#0
+ BNE a$l
+ SUB R2,R0,R3
+ SUB R2,R2,#1			; length (cannot use strlen for &0A's)
+ LDR R1,[R9,#f_len]
+ MOV R0,#&11
+ BL execute_command
+ FNRTS
+
+; R4=w_flags R5=num bytes R6=w_format R7=data R8-R10=input caret
+; R11=max number of chars to replace (<=R5).
+; Chars are replaced (if overwrite) as much as possible
+; & then inserted R4,R6,R8-R10 preserved #
+
+insert_chars_at
+ FNJSR
+ TST R4,#2
+ BEQ in17			; insert
+ LDR R0,[R9,#f_len]
+ LDR R1,[R10,#c_off]
+ SUB R1,R0,R1			; num of chars left in file
+ CMP R11,R1
+ MOVGT R11,R1			; clip number of chars to replace
+ CMP R11,#0
+ BLE in17			; insert remaining
+ MOV R0,#3			; replace
+ LDR R1,[R10,#c_off]
+ MOV R2,R11
+ MOV R3,R7
+ BL execute_command		; replace these chars
+ FNRTS VS
+ SUB R5,R5,R11
+ ADD R7,R7,R11			; update pointers
+in17
+ CMP R5,#0
+ FNRTS LE
+ MOV R0,#1
+ LDR R1,[R10,#c_off]
+ MOV R2,R5
+ MOV R3,R7
+ BL execute_command		; insert the chars
+ FNRTS
+
+;E R1=number of returns R8-R10=caret
+;X returns entered with auto indent trailing added if nec KB #
+
+insert_returns
+ STMFD R13!,{R1-R7,R14}
+ MOV R7,R1			; save num times to add
+ LDR R2,[R8,#w_format]		; flags
+ MOV R3,#0			; number of trailing chars
+ TST R2,#1<<16
+ BEQ in54			; no auto indent
+ LDR R0,[R10,#c_off]
+ BL mode0_linestart
+; LDMVSFD R13!,{R1-R7,PC}
+ MOVVC R4,R0			; save start offset
+ BLVC mode0_autoplus		; move to end
+ LDMVSFD R13!,{R1-R7,PC}
+ SUB R3,R0,R4			; number of trailing chars
+ LDR R14,[R10,#c_off]
+ CMP R0,R14
+ MOVGT R3,#0
+in54
+ ADD R0,R3,#1			; number of chars per line
+ MUL R1,R0,R7			; total block size
+ FNLDR R0,wimp_kbdbuf
+ BL heap_ensure
+ LDMVSFD R13!,{R1-R7,PC}
+ FNSTR R0,wimp_kbdbuf
+ MOV R5,R0			; buffer pointer
+ ADD R6,R3,#1			; total length of each line
+ LDRB R0,[R8,#w_cr]
+ STRB R0,[R5],#1		; add ret char
+ CMP R3,#0
+ BLE in55
+in56
+ MOV R0,R4
+ BL cln_readc
+ STRB R0,[R5],#1
+ ADD R4,R4,#1
+ SUBS R3,R3,#1
+ BGT in56
+in55
+ SUBS R7,R7,#1
+ BLE in57			; all entries set up
+ FNLDR R1,wimp_kbdbuf
+ MOV R2,R5
+ MOV R3,R6
+ SWI XZapRedraw_MoveBytes		; BL move_bytes	; copy next entry
+ ADD R5,R5,R6
+ B in55
+in57
+ MOV R0,#&11
+ LDR R1,[R10,#c_off]
+ FNLDR R3,wimp_kbdbuf
+ SUB R2,R5,R3
+ BL execute_command
+ LDMFD R13!,{R1-R7,PC}
+
+;E,X as for replace_area (except that R8 is not required)
+do_replace_area
+ FNJSR "R8"
+ MOV R8,#0
+ BL replace_area
+ FNRTS
+
+;E R1=file offset R2=number of bytes R3=new data R4=data len R8/R9
+;X file contents R1.R2 replaced by R3.R4 by minimum number of commands #
+;  data is concatonated if replace/insert/delete length is 1
+;  actual text is examined so no replacement done if not needed
+
+replace_area
+ FNJSR "R1-R5"
+ MOV R5,R1			; save file offset
+ CMP R2,#0
+ CMPNE R8,#0
+ BEQ re24
+ PUSH "R2,R7-R11"
+ MOV R7,R2
+ MOV R10,R8
+ MOV R11,R9
+ BL get_selection
+ BCS dontcheck$l		; no sel...
+ CMP R2,#0
+ BEQ dontcheck$l		; zero size...
+ CMP R8,R10
+ CMPEQ R9,R11
+ CMPEQ R1,R5
+ CMPEQ R2,R7
+ BEQ currentselection_replacement
+dontcheck$l
+ PULL "R2,R7-R11"
+re24
+ CMP R2,#0
+ CMPGT R4,#0
+ BLE re25
+ MOV R0,R5
+ BL cln_readc
+ LDRB R1,[R3]
+ TEQ R0,R1
+ ADDEQ R5,R5,#1
+ ADDEQ R3,R3,#1
+ SUBEQ R2,R2,#1
+ SUBEQ R4,R4,#1
+ BEQ re24
+re26
+ CMP R2,#0
+ CMPGT R4,#0
+ BLE re25
+ ADD R0,R5,R2
+ SUB R0,R0,#1
+ BL cln_readc
+ ADD R1,R3,R4
+ LDRB R1,[R1,#-1]
+ TEQ R0,R1
+ SUBEQ R2,R2,#1
+ SUBEQ R4,R4,#1
+ BEQ re26
+ TEQ R2,R4			; neither string is null
+ BEQ re27			; strings are of same length
+; FNLDR R14,opt_switches
+; ORR R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ MOV R1,R5
+ MOV R0,#2			; cut...
+ CMP R2,#1
+ ORRGT R0,R0,#&10		; don't concat if large block
+ BL execute_command		; delete the old data
+; FNLDR R14,opt_switches
+; BIC R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ FNRTS VS
+ MOV R2,R4
+ MOV R0,#1
+ CMP R2,#1
+ ORRGT R0,R0,#&10
+ BL execute_command		; insert the new data
+ FNRTS
+re27
+ MOV R0,#3			; replace
+ MOV R1,R5
+ CMP R2,#1
+ ORRGT R0,R0,#&10
+ BL execute_command
+ FNRTS
+re25
+ TEQ R2,R4			; are both null?
+ FNRTS EQ
+ CMP R2,#0
+ BLE re28
+
+; FNLDR R14,opt_switches
+; ORR R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ MOV R0,#2			; cut...
+ MOV R1,R5
+ CMP R2,#1
+ ORRGT R0,R0,#&10
+ BL execute_command		; delete old and none to replace
+; FNLDR R14,opt_switches
+; BIC R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ FNRTS
+re28
+ MOV R0,#1
+ MOV R1,R5
+ MOV R2,R4
+ CMP R2,#1
+ ORRGT R0,R0,#&10
+ BL execute_command		; insert new as none to delete
+ FNRTS
+
+currentselection_replacement
+ PULL "R2,R7-R11"
+ BL start_operation
+; FNLDR R14,opt_switches
+; ORR R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ MOV R1,R5
+ MOV R0,#&42
+ CMP R2,#01
+ ORRGT R0,R0,#&10		; don't concat if large block
+ BL execute_command		; delete the old data
+; FNLDR R14,opt_switches
+; BIC R14,R14,#bit_return_deletions
+; FNSTR R14,opt_switches
+ MOV R2,R4
+ MOV R0,#&41
+ CMP R2,#1
+ ORRGT R0,R0,#&10
+ BL execute_command		; insert the new data
+ BL stop_operation
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Space stripping code						;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R0=b0 => Strip spaces from the end of lines
+;     b1 => Strip tabs from the end of lines
+;     b2 => Convert spaces to tabs (outside "quoted" text)
+;  R8/R9=window
+;X File processed KB #
+
+strip_spaces
+ FNJSR "R1,R10"
+ LDR R1,[R9,#f_flags]
+ ORR R14,R1,#1<<14
+ STR R14,[R9,#f_flags]		; unlink input caret
+ BL start_operation		; do all as one go
+ ADR R10,main$l
+ BL do_longop			; hourglass
+ BL stop_operation		; cancel even if there are errors
+ LDR R14,[R9,#f_flags]
+ BIC R14,R14,#1<<14
+ AND R1,R1,#1<<14
+ ORR R14,R14,R1
+ STR R14,[R9,#f_flags]		; restore cursor linkage state
+ FNRTS				; exit (possibly with error)
+main$l
+ FNJSR "R1-R11"
+ EOR R10,R0,#3			; save flags NOTing the bottom two
+ MOV R7,#0			; current file_offset
+ LDRB R4,[R8,#w_cr]		; return symbol
+ BL read$l			; R1=buff R2=splito R3=second bit R5=len
+line$l				; do next line
+ MOV R11,#0			; b0-b15=current col b16-b31=white space col
+ AND R10,R10,#&0F		; b6=in" b7=in' b8+ file off of white space
+ MOV R6,R7			; off of start of strippable characters
+ ADD R10,R10,R7,LSL#8		; offset of current tabbable region
+a$l
+ CMP R7,R5
+ BCS endfile$l			; end of file
+ CMP R7,R2
+ LDRCCB R0,[R1,R7]
+ LDRCSB R0,[R3,R7]		; get next byte of file
+ ADD R7,R7,#1
+ TEQ R0,R4
+ BEQ end$l			; reached end of line
+ TST R10,#1<<2			; tabifying?
+ BNE t$l			; yes
+b$l				; update space stripping vals
+ TST R10,#1
+ TEQEQ R0,#&20
+ BEQ a$l			; the character was strippable
+ TST R10,#2
+ TEQEQ R0,#9
+ MOVNE R6,R7			; not strippable so reset
+ B a$l
+t$l				; extra code when checking for tabs as well
+ ADD R11,R11,#1			; next column (cos we're keeping count)
+ TEQ R0,#9			; tab?
+ ADDEQ R11,R11,#7
+ BICEQ R11,R11,#7		; move to next tab stop
+ TEQNE R0,#&20
+ BEQ b$l			; carry on with space stripping
+ TST R10,#3<<6			; non white space character
+ BNE u$l			; in a quoted expression
+ SUB R14,R11,R11,LSR#16		; number of white space chars + terminator
+ MOV R14,R14,LSL#16
+ CMP R14,#3<<16
+ BLE u$l			; not worth compressing (2 white spaces)
+ PUSH "R0"
+ BL tabify$l			; compress
+ BLVC quit$l
+ PULL "R0"
+ FNRTS VS
+ FNRTS CS
+u$l				; sorted tabs out up to this non white space
+ TEQ R0,#'''			; update quote state
+ EOREQ R10,R10,#1<<7		; AFTER sorting out white space (inside?)
+ TEQ R0,#'"'
+ EOREQ R10,R10,#1<<6
+ MOV R11,R11,LSL#16
+ ADD R11,R11,R11,LSR#16		; duplicate current position
+ AND R10,R10,#&FF
+ ADD R10,R10,R7,LSL#8		; and save current offset
+ B b$l				; carry on with space stripping
+endfile$l			; reached end of file
+ ADD R7,R7,#1			; go one off end (to fake LF)
+end$l				; reached the end of a line
+ SUB R0,R7,R6
+ SUBS R0,R0,#1			; number of bytes to strip
+ BLE s$l
+ MOV R2,R0			; number of bytes to delete
+ MOV R0,#&12			; delete block
+ MOV R1,R6			; offset
+ SUB R7,R7,R2			; new current offset
+ BL command_primative		; don't let wordwrap get at it!
+ BLVC quit$l
+ FNRTS VS
+ FNRTS CS			; finished
+ BL read$l			; new values
+s$l				; spaces stripped
+ CMP R7,R5
+ BLT line$l			; do next line
+ FNRTS
+read$l
+ LDR R1,[R9,#f_ptr]		; start of buffer
+ LDR R2,[R9,#f_splito]		; offset of split
+ LDR R3,[R9,#f_splits]
+ ADD R3,R1,R3			; apparent start of second half
+ LDR R5,[R9,#f_len]		; end offset
+ MOV PC,R14
+tabify$l			; possible tab compression
+ FNJSR "R4"			; R1-R3,R5 are updated
+ MOV R1,R11,LSR#16		; start column
+ BIC R2,R11,R1,LSL#16
+ SUB R2,R2,#1			; end column (taking off terminator)
+ FNLDR R3,wimp_kbdbuf		; buffer to use
+y$l
+ CMP R1,R2
+ BCS z$l			; finished
+ ADD R0,R1,#8
+ BIC R0,R0,#7			; next tab stop
+ CMP R0,R2
+ MOVLE R1,R0			; can fit a tab in
+ MOVLE R0,#9
+ ADDGT R1,R1,#1
+ MOVGT R0,#&20
+ STRB R0,[R3],#1
+ B y$l
+z$l				; replacement data constructed
+ MOV R1,R10,LSR#8		; file offset of start
+ SUB R2,R7,R1
+ SUB R2,R2,#1			; number of bytes to replace
+ FNLDR R0,wimp_kbdbuf
+ SUB R4,R3,R0			; data length
+ MOV R3,R0			; data
+ BL replace_area
+ SUBVC R0,R4,R2			; change in data length
+ ADDVC R7,R7,R0			; update the search offset
+ BLVC read$l			; get new values
+ FNRTS
+quit$l				; return CS to quit (escape set)
+ FNJSR "R1"
+ MOV R0,R6
+ MOV R1,R5
+ BL long_op_display		; percentage
+ SWIVC XOS_ReadEscapeState
+ FNRTS
+
+;E R9=file to be operated on
+;X Operation level set to 1 and no marker buffered |
+
+undo_start_operation
+ STMFD R13!,{R14}
+; SWI XHourglass_On
+ MOV R14,#0
+ STR R14,[R9,#f_depth]		; for redraw of carets...
+ BL scrub_all_on_this_file	; get rid of any cursors /before/ op start
+ MOV R14,#1
+ STR R14,[R9,#f_depth]
+ LDR R14,[R9,#f_flags]
+ STR R14,[R9,#f_oflags]
+ MVN R14,#0
+ STR R14,[R9,#f_altered]
+ LDMFD R13!,{PC}^
+
+;E R0=error pointer if VS R9=file to be operated on
+;X Current operation stop op'd but no marker buffered #
+
+undo_stop_operation
+ STMFD R13!,{R10-R11,R14}
+ ORRVS R10,R0,#1<<31
+ MOVVC R10,#1<<31		; undo flag
+; SWI XHourglass_Off
+ B st15				; stop the operation
+
+;E R0=offset of first stable character R8/R9
+;X Start of cache set to the line containg this character #
+
+clip_cache
+ STMFD R13!,{R1-R2,R14}
+ MOV R1,#0
+ STR R1,[R8,#w_txtn]		; null cache
+ LDR R1,[R8,#w_coff]
+
+
+ CMP R0,R1
+ LDMEQFD R13!,{R1-R2,PC}	; return if already there
+; BL zephyr
+; CMP R0,#1
+; MOVMI R0,#0
+; LDMMIFD R13!,{R1-R2,PC}	; return if already there
+
+ BL cln_off			; get this reference point
+ STRVC R0,[R8,#w_cline]		; new phy line
+ STRVC R1,[R8,#w_coff]		; new line offset
+ STRVC R2,[R8,#w_clogl]		; new logical line
+ LDMFD R13!,{R1-R2,PC}
+
+ END
