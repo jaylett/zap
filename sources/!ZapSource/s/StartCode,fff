@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.7 2001/10/28 00:19:23 christian Exp $
+; $Id: StartCode,fff,v 2.8 2001/11/28 20:02:55 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -1848,15 +1848,22 @@ ram_fetch_back			; ram fetch message bounced
  SWI XOS_ReadVarVal
  CMP R2,#0			; clear V flag
  ADD R1,R10,#44			; destination file name
- BNE a$l			; does exist
- ADR R2,s$l
- B b$l				; quote wimpscrap as a filename
-a$l
+ ADREQ R2,s$l			; doesn't exist
+ BEQ b$l			; quote wimpscrap as a filename
+ MOV r0,#8
+ ADR r1,v$l
+ MOV r4,#0
+ SWI XOS_File
+ FNRTS VS
+ ADD R1,R10,#44			; destination file name
  ADR R2,u$l
  BL strcpy
  ADD R2,R11,#44			; get leaf name from original message
 b$l
- BL strcopy			; finish the file name
+ ADD r3,r10,#256
+ SUB r3,r3,r1
+ MOV r4,#32
+ BL strmove			; finish the file name (poss. truncated)
  SUB R0,R1,R10			; block length
  ADD R0,R0,#3
  BIC R0,R0,#3			; word align
@@ -1867,9 +1874,10 @@ b$l
  MOV R6,R11			; pass on the block
  BL message_reply		; reply with data save ack
  FNRTS
-s$l FNS ("<Wimp$Scrap>")
-t$l FNS ("Wimp$ScrapDir")
-u$l FNS ("<Wimp$ScrapDir>.")
+s$l = "<Wimp$Scrap>",0
+t$l = "Wimp$ScrapDir",0
+u$l = "<Wimp$ScrapDir>.Zap.",0
+v$l FNS ("<Wimp$ScrapDir>.Zap")
 sub$l				; R0=type R1=mess R2=mess num R11=block
  TEQ R0,#17			; ignore bounced messages - task manager
  MOVNE PC,R14			; will reply later - don't delete block!
