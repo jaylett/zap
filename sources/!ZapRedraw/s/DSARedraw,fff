@@ -1,15 +1,22 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.6.2.3 2001/07/02 20:52:15 ds Exp $
+; $Id: DSARedraw,fff,v 1.6.2.4 2001/07/08 20:18:05 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
  GET h.Cache
+ GET h.VFRedraw
+ GET h.SWIs
 
  EXPORT redraw_area_dsa
- EXPORT redraw_raster
+ EXPORT redraw_raster_select
  EXPORT convert_bitmap
  EXPORT convert_bitmap_char
  EXPORT cached_char_size
+
+ EXPORT calculate_dsa
+ EXPORT calculate_x_scroll
+ EXPORT call_extension
+ EXPORT to_skip_control_char
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of an area				    ;
@@ -20,12 +27,19 @@
 ;E R1=redraw block R2=extension sub R3=private word
 
 redraw_area_dsa
- FNJSR "R1-R12"
+ FNJSR
  BL check_dsa_workarea		; ensure we have workarea
  FNRTS VS			; out of memory
  LDR R0,[R1,#r_workarea]
  STR R2,[R0,#a_ext1]
  STR R3,[R0,#a_ext2]
+	LDR	R14,[R12,#viewfinder_select]
+	CMP	R14,#1
+	LDRHS	R14,[R1,#r_bpp]
+	CMPHS	R14,#3
+	FNPULL
+	BHS	vf_redraw_area
+ FNJSR "R1-R12"
  LDR R5,[R1,#r_screen]		; address of screen start
  TEQ R5,#0
  BNE gotaddr$l			; screen address specified
@@ -260,6 +274,15 @@ calculate_x_scroll
 ;  r_workarea a_x1 to a_x4 and a_ext1,a_ext2 setup.
 ;X Raster line redrawn |
 
+redraw_raster_select
+	FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	CMP	R14,#1
+	LDRHS	R14,[R1,#r_bpp]
+	CMPHS	R14,#3
+	FNPULL
+	BHS	vf_redraw_raster
+	; fall through
 redraw_raster
  FNJSR "R1-R12"
  MOV R11,R6,LSR#16		; background
@@ -1343,6 +1366,11 @@ call_extension
 ;X R2=cbpl R3=cbpc with R2 rounded to 1,2,multiple of 4
 
 cached_char_size
+ FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	CMP	R14,#1
+	CMPHS	R0,#3
+	MOVHS	R0,#0		; with VF, we can normally use 1bpp fonts
  MOV R2,R2,LSL R0		; width in pixels
  CMP R2,#16
  ADDLS R2,R2,#7
@@ -1353,7 +1381,7 @@ cached_char_size
  MOV R2,R2,LSL#2		; number of bytes
 ccs_0
  MUL R3,R2,R3			; multiply by height
- MOV PC,R14			; end
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Convert bitmap SWI					    ;
@@ -1379,6 +1407,10 @@ convert_bitmap
  SUBS R9,R9,R8			; number of chars to cache
  FNRTS LE
  LDR R7,[R1,#r_bpp]		; bpp to convert to
+	LDR	R14,[R12,#viewfinder_select]
+	CMP	R7,#3
+	CMPHS	R14,#1
+	MOVHS	R7,#0		; if VF in use and >=8bpp, just copy
  CMP R7,#0
  BLE cb_copy			; just copy the bitmap
  MOV R0,#1

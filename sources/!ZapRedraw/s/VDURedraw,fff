@@ -1,9 +1,11 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.6.2.5 2001/07/02 22:44:02 ds Exp $
+; $Id: VDURedraw,fff,v 1.6.2.6 2001/07/08 20:18:05 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
  GET h.Cache
+ GET h.VFRedraw
+ GET h.SWIs
 
  EXPORT redraw_area_vdu
  EXPORT sprite_size
@@ -29,6 +31,11 @@
 
 redraw_area_vdu
  FNJSR "R1-R12"
+	LDR	R10,[R12,#viewfinder_select]
+	CMP	R10,#1
+	LDRHS	R10,[R1,#r_flags]
+	BICHS	R10,R10,#rf_realvdu	; force this if using ViewFinder
+	STRHS	R10,[R1,#r_flags]
  MOV R10,R1			; save the redraw block
 
 ; [ noosplot = {TRUE}
@@ -1130,7 +1137,7 @@ vdu_redraw_char
  CMP R0,#&20
  LDMEQFD R13!,{PC}		; don't bother to paint spaces...
  ADDCC R0,R0,#&40
- TEQ R0,#&7F
+ CMP R0,#&7F
  CMPNE R0,#&100
  BCS vrc_2
  TEQ R8,#0
@@ -1822,7 +1829,7 @@ sprite_output
  STMNEIA R14,{R0-R3}		; save old values
  SWI XColourTrans_InvalidateCache
  FNRTS VS
- TST R4,#&7F			; were we restoring?
+ TST R4,#&7F
 	FNRTS	EQ
 	LDR	R1,[R13]
 	LDRB	R14,[R1,#36]
@@ -1970,6 +1977,7 @@ toplotrect
 
  TEQ R1,R3			; don't allow the trivial case
  TEQNE R0,R2
+
  BLNE plotrect
  FNRTS
 
@@ -1984,9 +1992,14 @@ toplotrect
 ; internally:
 ; R1 number of rows to go...
 ; R11 screenend...
+; (or ViewFinder is used)
 
 plotrect
  FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	TEQ	R14,#0
+	FNPULL	NE
+	BNE	to_vf_plot_rect
  LDR R5,depth
  MOV R0,R0,LSL R5               ; -> start bit position on row
  MOV R2,R2,LSL R5               ; -> end ...
@@ -2128,5 +2141,21 @@ local_linecount
  & 0
 
 ; ]
+
+to_vf_plot_rect
+	FNJSR	"R0-R5"
+	SUBS	R2,R2,R0
+	SUBGTS	R3,R3,R1
+	FNRTS	LE		; sanity check
+	MOV	R5,R4
+	MOV	R4,#0
+	MOV	R6,#-1
+	STMFD	R13!,{R0-R6}
+	MOV	R0,#2:OR:9<<28
+	MOV	R1,R13
+	SWI	XViewFinder_Draw
+	ADD	R13,R13,#7*4
+	STRVS	R0,[R13]
+	FNRTS
 
  END

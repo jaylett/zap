@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.6.2.2 2001/07/01 04:25:48 ds Exp $
+; $Id: ZapRedraw,fff,v 1.6.2.3 2001/07/08 20:18:05 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -152,6 +152,34 @@ loop$l		STR	R0,[R2],#4
 		SUBS	R1,R1,#4
 		BPL	loop$l
 
+	; Check for ViewFinder.
+		SUB	R13,R13,#12
+		ADR	R0,viewfinder_module
+		SWI	XOS_CLI			; Is the module there?
+		MOVVS	R0,#0			; If not, stop now
+		BVS	set_vf_flag
+		ADR	R0,vf_enable_var	; Read Viewfinder$Enable
+		MOV	R1,R13
+		MOV	R2,#11
+		MOV	R3,#0
+		MOV	R4,#0
+		SWI	XOS_ReadVarVal
+		MOVVS	R4,#2			; Not found? Don't use VF
+		CMP	R4,#2
+		MOVHS	R0,#0
+		BHS	set_vf_flag
+		CMP	R4,#1			; Right. Now is VF in use?
+		LDREQ	R0,[R13]
+		MOVNE	R0,#0
+		STRNEB	R0,[R13,R2]
+		MOVNE	R0,#10
+		MOVNE	R1,R13
+		SWINE	XOS_ReadUnsigned
+		MOVVS	R0,#0			; Not number? Don't use VF
+		MOVVC	R0,R2			; non-0 = use VF
+set_vf_flag	STR	R0,[R12,#viewfinder_select]
+		ADD	R13,R13,#12
+
 		MOV	R1,R12				; initialise fake redraw block
 		ADD	R0,R12,#buffer
 		STR	R0,[R1,#r_workarea]
@@ -163,6 +191,10 @@ loop$l		STR	R0,[R2],#4
 
 		FNPULL
 		B	init_cache			; init DA
+
+viewfinder_module
+		=	"%RMEnsure ViewFinder 1.29",0
+vf_enable_var	=	"ViewFinder$Enable",0
 
 		LOCAL
 
@@ -215,7 +247,7 @@ swi_code
 start$l
  B redraw_area			; 0
  B get_palette_entry
- B redraw_raster
+ B redraw_raster_select
  B convert_bitmap
  B prepare_data_line
  B add_cursor			; 5
