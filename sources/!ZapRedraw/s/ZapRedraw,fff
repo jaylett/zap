@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.9 2002/01/22 00:00:05 ds Exp $
+; $Id: ZapRedraw,fff,v 1.10 2002/01/30 19:53:02 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -168,7 +168,8 @@ loop$l		STR	R0,[R2],#4
 		BVS	set_vf_flag
 		ADR	R0,viewfinder_1_41
 		SWI	XOS_CLI			; Is it v1.41 or later?
-		MOVVC	R0,#1			; If so, assume active
+		MOVVC	R0,#vf_is_present:OR:vf_mode_has_changed
+						; If so, assume active
 		BVC	set_vf_flag
 		ADR	R0,vf_enable_var	; Read Viewfinder$Enable
 		MOV	R1,R13
@@ -187,8 +188,9 @@ loop$l		STR	R0,[R2],#4
 		MOVNE	R0,#10
 		MOVNE	R1,R13
 		SWINE	XOS_ReadUnsigned
-		MOVVS	R0,#0			; Not number? Don't use VF
-		MOVVC	R0,R2			; non-0 = use VF
+		MOVVS	R2,#0			; Not number? Don't use VF
+		MOVS	R0,R2			; non-0 = use VF
+		MOVNE	R0,#vf_is_present:OR:vf_mode_has_changed
 set_vf_flag	STR	R0,[R12,#viewfinder_select]
 		ADD	R13,R13,#12
 
@@ -252,9 +254,17 @@ final_code	TEQ	R10,#0
 
 
 ; service call handler - listens to Service_ModeChange
-service_code	TEQ	R1,#&46
-		MOVNE	PC,R14
 
+service_table	&	0
+		&	service_dispatch
+		&	&46
+		&	0
+
+		&	service_table
+service_code	MOV	R0,R0
+		TEQ	R1,#&46
+		MOVNE	PC,R14
+service_dispatch
 		LDR	R12,[R12]
 		B	mode_change
 
@@ -2565,9 +2575,9 @@ update_window
 
 read_mode_bpp
  FNJSR "R1-R3"
- BL viewfinder_test
- MOVCS R0,#0
- FNRTS HS
+ BL viewfinder_test_text
+ MOVNE R0,#0
+ FNRTS NE
  MOV R0,#-1
  MOV R1,#9
  SWI XOS_ReadModeVariable

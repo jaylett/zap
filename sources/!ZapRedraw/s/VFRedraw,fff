@@ -1,5 +1,5 @@
 ; Contains code for redraw via ViewFinder
-; $Id: VFRedraw,fff,v 1.3 2002/01/22 00:00:05 ds Exp $
+; $Id: VFRedraw,fff,v 1.4 2002/01/30 19:53:02 ds Exp $
 
 	GET	h.ZapRedHdr
 	GET	h.ZapRedraw
@@ -11,7 +11,8 @@
 	EXPORT	vf_redraw_raster
 	EXPORT	vf_plot_rect
 
-	EXPORT	viewfinder_test
+	EXPORT	viewfinder_test_text
+	EXPORT	viewfinder_test_rectangle
 
 ;E Called from redraw_area_dsa
 ;X as for redraw_area_dsa
@@ -774,13 +775,33 @@ error$l	&	err_notimpl
 	ALIGN
 
 ;E -
-;X CS (HS) if ViewFinder in use
+;X NE if ViewFinder_Draw will render text
 
-viewfinder_test
-	FNJSR	"R0-R12"
+viewfinder_test_text
+	FNJSR
 	LDR	R14,[R12,#viewfinder_select]
-	CMP	R14,#1
-	FNRTS	LO
+	TST	R14,#vf_mode_has_changed
+	BLNE	viewfinder_recache_meta
+	TST	R14,#vf_can_plot_text
+	FNRTS
+
+viewfinder_test_rectangle
+	FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	TST	R14,#vf_mode_has_changed
+	BLNE	viewfinder_recache_meta
+	TST	R14,#vf_can_plot_rectangle
+	FNRTS
+
+;X R14 = viewfinder_select (updated)
+viewfinder_recache_meta
+	FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	ANDS	R14,R14,#vf_is_present
+	STR	R14,[R12,#viewfinder_select]
+	FNRTS	EQ
+	FNPULL
+	FNJSR	"R0-R12"
 	SUB	R13,R13,#256	; allocate
 	MOV	R0,R13
 	MOV	R1,#0
@@ -797,15 +818,25 @@ viewfinder_test
 	MOV	R3,#1		; font height
 	MOV	R4,#2		; byte-aligned
 	STMIA	R0!,{R1-R4}
-	MOV	R0,#1:OR:9<<28	; text; OS, GCOL, no clip
+	MOV	R0,#1:OR:9<<28	; text; internal coords, GCOL, no clip
 	MOV	R1,R13
 	SWI	XViewFinder_Draw
 	ADD	R13,R13,#256	; deallocate
 	CMNVS	R0,#0		; clear carry if V set
+	LDRCS	R14,[R12,#viewfinder_select]
+	ORRCS	R14,R14,#vf_can_plot_text:OR:vf_can_plot_rectangle
+	STRCS	R14,[R12,#viewfinder_select]
+	FNRTS	CS
+	MOV	R0,#2:OR:9<<28	; rectangle; internal coords, GCOL, no clip
+	ADR	R1,vft_rectangle$l
+	SWI	XViewFinder_Draw
+	CMNVS	R0,#0		; clear carry if V set
+	LDR	R14,[R12,#viewfinder_select]
+	ORRCS	R14,R14,#vf_can_plot_rectangle
+	STRCS	R14,[R12,#viewfinder_select]
 	FNRTS
 
-;vftest$l
-;	& 0,0, 0,0, 3,0, -1	; null rectangle
+vft_rectangle$l	& 0,0, 0,0, 3,0, -1	; null rectangle
 vft_string$l	&	0, 1, 0
 vft_colour$l	&	0, 0, 3, 3 ; EOR, transparent
 

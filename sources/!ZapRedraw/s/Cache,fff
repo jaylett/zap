@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.2 2002/01/18 21:36:30 ds Exp $
+; $Id: Cache,fff,v 1.3 2002/01/30 19:53:02 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1369,10 +1369,9 @@ have1bpp$l	TST	R10,#1
 		ADDVC	R1,R1,R3,LSL #8			; copy cursor characters
 		ADDVC	R2,R0,R3,LSL #8
 		RSBVC	R3,R3,R3,LSL #3			; copy 7 chars
-		BLVC	move_bytes
-
-		LDRVC	R0,[R11,#fb_aacache]
-		FNRTS	VC
+		FNRTS	VS
+		BL	move_bytes
+		LDR	R0,[R11,#fb_aacache]
 
 ; what to do? We can't return errors from here, but we have no font data to draw.
 ; panic instead.
@@ -1530,8 +1529,19 @@ table$l		&	0				; 1bpp  - never anitalias
 ; discard font data and recache base substyles for new bpp
 ; E
 ; X
-mode_change	FNJSR	"R1-R3,R10-R11"			; preserve r1-r3 for service call
+mode_change	FNJSR	"R0,R1"
+		ADR	R0,mode_change_callback
 		MOV	R1,R12
+		SWI	XOS_AddCallBack
+		FNRTS
+
+mode_change_callback
+		FNJSR	"R1-R11"			; preserve r1-r3 for service call
+		MOV	R1,R12
+		LDR	R11,[R12,#viewfinder_select]
+		ORR	R11,R11,#vf_mode_has_changed
+		STR	R11,[R12,#viewfinder_select]
+		; should we test for ViewFinder text rendering here?
 		LDR	R11,[R12,#r_bpp]
 		BL	read_vdu_vars
 		LDR	R0,[R12,#r_bpp]
