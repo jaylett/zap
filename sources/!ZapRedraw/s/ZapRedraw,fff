@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.28 2004/11/18 12:54:45 christian Exp $
+; $Id: ZapRedraw,fff,v 1.29 2004/11/21 13:51:03 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -146,6 +146,7 @@ swi_table
  = "ReadFontInfo",0		; 29	1d
  = "ReadModeBPP",0		; 30	1e
  = "DecodeMenu",0		; 31	1f
+ = "Encoding",0			; 32	20
  = 0
  ALIGN
 
@@ -357,6 +358,7 @@ start$l
  B read_font_info
  B read_mode_bpp
  B decode_menu			; 31
+ B encoding_swi			; 31
 end$l
 unknown$l ERROR err_ukswi,"UKSWI"
 
@@ -1192,6 +1194,9 @@ pdlws_getchar	#	4				; -> code to get the next character
 
 prepare_data_line
 		FNJSR	"R1-R4,R6-R11"
+		CMP	R5,#0				; check for empty lines
+		BEQ	null$l				;
+
 		STR	R0,[R12,#pdlws_ctl_col]		; keep control colour
 		MOV	R0,#&20				; init highest char
 		STR	R0,[R12,#pdlws_max]
@@ -1209,9 +1214,9 @@ prepare_data_line
 		MOVEQ	R0,#0				;
 		LDRNE	R0,[R1,#r_length]		;
 		CMP	R0,#r_encoding			;
-		MOVLO	R0,#0				;
-		LDRHS	R0,[R1,#r_encoding]		;
-		TEQ	R0,#0				;
+		MOVLO	R1,#0				;
+		LDRHS	R1,[R1,#r_encoding]		;
+		TEQ	R1,#0				;
 		BLNE	get_encoding			;
 		FNRTS	VS				;
 		MOV	R1,R0				;
@@ -1267,11 +1272,12 @@ chunk$l		LDR	R0,[R12,#pdlws_chunk]		; see if we've changed chunk
 		STRNEB	R14,[R6],#1			;
 		STRNE	R6,[R12,#pdlws_last_ctl]	;
 
-gotchar$l	LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
-		CMN	R0,#0				; and ctl colour > -1
-		CMPGE	R1,#&20				;
-		BLT	cc$l				; use ctl colour
-		TEQ	R3,#0
+gotchar$l	CMP	R1,#&20
+		BHS	nocc$l
+		LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
+		CMN	R0,#1				; and ctl colour > -1
+		BNE	cc$l
+nocc$l		TEQ	R3,#0
 		LDRNEB	R0,[R3]				; check fg colour same
 		MOVEQ	R0,R8
 cc$l		TEQ	R3,#0
@@ -1324,6 +1330,13 @@ done$l		MOV	R0,#0				; terminate with 0,2
 		SUB	R5,R6,R0
 
 		LDR	R0,[R12,#pdlws_max]		; and the hightest printable character
+		FNRTS
+
+; null input (0 bytes)
+null$l		MOV	R0,#0				; highest char used
+		MOV	R5,#2				; length of output
+		STRB	R0,[R6],#1			;
+		STRB	R5,[R6],#1			; generate terminator
 		FNRTS
 
 ; new foreground colour (and possibly bg and style)
@@ -1456,8 +1469,10 @@ gc8loop$l	LDRB	R0,[R2],#1			; get next byte
 		BNE	err$l				;
 
 		SUB	R5,R5,#1			;
-		ADD	R4,R4,#1			; advance the colour / style pointers
-		ADD	R3,R3,#1			;
+		TEQ	R4,#0				; advance the colour / style pointers
+		ADDNE	R4,R4,#1			;
+		TEQ	R3,#0				;
+		ADDNE	R3,R3,#1			;
 		TEQ	R7,#0				;
 		ADDNE	R7,R7,#1			;
 
@@ -1516,11 +1531,13 @@ getchar16_utf$l	LDRB	R1,[R2],#1			; get the character
 		ORR	R1,R1,R0,LSL #8			;
 		SUB	R5,R5,#2			;
 
-		ADD	R4,R4,#1			; advance the colour / style pointers
-		ADD	R3,R3,#1			;
+		TEQ	R4,#0				; advance the colour / style pointers
+		ADDNE	R4,R4,#1			;
+		TEQ	R3,#0				;
+		ADDNE	R3,R3,#1			;
 		TEQ	R7,#0				;
 		ADDNE	R7,R7,#1			;
-		MOV	PC,R14
+		MOV	PC,R14				;
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

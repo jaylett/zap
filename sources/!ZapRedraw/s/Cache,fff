@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.28 2004/11/18 12:54:45 christian Exp $
+; $Id: Cache,fff,v 1.29 2004/11/21 13:51:03 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -38,6 +38,7 @@
  EXPORT read_font_info
 
  EXPORT get_encoding
+ EXPORT encoding_swi
 
  EXPORT printable_font_name
 
@@ -160,14 +161,21 @@ err$l		LDR	R1,[R0]
 ; check it's ok to kill off the cache when we die
 ; E
 ; X VS if not ok and r0 -> error
+		ASSERT	:INDEX:fb_usage = :INDEX:enc_usage
 check_kill_cache
 		ADD	R1,R12,#font_handles
 		MOV	R2,#handles-1
-loop$l		LDR	R3,[R1],#4
+loop$l		LDR	R3,[R1,R2,LSL #2]
 		TEQ	R3,#0
 		BNE	maybe$l
 ok$l		SUBS	R2,R2,#1
-		BNE	loop$l
+		BPL	loop$l
+
+		ADD	R3,R12,#font_handles
+		CMP	R1,R3
+		ADDEQ	R1,R12,#encodings
+		MOVEQ	R2,#nencodings-1
+		BEQ	loop$l
 		MOV	PC,R14
 
 maybe$l		LDR	R3,[R3,#fb_usage]
@@ -187,7 +195,7 @@ kill_cache	FNJSR					; svc mode
 		FNLDR	R1,cache_areanum
 		TEQ	R1,#0
 		SWINE	XOS_DynamicArea
-		BL	free_encodings
+		BL	free_unused_encodings
 		FNRTS
 
 
@@ -2314,7 +2322,6 @@ cache_grow	FNJSR	"R0"				; svc mode
 ; E
 ; X
 cache_compact	FNJSR	"R8-R11"
-
 		FNLDR	R11,cache_freelist
 		TEQ	R11,#0				; no free blocks
 		FNRTS	EQ				; so nothing to do
@@ -2876,16 +2883,87 @@ rma_free	FNJSR	"R1-R3"
 
 
 ; return the data for a given encoding
-; E r0 -> encoding name
+; E r1 = encoding handle
 ; X r0 -> data table / 1 for UTF8 / 2 for UTF16
-get_encoding	FNJSR	"R1-R4"
-		MOV	R1,R0
-		BL	encoding_idfn_from_id
-		TEQ	R0,#0
-		MOVEQ	R0,R1
-		MOVEQ	R2,#'E'
-		BLEQ	error_notfound
-		FNRTS	VS
+get_encoding	TST	R1,#eh_utf
+		BNE	utf$l
+
+		SUB	R1,R1,#1			; check handle in range
+		CMP	R1,#nencodings			;
+		BHS	error_badenc			;
+
+		ADD	R0,R12,#encodings		; load encoding and check there's
+		LDR	R0,[R0,R1,LSL #2]		;   an encoding in the slot
+		CMP	R0,#0				;
+		BEQ	error_badenc			;
+
+		ADD	R0,R0,#enc_data
+		MOV	PC,R14
+
+utf$l		BIC	R0,R1,#eh_utf			; it's a utf encoding
+		CMP	R0,#3				;
+		MOVLO	PC,R14
+
+error_badenc	ERROR	err_badhandle, "BadEHandle"
+
+
+		LOCAL
+
+; ZapRedraw_Encoding SWI
+
+		^	0
+ereason_find	#	1				; find an encoding
+ereason_lose	#	1				; lose and encoding
+ereason_table	#	1				; get the translation table
+ereason_max	*	@
+
+encoding_swi	CMP	R0,#ereason_max
+		BHS	bad$l
+
+		CMP	R0,#ereason_lose		; dispatch the calls
+		BLO	find_encoding			;
+		BHI	get_encoding			;
+
+		; FALL THROGUH
+
+; lose an encoding
+; E R0 = 1  R1 = encoding handle
+; X
+lose$l		TST	R1,#eh_utf
+		BNE	utf$l
+
+		SUB	R1,R1,#1			; check handle in range
+		CMP	R1,#nencodings			;
+		BHS	error_badenc			;
+
+		ADD	R0,R12,#encodings		; load encoding and check there's
+		LDR	R0,[R0,R1,LSL #2]		;   an encoding in the slot
+		TEQ	R0,#0				;
+		BEQ	error_badenc			;
+
+		LDR	R1,[R0,#enc_usage]		;
+		SUBS	R1,R1,#1			;
+		BMI	error_badenc			; generate an error if usage was 0
+		STR	R1,[R0,#enc_usage]		;   (let them know they've got it wrong!)
+		MOV	PC,R14				;
+
+utf$l		BIC	R1,R1,#eh_utf			; range-check utf handles, but
+		CMP	R1,#3				;   nothing else to be done
+		MOVLO	PC,R14				;
+
+bad$l		ERROR	0, "BadReason"
+
+
+		LOCAL
+
+; find an encoding
+; E R0 = 0  R1 -> encoding identifier
+; X R0 = encoding handle
+find_encoding	FNJSR	"R1-R5"
+		MOV	R0,R1				; get loadable name
+		BL	encoding_idfn_from_id		;
+		TEQ	R0,#0				;
+		MOVEQ	R0,R1				; not in menu - try anyway
 
 		LDRB	R1,[R0]				; check for UTF encoding
 		BIC	R1,R1,#&20			;
@@ -2901,22 +2979,31 @@ get_encoding	FNJSR	"R1-R4"
 		TEQ	R1,#'8'				;
 		MOVEQ	R0,#1				;
 		MOVNE	R0,#2				;
+		ORR	R0,R0,#eh_utf			; add the UTF flag
 		FNRTS					;
 
-notutf$l	LDR	R3,[R12,#encodings]
+notutf$l	ADD	R3,R12,#encodings
+		MOV	R4,#nencodings
 
-find$l		TEQ	R3,#0
-		BEQ	none$l
-		LDR	R1,[R3,#enc_name]
-		BL	strcasecmp
-		LDRNE	R3,[R3,#enc_next]
-		BNE	find$l
+find$l		SUBS	R4,R4,#1			; search for existing encoding block
+		BMI	none$l				;
+							;
+		LDR	R5,[R3,R4,LSL #2]		;
+		TEQ	R5,#0				;
+		BEQ	find$l				;
+							;
+		LDR	R1,[R5,#enc_name]		;
+		BL	strcasecmp			;
+		BNE	find$l				;
 
-		ADD	R0,R3,#enc_data
+		LDR	R0,[R5,#enc_usage]		; found one - increase the usage
+		ADD	R0,R0,#1			;
+		STR	R0,[R5,#enc_usage]		;
+
+		ADD	R0,R4,#1			; and generate a handle
 		FNRTS
 
 none$l		BL	load_encoding
-		ADDVC	R0,R0,#enc_data
 		FNRTS
 
 
@@ -2930,10 +3017,28 @@ none$l		BL	load_encoding
 
 ; load an encoding
 ; E r0 -> name
-; X r0 -> encoding block
-load_encoding	FNJSR	"R9-R11"
+; X r0 = handle
+load_encoding	FNJSR	"R8-R11"
 		MOV	R11,R0
-		MOV	R9,#0
+
+try$l		ADD	R9,R12,#encodings		; find a free handle
+		MOV	R8,#nencodings			;
+							;
+find$l		SUBS	R8,R8,#1			;
+		BMI	nomore$l			;
+							;
+		LDR	R2,[R9,R8,LSL #2]		;
+		TEQ	R2,#0				;
+		BNE	find$l				;
+
+		MOV	R0,#&4D				; open the file
+		MOV	R1,R11				;
+		ADRL	R2,fonts_path			;
+		SWI	XOS_Find			;
+		MOVVS	R0,#0				;
+		BVS	err$l				;
+
+		MOV	R9,R0				; keep handle
 
 		MOV	R0,#enc_length+8		; alloc the encoding block
 		BL	rma_alloc			;
@@ -2951,23 +3056,15 @@ load_encoding	FNJSR	"R9-R11"
 		MOV	R1,R0				;
 		BL	strcopy				;
 
-		MOV	R0,#&4D				; open the file
-		MOV	R1,R11				;
-		ADRL	R2,fonts_path			;
-		SWI	XOS_Find			;
-		BVS	err$l				;
-
-		MOV	R9,R0				; keep handle
-
 		MOV	R0,#3				; load in the header
 		MOV	R1,R9				;
-		ADD	R2,R12,#buffer+&80		; (buffer in use by PrepareDataLine)
+		ADD	R2,R12,#buffer			;
 		MOV	R3,#16				;
 		MOV	R4,#0				;
 		SWI	XOS_GBPB			;
 		BVS	err$l				;
 
-		ADD	R1,R12,#buffer+&80		; validate it
+		ADD	R1,R12,#buffer			; validate it
 		LDR	R2,enc$l			;
 		LDR	R0,[R1],#4			;
 		TEQ	R0,R2				;
@@ -2995,14 +3092,16 @@ load_encoding	FNJSR	"R9-R11"
 		MOVVC	R1,R9				;
 		SWIVC	XOS_Find			;
 
-		LDRVC	R0,[R12,#encodings]		; link in
-		STRVC	R0,[R10,#enc_next]		;
-		STRVC	R10,[R12,#encodings]		;
+		MOVVC	R0,#1				; set the usage and link in
+		STRVC	R0,[R10,#enc_usage]		;
+							;
+		ADDVC	R0,R12,#encodings		;
+		STRVC	R10,[R0,R8,LSL #2]		;
 
-		MOVVC	R0,R10				; return the block
+		ADDVC	R0,R8,#1			; make the handle
 		FNRTS	VC				;
 
-err$l		MOV	R11,R0				; keep the error
+err$l		MOV	R8,R0				; keep the error
 							;
 		MOV	R0,#0				; close the file
 		MOVS	R1,R9				;
@@ -3011,11 +3110,21 @@ err$l		MOV	R11,R0				; keep the error
 		MOVS	R0,R10				; free the block
 		BLNE	rma_free			;
 							;
-		MOV	R0,R11				; return the error
+		MOVS	R0,R8				; return the error
+		MOVEQ	R2,#'E'				;
+		MOVEQ	R1,R11                          ;
+		BLEQ	error_notfound                  ;
 		FNRTV					;
+
 
 enc$l		=	"ZENC"
 notenc$l	ERRTOK	err_notfont,"NotEnc"
+
+nomore$l	BL	free_an_encoding		; try to free some space
+		TEQ	R0,#0				;
+		BNE	try$l				;
+		FNPULL
+		ERROR	err_nohandles,"NoEHandles"
 
 
 		LOCAL
@@ -3033,17 +3142,45 @@ free_encoding	FNJSR	"R11"
 		FNRTS
 
 
-; free all loaded encodings
-; E
-; X
-free_encodings	FNJSR	"R11"
-		LDR	R11,[R12,#encodings]
+		LOCAL
 
-loop$l		MOVS	R0,R11
-		FNRTS	EQ
-		LDR	R11,[R11,#enc_next]
-		BL	free_encoding
-		B	loop$l
+; free all unused encodings
+; E
+; X R0 = number of encodings freed
+free_unused_encodings
+		FNJSR	"R8-R11"			;
+		MOV	R8,#0				; flag to free only one
+		B	common$l			;
+
+; free one unused encoding
+; E
+; X R0 = number of encodings freed
+free_an_encoding
+		FNJSR	"R8-R11"
+		MOV	R8,#1
+
+common$l	ADD	R11,R12,#encodings		;
+		MOV	R10,#nencodings			;
+		MOV	R9,#0				;
+							;
+loop$l		SUBS	R10,R10,#1			;
+		MOVMI	R0,R9				;
+		FNRTS	MI				;
+							;
+		LDR	R0,[R11,R10,LSL #2]		; get en encoding
+		TEQ	R0,#0				;
+		BEQ	loop$l				;
+		LDR	R1,[R0,#enc_usage]		; check its usage is 0
+		TEQ	R1,#0				;
+		BNE	loop$l				;
+		ADD	R9,R9,#1			;
+		BL	free_encoding			; free it
+		MOV	R0,#0				; clear the slot
+		STR	R0,[R11,R10,LSL #2]		;
+		TEQ	R8,#0				; if freeing all encodings, loop again
+		BEQ	loop$l				;
+		MOV	R0,R9				;
+		FNRTS					;
 
 
 		LOCAL

@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.12 2004/11/03 23:15:47 christian Exp $
+; $Id: Commands,fff,v 1.13 2004/11/21 13:51:03 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -452,7 +452,16 @@ com_die		LDR	R12,[R12]
 loop$l		STR	R3,[R1],#4
 		SUBS	R2,R2,#1
 		BNE	loop$l
+
+		ADD	R1,R12,#encodings
+		MOV	R2,#nencodings
+loop2$l		LDR	R0,[R1],#4
+		TEQ	R0,#0
+		STRNE	R3,[R0,#enc_usage]
+		SUBS	R2,R2,#1
+		BNE	loop2$l
 		MOV	PC,R14
+
 
 		LOCAL
 
@@ -483,23 +492,36 @@ loop$l		LDR	R0,[R1,R2,LSL #2]
 		SWI	XOS_WriteS
 		= 	10,13,10,13," Encodings:",10,13,0
 		ALIGN
-		LDR	R11,[R12,#encodings]
-encs$l		TEQ	R11,#0
-		BEQ	free$l
+		ADD	R11,R12,#encodings
+		MOV	R10,#0
+eloop$l		LDR	R9,[R11,R10,LSL #2]
+		TEQ	R9,#0
+		BEQ	nexte$l
+
 		SWI	XOS_WriteS
 		=	"    ",0
 		ALIGN
-		LDR	R0,[R11,#enc_name]
-		SWI	XOS_Write0
+		ADDVC	R0,R10,#1			; handle number
+		BLVC	cardinal4c
 		SWIVC	&20120
+		LDRVC	R0,[R9,#enc_name]		; name
+		SWIVC	XOS_Write0
 		SWIVC	&20120
 		SWIVC	&20128
-		LDR	R0,[R11,#enc_name]
-		BL	hex8c
-		SWI	&20129
-		SWI	XOS_NewLine
-		LDR	R11,[R11,#enc_next]
-		B	encs$l
+		MOVVC	R0,R9				; block address
+		BLVC	hex8c
+		SWIVC	&20129
+		SWIVC	&20120
+		SWIVC	&20128
+		LDRVC	R0,[R9,#enc_usage]		; usage
+		BLVC	cardinal4c
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
+		FNRTS	VS
+
+nexte$l		ADD	R10,R10,#1
+		CMP	R10,#nencodings
+		BLO	eloop$l
 
 		; do the free list
 
@@ -543,6 +565,12 @@ loop2$l		SWI	XOS_WriteS
 
 		; other info
 other$l		SWI	XOS_WriteS
+		= 10,13,"        System font cache: ",0
+		ALIGN
+		FNLDR	R0,sysfont_cache,VC
+		BLVC	hex8
+
+		SWI	XOS_WriteS
 		= 10,13,"        Total size: ",0
 		ALIGN
 		FNLDR	R0,cache_size,VC
@@ -596,11 +624,15 @@ filesize	FNJSR
 		FNRTS
 
 cardinal4	FNJSR
+		BL	cardinal4c
+		SWIVC	XOS_NewLine
+		FNRTS
+
+cardinal4c	FNJSR
 		ADD	R1,R12,#buffer
 		MOV	R2,#256
 		SWI	XOS_ConvertCardinal4
 		SWIVC	XOS_Write0
-		SWIVC	XOS_NewLine
 		FNRTS
 
 integer4	FNJSR
