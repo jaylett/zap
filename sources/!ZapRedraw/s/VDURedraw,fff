@@ -1,7 +1,8 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.6.2.1 2001/06/11 22:36:08 ds Exp $
+; $Id: VDURedraw,fff,v 1.6.2.2 2001/07/01 04:25:48 ds Exp $
 
  GET h.ZapRedHdr
+ GET h.ZapRedraw
  GET h.Cache
 
  EXPORT redraw_area_vdu
@@ -14,13 +15,6 @@
 
  EXPORT find_vdu_fonts
  EXPORT lose_vdu_fonts
-
- IMPORT skip_control_char
- IMPORT div_mod
- IMPORT find_character
- IMPORT move_bytes
- IMPORT strcopy
- IMPORT strcpy
 
 ;  GBLL noosplot
 ; noosplot SETL {TRUE}
@@ -60,9 +54,8 @@ font$l				; got the font (0=system font)
  ADD R0,R11,#a_topofvars	; address for sprite area
  LDR R14,[R11,#&60]
  CMP R14,R2
- BNE notcreatedalready$l
- LDR R14,[R11,#&64]
- CMP R14,R1
+ LDRNE R14,[R11,#&64]
+ CMPNE R14,R1
  BNE notcreatedalready$l
 createdalready$l
  BL calculate_vdu		; R0=curr line R3/R4=os posn R9=num
@@ -89,10 +82,10 @@ line$l
  BL calculate_x_scroll_vdu	; set up cols and inc R5
  ;BVS end$l
  BLVC vdu_redraw_line
- BVS end$l
- SUB R4,R4,R1			; dec by one char
- SUB R9,R9,#1			; done another line
- B line$l
+ SUBVC R4,R4,R1			; dec by one char
+ SUBVC R9,R9,#1			; done another line
+ BVC line$l
+ B end$l
 
 dataend$l			; run out of data
  ;ADR R5,eol$l			; null text
@@ -162,7 +155,7 @@ fillos$l
 end$l
  MOVVS R9,R0
  MOVVC R9,#0			; (no error)
- ADDS R0,R8,#0			; clv
+ ;ADDS R0,R8,#0			; clv
  LDR R0,[R11,#a_ext2]
  LDR R1,[R10,#r_caddr]
  CMP R1,#&8000
@@ -250,10 +243,10 @@ notcreatedalready$l
 
 ; get the font handles - either from the block or find them now
 ; E r10 -> redraw block
-; X r0 contains value for a_ext2
+; X r1 contains value for a_ext2
 get_vdu_fonts
- LDR R3,[R10,#r_caddr]
- CMP R3,#&8000
+ LDR R1,[R10,#r_caddr]
+ CMP R1,#&8000
  MOVLO PC,R14			; alrady done in handle_to_name
 				; FALL THROUGH
  LOCAL
@@ -1524,12 +1517,8 @@ vdu_merge_characters
  MOV R0,#&82			; output to mask + save
  ADD R1,R11,#a_topofvars	; sprite area
  BL sprite_output
- FNRTS VS
- BL vdu_mask_colours
- ;BVS vmc_1
- MOVVC R0,#16			; CLG - background colour...
- SWIVC XOS_WriteC
- ;BVS vmc_1
+ BLVC vdu_mask_colours
+ SWIVC XOS_WriteI+16		; CLG - background colour...
  MOVVC R0,R4			; character
 ; MOV R3,#0
 ; MOV R4,#0
@@ -1543,8 +1532,7 @@ vdu_merge_characters
  ;BVS vmc_1
  BLVC colour_setting_up
  ;BVS vmc_1
- MOVVC R0,#16
- SWIVC XOS_WriteC		; CLG - background colour...
+ SWIVC XOS_WriteI+16		; CLG - background colour...
  ;BVS vmc_1
  MOVVC R0,R9,LSR#16		; base character
  BLVC call_vdu_redraw_char	; draw the base character
@@ -1628,35 +1616,23 @@ colour_setting_up
 ;X Colours set to background 0 and foreground num_cols-1 #
 
 vdu_mask_colours
- FNJSR "R1-R4"
- MOV R1,#1
- LDR R0,[R10,#r_bpp]
- MOV R0,R1,LSL R0
- MOV R2,R1,LSL R0		; number of colours
- ADR R0,vmc_0
- MOV R1,#25
- SWI XOS_WriteN			; set graphics colours
- FNRTS VS
- SUB R0,R2,#1			; max col number
- ;CMP R0,#63
- ;MOVCS R0,#63			; clip to 63 (other bits in tint)
- SWI XOS_WriteC			; complete foreground colour
- FNRTS VS
- TEQ R8,#0			; font ?
- FNRTS EQ
- MOV R0,R8			; #0
- MOV R1,#0
- ;SUB R2,R2,#1
- MOV R2,#0
- MOV R3,#0
- SWI XFont_SetFontColours
- FNRTS
-vmc_0
- = 18,0,128			; back col 0
- = 23,17,3,0,0,0,0,0,0,0	; back tint 0
- = 23,17,2,255,0,0,0,0,0,0	; for tint 255
- = 18,0				; for col to be set
- ALIGN
+	FNJSR	"R1-R4"
+	MOV	R0,#0
+	MOV	R3,#128
+	MOV	R4,#0
+	SWI	XColourTrans_SetGCOL
+	MOVVC	R0,#&FFFFFF00
+	MOVVC	R3,#0
+	MOVVC	R4,#0
+	SWIVC	XColourTrans_SetGCOL
+	TEQ	R8,#0			; font ?
+	FNRTS	EQ
+	MOVVC	R0,R8			; #0
+	MOVVC	R1,#0
+	MOVVC	R2,#&FFFFFF00
+	MOVVC	R3,#0
+	SWIVC	XFont_SetFontColours
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Calculate VDU arguments				    ;
@@ -1928,6 +1904,8 @@ sprite_get_size
  MOV R1,R1,LSL R0		; number of colours
  CMP R1,#16
  MOVCS R1,#16			; clip to 16 palette regs
+	CMP R0,#4
+	MOVHS R1,#0		; or 0 if >8bpp
  MOV R1,R1,LSL#3		; 8 bytes per register
  ADD R0,R1,R2,LSL#1		; palette+image+mask
  ADD R0,R0,#&3C			; 44 bytes sprite head +16 area
@@ -1968,8 +1946,46 @@ sprite_create
  TEQ R5,#2
  LDRNE R0,[R10,#r_mode]
  MOVEQ R0,#0
+	CMP	R0,#256
+	BLO	shallow$l	; not a mode descriptor
+	TST	R0,#1
+	BNE	shallow$l	; is already in the right format
+	MOV	R1,#3
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	MOV	R3,#1:OR:4<<27	; assume 8bpp
+	TEQ	R2,#1
+	MOVEQ	R3,#1:OR:1<<27	; 1bpp
+	TEQ	R2,#3
+	MOVEQ	R3,#1:OR:2<<27	; 2bpp
+	TEQ	R2,#15
+	MOVEQ	R3,#1:OR:3<<27	; 4bpp
+	CMP	R2,#256
+	MOVHS	R3,#1:OR:5<<27	; 16bpp (15bit)
+	CMP	R2,#65536
+	MOVHS	R3,#1:OR:6<<27	; 32bpp (24bit)
+	MOV	R1,#4
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	CMP	R2,#3
+	MOVHS	R2,#2
+	ADR	R14,res$l
+	LDRB	R14,[R14,R2]	; translate eigenvalues to pixels/inch
+	ORR	R3,R3,R14,LSL #1
+	MOV	R1,#5
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	CMP	R2,#3
+	MOVHS	R2,#2
+	ADR	R14,res$l
+	LDRB	R14,[R14,R2]	; translate eigenvalues to pixels/inch
+	ORR	R0,R3,R14,LSL #14
+shallow$l
  STR R0,[R6,#&38]		; mode sprite defined in
+ 	CMP	R0,#256
+ 	BHS	sp_3		; no palette :-)
  ADD R6,R6,#&3C			; start of palette
+	TEQ	R0,#0
  BEQ sp_1			; create a mode 0 palette
  MOV R5,R1,LSR#3		; number of palette entries
  MOV R7,#0			; current colour
@@ -1984,18 +2000,14 @@ sp_2
  BCC sp_2
  B sp_3
 sp_1
- ADR R1,sp_mode0
- MOV R2,R6
- MOV R3,#16
- BL move_bytes
+	MOV	R1,#&10
+	MOV	R2,#&FFFFFF10
+	STR	R1,[R6]
+	STMIB	R6,{R1,R2}
+	STR	R2,[R6,#12]
 sp_3
  MOV R0,R4			; number of bytes per sprite line
  FNRTS
-sp_mode0
- DCD &00000010
- DCD &00000010
- DCD &FFFFFF10
- DCD &FFFFFF10
 
 sprite_area
  DCD 0				; &00 size (filled in later)
@@ -2013,6 +2025,8 @@ sprite_area
  DCD 0				; offset to mask (filled later)
  DCD 0				; mode defined in
 sprite_area_end
+
+res$l	=	180, 90, 45, 0
 
 ;E R0=b0-b6 0=restore output 1=to sprite 2=to mask
 ;     b7    Set if old R0-R3 should be saved for restoring
@@ -2043,9 +2057,7 @@ sprite_output
  SWI XColourTrans_InvalidateCache
  FNRTS VS
  TST R4,#&7F			; were we restoring?
- FNRTS EQ
- MOV R0,#5
- SWI XOS_WriteC			; VDU 5
+ SWINE XOS_WriteI+5		; VDU 5
  FNRTS
 
 ;E R5=mode (1=current 2=mode0)
@@ -2071,27 +2083,25 @@ sprite_set_cols
  MOVVC R3,#&80
  MOVVC R4,#0
  SWIVC XColourTrans_SetGCOL
- FNRTS VS
  TEQ R8,#0			; no font?
  FNRTS EQ
- MOV R0,#0			; current font
- MOV R1,R6
- MOV R2,R7
- MOV R3,#14			; max for col offset
- SWI XColourTrans_SetFontColours
+ MOVVC R0,#0			; current font
+ MOVVC R1,R6
+ MOVVC R2,R7
+ MOVVC R3,#14			; max for col offset
+ SWIVC XColourTrans_SetFontColours
  FNRTS
 ssc_0
  ADR R0,ssc_1
  MOV R1,#6
  SWI XOS_WriteN			; bac=0 for=1
- FNRTS VS
  TEQ R8,#0
  FNRTS EQ
- MOV R0,#0			; current font
- MOV R1,#0			; background
- MOV R2,#1			; foreground
- MOV R3,#0			; last colour offset
- SWI XFont_SetFontColours
+ MOVVC R0,#0			; current font
+ MOVVC R1,#0			; background
+ MOVVC R2,#1			; foreground
+ MOVVC R3,#0			; last colour offset
+ SWIVC XFont_SetFontColours
  FNRTS
 ssc_1 = 18,0,128,18,0,1
  ALIGN
@@ -2183,67 +2193,32 @@ toplotrect
  MOV R3,R3,ASR R5
 
  CMP R0,R2
-; BEQ beepprob
  MOVGE R6,R0			; if WWW then swap them...
  MOVGE R0,R2
  MOVGE R2,R6
 
  LDR R6,GWLCol			; clip left
-; CMP R6,#0
-; MOVMI R6,#0
-; CMP R2,R6
-; BLT beepprob
  CMP R0,R6
  MOVLT R0,R6
 
  LDR R6,GWRCol			; clip right
-; ADD R6,R6,#1
-; CMP R0,R6
-; BGT beepprob
  CMP R2,R6
  ADDGT R2,R6,#1
 
-; ; Overkill...
-; CMP R0,R2
-; BGE beepprob
-;  MOVGE R6,R0			; if WWW then swap them...
-;  MOVGE R0,R2
-;  MOVGE R2,R6
-
-; SUB R14,R2,R0			; bugfix :-(
-; CMP R14,#12			; bugfix :-(
-; ADDLT R2,R0,#12		; bugfix :-(
-
  CMP R3,R1			; if WWW then swap them...
-; BEQ beepprob
  MOVGE R6,R3
  MOVGE R3,R1
  MOVGE R1,R6
 
  LDR R6,GWBRow			; clip bottom
-; CMP R6,#0
-; MOVMI R6,#0
-; CMP R1,R6
-; BLT beepprob
  CMP R3,R6
  MOVLT R3,R6
 
  LDR R6,GWTRow			; clip top
-; ADD R6,R6,#1
-; CMP R3,R6
-; BGT beepprob
  CMP R1,R6
  ADDGT R1,R6,#1
 
-; CMP R3,R1			; if WWW then swap them...
-; BGE beepprob
-; ; BEQ beepprob
-;  MOVGE R6,R3
-;  MOVGE R3,R1
-;  MOVGE R1,R6
-
  LDR R5,[R10,#r_ysize]
-; SUB R5,R5,#1
  SUB R1,R5,R1
  SUB R3,R5,R3
 
@@ -2253,10 +2228,6 @@ toplotrect
 
  BL plotrect
  FNRTS
-
-;beepprob
-; SWI &107
-; FNRTS
 
 ; R0 = left   X (inclusive)
 ; R1 = top    Y (inclusive)
