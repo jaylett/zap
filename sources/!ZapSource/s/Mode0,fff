@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 2.10 2002/11/12 02:32:35 christian Exp $
+; $Id: Mode0,fff,v 2.11 2002/11/17 01:22:05 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -1922,9 +1922,10 @@ fake_right$l
 
 mode0_char
 	ADRL	R3,mode0_char_doit
+	MOV	R0,#0
 
-; R3=routine to call (top bit set if deleting) R4-R10=as above
-; Routine called with R0=0 if not in block or not block editing, else R0=1
+; R0b31 set if deletion  R3 = routine to call  R4-R10 as above
+; Routine called with R0 = 0 if not in block or not block editing, else R0=1
 
 char_del_dispatch
 ; To disable block editing, uncomment the following lines:
@@ -1934,22 +1935,24 @@ char_del_dispatch
 	TST	R1,#1<<10		; block edit?
 	MOVEQ	R0,#0
 	MOVEQ	PC,R3
-	PUSH	"R3-R10,R14"
+	PUSH	"R0,R3-R10,R14"
 	BL	get_selection
 	MOV	R11,R8
-	PULL	"R3-R10,R14"
+	PULL	"R0,R3-R10,R14"
 	MOVCS	R0,#0
 	MOVCS	PC,R3
 	TEQ	R8,R11			; and in same window?
 	MOVNE	R0,#0
 	MOVNE	PC,R3
+	PUSH	"R0"
 	LDR	R0,[R10,#c_off]
 	ADD	R2,R2,R1
 	CMP	R1,R0
 	CMPLS	R0,R2			; and in selection?
+	PULL	"R0"
 	MOVCS	R0,#0
 	MOVCS	PC,R3
-	FNJSR	"R4-R7,R11"		; if so, do block editing
+	FNJSR	"R0,R4-R7,R11"		; if so, do block editing
 	LDR	R0,[R8,#w_flags]
 	STR	R0,local_wflags$l
 	LDR	R0,[R8,#w_format]
@@ -2018,9 +2021,10 @@ char_del_dispatch
 loop$l
 	BL	altesc
 	BCC	notesc$l
-	TST	R3,#1<<31
-	ADREQ	R0,escins$l
-	ADRNE	R0,escdel$l
+	LDR	R0,[R13]
+	TEQ	R0,#0
+	ADRPL	R0,escins$l
+	ADRMI	R0,escdel$l
 	BL	query_abort
 	BEQ	exitloop$l
 notesc$l
@@ -2051,8 +2055,8 @@ notesc$l
 	LDR	R4,[R10,#c_off]
 
 	PUSH	"R1,R3-R11"		; stack return address etc.
-	LDMIA	R14,{R4-R7}		; get parameters
-	TST	R3,#1<<31
+	LDMIA	R14,{R0,R4-R7}		; get parameters
+	TST	R0,#1<<31
 	BEQ	not_del$l
 	SUBS	R5,R5,R1
 	BLE	nowttodel$l
@@ -2063,12 +2067,13 @@ not_del$l
 nowttodel$l
 	PULL	"R1,R3-R11"		; stack return address etc.
 	BVS	err$l
+	LDR	R0,[R13]
 	TEQ	R4,R11
-	TSTEQ	R3,#1<<31		; um, delete...?
+	TSTEQ	R0,#1<<31		; um, delete...?
 	BNE	not_char$l
 	LDR	R0,[R8,#w_flags]
 	TST	R0,#2			; overwrite fiddle...
-	LDRNE	R0,[R13,#4]
+	LDRNE	R0,[R13,#8]
 	ADDNE	R4,R4,R1		; - spaces inserted
 	ADDNE	R4,R4,R0		; - characters inserted/overwritten
 	LDRNE	R2,[R9,#f_mark]
@@ -2329,7 +2334,7 @@ endofcharinsertion
 
 mode0_delete
 	ADR	R3,mode0_delete_doit
-	ORR	R3,R3,#1<<31		; it's a deletion
+	MOV	R0,#1<<31		; it's a deletion
 	FNJSR	"R4,R6"
 	LDR	R4,[R8,#w_flags]
 	LDR	R6,[R8,#w_format]
