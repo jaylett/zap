@@ -1,5 +1,5 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 2.2 2000/10/11 15:29:07 james Exp $
+; $Id: Mode4dis,fff,v 2.3 2000/12/17 18:17:59 ds Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
@@ -19,7 +19,6 @@ FILE_NORMAL   * 0 ; when the file isn't AIF or a module
 FILE_AIF      * 1 ; when the file is AIF code
 FILE_MODULE   * 2 ; when the file is a module
 FILE_CHUNK    * 3 ; when the file is a chunk file
-SCL_ENTRIES   * 233 ; the number of entries in the SCL stub jump table
 
 
 ; OPTIONS >>>
@@ -718,9 +717,10 @@ sharedc$l
    TEQ     r14,#FILE_AIF                 ; is it AIF ?
    BNE     notsharedc$l                  ; if not, skip
    BL      cln_readw                     ; read this word
-   TEQ     r0,r4                         ; invert it
+   TEQ     r0,r4                         ; is it the MOV pc,#0 thing ?
    BNE     notsharedc$l                  ; if not, it's not SCL
    MOV     r3,r2                         ; hang on to the start address
+   ADD     r2,r2,#4                      ; compensate for decrement
 loopforscl$l
    SUBS    r2,r2,#4                      ; decrement
    BMI     notcode$l                     ; if -ve, it's not a piece of code
@@ -728,16 +728,41 @@ loopforscl$l
    BL      cln_readw                     ; read it
    TEQ     r0,r4                         ; is it the MOV pc,#0 thing ?
    BEQ     loopforscl$l                  ; if so, get it
+   MOV     r0,#&30
+   BL      cln_readw
+   TEQ     r0,#32
+   BEQ     scl_getstr32$l
 scl_getstr$l
    ADR     r0,sharedclibrary             ; read the pointer
    SUB     r2,r3,r2                      ; gives us the offset from the base
-   CMP     r2,#SCL_ENTRIES:SHL:2         ; is it too high ?
+   ADRL    r14,scl_total_count
+   LDR     r14,[r14]
+   CMP     r2,r14,LSL #1                 ; is it too high ?
    BHS     notcode$l                     ; if so, it's not SCL
    LDR     r14,[r0,r2,LSR #1]  		 ; read the offset of the string
    MOV     r14,r14,LSL #16
    ADD     r0,r0,r14,LSR #16             ; and add on the string table base
    ORR     r0,r0,#1<<30                  ; set bit 30
    LDMFD   r13!,{r2,r3,r4,pc}            ; Return from call
+scl_getstr32$l
+	MOV	r0,r2
+	BL	cln_readw
+	TEQ	r0,#0
+	ADR	r0,sharedclibrary
+	SUB	r2,r3,r2
+	ADRL	r14,scl_kernel_count
+	MOVNE	r4,#0			; prev word != 0 -> in kernel fns
+	LDRNE	r14,[r14] ; scl_kernel_count
+	LDREQ	r4,[r14]		; prev word == 0 -> in C lib fns
+	LDREQ	r14,[r14,#4] ; scl_clib_count
+	CMP	r2,r14,LSL #2
+	BHS	notcode$l
+	ADD	r2,r2,r4,LSL #2		; offset for C fns, if needed
+	LDR	r14,[r0,r2,LSR #1]
+	MOV	r14,r14,LSL #16
+	ADD	r0,r0,r14,LSR #16
+	ORR	r0,r0,#1<<30
+	LDMFD	r13!,{r2,r3,r4,pc}
 
 gststubs_adr_scl_block
 	&	&E28F0068 ; ADR R0,...
@@ -782,8 +807,12 @@ notcode$l
 
 ; For counting entries
 	MACRO
-	Count	$label
-num	SETA	num+1
+	Count1	$label
+num1	SETA	num1+1
+	MEND
+	MACRO
+	Count2	$label
+num2	SETA	num2+1
 	MEND
 
 ; For building the offsets table
@@ -799,8 +828,10 @@ num	SETA	num+1
 	=	$label,0
 	MEND
 
-	GBLS	op
-	GBLA	num
+	GBLS	op1
+	GBLS	op2
+	GBLA	num1
+	GBLA	num2
 
 ; The file "data.clib_names" contains a list of entries of the form
 ;	op	"string"
@@ -810,21 +841,29 @@ sharedclibrary
 
 ; First, count the number of entries.
 	^	0
-op	SETS	"Count"
-num	SETA	0
+op1	SETS	"Count1"
+op2	SETS	"Count2"
+num1	SETA	0
+num2	SETA	0
 	GET	data.clib_names
 
 ; Build the offsets table (halfwords)
 	^	0
-	#	num*2	; offsets are relative to |sharedclibrary|
-op	SETS	"Ptr"
+	#	(num1+num2)*2	; offsets are relative to |sharedclibrary|
+op1	SETS	"Ptr"
+op2	SETS	"Ptr"
 	GET	data.clib_names
 
 ; Build the strings table.
-op	SETS	"Str"
+op1	SETS	"Str"
+op2	SETS	"Str"
 	GET	data.clib_names
 
 	ALIGN
+
+scl_kernel_count	& num1		; number of kernel entries
+scl_clib_count		& num2		; number of C library entries
+scl_total_count		& num1+num2	; total number of entries
 
 ; decode SWINV's - usually these are function headers
 ; (params as described in 'newdisassemble')
