@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.11 2001/01/13 18:13:11 james Exp $
+; $Id: Commands,fff,v 2.12 2001/05/28 17:27:17 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -629,9 +629,9 @@ Basemap
 	SUB	R1,R1,#1
 	LDR	R0,[R0,R1,LSL#2]		; last word in list
 basemap_entry
-	STMFD	R13!,{R0,R14}
+	FNJSR	"R0"
 	BL	find_key_table
-	LDMFD	R13!,{R0,R14}
+	FNPULL
 	BPL	put_basemap$l
 	B	bad_keymap
 function$l
@@ -696,7 +696,7 @@ putoptbasemap$l
 Basemapn
 	TEQ	R2,#23
 	LDREQB	R0,[R8,#w_basemap]
-	STMFD	R13!,{R14}
+	FNJSR
 	BEQ	keymap_name
 	TEQ	R2,#6
 	BEQ	prompt$l
@@ -704,12 +704,12 @@ Basemapn
 	TEQ	R2,#15
 	BEQ	tick_keymap
 	TEQ	R0,#0
-	LDMFD	R13!,{R14}
+	FNPULL
 	BNE	basemap_entry
 	B	bad_keymap
 prompt$l
 	ADR	R0,s$l
-	LDMFD	R13!,{R14}
+	FNPULL
 	MOV	R1,#lineed_buf_keymap
 	B	minibuffer_prompt_token_and_history
 s$l	FNS	("zap_p_basemap")
@@ -721,7 +721,7 @@ keymap_name ; R14 on stack
 	MOVEQ	R0,#0
 	BLNE	strdup
 	MOV	R1,#3
-	LDMFD	R13!,{PC}
+	FNRTS
 
 	DCD	7
 Beep
@@ -1011,7 +1011,7 @@ str$l	LDRB	R0,[R6,#1]!
 find$l	LDRB	R0,[R7,#1]!
 	CMP	R0,#32
 	BHI	find$l
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 p$l	FNS	("zap_p_mkclone")
 noclone$l &	0
@@ -1791,7 +1791,7 @@ Deltoeof
  FNRTS
 
 to_Deltostart
- LDMFD R13!,{R14}
+ FNPULL
  B Deltostart
 
  DCD 0
@@ -1814,7 +1814,7 @@ Deltostart_main
  FNRTS
 
 to_Deltoend
- LDMFD R13!,{R14}
+ FNPULL
  B Deltoend
 
  DCD 0
@@ -1849,7 +1849,7 @@ Deltoend_main
  BL execute_command
  B de17				; finished
 de11
- STMFD R13!,{R3}
+ PUSH "R3"
  BL Joinline
  LDMFD R13!,{R3}
  FNRTS VS			; return on error
@@ -2513,7 +2513,7 @@ Keymap
  LDREQB R0,[R8,#w_currentmap]
  MOVEQ R1,#1
  MOVEQ PC,R14
- STMFD R13!,{R14}
+ FNJSR
  SUB R1,R1,#1
  LDR R0,[R0,R1,LSL#2]		; last word in list
  MOV R1,R0
@@ -2526,7 +2526,7 @@ Keymap
  BLVC minibuffer_write
  ADRVC R0,ke_s0
  BLVC minibuffer_write
- LDMFD R13!,{PC}
+ FNRTS
 ke_s0
  FNS (" - ")
 
@@ -2878,17 +2878,17 @@ s$l FNS ("zap_m_margin")
 
 	DCD     7 + c_Param_Words
 Menuopen				; R0 -> menu handle to open
-	STMFD	R13!,{R14}		; stack some registers
+	FNJSR		; stack some registers
 	LDR	R4,[R0]			; = index
 	SUB	R1,R13,#20		; steal some stack space
 	SWI	XWimp_GetPointerInfo	; get the pointer state
-	LDMVSFD	R13!,{PC}		; exit if we barfed
+	FNRTS	VS		; exit if we barfed
 	MOV	R0,R4			; restore pointer
 	LDR	R2,[R13,#-20]		; = mouse X
 	LDR	R3,[R13,#-16]		; = mouse Y
 	BL	read_menu_handle	; read the menu handle
 	BLVC	create_menu		; ... and open it
-	LDMFD	R13!,{PC}		; return to caller
+	FNRTS		; return to caller
 
  DCD 7+c_CanCreateSubMenu
 Minimenu
@@ -2905,7 +2905,7 @@ Miscops
 
  CMP R3,#22			; one beyond highest valid op
  ADDLO PC,PC,R3,LSL #3
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
  MOV R1,#flags_AutoDeleteFiles		; 0
   B new_wind_flags_clear
@@ -3533,7 +3533,7 @@ Returnnoindent
  BIC R0,R5,#1<<16		; switch off auto indent
  STR R0,[R8,#w_format]
  AND R5,R5,#1<<16		; save the current state
- STMFD R13!,{R5,R8}
+ PUSH "R5,R8"
  MOV R0,#1
  MOV R11,#e_return
  BL call_mode			; perform the return action
@@ -4747,6 +4747,13 @@ Wrapwidth
  TEQ R8,#0
  FNSTR R0,opt_wrapwidth,EQ
  STRNE R0,[R8,#w_wrapwidth]
+ MOV R1,#einit_MiscVarChanged
+ MOVEQ R2,#0
+ MOVEQ R3,#opt_wrapwidth
+ MOVNE R2,#8
+ MOVNE R3,#w_wrapwidth
+ MOV R11,#e_init
+ BL call_mode
  FNRTS
 a$l
  TEQ R0,#0
@@ -4871,7 +4878,7 @@ a$l
 ;X command table added / VS
 
 add_command_table
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  FNLDR R14,com_number
  CMP R14,#max_ctable
  BCS ad16			; table full
@@ -4880,10 +4887,10 @@ add_command_table
  STR R0,[R1]			; save new command table pointer
  ADD R14,R14,#1
  FNSTR R14,com_number
- LDMFD R13!,{R1,PC}
+ FNRTS
 ad16
  BL err$l
- LDMFD R13!,{R1,PC}
+ FNRTS
 err$l ERR "zap_e_manycmdtables"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -5781,7 +5788,7 @@ del$l	=	"?",0
 	&	7+c_Function
 False	MOV	R0,#0
 	MOV	R1,#2
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 ; function 'Filename'
 	&	c_Function
@@ -5852,7 +5859,7 @@ loop$l	LDRB	R1,[R0],#1
 	&	7+c_Function
 True	MVN	R0,#0
 	MOV	R1,#2
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 	LOCAL
 
@@ -5931,7 +5938,7 @@ Mode_fn
 	FNLDRB	R0,opt_format,EQ
 	LDRNEB	R0,[R8,#w_format]	; mode number
 	MOV	R1,#1
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 	LOCAL
 
@@ -6023,11 +6030,11 @@ tick$l
 	LDR	R0,[R7,#-4]
 	TST	R0,#1<<15
 	BEQ	no_15$l
-	STMFD	R13!,{R1,R6}
+	PUSH	"R1,R6"
 	MOV	R2,#15
 	MOV	R0,R1
 	BL	process_key_command
-	LDMFD	R13!,{R1,R6}
+	PULL	"R1,R6"
 	BVS	error$l
 	TST	R0,R3
 	MOVNE	R0,#-1
@@ -6184,7 +6191,7 @@ execute_strokes
  FNLDR R2,if_skip
  FNLDR R3,if_stop
  FNLDR R4,local_varlist
- STMFD R13!,{R1-R4}
+ PUSH "R1-R4"
  FNSTR R1,if_stop
  MOV R1,#0
  FNSTR R1,if_skip
@@ -6265,7 +6272,7 @@ end$l				; end or error
  BL stop_operation		; stop operation on this file
 ret$l
  MOVVC R0,#0
- STMFD R13!,{R0}
+ PUSH "R0"
  FNLDR R11,local_varlist
  TEQ R11,#0
  BEQ freedvar$l
@@ -6310,7 +6317,7 @@ freecase$l
  BLEQ heap_free
  B freecase$l
 freedcase$l
- LDMFD R13!,{R0-R4}
+ PULL "R0-R4"
  FNSTR R1,if_count
  FNSTR R2,if_skip
  FNSTR R3,if_stop
