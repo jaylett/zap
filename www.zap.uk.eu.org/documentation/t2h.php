@@ -1,5 +1,5 @@
 <?php
-  // $Id: t2h.php,v 1.1 2002/01/23 20:27:04 ds Exp $
+  // $Id: t2h.php,v 1.2 2002/01/29 21:37:34 ds Exp $
 
   include "../.php/zap-std.inc";
 
@@ -14,5 +14,6 @@
     zap_body_end ();
   }
 
+  $root = 'documentation/t2h.php';
   include "../.php/t2h.inc";
 ?>

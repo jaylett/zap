@@ -1,5 +1,5 @@
 <?php
-  // $Id: t2h.inc,v 1.1 2002/01/23 20:45:55 ds Exp $
+  // $Id: t2h.inc,v 1.2 2002/01/29 21:37:34 ds Exp $
 
   function Error ($errno, $errmsg, $filename, $linenum, $vars)
   {
@@ -44,7 +44,9 @@ in the server error log.<P>
   if ($file != '')
     $file = substr ($file, 5);
   $orig = substr ($me, 0, strlen ($me) - strlen ($file) - 1);
-  $orig = substr ($orig, 0, strrpos ($orig, '/')) . '/' . $file;
+  $orig = dirname ($orig) . '/' . $file;
+
+  $root = substr ($GLOBALS['SCRIPT_NAME'], 0, -strlen ($root));
 
   if (substr ($file, -1) == '/')
   {
@@ -134,7 +136,7 @@ in the server error log.<P>
 
     echo '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
 <HTML>
-<!-- $Id: t2h.inc,v 1.1 2002/01/23 20:45:55 ds Exp $ -->';
+<!-- $Id: t2h.inc,v 1.2 2002/01/29 21:37:34 ds Exp $ -->';
     do_zap_header ();
     $orig = parturlencode ($orig);
     echo '<hr><!-- Here be plain text --><pre>', $text, '</pre>
