@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.16 1999/03/16 00:32:01 ds Exp $
+; $Id: Menus,fff,v 1.1.2.17 1999/03/19 18:23:52 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -2932,10 +2932,11 @@ loop$l
 ;  R5->menu entry string buffer
 ;  R2=reason code
 ;  R0,R7 not set up
+;  R9 treated as invalid
 ;X R0,R2,R7 changed
 
 menu_process_key_command
-	FNJSR
+	FNJSR	"R9"
 	LDR	R7,[R5,#-4]
 	BIC	R7,R7,#&FC<<24
 	BL	validate_command
@@ -2944,12 +2945,16 @@ menu_process_key_command
 	ANDCS	R0,R0,#&FC<<24
 	ORRCS	R0,R7,R0
 	STRCS	R0,[R5,#-4]
+	TEQ	R8,#0
+	MOVEQ	R9,#0
+	LDRNE	R0,[R8,#w_file]
+	BLNE	conv_file_off
 	LDMDB	R5,{R0,R14}		; command argument & parameter type
 	MOV	R14,R14,LSR #3
 	AND	R14,R14,#&F<<24
 	ADD	R2,R14,R2
-	FNPULL
-	B	process_key_command
+	BL	process_key_command
+	FNRTS
 
 	LOCAL
 
