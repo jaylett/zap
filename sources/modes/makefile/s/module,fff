@@ -1,6 +1,6 @@
 ; makefile.s
 ; converted from makefile.bas by bas2asm.pl
-; $Id: module,fff,v 1.11 2002/02/25 13:57:48 christian Exp $
+; $Id: module,fff,v 1.12 2002/11/24 22:11:13 christian Exp $
 
 	GET	h.Makefile
 
@@ -13,13 +13,43 @@
 	DCD	D1
 	DCD	ModHelpString
 	DCD	D1
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	module_flags
+
+; -------- module command table -----------
+
+D1	=	"ZapMakeFile",0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	D2
+	=	0
+
+D2	=	27,0," provides support for",27,2,"Zap editor.",13
+	=	"It provides a syntax-colouring mode for Acorn Make",27,7,"s.",0
+	ALIGN
+
+ModHelpString
+	=	"ZapMakeFile",9,"0.09 (00 Jan 0000) © "
+lp1	=	"Tim Tyler",0
+	ALIGN
+
+module_flags
+	DCD	1			; 32 bit compatible
+
 Data3
-	=	"Zap", 0x00
-	DCD	0x00
+	=	"Zap",0
+	DCD	0
+
 w_formmb
 	DCD	-1
 	=	0x18, 0x18, 0x0, 0x0
 	DCD	0	;  REM mainwkspflags
+
 StartUpHere
 	STMFD	sp!, {lr}
 	LDR	r2, [r12, #0]
@@ -40,45 +70,48 @@ ModuleInit
 	MOV	r0, #0x12
 	ADR	r1, Data3
 	SWI	XOS_Module
-	MOVVC	r0, #0x0C
-	SWIVC	XOS_Module
-	LDMVSFD	sp!, {pc}
+;	MOVVC	r0, #0x0C
+;	SWIVC	XOS_Module
+;	LDMVSFD	sp!, {pc}
 	MOV	r12, r4
-	LDR	r2, [r3, #20]
-	ADD	r3, r3, r2
-	LDRB	r0, [r3, #3]
-	TEQ	r0, #'X'
-	ADDEQ	r3, r3, #1
-	LDRB	r0, [r3, #5]
-	CMP	r0, #'9'
-	RSBLSS	r0, r0, #'1'
-	BHI	MakeError
-	BNE	RefDataTab
-	LDRB	r0, [r3, #7]
-	CMP	r0, #'9'
-	RSBLSS	r0, r0, #'0'
-	BHI	MakeError
-	BNE	RefDataTab
-	LDRB	r0, [r3, #8]
-	CMP	r0, #'9'
-	RSBLSS	r0, r0, #'0'
-	BHI	MakeError
+;	LDR	r2, [r3, #20]
+;	ADD	r3, r3, r2
+;	LDRB	r0, [r3, #3]
+;	TEQ	r0, #'X'
+;	ADDEQ	r3, r3, #1
+;	LDRB	r0, [r3, #5]
+;	CMP	r0, #'9'
+;	RSBLSS	r0, r0, #'1'
+;	BHI	MakeError
+;	BNE	RefDataTab
+;	LDRB	r0, [r3, #7]
+;	CMP	r0, #'9'
+;	RSBLSS	r0, r0, #'0'
+;	BHI	MakeError
+;	BNE	RefDataTab
+;	LDRB	r0, [r3, #8]
+;	CMP	r0, #'9'
+;	RSBLSS	r0, r0, #'0'
+;	BHI	MakeError
 RefDataTab
 	ADR	r0, DataTable
 	FNcall	0
 	ADR	r0, CmdTable
 	FNcall	Zap_AddCommands
 	LDMFD	sp!, {pc}
-MakeError
-	ADR	r0, ErrorMess
-	SWI	OS_GenerateError
-ErrorMess
-	DCD	0x00
-	=	"ZapMakeFile requires Zap version 1.00 or greater.", 0, 0
-	ALIGN
+;MakeError
+;	ADR	r0, ErrorMess
+;	SWI	OS_GenerateError
+;ErrorMess
+;	DCD	0x00
+;	=	"ZapMakeFile requires Zap version 1.00 or greater.", 0, 0
+;	ALIGN
+
+
 ObeyLabeled
-	=	"MakeFile"
-	DCD	0x00
+	=	"MakeFile",0
+	ALIGN
+
 DataTable
 	DCD	DataTable
 	DCD	ObeyLabeled
@@ -146,7 +179,6 @@ Initialisation
 	CMP	r1, #7
 	BEQ	amenucreation
 	CMP	r1, #1
-		;     MOVCC   R0,#0
 	MOVCC	pc, lr
 	STREQ	r0, [r11, #4]
 	STREQ	r0, modenumberlocal
@@ -187,7 +219,7 @@ done$l
 	LDR	r0, [r7, #0]
 	CMP	r0, #zizeofcfgwksp
 	LDMEQFD	sp!, {r1, r7, r8, pc}
-		;  REM no !Config...
+	;  REM no !Config...
 nocfginit
 	MOV	r0, #col_last		; was 0x11 - but that's wrong!
 	FNcall	Zap_ModeColourNum	;  REM change palette size.
@@ -327,16 +359,15 @@ DefaultColours
 	=	0x02	;  REM h.header	      =&13
 	=	0x0B	;  REM .o.	      =&15 ; RED!
 	=	0x03	;  REM .s.	      =&14
-	;=	0x01	;  REM Unknown	      =&16? - This colour doesn't exist!
-	;=	0x00, 0x00	;  REM double zero termination !
 	ALIGN
 
-Tk1frm12andret
-	LDR	r0, [r11, #12]
-	SUBS	r0, r0, #1
-	STR	r0, [r11, #12]
-	MVNNE	r0, #0
-	MOVS	pc, lr
+;Tk1frm12andret
+;	LDR	r0, [r11, #12]
+;	SUBS	r0, r0, #1
+;	STR	r0, [r11, #12]
+;	MVNNE	r0, #0
+;	MOVS	pc, lr
+
 ZapModeWord
 	STMFD	sp!, {r0-r2, lr}
 	LDR	r1, [r11, #4]
@@ -346,6 +377,7 @@ ZapModeWord
 	MOV	pc, r2
 	MOV	r7, r0
 	LDMFD	sp!, {r0-r2, pc}
+
 OnToWrtMdeWrd
 	STMFD	sp!, {r0-r2, lr}
 	LDR	r1, [r11, #4]
@@ -356,6 +388,7 @@ WrtMdeWrd
 	MOV	lr, pc
 	MOV	pc, r2
 	LDMFD	sp!, {r0-r2, pc}
+
 localdefltmw
 	DCD	0
 initialiseheap
@@ -375,6 +408,7 @@ initialiseheap
 	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
 	BL	OnToWrtMdeWrd
 	LDMFD	sp!, {r1-r6, r8-r12, pc}
+
 
 ; ---------- e_start -----------
 
@@ -444,6 +478,7 @@ E_End
 
 SDsasa
 	DCD	0x1200004D
+
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 adrofrsix
 	DCD	0
@@ -651,6 +686,7 @@ TisANumber
 	TST	r2, #0x80000000
 	BICNE	r2, r2, #0x90000000
 	B	BeforeColour
+
 NotANumber
 	CMP	r0, #'_'
 	BEQ	PlainNoOSChk
@@ -1544,26 +1580,6 @@ Branch208
 
 
 
-; -------- module command table -----------
-
-D1	=	"ZapMakeFile",0
-	DCD	0
-	DCD	0
-	DCD	0
-	DCD	D2
-	=	0
-D2	=	27,0," provides support for",27,2,"Zap editor.",13
-	=	"It provides a syntax-colouring mode for Acorn Make",27,7,"s.",0
-	ALIGN
-
-ModHelpString
-	=	"ZapMakeFile",9,"0.08 (00 Jan 0000) © Tim Tyler",0
-	ALIGN
-
-lp1	=	"Tim Tyler",0
-	ALIGN
-
-
 ; --------- e_char -----------
 
 charchar
@@ -2138,7 +2154,6 @@ tocheckbackwardsnow			; check backwards from cr to find a command
 	ADD	r11, r11, #1		; inc logical line number
 	BIC	r2, r2, #0xCF000000	;  REM START OF LINE FLAGS...xxx
 	BIC	r2, r2, #0x00F00000
-		;  B	   backcheckbackwardsnow ; yyy
 	STMFD	sp!, {lr}
 	BL	checkbackwardsnow
 	LDMFD	sp!, {lr}
@@ -2221,10 +2236,6 @@ openwindowroutine
 	ADD	r3, r3, #0x28
 	STR	r3, alocaljumper
 	LDMFD	sp!, {r0-r12, lr}
-		;     FNlong_adr("  ",2,w_formmb)
-		;     LDR     2,[2,#8]
-		;    AndS    2,2,#1 << 31
-		;   MOVNE   2,#&FF
 	LDR	pc, alocaljumper
 nojuice2
 	LDMFD	sp, {r0-r12, lr}
@@ -2303,6 +2314,7 @@ destroyanypanes
 	SWI	XOS_Module
 	LDMVSFD	sp!, {r0-r12, pc}
 	ADR	r0, buttndelhere
+	MOV	R1,#0
 	FNcall	Zap_CommandString
 nojuice4
 	LDMFD	sp!, {r0-r12, pc}
@@ -2317,6 +2329,7 @@ closeanypanes
 	SWI	XOS_Module
 	LDMVSFD	sp!, {r0-r12, pc}
 	ADR	r0, buttnclohere
+	MOV	R1,#0
 	FNcall	Zap_CommandString
 	LDMFD	sp!, {r0-r12, pc}
 buttndelhere
@@ -2452,10 +2465,6 @@ Cmdhtmlflagstoggle
 	LDR	r10, [r0]
 	ADRL	r1, modenumberlocal
 	LDR	r1, [r1]
-		; CMP	  8,#0
-		; LDRNEB  0,[8,#w_format]
-		; CMPNE	  0,1
-		; LDMNEFD D !,{PC}
 	STMFD	sp!, {r1-r11}
 	FNcall	Zap_GetModeWord
 	LDMFD	sp!, {r1-r11}
@@ -2599,6 +2608,7 @@ AlphaIndex
 	DCD	0x2A2A0A2E
 TableHere
 	=	"as ",		com_commands
+	=	"amu",		com_commands ; new 0.09
 	=	"autoindent ",	com_commands
 	=	"aux ",		com_commands
 	=	"bison ",	com_commands
