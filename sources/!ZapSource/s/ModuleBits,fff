@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.6 2002/11/12 00:06:01 christian Exp $
+; $Id: ModuleBits,fff,v 2.7 2002/11/13 22:43:59 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -148,22 +148,34 @@ initialise_code
  FNRTS
 ext$l DCD zap_entry_table
 
+
+
 finalise_code
  FNJSR
  MOV R1,R12			; save private word pointer
  LDR R12,[R12]
- BL kill_wimp
- BL free_tmfs			; must be done before freeing workspace
- BL kill_heap
- BL kill_lineeditor
- MOV R0,#7
- MOV R2,R12
- MOV R12,R1
- SWI XOS_Module			; free workspace
- BL messages_close
- SUBS R0,R0,R0 ; CLV
- STR R0,[R12]			; null private word
- FNRTS
+ FNLDR R0,wimp_task		; we can't die if we're active
+ CMP R0,#0                      ;
+ CMPNE R0,#-1                   ;
+ BNE noyoudont$l                ;
+
+ MOV R0,#7			; free our workspace - I'm fairly certain
+ MOV R2,R12                     ; the kernel can do this for us, however
+ MOV R12,R1                     ;
+ SWI XOS_Module                 ;
+ SUBS R0,R0,R0                  ; clv  and R0 = 0
+ STR R0,[R12]                   ; null private word
+ FNRTS                          ;
+
+noyoudont$l
+ ADR R0,err$l
+ FNRTV
+
+err$l
+ DCD 0
+ = "You must quit the ":CC:|zap$|:CC:" application before you can "
+ = "kill the ":CC:|zap$|:CC:" module",0
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; OSCLI COMMANDS					       ;
