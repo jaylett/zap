@@ -1,0 +1,1119 @@
+; Contains code to handle font enumeration / menus
+; $Id: ListFonts,fff,v 1.1 2004/04/12 10:40:34 christian Exp $
+
+ GET h.ZapRedHdr
+ GET h.ZapRedraw
+ GET h.Messages
+
+ EXPORT init_font_list
+ EXPORT kill_font_list
+
+ EXPORT list_fonts
+ EXPORT decode_menu
+
+
+; font entry flags
+fef_encoding	*	(1<<0)
+fef_default	*	(1<<1)
+fef_territory	*	(&FF<<24)
+
+; font entries
+		^	0
+fe_next		#	4				; next entry  MUST be first (see sort_list)
+fe_flags	#	4				; flags
+fe_idfn		#	4				; identifier
+fe_name		#	4				; localised name
+fe_len		*	@
+
+
+
+; list_fonts flags
+lff_idfn	*	(1<<16)				; return identifier
+lff_name	*	(1<<17)				; return name
+lff_cr		*	(1<<18)				; terminate with CR instead of NUL
+lff_menu	*	(1<<19)				; return a menu
+lff_system	*	(1<<20)				; put system font in menu
+lff_tick	*	(1<<21)				; tick idfn in R6 in menu
+lff_encodings	*	(1<<22)				; return list of encodings instead
+
+; private one
+lff_exact	*	(1<<31)				; want an exact match
+
+; decode_menu flags
+dff_encodings	*	(1<<0)				; it's an encodings menu
+dff_cr		*	(1<<1)				; terminate with CR instead of NUL
+
+
+init_font_list	FNJSR
+		ADR	R0,path$l			; TODO: enumerate directories on path
+		BL	scan_font_directory
+
+		ADD	R0,R12,#list_of_fonts
+		BL	sort_list
+		ADD	R0,R12,#list_of_encodings
+		BL	sort_list
+		FNRTS
+
+path$l		=	"ZapFontsSource:",0
+		ALIGN
+
+
+; remove the fonts lists
+; E
+; X
+kill_font_list	FNJSR	"R7"
+		LDR	R7,[R12,#list_of_fonts]
+		BL	free_list
+		LDR	R7,[R12,#list_of_encodings]
+		BL	free_list
+
+		MOV	R14,#0
+		STR	R14,[R12,#list_of_fonts]
+		STR	R14,[R12,#list_of_encodings]
+		FNRTS
+
+
+		LOCAL
+
+; free a list
+; E r7 -> list
+; X
+free_list	FNJSR
+		MOV	R0,#7
+loop$l		TEQ	R7,#0
+		FNRTS	EQ
+		MOV	R2,R7
+		LDR	R7,[R7,#fe_next]
+		SWI	XOS_Module
+		B	loop$l
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;  Read font lists					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+list_fonts	FNJSR	"R7-R11"
+		MOVS	R14,R2,LSR #16			; 'RISC OS 2 compatibility mode'
+		ORREQ	R2,R2,#lff_idfn+lff_cr		;
+		MOVEQ	R3,#40				;
+
+		TST	R2,#lff_menu			; validate parameters
+		LDREQ	R0,mask$l			;
+		LDRNE	R0,mmask$l			;
+		TST	R0,R2				;
+		BLNE	bad_parms			;
+		FNRTS	VS				;
+
+		TST	R2,#lff_menu
+		BNE	menu$l
+
+		; font list
+		MOV	R8,R2,LSL #16			; keep counter
+		MOV	R8,R8,LSR #16			;
+
+		TST	R2,#lff_encodings
+		ADDEQ	R7,R12,#list_of_fonts
+		ADDNE	R7,R12,#list_of_encodings
+
+loop$l		LDR	R7,[R7,#fe_next]		; find the entry
+		TEQ	R7,#0				;
+		MOVEQ	R2,#-1				;
+		BEQ	done$l				;
+		SUBS	R8,R8,#1			;
+		BPL	loop$l				;
+
+		TST	R2,#lff_idfn			; do idfn
+		BEQ	name$l				;
+							;
+		PUSH	"R1"				;
+		LDR	R0,[R7,#fe_idfn]		;
+		BL	strlen				;
+		ADD	R10,R1,#1			;
+		PULL	"R1"				;
+		TEQ	R1,#0				;
+		MOVEQ	R3,R10				;
+		BEQ	name$l				;
+		CMP	R10,R3				;
+		BLHI	buffer_overflow			;
+		BVS	done$l				;
+							;
+		MOV	R3,R10				;
+		MOV	R11,R1				;
+a$l		LDRB	R14,[R0],#1			;
+		TEQ	R14,#0				;
+		STRNEB	R14,[R11],#1			;
+		BNE	a$l				;
+		TST	R2,#lff_cr			;
+		MOVEQ	R14,#0				;
+		MOVNE	R14,#13				;
+		STRB	R14,[R11]			;
+
+name$l		TST	R2,#lff_name			; do name
+		BEQ	done$l				;
+							;
+		PUSH	"R1"				;
+		LDR	R0,[R7,#fe_name]		;
+		BL	strlen				;
+		ADD	R10,R1,#1			;
+		PULL	"R1"				;
+		TEQ	R4,#0				;
+		MOVEQ	R5,R10				;
+		BEQ	done$l				;
+		CMP	R10,R5				;
+		BLHI	buffer_overflow			;
+		BVS	done$l				;
+							;
+		MOV	R5,R10				;
+		MOV	R11,R4				;
+b$l		LDRB	R14,[R0],#1			;
+		TEQ	R14,#0				;
+		STRNEB	R14,[R11],#1			;
+		BNE	b$l				;
+		TST	R2,#lff_cr			;
+		MOVEQ	R14,#0				;
+		MOVNE	R14,#13				;
+		STRB	R14,[R11]			;
+
+done$l		MOVVS	R2,#-1				; no more if error
+		FNRTS	VS				;
+
+		LDR	R0,[R7,#fe_next]		; check if any more
+		TEQ	R0,#0				;
+		MOVEQ	R2,#-1				; update counter
+		ADDNE	R2,R2,#1			;
+		FNRTS					;
+
+
+		; font menu
+menu$l		TST	R2,#lff_tick			; sort out the tickings
+		BEQ	ok$l				;
+							;
+		TEQ	R6,#1				; tick system font?
+		STREQ	R6,[R12,#mmws_tick]		;
+		BEQ	ok$l				;
+							;
+		MOV	R0,R6				;
+		BL	get_font_by_idfn		;
+		TEQ	R7,#0				;
+		LDRNE	R7,[R7,#fe_name]		;
+		STR	R7,[R12,#mmws_tick]		;
+		 ;DEBUGF	"ticking (%7s)"
+
+ok$l		MOV	R0,#0
+		MOV	R8,#0
+		MOV	R9,#0
+
+		MOV	R14,#0
+		STR	R14,[R12,#mmws_level]
+		STR	R14,[R12,#mmws_prefix]
+		STR	R14,[R12,#mmws_prefix_len]
+
+		BL	make_menu
+		MOVVS	R2,#-1
+		MOV	R3,R8
+		MOV	R5,R9
+		FNRTS
+
+
+mask$l		DCD	&FFB80000			; valid bits
+mmask$l		DCD	&FF83FFFF			; valid bits for menus
+
+
+
+
+		^	:INDEX: buffer
+mmws_prefix_len	#	4				; previous menu prefix length
+mmws_level	#	4				; menu level
+mmws_tick	#	4				; -> idfn to tick
+mmws_prefix	*	@				; prefix
+
+		LOCAL
+
+; make a font list menu
+; E r0 -> prefix  r1 -> buffer for menu  r3 = length of r1
+;   r2 = flags	  r4 -> buffer for data  r5 = length of r4
+;   r8 = length of data written so far in r1
+;   r9 = length of data written so far in r4
+; X r0 -> menu / 0 if none
+make_menu	FNJSR	"R0,R6,R7,R10,R11"
+		LDR	R7,[R12,#mmws_prefix_len]	; keep current prefix length
+		PUSH	"R7"				;
+
+		LDR	R6,[R12,#mmws_level]		; a submenu deeper
+		ADD	R6,R6,#1			;
+		STR	R6,[R12,#mmws_level]		;
+
+		TEQ	R0,#0				; check for prefix
+		BEQ	nopref$l			;
+
+		ADD	R6,R12,#mmws_prefix		; add new entry onto prefix
+		ADD	R6,R6,R7			;
+		TEQ	R7,#0				;
+		MOVNE	R14,#'.'			;
+		STRNEB	R14,[R6],#1			;
+		ADDNE	R7,R7,#1			;
+prefloop$l	LDRB	R14,[R0],#1			;
+		STRB	R14,[R6],#1			;
+		TEQ	R14,#0				;
+		ADDNE	R7,R7,#1			;
+		BNE	prefloop$l			;
+
+		STR	R7,[R12,#mmws_prefix_len]	; update prefix length
+
+nopref$l	MOV	R7,#0
+		MOV	R10,R8
+		MOV	R11,R9
+
+		BL	get_next_font			; get first font
+
+		TEQ	R7,#0				; no fonts at all
+		MOVEQ	R0,#0				;
+		BEQ	done$l				;
+
+		LDR	R0,[R13,#4]			; get R0 passed in (title)
+		TEQ	R0,#0				;
+		BLEQ	get_menu_title			;
+		MOV	R6,R0				; count it
+a$l		LDRB	R14,[R0],#1			;
+		CMP	R14,#32				;
+		BHS	a$l				;
+							;
+		SUB	R0,R0,R6			;
+
+		ADD	R9,R9,R0			; update indirected data length
+		ADD	R8,R8,#28			; update menu data length
+
+		TST	R2,#lff_system			; deal with system font entry
+		BEQ	count$l				;
+		LDR	R0,[R13,#4]			;
+		TEQ	R0,#0				;
+		BNE	count$l				;
+		BL	get_sys_font			;
+		ADD	R9,R9,R6			;
+		ADD	R8,R8,#24			;
+
+count$l		BL	count_menu_entry		; update counts for each menu entry
+		ADD	R9,R9,R0			;
+		ADD	R8,R8,#24			;
+
+		BL	get_next_font			; get the next menu entry
+		TEQ	R7,#0				;
+		BNE	count$l				;
+
+		TEQ	R1,#0				; if counting size, done for now
+		BEQ	done$l				;
+
+		SUB	R14,R8,R10			; update R1 and R4 past this menu
+		MOV	R10,R1				;
+		ADD	R1,R1,R14			;
+		SUB	R14,R9,R11			;
+		MOV	R11,R4				;
+		ADD	R4,R4,R14			;
+
+		; now R8/R9 ok,  R1/R4 -> next menu,  R10/R11 -> this menu
+
+		MOV	R6,R10				; point to this menu
+
+		CMP	R8,R3				; check we have space for this menu
+		CMPLO	R9,R5				;
+		BLHI	buffer_overflow			;
+		BVS	done$l				;
+
+		LDR	R0,[R13,#4]			; get R0 passed in
+		TEQ	R0,#0				;
+		BLEQ	get_menu_title			;
+		BL	create_menu			; create the menu header
+
+		TST	R2,#lff_system			; deal with system font entry
+		BEQ	create$l			;
+		LDR	R0,[R13,#4]			;
+		TEQ	R0,#0				;
+		BNE	create$l			;
+		BL	get_sys_font			;
+		BL	add_menu_entry			;
+		BVS	done$l				;
+
+create$l	BL	get_next_font			; get the next font
+		TEQ	R7,#0
+		LDREQ	R0,[R10,#-24]			; terminate the menu
+		ORREQ	R0,R0,#1<<7			;
+		STREQ	R0,[R10,#-24]			;
+		MOVEQ	R0,R6
+		BEQ	done$l
+		BL	add_menu_entry
+		BVC	create$l
+
+done$l		PULL	"R7"				; restore prefix length
+		STR	R7,[R12,#mmws_prefix_len]	;
+
+		LDR	R7,[R12,#mmws_level]
+		SUB	R7,R7,#1
+		STR	R7,[R12,#mmws_level]
+
+		STR	R0,[R13]			; return code
+		FNRTS
+
+
+		LOCAL
+
+; create the menu header
+; E R0 = title  R10,R11
+; X R10/R11 updated
+create_menu	FNJSR	"R1,R6"
+		STR	R11,[R10],#4			; -> menu title
+
+		ADR	R6,menu$l			; copy in the menu header
+		ADR	R1,menu_end$l			;
+loop$l		LDR	R14,[R6],#4			;
+		STR	R14,[R10],#4			;
+		CMP	R6,R1				;
+		BLO	loop$l				;
+
+copy$l		LDRB	R14,[R0],#1			; copy the title across
+		CMP	R14,#32				;
+		STRHSB	R14,[R11],#1			;
+		BHS	copy$l				;
+		TST	R2,#lff_cr			; terminate it
+		MOVEQ	R14,#0				;
+		MOVNE	R14,#13				;
+		STRB	R14,[R11],#1			;
+		FNRTS
+
+
+menu$l		DCD	0				; end of title string
+		DCD	0				;
+		=	7,2,7,0				; colours
+		DCD	0				; width
+		DCD	44				; height
+		DCD	0				; gap
+menu_end$l
+
+		LOCAL
+
+; count text size for a menu entry
+; E r7
+; X r0 = length including terminator
+count_menu_entry
+		FNJSR	"R4,R6"
+		LDR	R0,[R7,#fe_name]		; find portion
+		LDR	R6,[R12,#mmws_level]		;
+		SUBS	R6,R6,#1			;
+		BEQ	a1$l				;
+a$l		LDRB	R14,[R0],#1			;
+		TEQ	R14,#0				;
+		BEQ	regular$l			;
+		TEQ	R14,#'.'			;
+		BNE	a$l				;
+		SUBS	R6,R6,#1			;
+		BNE	a$l				;
+
+a1$l		MOV	R6,R0				; count it
+b$l		LDRB	R14,[R0],#1			;
+		TEQ	R14,#'.'			;
+		TEQNE	R14,#0				;
+		BNE	b$l				;
+
+		SUBS	R4,R0,R6			; length
+		BNE	ok$l				;
+
+regular$l	BL	get_regular			; handle (Regular) entries
+		MOV	R4,R6				;
+		MOV	R6,R0				;
+
+ok$l		CMP	R1,#0				; don't recurse yet if actually
+		MOVNE	R0,R4				;   building the menu
+		FNRTS	NE				;
+
+		SUB	R13,R13,R4			; copy the entry name onto the stack
+		BIC	R13,R13,#3			;
+		MOV	R0,R13				;
+c$l		LDRB	R14,[R6],#1			;
+		CMP	R14,#'.'			;
+		CMPNE	R14,#31
+		MOVLS	R14,#0				;
+		STRB	R14,[R0],#1			;
+		BHI	c$l				;
+
+		MOV	R0,R13				; count the submenu
+		BL	make_menu			;
+
+		ADD	R13,R13,R4			;
+		ADD	R13,R13,#3			;
+		BIC	R13,R13,#3			;
+		MOV	R0,R4				; return the length
+		FNRTS
+
+
+		LOCAL
+
+; add a menu entry
+; E r7, r10,r11
+; X r10/r11 updated
+add_menu_entry	FNJSR	"R6"
+		TEQ	R7,#0
+		BEQ	next$l
+		LDR	R0,[R7,#fe_name]		; find portion
+		LDR	R6,[R12,#mmws_level]		;
+		SUBS	R6,R6,#1
+		BEQ	next$l				;
+a$l		LDRB	R14,[R0],#1			;
+		TEQ	R14,#0				;
+		BEQ	next$l				;
+		TEQ	R14,#'.'			;
+		BNE	a$l				;
+		SUBS	R6,R6,#1			;
+		BNE	a$l				;
+
+next$l		TEQ	R14,#0				; handle (Regular) entries
+		BLEQ	get_regular			;
+
+		MOV	R6,R11
+
+b$l		LDRB	R14,[R0],#1			; copy portion in
+		CMP	R14,#'.'			;
+		CMPNE	R14,#31				;
+		STRHIB	R14,[R11],#1			;
+		BHI	b$l				;
+		TST	R2,#lff_cr			; terminate
+		MOVEQ	R14,#0				;
+		MOVNE	R14,#13				;
+		STRB	R14,[R11],#1			;
+
+		PUSH	"R1"
+		ADR	R0,menuentry$l			; copy in the menu header
+		ADR	R1,entryend$l			;
+loop$l		LDR	R14,[R0],#4			;
+		STR	R14,[R10],#4			;
+		CMP	R0,R1				;
+		BLO	loop$l				;
+		PULL	"R1"
+
+		STR	R6,[R10,#-12]			; store text pointer
+
+		BL	check_tick_menu			; tick it
+		LDR	R14,[R10,#-24]			;
+		ORR	R14,R14,R0			;
+		STR	R14,[R10,#-24]			;
+
+		TEQ	R7,#0
+		FNRTS	EQ
+
+		MOV	R0,R6				;
+		BL	make_menu			; create the submenu
+		STRVC	R0,[R10,#-20]			; store it
+		FNRTS
+
+menuentry$l	DCD	1<<8				; item flags
+		DCD	-1				; submenu
+		DCD	&07000101			; icon flags
+		DCD	0				; -> text
+		DCD	0				; validation string
+		DCD	256				; (max) buffer length
+entryend$l
+
+
+		LOCAL
+
+; get the next font with this prefix
+; E r2 = list_fonts flags  r7 = current font / 0   mmws_prefix contains current prefix
+; X r7 = new font / 0
+get_next_font	FNJSR	"R0,R1,R6,R10-R11"
+		MOV	R10,R7
+
+		TEQ	R7,#0				; if none start from beginning
+		BNE	next$l				;
+
+		TST	R2,#lff_encodings		;
+		LDREQ	R7,[R12,#list_of_fonts]		;
+		LDRNE	R7,[R12,#list_of_encodings]	;
+
+		LDRB	R0,[R12,#mmws_prefix]		; first font if no prefix
+		TEQ	R0,#0				;
+		FNRTS	EQ				;
+
+first$l		LDR	R0,[R7,#f_name]			; find first with this prefix
+		ADD	R1,R12,#mmws_prefix		;
+
+a$l		LDRB	R14,[R0],#1			;
+		LDRB	R6,[R1],#1			;
+		TEQ	R6,#0				;
+		BNE	not0$l				;
+		TEQ	R14,#'.'			;
+		FNRTS	EQ				;
+		TEQ	R14,#0				;
+		BEQ	gotmatch$l
+
+not0$l		TEQ	R14,R6				;
+		BEQ	a$l				;
+
+n$l		LDR	R7,[R7,#fe_next]		;
+		TEQ	R7,#0				;
+		BNE	first$l				;
+		FNRTS					; none at all
+
+		; we got an exact match. Return it if there are more entries with this
+		; prefix - then this is a (Regular) entry
+gotmatch$l	LDR	R1,[R7,#fe_next]
+		TEQ	R1,#0
+		BEQ	none$l
+		LDR	R0,[R1,#fe_name]
+		ADD	R1,R12,#mmws_prefix
+
+a2$l		LDRB	R14,[R0],#1			;
+		LDRB	R6,[R1],#1			;
+		TEQ	R6,#0				;
+		BNE	not02$l				;
+		TEQ	R14,#'.'			;
+		FNRTS	EQ				;
+
+not02$l		TEQ	R14,R6
+		BEQ	a2$l
+
+none$l		MOV	R7,#0
+		FNRTS
+
+		; find next font matching current prefix
+		; for example, if current is 07x14.ThoukyHex, level 2
+		; return next that matches 07x14 but NOT ThoukyHex
+next$l		LDR	R11,[R12,#mmws_level]
+		LDR	R7,[R7,#fe_next]
+		TEQ	R7,#0				; no more
+		FNRTS	EQ				;
+
+		LDR	R1,[R10,#fe_name]		; previous name
+		LDR	R0,[R7,#fe_name]		; current name
+again$l		BL	compare_prefix
+		BNE	different$l
+
+		; same
+		SUBS	R11,R11,#1
+		BEQ	next$l
+		B	again$l
+
+		; different
+different$l	SUBS	R11,R11,#1
+		FNRTS	EQ
+		B	next$l
+
+
+		LOCAL
+
+; compare prefix strings up to '\0' or '.'
+; E r0,r1 = strings
+; X if same, EQ and r0,r1 updated to next element
+compare_prefix	FNJSR	"R11"
+loop$l		LDRB	R14,[R0],#1			; check string
+		LDRB	R11,[R1],#1			;
+		CMP	R14,#'.'			;
+		CMPNE	R14,#31				;
+		MOVLS	R14,#0				;
+		CMP	R11,#'.'			;
+		CMPNE	R11,#31				;
+		MOVLS	R11,#0				;
+		TEQ	R14,R11				;
+		FNRTS	NE				;
+		TEQ	R14,#0				;
+		BNE	loop$l				;
+		FNRTS
+
+
+; get the title string for the font menu
+; E r2 = flags
+; X r0 -> string
+get_menu_title	FNJSR	"R1-R3"
+		TST	R2,#lff_encodings
+		ADREQ	R0,f$l
+		ADRNE	R0,e$l
+		BL	messages_lookup_no_buffer
+		FNRTS
+
+f$l		=	"FontList",0
+e$l		=	"Encodings",0
+		ALIGN
+
+
+		LOCAL
+
+; get the title string for the system font menu entry
+; E
+; X r0 -> string  r6 = length
+get_sys_font	FNJSR	"R1-R3"
+		ADR	R0,tok$l
+		BL	messages_lookup_no_buffer
+		BL	strlen
+		ADD	R6,R1,#1
+		FNRTS
+
+tok$l		=	"SysFont",0
+		ALIGN
+
+
+		LOCAL
+
+; get the string for regular entries
+; E
+; X r0 -> string  r6 = length
+get_regular	FNJSR	"R1-R3"
+		ADR	R0,tok$l
+		BL	messages_lookup_no_buffer
+		BL	strlen
+		ADD	R6,R1,#1
+		FNRTS
+
+tok$l		=	"Regular",0
+		ALIGN
+
+
+; check whether to tick this menu entry
+; E r7 = current entry / 0 for system font  mmws set up
+; X r0 = 1 if tick, 0 ow
+check_tick_menu	FNJSR	"R9-R11"
+		TST	R2,#lff_tick			; check tick flag
+		MOVEQ	R0,#0				;
+		FNRTS	EQ				;
+
+		LDR	R0,[R12,#mmws_tick]		; deal with system font / no font
+		CMP	R0,#1				;
+		BHI	notsys$l			;
+		TEQEQ	R7,#0				;
+		MOVEQ	R0,#1				;
+		MOVNE	R0,#0				;
+		FNRTS					;
+
+notsys$l	TEQ	R7,#0				;
+		MOVEQ	R0,#0				;
+		FNRTS	EQ				;
+
+		LDR	R11,[R12,#mmws_level]
+		LDR	R10,[R7,#fe_name]
+
+a$l		LDRB	R9,[R0],#1			; compare portion
+		LDRB	R14,[R10],#1			;
+		TEQ	R14,#'.'			;
+		MOVEQ	R14,#0				;
+		TEQ	R9,#'.'				;
+		MOVEQ	R9,#0				;
+		TEQ	R9,R14				;
+		MOVNE	R0,#0				;
+		FNRTS	NE				;
+							;
+		CMP	R9,#32				;
+		BHS	a$l				;
+
+		SUBS	R11,R11,#1			; check level
+		BNE	a$l				;
+
+		MOV	R0,#1				; ok!
+		FNRTS					;
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;  Decode font menu					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+; E r0 b0 encoding flag  r1 -> menu defn  r2 -> selection array  r3 -> buffer / 0  r4 = len
+; X R2 -> rest of menu selections??   r4 length of data
+decode_menu	FNJSR	"R1-R3,R5-R11"
+		MOV	R11,R0
+		MOV	R10,R3
+
+		BICS	R14,R0,#3			; validate parameters
+		BLNE	bad_parms			;
+		FNRTS	VS				;
+
+		ADD	R3,R12,#buffer+mmws_prefix
+		SWI	XWimp_DecodeMenu
+		FNRTS	VS
+
+		MOV	R7,R3				; get to the end of the string
+end$l		LDRB	R14,[R7],#1			;
+		CMP	R14,#32				;
+		BHS	end$l				;
+
+		BL	get_regular			; get the end of the (Regular) string
+		ADD	R2,R0,R6			;
+
+		SUB	R2,R2,#1
+		SUB	R7,R7,#1
+
+loop$l		LDRB	R14,[R2,#-1]!			; see if the end matches
+		LDRB	R6,[R7,#-1]!			;
+		CMP	R14,R6				;
+		MOVNE	R2,#0				;
+		BNE	ok$l				;
+		CMP	R2,R0				;
+		BHI	loop$l				;
+
+		MOV	R14,#0				; remove it
+		STRB	R14,[R7,#-1]			;
+		MOV	R2,#lff_exact			; and force an exact match
+
+ok$l		TST	R11,#dff_encodings		; find the font block
+		ORRNE	R2,R2,#lff_encodings		;
+		MOV	R0,R3				;
+		BL	get_font_by_name		;
+
+		TEQ	R7,#0				; check it exists
+		MOVEQ	R4,R3				;
+		BEQ	notfound$l			;
+
+		LDR	R0,[R7,#fe_idfn]		; ensure output buffer space / return length
+		BL	strlen				;
+							;
+		TEQ	R3,#0				;
+		ADDEQ	R4,R1,#1			;
+		FNRTS	EQ				;
+							;
+		CMP	R1,R4				;
+		BLHI	buffer_overflow			;
+		FNRTS	VS				;
+
+		ADD	R4,R1,#1			; copy it in
+		MOV	R2,R0				;
+		MOV	R1,R10				;
+		BL	strcopy				;
+
+		TST	R11,#dff_cr			; sort out terminator
+		MOVNE	R14,#13				;
+		STRNEB	R14,[R1,#-1]			;
+		FNRTS					; done
+
+notfound$l	LDR	R2,[R13]			; quick check for System font
+		LDR	R0,[R2]				;
+		TEQ	R0,#0				;
+		MOVEQ	R4,#0				;
+		FNRTS	EQ				;
+
+		ADR	R0,err$l
+		BL	messages_error
+		FNRTS
+
+err$l		ERRTOK	err_notfound,"NotFound"
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;  Build lists of fonts					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+; scan the font directory building the list of known fonts / encodings
+; E r0 -> directory name
+; X
+scan_font_directory
+		FNJSR	"R10-R11"
+		MOV	R10,R0				;
+		SWI	XTerritory_Number
+		MOV	R11,R0
+		SUB	R13,R13,#256+16
+
+again$l		ADD	R1,R13,#16			; append Messages<n> to dirname
+		MOV	R2,R10				;
+		BL	strcpy				;
+		ADR	R2,messages$l			;
+		BL	strcpy				;
+		MOV	R0,R11				;
+		MOV	R2,#10				;
+		SWI	XOS_ConvertCardinal1		;
+
+		ADD	R1,R13,#16			; open the messages file
+		MOV	R0,R13				;
+		MOV	R2,#0				;
+		SWI	XMessageTrans_OpenFile		;
+		BVC	open$l
+
+		TEQ	R11,#1				; doesn't corrupt V
+		ADDEQ	R13,R13,#256+16			;
+		FNRTS	EQ				;
+		MOV	R11,#1				; try again in UK
+		B	again$l				;
+
+open$l		MOV	R0,R13
+		ADR	R1,fonts$l
+		MOV	R2,R11,LSL #24
+		BL	scan_messages_file
+
+		MOV	R0,R13
+		ADR	R1,encodings$l
+		MOV	R2,#fef_encoding
+		ORR	R2,R2,R11,LSL #24
+		BL	scan_messages_file
+
+		MOVVS	R11,R0
+		MOVVC	R11,#0
+
+		MOV	R0,R13
+		SWI	XMessageTrans_CloseFile
+
+		ADD	R13,R13,#256+16
+		MOVS	R0,R11
+		FNRTS	EQ
+		FNRTV
+
+messages$l	=	"Messages",0
+fonts$l		=	"Font_*",0
+encodings$l	=	"Encoding_*",0
+		ALIGN
+
+
+		LOCAL
+
+
+; scan an open messages file
+; E r0 -> 16 word structure   r1 -> token to scan for	r2 = flags
+; X
+scan_messages_file
+		FNJSR	"R1-R8,R10-R11"
+		MOV	R8,R2
+		MOV	R10,R0
+		MOV	R11,#0
+
+loop$l		MOV	R0,R10
+		LDR	R1,[R13]
+		ADD	R2,R12,#buffer
+		MOV	R3,#64
+		MOV	R4,R11
+		SWI	XMessageTrans_EnumerateTokens
+		MOVVC	R11,R4
+		FNRTS	VS
+
+		MOVS	R1,R2
+		FNRTS	EQ
+
+a$l		LDRB	R14,[R2],#1			; skip past _
+		SUB	R3,R3,#1			; less length
+		TEQ	R14,#'_'
+		BNE	a$l
+
+		PUSH	"R2-R3"
+		ADD	R2,R12,#buffer+64
+		MOV	R3,#128
+		MOV	R4,#0
+		MOV	R5,#0
+		MOV	R6,#0
+		MOV	R7,#0
+		SWI	XMessageTrans_Lookup
+		MOVVC	R4,R2
+		MOVVC	R5,R3
+		PULL	"R2-R3"
+		FNRTS	VS
+
+		TEQ	R5,#0				; if no expansion, use token
+		MOVEQ	R5,R3				;
+		MOVEQ	R4,R2				;
+		BL	add_font
+		BVC	loop$l
+		FNRTS
+
+
+
+; add a font entry
+; E r8 = flags	r2,r3 = idfn, len   r4,r5 = name, len
+add_font	FNJSR	"R6-R9"
+		SUB	R14,R5,#1			; check for default flag
+		LDRB	R14,[R4,R14]			;
+		TEQ	R14,#'*'			;
+		ORREQ	R8,R8,#fef_default		;
+		SUBEQS	R5,R5,#1			; less len
+		MOVEQ	R5,R3				; now 0 len - use idfn
+		MOVEQ	R4,R2				;
+
+		MOV	R6,R2
+		MOV	R7,R3
+		ADD	R3,R3,#fe_len+2			; claim the block
+		TEQ	R2,R4				;
+		ADDNE	R3,R3,R5			;
+		MOV	R0,#6				;
+		SWI	XOS_Module			;
+		FNRTS	VS				;
+
+		MOV	R9,R2
+		STR	R8,[R2,#fe_flags]
+		TST	R8,#fef_encoding		; link in
+		LDREQ	R0,[R12,#list_of_fonts]		;
+		LDRNE	R0,[R12,#list_of_encodings]	;
+		STR	R0,[R2,#fe_next]		;
+		STREQ	R2,[R12,#list_of_fonts]		;
+		STRNE	R2,[R12,#list_of_encodings]	;
+
+		ADD	R1,R9,#fe_len			; copy the identifier
+		STR	R1,[R9,#fe_idfn]		;
+		STR	R1,[R9,#fe_name]		;
+		MOV	R2,R6				;
+		MOV	R3,R7				;
+		BL	strncopy			;
+
+		TEQ	R6,R4				; copy the name
+		STRNE	R1,[R9,#fe_name]		;
+		MOVNE	R2,R4				;
+		MOVNE	R3,R5				;
+		BLNE	strncopy			;
+
+		ADDS	R0,R0,#0
+		FNRTS
+
+
+		LOCAL
+
+
+; sort the list of fonts / encodings
+; E r0 -> -> first font
+; X list sorted
+sort_list	FNJSR	"R7,R10,R11"
+		MOV	R11,R0
+
+		MOV	R10,#&4000			; scratch area
+loop$l		LDR	R1,[R0,#fe_next]		; make array of pointers
+		STR	R1,[R10],#4			;
+		MOVS	R0,R1				;
+		BNE	loop$l				;
+
+		SUB	R0,R10,#&4000			; number of entries
+		SUBS	R0,R0,#4			;
+		FNRTS	EQ				;
+		MOV	R0,R0,LSR #2			;
+
+		MOV	R1,#&4000			; sort it
+		ADR	R2,compare$l			;
+		MOV	R7,#0				;
+		TEQ	PC,PC				;
+		MOVEQ	R10,#OS_HeapSort32		;
+		MOVNE	R10,#OS_HeapSort		;
+		ORR	R10,R10,#Xbit			;
+		SWI	XOS_CallASWI			;
+		FNRTS	VS
+
+		MOV	R10,#&4000			; store the new pointers
+store$l		LDR	R0,[R10],#4			;
+		STR	R0,[R11]			;
+		MOVS	R11,R0				;
+		BNE	store$l				;
+		FNRTS
+
+; compare them  R0,R1 -> blocks
+compare$l	FNJSR
+		MOV	R2,R1
+		LDR	R1,[R0,#fe_name]		;
+		LDR	R2,[R2,#fe_name]		;
+		LDR	R0,[R0,#fe_flags]		; territory number
+		MOV	R0,R0,LSR #24			;
+		MOV	R3,#1				; not case sensitive
+		SWI	XTerritory_Collate		;
+		CMP	R0,#0
+		FNRTS
+
+
+		LOCAL
+
+
+; return a font block from its name
+; E r0 -> name  r2 = listfonts encoding flag
+; X r7 = font block / 0
+get_font_by_name
+		FNJSR	"R1,R6,R8-R11"
+		MOV	R10,R0				;
+		MOV	R7,#0
+
+		MOV	R11,#1				; count number of dots
+l$l		LDRB	R14,[R0],#1			;
+		STRB	R14,[R6],#1			;
+		CMP	R14,#'.'			;
+		ADDEQ	R11,R11,#1			;
+		CMP	R14,#32				;
+		BHS	l$l				;
+
+		TST	R2,#lff_encodings		; go through the list
+		LDREQ	R6,[R12,#list_of_fonts]		;
+		LDRNE	R6,[R12,#list_of_encodings]	;
+
+entries$l	MOV	R8,R11				; check up to current prefix level
+		MOV	R0,R10				;
+		LDR	R1,[R6,#fe_name]		;
+comp$l		BL	compare_prefix			;
+		BNE	nom$l				;
+		SUBS	R8,R8,#1			;
+		BNE	comp$l				;
+
+		; got match
+		TST	R2,#lff_exact			;
+		BEQ	a$l                             ;
+		LDRB	R14,[R1,#-1]			; return this if it matches exactly
+		CMP	R14,#32				;
+		MOVLO	R7,R6				;
+		FNRTS	LO				;
+
+a$l		LDR	R0,[R6,#fe_flags]		; use this if it's the default
+		TST	R0,#fef_default			;
+		MOVNE	R7,R6				;
+		FNRTS	NE				;
+
+		TEQ	R7,#0				; keep it if we don't have a match yet
+		MOVEQ	R7,R6				;
+
+nom$l		LDR	R6,[R6,#fe_next]
+		TEQ	R6,#0
+		BNE	entries$l
+		FNRTS
+
+
+		LOCAL
+
+
+; return a font block from its idfn
+; E r0 -> name  r2 = listfonts encoding flag
+; X r7 = font block / 0
+get_font_by_idfn
+		FNJSR	"R1"				; simple linear search for exact match
+		TST	R2,#lff_encodings		;
+		LDREQ	R7,[R12,#list_of_fonts]		;
+		LDRNE	R7,[R12,#list_of_encodings]	;
+							;
+loop$l		TEQ	R7,#0				;
+		LDRNE	R1,[R7,#fe_idfn]		;
+		BLNE	strcasecmp			;
+		LDRNE	R7,[R7,#fe_next]		;
+		BNE	loop$l				;
+		FNRTS					;
+
+
+		LOCAL
+
+; create a buffer overflow error
+buffer_overflow	FNJSR
+		ADR	R0,err$l
+		MOV	R1,#0
+		MOV	R2,#0
+		SWI	XMessageTrans_ErrorLookup
+		FNRTS
+
+err$l		DCD	&1E4
+		=	"BufOFlo",0
+		ALIGN
+
+		LOCAL
+
+
+; create a Bad parameters error
+bad_parms	FNJSR
+		ADR	R0,err$l
+		MOV	R1,#0
+		MOV	R2,#0
+		SWI	XMessageTrans_ErrorLookup
+		FNRTS
+
+err$l		DCD	&1E4
+		=	"BadParm",0
+		ALIGN
+
+
+
+
+
+ END

@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.22 2004/03/30 00:43:37 christian Exp $
+; $Id: ZapRedraw,fff,v 1.23 2004/04/12 10:40:34 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -12,13 +12,16 @@
  GET h.DSARedraw
  GET h.VFRedraw
  GET h.VDURedraw
+ GET h.ListFonts
 
  EXPORT div_mod
  EXPORT find_character
  EXPORT skip_control_char
  EXPORT move_bytes
  EXPORT strcopy
+ EXPORT strncopy
  EXPORT strcpy
+ EXPORT strcmp
  EXPORT strcasecmp
  EXPORT strlen
 
@@ -142,6 +145,7 @@ swi_table
  = "UpdateWindow",0		; 28	1c
  = "ReadFontInfo",0		; 29	1d
  = "ReadModeBPP",0		; 30	1e
+ = "DecodeMenu",0		; 31	1f
  = 0
  ALIGN
 
@@ -223,12 +227,12 @@ set_vf_flag	STR	R0,[R12,#viewfinder_select]
 
 		ADRVC	R0,messages_filename
 		BLVC	messages_init			; open messages file
-		FNRTS	VS
-		BL	init_cache			; init DA
+		BLVC	init_cache			; init DA
+		BLVC	init_font_list			; scan fonts
 
-reinit$l	ADR	R0,cb$l				; add callback routine
-		MOV	R1,R12
-		SWI	XOS_AddCallBack
+reinit$l	ADRVC	R0,cb$l				; add callback routine
+		MOVVC	R1,R12
+		SWIVC	XOS_AddCallBack
 		FNRTS
 
 cb$l		FNJSR	"R1"				; PRMs are useless. Are we in SVC mode?
@@ -272,10 +276,11 @@ final_code	TEQ	R10,#0
 		]
 
 		BL	messages_kill			; close messages file
-		BLVC	kill_cache			; kill cache if empty
-		MOVVC	R0,#7				; free workspace
-		MOVVC	R2,R12
-		SWIVC	XOS_Module
+		BL	kill_cache			; kill cache if empty
+		BL	kill_font_list			; remove font lists
+		MOV	R0,#7				; free workspace
+		MOV	R2,R12
+		SWI	XOS_Module
 		MOV	R0,#0
 		STR	R0,[R12]			; null private word
 		FNRTS
@@ -351,6 +356,7 @@ start$l
  B update_window
  B read_font_info
  B read_mode_bpp
+ B decode_menu			; 31
 end$l
 unknown$l ERROR err_ukswi,"UKSWI"
 
@@ -2612,6 +2618,46 @@ strcpy
  LOCAL
 
 
+;E R1=dest R2=source R3=len (copy up to len bytes then add 0)
+;X R0=0 R1=end of dest (after 0) R2=char after last |
+
+strncopy
+ LDRB R0,[R2],#1
+ CMP R0,#32
+ BLO done$l
+ STRB R0,[R1],#1
+ SUBS R3,R3,#1
+ BNE strncopy
+done$l
+ MOV R0,#0
+ STRB R0,[R1],#1
+ MOV PC,R14
+
+
+ LOCAL
+
+; compares two strings
+; E r0,r1 -> strings
+; X Z = same  r1 -> after r1's terminator  r0 preserved
+strcmp
+  FNJSR "R0,R2"
+loop$l
+  LDRB R2,[R0],#1			; load char
+  LDRB R14,[R1],#1			;
+  CMP R2,#31				; fin?
+  CMPLS R14,#31				; other one fin also?
+  BHI nope$l				; nope
+  MOVS R0,#0				; yes - set Z
+  FNRTS					; done
+nope$l
+  CMP R2,R14
+  BEQ loop$l
+  FNRTS
+
+
+  LOCAL
+
+; null pointers are handled and are equivalent
 ; compares two strings case insesnsitive
 ; E r0,r1 -> strings
 ; X Z = same  r1 -> after r1's terminator  r0 preserved

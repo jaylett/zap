@@ -1,10 +1,11 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.7 2004/03/29 16:12:02 christian Exp $
+; $Id: Commands,fff,v 1.8 2004/04/12 10:40:34 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
  GET h.Messages
  GET h.Cache
+ GET h.ListFonts
 
  EXPORT command_table
 
@@ -21,6 +22,13 @@ command_table	=	|zap$|:CC:"FontTidy",0
 		DCD	1<<28
 		DCD	syn_list
 		DCD	hlp_list
+
+		=	|zap$|:CC:"FontCat",0
+		ALIGN
+		DCD	com_cat
+		DCD	(1<<28)+(1<<16)
+		DCD	syn_cat
+		DCD	hlp_cat
 
 		[ DEBUG					; debugging commands
 		=	|zap$|:CC:"FontDescribe",0
@@ -61,6 +69,8 @@ hlp_tidy	=	"HZRDTDY",0
 syn_tidy	=	"SZRDTDY",0
 hlp_list	=	"HZRDLST",0
 syn_list	=	"SZRDLST",0
+hlp_cat		=	"HZRDCAT",0
+syn_cat		=	"SZRDCAT",0
 
 		[ DEBUG
 hlp_describe	=	"*",27,0," describes the font blocks in the cache",13
@@ -70,7 +80,8 @@ hlp_die		=	"*",27,0," kills all font handles, without releasing their "
 syn_die		=	27,1,0
 hlp_debug	=	"*",27,0," prints the value of the variable 'debug'",13
 syn_debug	=	27,1,0
-
+hlp_dump	=	"*",27,0," lists the internal cache of font names",13
+syn_dump	=	27,1,0
 		ALIGN
 		]
 
@@ -347,6 +358,33 @@ loop$l		TEQ	R1,#0
 		B	loop$l
 
                 LOCAL
+
+
+; list the available fonts
+com_cat         FNJSR	"R4,R5"
+		LDR	R12,[R12]
+
+		MOV	R2,#(1<<17)
+		TEQ	R1,#1				; number of parameters
+		ORREQ	R2,R2,#(1<<22)			; return encodings
+
+		ADD	R4,R12,#buffer
+loop$l		MOV	R5,#256
+		[ |zap$| = "Zap"
+		SWI	ZapRedraw_ListFonts
+		|
+		SWI	&4845b				; ZapXRedraw_ListFonts
+		]
+
+		MOV	R0,R4
+		SWI	XOS_Write0
+		SWI	XOS_NewLine
+
+		CMP	R2,#-1
+		BNE	loop$l
+		FNRTS
+
+		LOCAL
 
 
 ; All of the following are debugging commands
@@ -866,6 +904,8 @@ com_debug	FNJSR
 		MOV	R0,#-1
 		STR	R0,[R12,#debug]
 		FNRTS
+
+		LOCAL
 
 		]
 
