@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.17 2004/04/15 11:52:14 christian Exp $
+; $Id: Cache,fff,v 1.18 2004/04/15 12:38:01 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -957,7 +957,7 @@ loop$l		MOV	R0,R5				;
 		BLO	loop$l				;
 
 		MOV	R7,R3				; keep cbpc
-		LDR	R6,[R12,#buffer+nfh_null_glyph] ;
+		LDR	R6,[R12,#buffer+:INDEX:nfh_null_glyph] ;
 		TEQ	R6,#0				;
 		BNE	load$l				;
 		MOV	R0,#3				; create the null glyph
@@ -1023,8 +1023,8 @@ load_old_font_file
 		MOV	R11,R1
 		MOV	R10,#0
 
-		LDR	R7,[R12,#buffer+ff_charw]	;
-		LDR	R8,[R12,#buffer+ff_charh]	;
+		LDR	R7,[R12,#buffer+:INDEX:ff_charw]	;
+		LDR	R8,[R12,#buffer+:INDEX:ff_charh]	;
 		MOV	R2,R7				;
 		MOV	R3,R8				;
 		MOV	R0,#0				; 1bpp
@@ -1036,8 +1036,8 @@ load_old_font_file
 		FNRTS	VS
 		MOV	R10,R0				; keep block
 
-		LDR	R5,[R12,#buffer+ff_firstchar]	;
-		LDR	R6,[R12,#buffer+ff_lastchar]	;
+		LDR	R5,[R12,#buffer+:INDEX:ff_firstchar]	;
+		LDR	R6,[R12,#buffer+:INDEX:ff_lastchar]	;
 
 		CMP	R6,#256				; limit number of glyphs
 		MOVHS	R6,#256				;
@@ -1071,11 +1071,11 @@ create_chunk_dir
 
 		MOV	R10,R0				;
 		MOV	R14,#0				;
-		STR	R14,[R0,#fd_chunk_dir+cde_num]	; create fake chunk directory
-		STR	R14,[R0,#fd_chunk_dir+cde_foff]	;
+		STR	R14,[R0,#fd_chunk_dir+:INDEX:cde_num]	; create fake chunk directory
+		STR	R14,[R0,#fd_chunk_dir+:INDEX:cde_foff]	;
 		MOV	R14,#256			;
-		STR	R14,[R0,#fd_chunk_dir+cde_nglyphs]
-		STR	R2,[R0,#fd_chunk_dir+cde_data]	;
+		STR	R14,[R0,#fd_chunk_dir+:INDEX:cde_nglyphs]
+		STR	R2,[R0,#fd_chunk_dir+:INDEX:cde_data]	;
 		MOV	R14,#-1				;
 		STR	R14,[R0,#fd_chunk_dir+cde_len]	;
 
@@ -1084,7 +1084,7 @@ create_chunk_dir
 		LDR	R0,[R12,#r_bpp]			;
 		BL	cached_char_size		;
 
-		LDR	R2,[R10,#fd_chunk_dir+cde_data]
+		LDR	R2,[R10,#fd_chunk_dir+:INDEX:cde_data]
 		ADD	R14,R2,R3,LSL #8		;
 		STR	R14,[R10,#fd_cursors]		;
 		ADD	R14,R14,R3,LSL #2		;
@@ -1132,7 +1132,7 @@ load_font_file  FNJSR	"R1,R2,R5-R11"
 		BVS	err$l
 
 		; new style font
-		LDR	R9,[R12,#buffer+nfh_chunk_dir_size]
+		LDR	R9,[R12,#buffer+:INDEX:nfh_chunk_dir_size]
 		ADD	R0,R9,#fd_chunk_dir+8
 		BL	cache_alloc
 		MOVVC	R10,R0
@@ -1153,7 +1153,7 @@ load_font_file  FNJSR	"R1,R2,R5-R11"
 
 		ADDVC	R0,R10,#fd_chunk_dir		; load chunk 0
 		MOVVC	R1,R11				;
-		ADDVC	R2,R12,#buffer+nfh_charw	;
+		ADDVC	R2,R12,#buffer+:INDEX:nfh_charw	;
 		BLVC	load_chunk_given_handle		;
 
 		MOVVC	R1,R11				;
@@ -1654,8 +1654,8 @@ nostyles$l	BL	load_font_file
 		STR	R0,[R11,#fb_data]		; store in font block
 		MOV	R10,R0				; keep bitmap block
 
-		LDR	R2,[R12,#buffer+ff_charw]
-		LDR	R3,[R12,#buffer+ff_charh]
+		LDR	R2,[R12,#buffer+:INDEX:ff_charw]
+		LDR	R3,[R12,#buffer+:INDEX:ff_charh]
 
 		; fill in the font block
 fromsystem$l	ADD	R0,R11,#fb_charw
@@ -1773,7 +1773,7 @@ dsavdu$l	MOV	R11,R2
 		STR	R9,[R12,#r_bpp]
 		BVS	err$l
 		STR	R0,[R11,#fb_1bcache]
-		LDR	R0,[R0,#fd_chunk_dir+cde_data]	; get bitmaps
+		LDR	R0,[R0,#fd_chunk_dir+:INDEX:cde_data]	; get bitmaps
 
 have1bpp$l	TST	R10,#1
 		STREQ	R9,[R12,#r_bpp]			; restore global bpp
@@ -1791,14 +1791,14 @@ have1bpp$l	TST	R10,#1
 		STR	R9,[R12,#r_bpp]			; restore global bpp
 		STRVC	R0,[R11,#fb_aacache]
 		LDRVC	R1,[R11,#fb_1bcache]
-		LDRVC	R1,[R1,#fd_chunk_dir+cde_data]
+		LDRVC	R1,[R1,#fd_chunk_dir+:INDEX:cde_data]
 		LDRVC	R3,[R11,#fb_cbpc]
 		ADDVC	R1,R1,R3,LSL #8			; copy cursor characters
 		ADDVC	R2,R2,R3,LSL #8
 		RSBVC	R3,R3,R3,LSL #3			; copy 7 chars
 		BLVC	move_bytes
 		LDRVC	R0,[R11,#fb_aacache]
-		LDRVC	R0,[R0,#fd_chunk_dir+cde_data]	; get bitmaps
+		LDRVC	R0,[R0,#fd_chunk_dir+:INDEX:cde_data]	; get bitmaps
 		FNRTS
 
 ; what to do? We can't return errors from here, but we have no font data to draw.
