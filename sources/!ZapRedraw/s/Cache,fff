@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.6 2003/05/10 22:33:52 christian Exp $
+; $Id: Cache,fff,v 1.7 2003/05/11 20:24:52 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1189,13 +1189,16 @@ masks$l		=	15				; mask bytes - these define the
 		LOCAL
 
 
-; install the base font -- updates fb_charw fb_charh fb_cbpl fb_cbpc
+; install the base font -- updates fb_charw fb_charh fb_cbpl fb_cbpc fb_bpp
 ; E r1 -> font block
 ; X
 install_base_font
 		FNJSR	"R1-R6,R10-R11"
 		MOV	R10,#0				; for err$l
 		MOV	R11,R1
+
+		LDR	R0,[R12,#r_bpp]			; setup fb_bpp
+		STR	R0,[R1,#fb_bpp]
 
 		LDR	R0,[R1,#f_flags]
 		TST	R0,#ff_ssallowed		; substyles allowed?
@@ -1391,6 +1394,21 @@ err$l		;SWI &20107
 		FNRTS
 
 
+; recache a font to change its bpp
+; E r0 = bpp to recache in  r2 -> font block
+; X
+recache_font	FNJSR	"R1,R11"
+		LDR	R11,[R12,#r_bpp]
+		STR	R0,[R12,#r_bpp]
+
+		MOV	R1,R2
+		BL	free_font_data
+		BLVC	install_base_font
+
+		STR	R11,[R12,#r_bpp]
+		FNRTS
+
+
 		LOCAL
 
 
@@ -1554,44 +1572,27 @@ mode_change_callback
 		ORR	R11,R11,#vf_mode_has_changed
 		STR	R11,[R12,#viewfinder_select]
 		; should we test for ViewFinder text rendering here?
-		LDR	R11,[R12,#r_bpp]
 		BL	read_vdu_vars
-		LDR	R0,[R12,#r_bpp]
-		MOV	R10,#1
-		TEQ	R0,R11
-		MOVEQ	R10,#0				; no bpp change
-		BEQ	samebpp$l
 
-		ADD	R2,R12,#font_handles		; free all the bitmaps
-		MOV	R3,#handles-1
-loop$l		LDR	R1,[R2],#4
-		TEQ	R1,#0
-		BLNE	free_font_data
-		SUBS	R3,R3,#1
-		BNE	loop$l
+		MOV	R11,#0				; no error yet
 
-samebpp$l	MOV	R11,#0				; no error yet
-
-		ADD	R2,R12,#font_handles		; re cache all the base dsa fonts
+		ADD	R2,R12,#font_handles		; re find the VDU fonts
 		MOV	R3,#handles
-loop2$l		SUBS	R3,R3,#1
+loop$l		SUBS	R3,R3,#1
 		BEQ	done$l
 		LDR	R1,[R2],#4
 		TEQ	R1,#0
-		BEQ	loop2$l
+		BEQ	loop$l
 
 		LDR	R0,[R1,#fb_flags]
 		TST	R0,#ff_vdu
-		BNE	vdu$l
+		BEQ	loop$l
 
-		MOVS	R10,R10
-		BLNE	install_base_font		; cache base substyle
-		B	loop2$l
-
-vdu$l		BL	free_font_data			; free current handles
+		BL	free_font_data			; free current handles
 		MOV	R0,R1				; fill in charw etc
 		BL	fill_in_vdu_font_block
-		B	loop2$l
+		ADDVSS	R11,R0,#0			; keep errors
+		B	loop$l
 
 done$l		BL	cache_compact
 		MOVS	R0,R11
@@ -1943,6 +1944,11 @@ handle_to_redraw
 		BL	get_r12
 		BL	get_font_block
 		FNRTS	VS
+
+		LDR	R3,[R2,#fb_bpp]			; recache the font it we're plotting
+		LDR	R0,[R1,#r_bpp]			; in a different bpp
+		TEQ	R0,R3
+		BLNE	recache_font
 
 		LDR	R0,[R2,#fb_flags]		; don't scale if VDU font in DSA mode
 		TST	R0,#ff_vdu
