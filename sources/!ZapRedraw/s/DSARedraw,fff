@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.13 2003/08/26 00:26:55 christian Exp $
+; $Id: DSARedraw,fff,v 1.14 2004/03/29 16:12:02 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -41,6 +41,10 @@ redraw_area_dsa
 	LDR	R0,[R1,#r_workarea]
 	STR	R2,[R0,#a_ext1]
 	STR	R3,[R0,#a_ext2]
+	MOV	R14,#0			; no tx table for user-supplied bitmaps
+	STR	R14,[R0,#a_chunk]	; setup initial chunk
+	STR	R14,[R0,#a_tx_table]
+	STR	R14,[R0,#a_loff]
 	LDR	R0,[R1,#r_caddr]	; I'd rather this little bit of code here
 	CMP	R0,#&8000		; was in s.Cache - then all font block
 	BHS	o$l			; mgmt is separate from plotting.
@@ -58,6 +62,7 @@ redraw_area_dsa
 o$l	BL	viewfinder_test_text
 	FNPULL
 	BNE	vf_redraw_area
+
 novf$l	FNJSR	"R1-R12"
 	LDR	R5,[R1,#r_screen]	; address of screen start
 	TEQ	R5,#0
@@ -69,20 +74,21 @@ novf$l	FNJSR	"R1-R12"
 	SWI	XOS_ReadVduVariables
 	LDR	R5,[R1]			; screen address
 	PULL	"R1"
-	FNRTS	VS
+	BVS	err$l
 
 gotaddr$l				; R5=screen address
 	LDR	R0,[R1,#r_caddr]
+	PUSH	"R0"			; preserve caddr
 	CMP	R0,#&8000		; font handle?
 	BLLO	handle_to_redraw	; yes - update r_cbpl r_cbpc r_charw r_charh
 					; and possibly r_flags b1 (if b5 set)
-	FNRTS	VS
+	BVS	err$l
 	LDR	R9,[R1,#r_bpl]		; bytes per raster line
 	LDR	R7,[R1,#r_cbpl]		; bytes per cache line
 	LDR	R0,[R1,#r_miny]
 	LDR	R8,[R1,#r_maxy]
 	SUBS	R8,R8,R0		; number of rasters to do
-	FNRTS	LE			; don't allow trivial case
+	BLE	done$l			; don't allow trivial case
 	MLA	R5,R9,R0,R5		; start of first raster
 	LDR	R10,[R1,#r_charh]	; height of a character in pixs
 	LDR	R11,[R1,#r_linesp]	; line spacing in pixs
@@ -95,7 +101,7 @@ gotaddr$l				; R5=screen address
 	ORRNE	R10,R10,#1		; b0 of R10=double height flag
 	MOV	R0,R11			; actual line spacing
 	BL	calculate_dsa		; pre-calculate the x values
-	FNRTS	VS
+	BVS	err$l
 	MOV	R12,R2			; current y offset in line
 	MOV	R2,R0			; first line to print
 	LDR	R0,[R1,#r_scrolly]
@@ -105,7 +111,7 @@ gotaddr$l				; R5=screen address
 	PUSH	"R3"
 	ADR	R3,null$l		; set up colours for a null line
 	BL	calculate_x_scroll
-	MOV	R4,#0			; clear the raster
+	MOV	R4,#-1			; clear the raster
 
 mloop$l	BL	redraw_raster		; draw the top margin
 	SUBS	R8,R8,#1		; 1 less raster to do in area
@@ -117,16 +123,11 @@ mloop$l	BL	redraw_raster		; draw the top margin
 	BMI	mloop$l
 	PULL	"R3"
 
-nom$l	LDR	R0,[R1,#r_caddr]
-	CMP	R0,#&8000		; is it a handle?
-	BLLO	handle_to_caddr		; yes - get address
-	LDR	R7,[R1,#r_workarea]
-	STR	R0,[R7,#a_spr1]		; save initial caddr
-	LDR	R7,[R1,#r_cbpl]		; restore r7
-	TST	R10,#1
+nom$l	TST	R10,#1
 	MOVEQ	R4,R12
 	MOVNE	R4,R12,LSR#1		; number of whole lines done
-	MLA	R4,R7,R4,R0		; cache offset
+	LDR	R7,[R1,#r_cbpl]
+	MUL	R4,R7,R4		; cache offset
 
 nextline$l
 	LDR	R3,[R2],#4		; get the offset for this line
@@ -134,50 +135,52 @@ nextline$l
 	BEQ	endline$l		; run out of text to print
 	LDR	R0,[R1,#r_data]		; data start
 	ADD	R3,R0,R3		; address of start of text
-	BL	calculate_x_scroll	; find first character & R6 col
+	BL	calculate_x_scroll	; find first character & R6 col R7 chunk
 
 nextraster$l
 	CMP	R12,R10,LSR#8		; are we still within the character
-	MOVCS	R4,#0			; draw background if not
+	MOVCS	R4,#-1			; draw background if not
 	BL	redraw_raster		; draw the line
 	SUBS	R8,R8,#1		; done one more
 	BLE	done$l			; finished
 	BIC	R0,R10,R12		; b0 1 only if R10=1 R12=0
 	TST	R0,#1			; if set then don't move on
-	ADDEQ	R4,R4,R7		; increment table address
+	LDREQ	R0,[R1,#r_cbpl]
+	ADDEQ	R4,R4,R0		; increment table address
 	ADD	R5,R5,R9		; increment screen address
 	ADD	R12,R12,#1		; increment number of lines done
 	CMP	R12,R11
 	BCC	nextraster$l		; more to do
-	LDR	R0,[R1,#r_caddr]	; reset to start of cache
-	CMP	R0,#&8000		; is it a font handle?
-	BLLO	handle_to_caddr		; yes - get its address
-	MOV	R4,R0
+	MOV	R4,#0			; reset to start of cache
 	MOV	R12,#0			; now at zero line offset
 	B	nextline$l
 
 endline$l
 	ADR	R3,null$l
 	BL	calculate_x_scroll	; set up for a null line
-	MOV	R4,#0			; draw background
+	MOV	R4,#-1			; draw background
 
 blank$l	BL	redraw_raster
 	ADD	R5,R5,R9		; increment screen address
 	SUBS	R8,R8,#1		; done one more
 	BGT	blank$l
-	BL	remove_dsa_workarea	; free workarea in in cache
-	LDR	R0,[R1,#r_flags]
-	BIC	R0,R0,#&FF000000	; clear our temp flag bits
-	STR	R0,[R1,#r_flags]
-	FNRTS
+	B	done$l
 
 donefrommargin$l			; reached end of area inside top margin
 	PULL	"R3"
-done$l	BL	remove_dsa_workarea	; free workarea in in cache
+done$l	MOV	R9,#0
+done2$l	BL	remove_dsa_workarea	; free workarea in in cache
 	LDR	R0,[R1,#r_flags]
 	BIC	R0,R0,#&FF000000	; clear our temp flag bits
 	STR	R0,[R1,#r_flags]
-	FNRTS
+	PULL	"R0"
+	STR	R0,[R1,#r_caddr]	; restore caddr
+	MOVS	R0,R9
+	FNRTS	EQ
+	FNRTV
+
+err$l	MOV	R9,R0			; keep error pointer
+	B	done2$l
 
 null$l  =	"                                         ",0,2,0
 	ALIGN
@@ -264,20 +267,23 @@ skipline$l
 ;X R1 saved
 ;  R3 incremented to first 'drawable character'.
 ;  R6=for/bac/font to pass to redraw raster |
+;  R7 = initial chunk number
+;  a_chunk set up to initial chunk number
 
 calculate_x_scroll
-	FNJSR	"R1-R2,R4"
+	FNJSR	"R1-R2,R4,R5"
 	MOV	R14,R3			; save text start
-	LDR	R0,[R1,#r_workarea]
-	LDR	R0,[R0,#a_x5]		; scroll offset in chars
+	LDR	R7,[R1,#r_workarea]
+	LDR	R0,[R7,#a_x5]		; scroll offset in chars
 	LDR	R2,[R1,#r_for]		; start foreground
-					; MOV R4,R2,LSR #24
+
 	LDR	R4,[R1,#r_caddr]	; calculate initial substyle
 	CMP	R4,#&8000		; if using font handles
 	ANDLO	R4,R4,#&FF
 	MOVHS	R4,#0
 	LDR	R3,[R1,#r_bac]		; start background
 	MOV	R1,R14			; start of text
+	MOV	R5,#0			; initial chunk
 	[ MARGINS = EMPTY
 	TEQ	R0,#0			; use r_for r_bac etc if in margin
 	BLNE	find_character		; move to nth char
@@ -287,6 +293,8 @@ calculate_x_scroll
 	ORR	R6,R2,R3,LSL#16		; colour mask for redraw
 	ORR	R6,R6,R4,LSL#24		; add in font mask...
 	MOV	R3,R1			; new first char
+	STR	R5,[R7,#a_chunk]	; initial chunk
+	MOV	R7,R5
 	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -298,8 +306,8 @@ calculate_x_scroll
 
 ;E R1=redraw block
 ;  R3=address of text to use for this line (from first vis char)
-;  R4=character defn table offset so use top row of character
-;     or 0 to clear the raster to background colour
+;  R4=line offset into cache (multiple of cbpl)
+;     or -1 to clear the raster to background colour
 ;  R5=screen address of start of raster line
 ;  R6=start col b0-b15=for b16-b23=bac b24-31=substyle
 ;  r_workarea a_x1 to a_x4 and a_ext1,a_ext2 setup.
@@ -328,6 +336,10 @@ redraw_raster
 	LDR	R11,[R0,R11,LSL#2]	; get bit masks
 	LDR	R12,[R1,#r_bpp]
 	LDR	R2,[R1,#r_workarea]	; R2=workarea values
+	STR	R7,[R2,#a_chunk]	; setup initial chunk
+	MOV	R7,#0			; no tx table for user-supplied bitmaps
+	STR	R7,[R2,#a_tx_table]
+	STR	R7,[R2,#a_null_glyph]
 	LDR	R0,[R1,#r_minx]
 	MOV	R0,R0,LSL R12		; number of bits from lhs
 	ADD	R5,R5,R0,LSR#3
@@ -342,23 +354,28 @@ redraw_raster
 	LDR	R8,[R1,#r_charw]
 	TEQ	R8,#8
 	MOVNE	R12,#-1			; set to -1 if not width 8 character
-	CMP	R4,#0
+	CMP	R4,#-1
 	ADDEQ	R12,R12,#7		; -1 -> 6 if clearing the raster
 
-	LDRNE	R0,[R1,#r_caddr]	; are we using font handles?
-	CMPNE	R0,#&8000
-	BHS	ok$l
-	BL	handle_to_caddr		; no colour information
-
-	SUB	R8,R4,R0		; current char offset
 	LDR	R0,[R1,#r_caddr]
+	CMP	R4,#-1
+	MOVEQ	R0,#0
+	STREQ	R0,[R2,#a_loff]		; keep initial caddr offset for 0,9 and 0,10 routines
+	STRNE	R4,[R2,#a_loff]
+	BEQ	ok$l
+	CMP	R0,#&8000
+	ADDHS	R0,R0,R4
+	BHS	ok$l
+
 	BIC	R0,R0,#&FF
 	ORR	R0,R0,R9,LSR #24	; patch in initial style mask
-	BL	handle_to_caddr_c	; we have colour information
-	STR	R0,[R2,#a_spr1]		; keep initial caddr for 0,9 and 0,10 routines
-	ADD	R4,R0,R8		; get initial char offset
+	BL	handle_to_caddr		; we have colour information
+	ADDS	R0,R0,R4		; get initial char offset
+	MOVEQ	R0,#1			; chunk doesn't exist, but distinguish
+					; this from line spacing
 
-ok$l	LDR	R0,[R1,#r_flags]
+ok$l	MOV	R4,R0
+	LDR	R0,[R1,#r_flags]
 	TST	R0,#rf_extroutine
 	MOVNE	R0,#0
 	BLNE	call_extension		; start of line call to extension
@@ -439,12 +456,8 @@ call_redraw_raster_pixel
 ; redraw raster 16 cols, 8 pix wide bitmap
 redraw_raster_pixel_2
 	FNJSR
-	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R12,[R1,#r_charh]
-	MUL	R0,R12,R0
-	LDR	R0,[R4,R0,LSL#2]	; get bitmap
+	BL	get_bitmap
+	LDR	R0,[R2]
 	AND	R2,R10,R0		; R2=foreground bit
 	BIC	R0,R11,R0		; R0=background
 	ORR	R0,R2,R0		; R0=end bitmap
@@ -489,13 +502,8 @@ clear_raster_pixel_2
 ; redraw raster 256 cols, 8 pix wide bitmap
 redraw_raster_pixel_3
 	FNJSR
-	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R12,[R1,#r_charh]
-	MUL	R0,R12,R0
-	ADD	R0,R4,R0,LSL#3		; address of bitmap
-	LDMIA	R0,{R12,R14}
+	BL	get_bitmap
+	LDMIA	R2,{R12,R14}
 	AND	R2,R10,R12		; R2=foreground bit
 	BIC	R0,R11,R12		; R0=background bit
 	ORR	R12,R2,R0		; R12=first bitmap
@@ -565,11 +573,7 @@ clear_raster_pixel_3
 ; redraw part of a raster, as above
 redraw_raster_pixel_any
 	FNJSR
-	LDRB	R0,[R3],#1
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R2,[R1,#r_cbpc]
-	MLA	R2,R0,R2,R4		; address of bitmap
+	BL	get_bitmap
 	LDR	R0,[R1,#r_bpp]
 	MOV	R8,R8,LSL R0		; number bits to write
 	MOV	R9,R9,LSL R0		; first bit offset
@@ -643,8 +647,8 @@ dispatch$l
 	B	clear_raster_main_5
 	B	redraw_raster_main_any  ; offset 13	8*16 at 2 cols
 	B	redraw_raster_main_any	;		8*16 at 4 cols
-	B	redraw_raster_main_16_2 ; 		8*16 at 16 cols
-	B	redraw_raster_main_16_3 ; 		8*16 at 256 cols
+	B	redraw_raster_main_16_2 ;		8*16 at 16 cols
+	B	redraw_raster_main_16_3 ;		8*16 at 256 cols
 	B	redraw_raster_main_16_4	;		8*16 at 32k cols
 	B	redraw_raster_main_16_5	;		8*16 at 16M cols
 
@@ -653,10 +657,8 @@ dispatch$l
 redraw_raster_main_8_2
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R0,[R4,R0,LSL #5]	; get bitmap DON'T MOVE!
+loop$l	BL	get_bitmap
+	LDR	R0,[R2]
 	AND	R2,R10,R0		; R2=foreground bit
 	BIC	R0,R11,R0		; R0=background bit
 	ORR	R0,R2,R0		; R0=end bitmap
@@ -672,10 +674,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 redraw_raster_main_16_2
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R0,[R4,R0,LSL #6]	; get bitmap DON'T MOVE!
+loop$l	BL	get_bitmap
+	LDR	R0,[R2]
 	AND	R2,R10,R0		; R2=foreground bit
 	BIC	R0,R11,R0		; R0=background bit
 	ORR	R0,R2,R0		; R0=end bitmap
@@ -706,11 +706,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 redraw_raster_main_8_3
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL #6		; R0=address of bitmap substituted HERE!
-	LDMIA	R0,{R12,R14}		; get bitmap
+loop$l	BL	get_bitmap
+	LDMIA	R2,{R12,R14}		; get bitmap
 	AND	R2,R10,R12		; R2=foreground bit
 	BIC	R0,R11,R12		; R0=background bit
 	ORR	R12,R2,R0		; R12=first bitmap
@@ -731,11 +728,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 redraw_raster_main_16_3
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL #7		; R0=address of bitmap substituted HERE!
-	LDMIA	R0,{R12,R14}		; get bitmap
+loop$l	BL	get_bitmap
+	LDMIA	R2,{R12,R14}		; get bitmap
 	AND	R2,R10,R12		; R2=foreground bit
 	BIC	R0,R11,R12		; R0=background bit
 	ORR	R12,R2,R0		; R12=first bitmap
@@ -771,10 +765,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 redraw_raster_main_8_4
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL#7		; address of bitmap DON'T MOVE!
+loop$l	BL	get_bitmap
+	MOV	R0,R2
 	LDMIA	R0!,{R12,R14}		; get first two words of bitmap
 	AND	R2,R10,R12		; R2=foreground bit
 	BIC	R12,R11,R12		; background bit
@@ -808,10 +800,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 redraw_raster_main_16_4
 	FNJSR
 	RSB	R9,R6,#32
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL#8		; address of bitmap DON'T MOVE!
+loop$l	BL	get_bitmap
+	MOV	R0,R2
 	LDMIA	R0!,{R12,R14}		; get first two words of bitmap
 	AND	R2,R10,R12		; R2=foreground bit
 	BIC	R12,R11,R12		; background bit
@@ -861,10 +851,8 @@ loop$l	LDRB	R0,[R3],#1		; Don't seed! get next char
 
 redraw_raster_main_8_5			; NB R6,R7 irrelevant here!
 	FNJSR
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL#8		; address of bitmap DO NOT MOVE!
+loop$l	BL	get_bitmap
+	MOV	R0,R2
 	LDMIA	R0!,{R7,R9,R12,R14}	; get first four
 	AND	R2,R10,R7
 	BIC	R7,R11,R7		; must do bics etc for fonts/merge
@@ -902,10 +890,8 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 
 redraw_raster_main_16_5			; NB R6,R7 irrelevant here!
 	FNJSR
-loop$l	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	ADD	R0,R4,R0,LSL#9		; address of bitmap DO NOT MOVE!
+loop$l	BL	get_bitmap
+	MOV	R0,R2
 	LDMIA	R0!,{R7,R9,R12,R14}	; get first four
 	AND	R2,R10,R7
 	BIC	R7,R11,R7		; must do bics etc for fonts/merge
@@ -962,11 +948,7 @@ redraw_raster_main_any
 	LDR	R12,[R1,#r_charw]
 	LDR	R0,[R1,#r_bpp]
 	MOV	R12,R12,LSL R0		; width in bits
-loop$l	LDRB	R0,[R3],#1		; get char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	LDR	R2,[R1,#r_cbpc]
-	MLA	R2,R0,R2,R4		; address of bitmap
+loop$l	BL	get_bitmap
 	MOV	R0,R2,LSL #3		; bit addr of bitmap (no need to mask yet)
 	MOV	R9,R12			; number of bits to write
 	BL	redraw_raster_any_write
@@ -1103,15 +1085,14 @@ $la	NEWCOLS
 $la	TST	R0,#rf_dsavdu
 	TEQNE	R4,#0
 	BEQ	%ft01
-	STMFD	R13!,{R0,R9,R14}	; colours have changed in dsavdu
+	STMFD	R13!,{R0,R14}		; colours have changed in dsavdu
 	LDR	R0,[R1,#r_caddr]	; mode - choose aa or 1bpp font
-	BL	handle_to_caddr_c
-	LDR	R9,[R1,#r_workarea]
-	ADD	R9,R9,#a_spr1
-	SWP	R14,R0,[R9]		; get old caddr and store new
-	SUB	R14,R4,R14		; current cache offset
-	ADD	R4,R0,R14		; new cache address
-	LDMFD	R13!,{R0,R9,R14}
+	BL	handle_to_caddr
+	LDR	R14,[R1,#r_workarea]
+	LDR	R14,[R14,#a_loff]	; current line offset
+	ADDS	R4,R0,R14		; new cache address
+	MOVEQ	R4,#1			; chunk not found - distinguish from line spacing
+	LDMFD	R13!,{R0,R14}
 01
 	MEND
 
@@ -1140,7 +1121,8 @@ control_start
 	B	control_code_7		; change background
 	B	control_code_8		; cursor merge character
 	B	control_code_9		; change substyle
-	B	control_code_10		; change substyle
+	B	control_code_10		; change for, bac, substyle
+	B	control_code_11		; change chunk
 control_end
 
 control_code_1
@@ -1161,11 +1143,10 @@ control_code_1
 
 control_code_2
 	ADR	R3,terminating_string	; spaces to finish off with
-	MOV	R0,#&20			; space
-	MOV	PC,R14
+	B	redraw_control_code
 
 terminating_string
-	=	"                                              ",0,2,0
+	=	11,0,"                                              ",0,2,0
 	ALIGN
 
 control_code_3
@@ -1255,7 +1236,7 @@ control_code_8
 	BEQ	control_code_8_32bpp
 
 	FNJSR	"R2,R5-R9"
-	BL	get_merge_args
+	BL	get_cursor_merge_args
 	CMN	R6,#1			; EQ = merge aborted
 	TEQNE	R4,#0
 	FNRTS	EQ			; in the middle of line spacing
@@ -1264,19 +1245,14 @@ control_code_8
 	STR	R4,[R5,#a_stack2]	; save char defn table
 	STR	R10,[R5,#a_stack3]
 	STR	R11,[R5,#a_stack4]	; old masks
-	ADD	R5,R5,#64		; place for the bitmap
+	ADD	R5,R5,#a_topofvars	; place for the bitmap
 	MOV	R2,R4			; char defn table for mask char
-	CMP	R7,#5			; }
-	ADDLS	R7,R7,#&100		; } new code - this may break apps (not if they've been
-					;   using these codes properly) but this is *much* more
-					;   sensible than requiring 0,3,l,h sequences for all
-					;   cursor characters - cl (0,8,f,b,c,0,3,l,h = 1 char!)
 	LDR	R0,[R1,#r_flags]
 	TST	R0,#rf_extroutine
 	MOVNE	R0,#8
 	BLNE	call_extension		; tell extension subs
-	CMP	R7,#&100
-	BCC	cc8_1			; swap for/bac cols
+	CMP	R7,#0
+	BEQ	cc8_1			; swap for/bac cols
 	MOV	R8,R9			; set all to background colour
 	BL	merge_characters	; merge them together
 	MOV	R4,R5			; new bitmap table
@@ -1288,7 +1264,8 @@ cc8_end	ADR	R3,cc4_string		; restore cached vals
 
 cc8_1	MOV	R10,R8
 	MOV	R11,R9
-	MOV	R0,R6
+	MOV	R4,R6
+	MOV	R0,#0
 	B	cc8_end
 
 	LOCAL
@@ -1298,15 +1275,14 @@ control_code_9
 	LDRNE	R0,[R1,#r_caddr]
 	CMPNE	R0,#&8000		; are we using handles?
 	BHS	nohandle$l
-	FNJSR	"R9"
+	FNJSR
 	BIC	R0,R0,#&FF
-	LDRB	R9,[R3]			; new font style...
-	ORR	R0,R0,R9
-	BL	handle_to_caddr_c
-	LDR	R9,[R1,#r_workarea]
-	ADD	R9,R9,#a_spr1
-	SWP	R14,R0,[R9]		; get old caddr and store new
-	SUB	R14,R4,R14		; current cache offset
+	LDRB	R14,[R3]		; new font style...
+	ORR	R0,R0,R14
+	STR	R0,[R1,#r_caddr]
+	BL	handle_to_caddr
+	LDR	R14,[R1,#r_workarea]
+	LDR	R14,[R14,#a_loff]	; current cache offset
 	ADD	R4,R0,R14		; new cache address
 	FNPULL
 nohandle$l
@@ -1332,15 +1308,14 @@ control_code_10
 	CMP	R4,#0
 	CMPNE	R0,#&8000		; are we using handles?
 	BHS	nohandle$l
-	FNJSR	"R9"
+	FNJSR
 	BIC	R0,R0,#&FF
-	LDRB	R9,[R3,#-1]		; new font style...
-	ORR	R0,R0,R9
-	BL	handle_to_caddr_c	; have colour information
-	LDR	R9,[R1,#r_workarea]
-	ADD	R9,R9,#a_spr1
-	SWP	R14,R0,[R9]		; get old caddr and store new
-	SUB	R14,R4,R14		; current cache offset
+	LDRB	R14,[R3,#-1]		; new font style...
+	ORR	R0,R0,R14
+	STR	R0,[R1,#r_caddr]
+	BL	handle_to_caddr
+	LDR	R14,[R1,#r_workarea]
+	LDR	R14,[R14,#a_loff]	; current cache offset
 	ADD	R4,R0,R14		; new cache address
 	FNPULL
 nohandle$l
@@ -1353,10 +1328,45 @@ nohandle$l
 	BEQ	redraw_control_code	; new control code
 	MOV	PC,R14			; do this char
 
+	LOCAL
+
+control_code_11
+	LDR	R0,[R1,#r_caddr]
+	CMP	R0,#&8000
+	BHS	nohandle$l
+
+	CMP	R4,#0
+	ADDEQ	R3,R3,#1
+	BEQ	nohandle$l
+
+	FNJSR
+	LDRB	R0,[R3]
+	MOV	R0,R0,LSL #8
+	LDR	R14,[R1,#r_workarea]
+	STR	R0,[R14,#a_chunk]	; poke in the chunk number
+	LDR	R0,[R1,#r_caddr]
+	BL	handle_to_caddr		; update caddr
+	MOVS	R4,R0
+	LDRNE	R14,[R1,#r_workarea]
+	LDRNE	R14,[R14,#a_loff]	; current cache offset
+	ADDNE	R4,R0,R14		; new cache address
+	MOVEQ	R4,#1			; not in line spacing
+	FNPULL
+nohandle$l
+	ADD	R3,R3,#1
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#11
+	BNE	call_extension_plus
+	LDRB	R0,[R3],#1		; get next char
+	TEQ	R0,#0
+	BEQ	redraw_control_code	; new control code
+	MOV	PC,R14			; do this char
+
 ;E R3=pointer to first merge arg
 ;X R3=pointer to start of next code
 ;  R8/R9=palette entries for mask characters
-;  R6/R7=base/mask character or R6=-1 if already done
+;  R6/R7=base/mask character bitmaps or R6=-1 if already done
 ;  R0,R3-R4,R10-R11 set up to new vals if already done
 
 get_merge_args
@@ -1366,21 +1376,42 @@ get_merge_args
 	LDR	R0,[R1,#r_palette]
 	LDR	R8,[R0,R8,LSL#2]
 	LDR	R9,[R0,R9,LSL#2]	; alt cols
-	LDRB	R0,[R3],#1		; get next char
-	TEQ	R0,#0
-	BLEQ	redraw_control_code	; get base character
+	BL	get_bitmap		; get base bitmap
 	ADR	R14,cc4_string
 	TEQ	R14,R3
 	BEQ	gma_1
-	MOV	R6,R0			; base character
-	LDRB	R0,[R3],#1		; get mask character
-	TEQ	R0,#0
-	BLEQ	redraw_control_code
-	MOV	R7,R0			; mask character
+	MOV	R6,R2			; base bitmap
+	BL	get_bitmap
+	MOV	R7,R2			; mask bitmap
 	ADR	R14,cc4_string
 	TEQ	R14,R3
 	MVNEQ	R6,#0			; set to -1 if this was a merge
 	FNRTS
+
+;E R3=pointer to first merge arg
+;X R3=pointer to start of next code
+;  R8/R9=palette entries for mask characters
+;  R6/R7=base/mask character bitmaps or R6=-1 if already done
+;  R0,R3-R4,R10-R11 set up to new vals if already done
+get_cursor_merge_args
+	FNJSR
+	LDRB	R8,[R3],#1		; alt for num
+	LDRB	R9,[R3],#1		; alt bac num
+	LDR	R0,[R1,#r_palette]
+	LDR	R8,[R0,R8,LSL#2]
+	LDR	R9,[R0,R9,LSL#2]	; alt cols
+	BL	get_bitmap		; get base bitmap
+	ADR	R14,cc4_string
+	TEQ	R14,R3
+	BEQ	gma_1
+	MOV	R6,R2			; base bitmap
+	BL	get_cursor_bitmap
+	MOV	R7,R2			; mask bitmap
+	ADR	R14,cc4_string
+	TEQ	R14,R3
+	MVNEQ	R6,#0			; set to -1 if this was a merge
+	FNRTS
+
 
 gma_1	STMFD	R13!,{R0-R4}		; save the vals
 	LDR	R4,[R1,#r_workarea]
@@ -1394,7 +1425,7 @@ gma_1	STMFD	R13!,{R0-R4}		; save the vals
 	FNRTS
 
 to_skip_control_char
-	FNJSR	"R4"
+	FNJSR	"R4,R5"
 	BL	skip_control_char
 	FNRTS
 
@@ -1485,9 +1516,8 @@ convert_bitmap
 	MOVNE	R7,#0			; if VF in use, just copy
 	TEQ	R7,#5
 	MOVEQ	R7,#0			; if 32 bpp, just copy
-	AND	R7,R7,#&FF
-	CMP	R7,#0
-	BLE	cb_copy			; just copy the bitmap
+	ANDS	R7,R7,#&FF
+	BEQ	cb_copy			; just copy the bitmap
 	MOV	R0,#1
 	MOV	R6,R0,LSL R7		; number of bits per pixel
 	MOV	R6,R0,LSL R6		; 2^number of bits
@@ -1653,8 +1683,8 @@ cbc_not_full_word
 ;  R2=character defn table for mask character
 ;  R4=character defn table for base character
 ;  R5=address of output buffer
-;  R6=base character
-;  R7=mask character (cursor char - use alt cols if this set)
+;  R6 -> base character bitmap
+;  R7 -> mask character bitmap (cursor char - use alt cols if this set)
 ;  R8/R9=alternate for/bac col masks
 ;  R10/R11=standard for/bac col masks
 ;X One line of cached character merged. |
@@ -1665,9 +1695,6 @@ merge_characters
 	CMNNE	R7,#1
 	MOVEQ	PC,R14
 	FNJSR	"R1-R7"
-	LDR	R0,[R1,#r_cbpc]
-	MLA	R6,R0,R6,R4
-	MLA	R7,R0,R7,R2		; character addresses
 	LDR	R2,[R1,#r_cbpl]
 mc_0	SUBS	R2,R2,#4		; 4 bytes left?
 	BLT	mc_2

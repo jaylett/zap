@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.13 2003/12/24 00:36:01 christian Exp $
+; $Id: Cache,fff,v 1.14 2004/03/29 16:12:02 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -21,10 +21,11 @@
  EXPORT cache_compact
 
  EXPORT handle_to_caddr
- EXPORT handle_to_caddr_c
  EXPORT handle_to_redraw
  EXPORT handle_to_name
  EXPORT get_font_block
+ EXPORT get_bitmap
+ EXPORT get_cursor_bitmap
 
  EXPORT check_dsa_workarea
  EXPORT remove_dsa_workarea
@@ -37,6 +38,7 @@
  EXPORT read_font_info
 
  EXPORT list_fonts
+
 
 ; the cache memory allocate/free routines are based on the first-fit method
 ; routines described in Knuth, vol.1 p.437. The modification is that we
@@ -67,7 +69,7 @@
 ; compacted)
 
 
-; font file format
+; font file format header
 		^ 0
 ff_zapfont	# 8	; "ZapFont", 13
 ff_charw	# 4	; 8
@@ -76,8 +78,19 @@ ff_firstchar	# 4	; 16 10
 ff_lastchar	# 4	; 20 14
 ff_res0		# 4	; 24 18
 ff_res1		# 4	; 28 1C
-ff_end		# 0
+ff_end		* @
 
+; new file format header
+			^ 0
+nfh_magic		# 4				;  0 'ZRUF'
+nfh_res0		# 4				;  4 reserved SBZ
+nfh_charw		# 4				;  8 width in px
+nfh_charh		# 4				;  C height in px
+nfh_chunk_dir_size	# 4				; 10 chunk directory size
+nfh_null_glyph		# 4				; 14 null glyph offset / 0
+nfh_res2		# 4				; 18 reserved SBZ
+nfh_res3		# 4				; 1C reserved SBZ
+nfh_chunk_dir		* @				; chunk directory
 
 ; font block flags:
 ;
@@ -373,7 +386,6 @@ free_font	FNJSR	"R0-R3,R10"
 
 		MOV	R0,R10				; free the font block
 		BL	cache_free
-
 		FNRTS
 
 		LOCAL
@@ -397,15 +409,15 @@ loop$l		BL	free_substyle
 vdu$l		FNJSR	"R1-R4,R11"
 		MOV	R11,R1
 
-		LDR	R0,[R11,#fb_aacache]		; free bitmaps
+		LDR	R0,[R11,#fb_aacache]
 		TEQ	R0,#0
-		BLNE	cache_free
+		BLNE	free_substyle_data
 		MOV	R0,#0
 		STR	R0,[R11,#fb_aacache]
 
 		LDR	R0,[R11,#fb_1bcache]
 		TEQ	R0,#0
-		BLNE	cache_free
+		BLNE	free_substyle_data
 		MOV	R0,#0
 		STR	R0,[R11,#fb_1bcache]
 
@@ -504,17 +516,41 @@ free_substyle	FNJSR	"R0-R4,R10-R11"
 		TEQ	R0,#0
 		FNRTS	EQ
 
-		ADD	R1,R1,#fb_data
-		MOV	R11,#substyles
-		MOV	R10,#0
-loop$l		LDR	R2,[R1],#4
-		TEQ	R2,R0
-		STREQ	R10,[R1,#-4]
-		SUBS	R11,R11,#1
-		BNE	loop$l
+		ADD	R1,R1,#fb_data			; set referencing substyles to 0
+		MOV	R11,#substyles			;
+		MOV	R10,#0				;
+loop$l		LDR	R2,[R1],#4			;
+		TEQ	R2,R0				;
+		STREQ	R10,[R1,#-4]			;
+		SUBS	R11,R11,#1			;
+		BNE	loop$l				;
 
+		BL	free_substyle_data
+		FNRTS
+
+
+		LOCAL
+
+; free the font data block
+; E r0 -> font data block
+; X all preserved
+free_substyle_data
+		FNJSR	"R0-R4,R10-R11"
+		MOV	R11,R0
+
+		ADD	R10,R0,#fd_chunk_dir		; free the bitmaps
+cdloop$l	LDR	R0,[R10],#cde_len		;
+		CMP	R0,#-1				;
+		BEQ	donecd$l			;
+		LDR	R0,[R10,#cde_data-cde_len]	;
+		TEQ	R0,#0				;
+		BLNE	cache_free			;
+		B	cdloop$l			;
+
+donecd$l	MOV	R0,R11				; free the data block itself
 		BL	cache_free
 		FNRTS
+
 
 		LOCAL
 
@@ -815,10 +851,10 @@ loop$l		;MOV	R0,R9
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; convert font bitmaps from 1bpp to currentbpp
-; E r0 -> 1bpp source  r1 -> font block  r6 = last char
-; X r2 -> converted bitmaps  (may be the same block)
+; E r0 -> 1bpp source  r1 -> font block  r6 = last char  r7 = charw  r8 = charh
+; X r2 -> converted bitmaps, 1bpp block free'd  (may be the same block)
 convert_font	FNJSR
-		FNLDR	R14,r_bpp
+		LDR	R14,[R12,#r_bpp]
 		TEQ	R14,#0
 		TEQNE	R14,#5				; can now plot directly from 1bpp
 		FNPULL					; bitmaps in 32bpp modes
@@ -826,37 +862,46 @@ convert_font	FNJSR
 		MOVEQ	PC,R14
 
 do_convert_font	FNJSR	"R0,R1,R5-R8"
-		MOV	R3,R6
-		ADD	R4,R1,#fb_charw			; create fake redraw block
-		LDMIA	R4,{R5-R8}
-		ADD	R4,R12,#r_charw			; r_charw r_charh r_cbpl r_cbpc
-		STMIA	R4!,{R5,R6}
-		STMIB	R4,{R7,R8}
-
 		MOV	R4,R0
-		MLA	R0,R8,R3,R8			; claim block
-		ADD	R0,R0,#4
+
+		LDR	R0,[R12,#r_bpp]
+		MOV	R2,R7
+		MOV	R3,R8
+		BL	cached_char_size
+
+		ADD	R0,R12,#r_charw			; r_charw r_charh r_cbpl r_cbpc
+		STMIA	R0!,{R7,R8}
+		STMIB	R0,{R2,R3}
+
+		MLA	R0,R6,R3,R3			; claim block
 		BL	cache_alloc
 
 		STRVC	R0,[R12,#r_caddr]
 		MOVVC	R1,R12
 		MOVVC	R2,#0
+		MOVVC	R3,R6
 		BLVC	convert_bitmap
-		LDRVC	R2,[R12,#r_caddr]
-		MOVVS	R2,#0				; no block on error
-		FNRTS
+		LDRVC	R6,[R12,#r_caddr]
+		MOVVS	R6,#0				; no block on error
+
+		MOVVC	R8,#0				; free the 1bpp block
+		MOVVS	R8,R0				;
+		MOV	R0,R4				;
+		BL	cache_free			;
+		MOV	R2,R6				;
+		MOVS	R0,R8				;
+		FNRTS	EQ				;
+		FNRTV
 
 
 ; check which characters a font defines and add vdu characters if necessary
-; E r0 -> bitmaps at 1bpp with space reserved for new chars   r1 -> font block
-;   r5 = font first char  r6 = font last char
+; E r0 -> bitmaps at 1bpp with space reserved for new chars
+;   r5 = font first char  r6 = font last char  r7 = charw  r8 = charh
 ; X block at r0 updated  r5/r6 updated
 check_font_range
 		FNJSR	"R0,R1"
-		ADD	R1,R1,#fb_charw
-		LDMIA	R1,{R2,R3}
 		ADD	R1,R12,#r_charw			; copy into redraw block
-		STMIA	R1,{R2,R3}
+		STMIA	R1,{R7,R8}
 
 		MOV	R1,R12				; get redraw block
 		MOV	R4,R0
@@ -867,23 +912,240 @@ check_font_range
 		MOVNE	R5,#0
 		BLNE	add_vdu_bitmaps
 
-		MOV	R3,#&100			; add cursor characters
-		ADD	R3,R3,#5
-		;CMP	R6,R3
-		;ADDLO	R2,R6,#1
+		MOV	R2,#&100			; add cursor characters
+		ADD	R3,R2,#6
 		MOV	R6,R3
-		MOV	R2,#&100			; /always/ add cursor chars
 		BL	add_vdu_bitmaps
-
 		FNRTS
 
 
-; load a font file at 1bpp
+; create the cursor and null glyph bitmaps
+; E r0 -> chunk data with space for &106 glyphs  r1 = file handle
+;   buffer contains file header with charw, charh and null glyph offset
+; X r0 -> cursor bitmaps   r1 -> null glyph (in block passed in r0)
+create_cursors	FNJSR	"R2-R11"
+		MOV	R11,R1
+		MOV	R10,R0
+		MOV	R9,#0
+
+		ADD	R1,R12,#buffer			;
+		ADD	R1,R1,#ff_charw			;
+		LDMIA	R1,{R7,R8}			; get width and height
+
+		MOV	R2,R7				;
+		MOV	R3,R8				;
+		MOV	R0,#0				; 1bpp
+		BL	cached_char_size		; r2, r3 = cbpl, cbpc
+
+		LDR	R1,[R12,#r_bpp]			; check whether to convert bpp
+		TEQ	R1,#0				;
+		TEQNE	R1,#5				;
+		ADDEQ	R10,R10,R3,LSL #8		; point to space for cursors
+		MOVEQ	R0,R10				;
+		BEQ	noc$l				;
+
+		MOV	R0,R3,LSL #3			; allocate buffer for 1bpp data
+		BL	cache_alloc			;
+		BVS	err$l				;
+		MOV	R9,R0				;
+
+noc$l		MOV	R5,#0				; create cursors 0 - 5
+		MOV	R4,R0				;
+loop$l		MOV	R0,R5				;
+		BL	adb_create_sub			;
+		ADD	R4,R4,R3			;
+		ADD	R5,R5,#1			;
+		CMP	R5,#6				;
+		BLO	loop$l				;
+
+		MOV	R7,R3				; keep cbpc
+		LDR	R6,[R12,#buffer+nfh_null_glyph] ;
+		TEQ	R6,#0				;
+		BNE	load$l				;
+		MOV	R0,#3				; create the null glyph
+		BL	adb_create_sub			;
+		B	noload$l			;
+
+load$l		MOV	R0,#3				; read in the null glyph
+		MOV	R1,R11				;
+		MOV	R2,R4				;
+		MOV	R4,R6				;
+		SWI	XOS_GBPB			;
+		BVS	err$l				;
+
+noload$l	LDR	R0,[R12,#r_bpp]			; check whether to convert bpp
+		TEQ	R0,#0				;
+		TEQNE	R0,#5				;
+		BEQ	noconv$l			;
+
+		ADD	R1,R12,#buffer			;
+		ADD	R1,R1,#ff_charw			;
+		LDMIA	R1,{R7,R8}			; get width and height
+		MOV	R2,R7				;
+		MOV	R3,R8				;
+		BL	cached_char_size		; r2, r3 = cbpl, cbpc
+
+		ADD	R4,R12,#r_charw			; r_charw r_charh r_cbpl r_cbpc
+		STMIA	R4!,{R7,R8}			;
+		STMIB	R4,{R2,R3}			;
+		MOV	R7,R3				;
+
+		ADD	R10,R10,R3,LSL #8		; space for bitmaps
+		STR	R10,[R12,#r_caddr]		; convert them
+		MOV	R1,R12				;
+		MOV	R2,#0				;
+		MOV	R3,#6				;
+		MOV	R4,R9				;
+		BL	convert_bitmap			;
+		BVS	err$l
+
+		MOV	R0,R9				; free the 1bpp source
+		BL	cache_free			;
+
+noconv$l	MOV	R0,R10				; point to cursors
+		MOV	R1,#6				;
+		MLA	R1,R7,R1,R10			; and to null glyph
+		FNRTS					;
+
+err$l		MOV	R6,R0
+		MOVS	R0,R9
+		BLNE	cache_free
+		MOV	R0,R6
+		FNRTV
+
+
+		LOCAL
+
+
+; load glyphs from an old font file
+; E r1 = file handle,  buffer contains header
+; X r0 -> glyphs in 1bpp, with space for cursors  r5 = first  r6 = last  r7 = charw  r8 = charh
+load_old_font_file
+		FNJSR	"R10-R11"
+		MOV	R11,R1
+		MOV	R10,#0
+
+		LDR	R7,[R12,#buffer+ff_charw]	;
+		LDR	R8,[R12,#buffer+ff_charh]	;
+		MOV	R2,R7				;
+		MOV	R3,R8				;
+		MOV	R0,#0				; 1bpp
+		BL	cached_char_size		; r2, r3 = cbpl, cbpc
+
+		MOV	R0,R3,LSL #8			; 256 glyphs
+		ADD	R0,R0,R3,LSL #3			; 264 glyphs
+		BL	cache_alloc			; allocate mem for 1bpp
+		FNRTS	VS
+		MOV	R10,R0				; keep block
+
+		LDR	R5,[R12,#buffer+ff_firstchar]	;
+		LDR	R6,[R12,#buffer+ff_lastchar]	;
+
+		MLA	R2,R5,R3,R10			; get address of first char
+		MLA	R3,R6,R3,R10			; end of file
+		SUB	R3,R3,R2			; number of bytes to read
+		MOV	R0,#4				; read it
+		MOV	R1,R11				;
+		SWI	XOS_GBPB			;
+		MOVVC	R0,R10
+		FNRTS	VC
+
+		PUSH	"R0"
+		MOV	R0,R10
+		BL	cache_free
+		PULL	"R0"
+		FNRTV
+
+;		MOV	R2,#0				; create the control characters if missing
+;		LDR	R3,[R12,#buffer+ff_firstchar]	;
+;		TEQ	R2,R3				;
+;		MOVNE	R4,R10				;
+;		BLNE	add_vdu_bitmaps			;
+;		BVS	err$l				;
+;
+;		LDR	R0,[R12,#r_bpp]			; check whether it needs converting
+;		TEQ	R0,#0				;
+;		TEQNE	R0,#5				;
+;		MOVEQ	R0,R10				;
+;		FNRTS	EQ				;
+;
+;		LDR	R5,[R12,#buffer+ff_charw]	;
+;		LDR	R6,[R12,#buffer+ff_charh]	;
+;		MOV	R2,R5				;
+;		MOV	R3,R6				;
+;		BL	cached_char_size		; r2, r3 = cbpl, cbpc
+;
+;		ADD	R4,R12,#r_charw			; r_charw r_charh r_cbpl r_cbpc
+;		STMIA	R4!,{R5,R6}			;
+;		STMIB	R4,{R2,R3}			;
+;
+;		MOV	R0,R3,LSL #8			; claim block
+;		ADD	R0,R0,#4			;
+;		BL	cache_alloc			;
+;		MOVVC	R11,R0				;
+;		BVS	err$l				;
+;
+;		STR	R0,[R12,#r_caddr]		; convert them
+;		MOV	R1,R12				;
+;		MOV	R2,#0				;
+;		MOV	R3,#&FF				;
+;		MOV	R4,R10				;
+;		BL	convert_bitmap			;
+;		BVS	err$l
+;
+;		MOV	R0,R10				; free the 1bpp source
+;		BL	cache_free			;
+;		LDR	R0,[R12,#r_caddr]		; done
+;		FNRTS					;
+;
+; err$l		MOV	R9,R0
+;		MOVS	R0,R11
+;		BLNE	cache_free
+;		MOVS	R0,R10
+;		BLNE	cache_free
+;		MOV	R0,R9
+;		FNRTV
+
+; create a fake chunk directory for an old-style font
+; E r2 -> glyphs for this font, including cursors  r7 = charw  r8 = charh
+; X r0 -> font data block
+create_chunk_dir
+		FNJSR	"R2,R10"
+		MOV	R0,#fd_chunk_dir+cde_len+8	; create font data block
+		BL	cache_alloc			;
+		FNRTS	VS
+
+		MOV	R10,R0				;
+		MOV	R14,#0				;
+		STR	R14,[R0,#fd_chunk_dir+cde_num]	; create fake chunk directory
+		STR	R14,[R0,#fd_chunk_dir+cde_foff]	;
+		MOV	R14,#256			;
+		STR	R14,[R0,#fd_chunk_dir+cde_nglyphs]
+		STR	R2,[R0,#fd_chunk_dir+cde_data]	;
+		MOV	R14,#-1				;
+		STR	R14,[R0,#fd_chunk_dir+cde_len]	;
+
+		MOV	R2,R7				; sort out the other pointers
+		MOV	R3,R8				;
+		LDR	R0,[R12,#r_bpp]			;
+		BL	cached_char_size		;
+
+		LDR	R2,[R10,#fd_chunk_dir+cde_data]
+		ADD	R14,R2,R3,LSL #8		;
+		STR	R14,[R10,#fd_cursors]		;
+		ADD	R14,R14,R3,LSL #2		;
+		ADD	R14,R14,R3,LSL #1		;
+		STR	R14,[R10,#fd_null_glyph]	;
+		MOV	R0,R10				;
+		FNRTS					;
+
+		LOCAL
+
+; load a font file
 ; E r0 -> name
-; X r0 -> block holding font data for chars 0 - &105 at least in correct position
-;   r5 = lowest char  r6 = highest char
-; buffer contains the font file header  r1 preserved
-load_font_file  FNJSR	"R1,R7-R11"
+; X r0 -> block holding font data block for this substyle; cursors and null glyph added
+; chunk 0 loaded  buffer contains the font file header  r1 preserved
+load_font_file  FNJSR	"R1,R2,R5-R11"
 		MOV	R11,#0
 		MOV	R10,#0
 		BL	check_follow_link		; follow link if it is one
@@ -897,7 +1159,7 @@ load_font_file  FNJSR	"R1,R7-R11"
 
 		MOV	R11,R0				; keep handle
 
-		MOV	R0,#4
+		MOV	R0,#4				; load header
 		MOV	R1,R11
 		ADD	R2,R12,#buffer
 		MOV	R3,#ff_end
@@ -907,67 +1169,233 @@ load_font_file  FNJSR	"R1,R7-R11"
 		LDR	R0,[R12,#buffer]		; check it's a font
 		LDR	R1,font$l
 		TEQ	R0,R1
+		BEQ	oldf$l
+
+		LDR	R1,ufont$l
+		TEQ	R0,R1
 		ADRNE	R14,err$l
 		BNE	notfont$l
 		ADRNE	R0,notfont$l
 		BLNE	messages_error			; sets V
 		BVS	err$l
 
-		ADDVC	R1,R12,#buffer ;+ff_charw
-		ADDVC	R1,R1,#ff_charw
-		LDMVCIA	R1,{R2,R3}			; get width and height
-		MOVVC	R0,#0				; log2 bpp
-		BLVC	cached_char_size		; get cache size per char in r3
-		BVS	err$l
+		; new style font
+		LDR	R9,[R12,#buffer+nfh_chunk_dir_size]
+		ADD	R0,R9,#fd_chunk_dir+8
+		BL	cache_alloc
+		MOVVC	R10,R0
 
-		MOV	R8,R3
-;		LDR	R1,[R12,#buffer+ff_lastchar]
-		ADD	R2,R12,#buffer
-		LDR	R1,[R2,#ff_lastchar]
-		MOV	R2,#&108
-;		ADD	R2,R2,#6
-		CMP	R1,R2				; cache from 0 - &105 minimum
-		MOVLO	R1,R2
-		MUL	R7,R1,R3			; get cache size
-		ADD	R0,R7,#4
-		BL	cache_alloc			; allocate mem for 1bpp
-		MOVVC	R10,R0				; keep block
+		MOVVC	R0,#0				; no cursors yet
+		STRVC	R0,[R10,#fd_cursors]		;
 
-		ADDVC	R0,R12,#buffer ;+ff_firstchar
-		ADDVC	R0,R0,#ff_firstchar
-		LDMVCIA	R0,{R5,R6}
+		MOVVC	R0,#3				; load chunk directory
+		MOVVC	R1,R11				;
+		ADDVC	R2,R10,#fd_chunk_dir		;
+		MOVVC	R3,R9				;
+		MOVVC	R4,#nfh_chunk_dir		;
+		SWIVC	XOS_GBPB			;
+							;
+		MOVVC	R0,#-1				; terminate it
+		ADDVC	R1,R10,R9			;
+		STRVC	R0,[R1,#fd_chunk_dir]		;
 
-		MLAVC	R2,R5,R8,R10			; get address of first char
-		MLAVC	R3,R6,R8,R10			; end of file
-		SUBVC	R3,R3,R2			; number of bytes to read
-		MOVVC	R0,#4
-		MOVVC	R1,R11
-		SWIVC	XOS_GBPB
+		ADDVC	R0,R10,#fd_chunk_dir		; load chunk 0
+		MOVVC	R1,R11				;
+		ADDVC	R2,R12,#buffer+nfh_charw	;
+		BLVC	load_chunk_given_handle		;
 
-		MOVVC	R0,#0
-		MOVVC	R1,R11
-		SWIVC	XOS_Find
+		MOVVC	R1,R11				;
+		BLVC	create_cursors			; create the cursors and null glyph
+		STRVC	R0,[R10,#fd_cursors]		;
+		STRVC	R1,[R10,#fd_null_glyph]		;
 
-		MOVVC	R0,R10
-		FNRTS	VC
+loaded$l	MOVVC	R0,#0				; close the file
+		MOVVC	R1,R11				;
+		SWIVC	XOS_Find			;
 
-err$l		PUSH	"R0"
-		MOV	R0,#0
-		ADDS	R1,R11,#0			; clv
-		SWINE	XOS_Find
+		MOVVC	R0,R10				; done
+		FNRTS	VC				;
 
-		ADDS	R0,R10,#0			; clv
+err$l		MOV	R9,R0
+		MOVS	R0,R10
+		BLNE	free_substyle_data
+		B	gerr$l
+
+		; old style font
+oldf$l		MOV	R10,#0
+		MOV	R1,R11				; load the glyphs
+		BL	load_old_font_file		;
+		MOVVC	R10,R0
+		BLVC	check_font_range		; add the cursors
+		BLVC	convert_font			; convert bpp
+		MOVVC	R10,R2				;
+		BLVC	create_chunk_dir		; create the chunk dir / font data block
+		MOVVC	R10,R0
+		BVC	loaded$l
+
+oerr$l		MOV	R9,R0
+		MOVS	R0,R10
 		BLNE	cache_free
 
-		PULL	"R0"
+gerr$l		MOV	R0,#0
+		ADDS	R1,R11,#0
+		SWINE	XOS_Find
+
+		MOV	R0,R9
 		FNRTV
 
 font$l		= "ZapF"
+ufont$l		= "ZRUF"
 
 notfont$l	ERRTOK	err_notfont,"NotFont"
 
 		LOCAL
 
+
+; load a font file chunk
+; E r0 -> chunk directory entry  r1 = font file handle  r2 -> charw, charh
+; X r0 -> glyph data
+load_chunk_given_handle
+		FNJSR	"R1,R6-R11"
+		MOV	R11,R0
+		MOV	R10,R1
+		MOV	R9,R2
+		MOV	R8,#0
+		MOV	R6,#0
+
+		;PUSH	"R0-R6"
+		;MOV	R0,#7
+		;SUB	R13,R13,#256
+		;MOV	R2,R13
+		;MOV	R5,#240
+		;SWI	XOS_Args
+		;DEBUGF	"loading chunk from %2s"
+		;ADD	R13,R13,#256
+		;PULL	"R0-R6"
+		;
+		;PUSH	"R5-R11"
+		;LDMIA	R0,{R5-R8}
+		;LDMIA	R2,{R9,R10}
+		;DEBUGF	"r0 -> %5x %6x %7x %8x"
+		;DEBUGF	"r2 -> %9d %10d"
+		;PULL	"R5-R11"
+
+		LDMIA	R2,{R2,R3}			;
+		MOV	R0,#0				;
+		BL	cached_char_size		; r2, r3 = cbpl, cbpc
+		LDR	R1,[R11,#cde_nglyphs]		; load number of glyphs
+		MUL	R7,R1,R3			; size
+		TEQ	R1,#256				;
+		ADDNE	R7,R7,#256			; add on the translation table if present
+		MOV	R0,R7				;
+		LDR	R2,[R11,#cde_num]		; add on space for cursors if chunk 0
+		TEQ	R2,#0				;
+		ADDEQ	R0,R0,R3,LSL #3			;
+		BL	cache_alloc			;
+		MOVVC	R6,R0				;
+
+		MOVVC	R0,#3				; load the data
+		MOVVC	R1,R10				;
+		MOVVC	R2,R6				;
+		MOVVC	R3,R7				;
+		LDRVC	R4,[R11,#cde_foff]		;
+		SWIVC	XOS_GBPB			;
+		BVS	err$l				;
+
+		LDR	R0,[R12,#r_bpp]			; check whether it needs converting
+		TEQ	R0,#0				;
+		TEQNE	R0,#5				;
+		STREQ	R6,[R11,#cde_data]		;
+		MOVEQ	R0,R6				;
+		FNRTS	EQ				;
+
+		LDMIA	R9,{R2,R3}			; set up the redraw block
+		STR	R2,[R12,#r_charw]		;
+		STR	R3,[R12,#r_charh]		;
+		BL	cached_char_size		;
+		STR	R2,[R12,#r_cbpl]		;
+		STR	R3,[R12,#r_cbpc]		;
+
+		LDR	R1,[R11,#cde_nglyphs]		; load number of glyphs
+		MUL	R0,R1,R3			; size
+		TEQ	R1,#256				;
+		ADDNE	R0,R0,#256			; add on the translation table if present
+		LDR	R2,[R11,#cde_num]		; add on space for cursors if chunk 0
+		TEQ	R2,#0				;
+		ADDEQ	R0,R0,R3,LSL #3			;
+		BL	cache_alloc			;
+		MOVVC	R8,R0				;
+		BVS	err$l				;
+
+		TEQ	R1,#256				;
+		BEQ	convert$l			;
+		MOV	R1,R6				; copy the translation table across
+		MOV	R2,R8				;
+		MOV	R3,#256				;
+		BL	move_bytes			;
+		ADD	R0,R8,#256			;
+
+convert$l	STR	R0,[R12,#r_caddr]		; convert them
+		MOV	R1,R12				;
+		MOV	R2,#0				;
+		LDR	R3,[R11,#cde_nglyphs]		;
+		SUB	R3,R3,#1			; it's inclusive!
+		MOV	R4,R6				;
+		TEQ	R3,#255				;
+		ADDNE	R4,R4,#256			;
+		BL	convert_bitmap			;
+		BVS	err$l				;
+
+		MOV	R0,R6				; free the 1bpp source
+		BL	cache_free			;
+
+		MOV	R0,R8				; done
+		STR	R8,[R11,#cde_data]		;
+		FNRTS					;
+
+err$l		MOV	R7,R0
+		MOVS	R0,R8
+		BLNE	cache_free
+		MOVS	R0,R6
+		BLNE	cache_free
+		MOV	R0,R7
+		FNRTV
+
+
+; load a chunk given its filename
+; E r0 -> filename  r1 -> chunk directory entry  r2 -> charw, charh
+; X r0 -> glyph data
+load_chunk_given_name
+		FNJSR	"R10,R11"
+		MOV	R11,R1
+		MOV	R10,R2
+
+		BL	check_follow_link		; follow link if it is one
+		MOV	R1,R0
+		MOV	R0,#&4D
+		ADRL	R2,fonts_path
+		SWI	XOS_Find
+		ADD	R2,R0,#4
+		FNPULL	VS
+		MOVVS	R4,R1				; get filename
+		BVS	error_notfound
+
+		MOV	R1,R0				; load the chunk
+		MOV	R0,R11				;
+		MOV	R2,R10				;
+		BL	load_chunk_given_handle		;
+		MOVVC	R11,#0				;
+		MOVVS	R11,R0				;
+
+		MOV	R0,#0				; close the file
+		SWI	XOS_Find
+
+		MOVS	R0,R11
+		FNRTS	EQ
+		FNRTV
+
+
+		LOCAL
 
 ; canonicalise a font name, and remove substyle letters
 ; ie return base name that a handle refers to
@@ -1185,7 +1613,11 @@ loop$l		ADR	R8,masks$l
 		ADD	R7,R7,#1
 		B	loop$l
 
-none$l		MOV	R2,#0				; couldn't find any
+none$l		MOV	R2,#'0'
+		STRB	R2,[R1],#1
+		MOV	R2,#0				; couldn't find any
+		STRB	R2,[R1]
+		ADD	R0,R12,#buffer			; assume 0 file exists
 		FNRTS
 
 masks$l		=	15				; mask bytes - these define the
@@ -1202,7 +1634,7 @@ masks$l		=	15				; mask bytes - these define the
 ; E r1 -> font block
 ; X
 install_base_font
-		FNJSR	"R1-R6,R10-R11"
+		FNJSR	"R1-R8,R10-R11"
 		MOV	R10,#0				; for err$l
 		MOV	R11,R1
 
@@ -1218,25 +1650,34 @@ install_base_font
 		BNE	nostyles$l			; nope - carry on
 
 		; cache system font
-system$l	MOV	R2,#8
-		STR	R2,[R11,#fb_charw]
-		STR	R2,[R11,#fb_charh]
+system$l	MOV	R7,#8
+		MOV	R8,#8
+		STR	R7,[R11,#fb_charw]
+		STR	R8,[R11,#fb_charh]
 
-		MOV	R0,#&100<<3			; size for 1bpp
-		ADD	R0,R0,#&6<<3
+		MOV	R0,#&108<<3			; size for 1bpp
 		BL	cache_alloc
 		BVS	err$l
 
 		MOV	R10,R0
-		MOV	R1,R12				; get fake redraw block
-		BL	read_system_chars		; for r_workarea
+		BL	read_system_chars
 		BVS	err$l
 
 		MOV	R0,R10
 		MOV	R5,#&20				; 1st and last chars
 		MOV	R6,#&FF				;
-		B	fromsystem$l
 
+		BL	check_font_range		; add vdu bitmaps
+		BLVC	convert_font			; convert bpp
+		MOVVC	R10,R2
+		BLVC	create_chunk_dir		; create fake chunk directory
+		STRVC	R0,[R11,#fb_data]
+		MOVVC	R2,R7
+		MOVVC	R3,R8
+		BVC	fromsystem$l
+		B	err$l
+
+		; cache a font file
 styles$l	ADD	R1,R12,#buffer
 		LDR	R2,[R11,#fb_name]
 		BL	strcpy
@@ -1249,47 +1690,21 @@ styles$l	ADD	R1,R12,#buffer
 		ADD	R0,R12,#buffer
 
 nostyles$l	BL	load_font_file
-		FNRTS	VS
+		BVS	err$l
+		STR	R0,[R11,#fb_data]		; store in font block
 		MOV	R10,R0				; keep bitmap block
 
-		ADD	R0,R12,#buffer ;+ff_charw
-		ADD	R0,R0,#ff_charw
-		LDMIA	R0,{R1-R2}
-		ADD	R0,R11,#fb_charw		; update font block
-		STMIA	R0,{R1-R2}
+		LDR	R2,[R12,#buffer+ff_charw]
+		LDR	R3,[R12,#buffer+ff_charh]
 
-fromsystem$l	MOV	R1,R11
-		MOV	R0,R10
-		BL	check_font_range		; add vdu characters
+		; fill in the font block
+fromsystem$l	ADD	R0,R11,#fb_charw
+		STMIA	R0,{R2,R3}
 
 		LDR	R0,[R12,#r_bpp]			; update fb_cbpl and fb_cbpc
-		TEQ	R0,#5
-		MOVEQ	R0,#0
-		ADD	R1,R11,#fb_charw
-		LDMIA	R1,{R2,R3}
-		BL	cached_char_size
-		ADD	R1,R11,#fb_cbpl
-		STMIA	R1,{R2,R3}
-
-;		PUSH	"R0-R4"
-;		LDR	R0,[R11,#fb_cbpc]
-;		ADD	R1,R12,#buffer
-;		ADD	R1,R1,#128
-;		MOV	R2,#128
-;		SWI	XOS_ConvertHex8
-;		SWI	XOS_Write0
-;		SWI	XOS_NewLine
-;		PULL	"R0-R4"
-
-		MOV	R1,R11
-		MOV	R0,R10				; source block
-		BL	convert_font			; convert to manybpp
-		BVS	err$l
-
-		STR	R2,[R11,#fb_data]		; store in font block
-
-		TEQ	R0,R2
-		BLNE	cache_free			; free 1bpp block
+		BL	cached_char_size		;
+		ADD	R1,R11,#fb_cbpl			;
+		STMIA	R1,{R2,R3}			;
 
 		LDR	R0,[R11,#fb_flags]
 		TST	R0,#ff_ssallowed		; substyles allowed?
@@ -1304,13 +1719,10 @@ cloop$l		STR	R0,[R1],#4
 		FNRTS
 
 err$l		PUSH	"R0"
-		TEQ	R2,#0
+		ADDS	R0,R10,#0			; free block if there  (clv)
 		BLNE	cache_free
-		ADDS	R0,R10,#0			; free 1bpp block if there  (clv)
-		BLNE	cache_free
-;		BL	cache_compact
 		PULL	"R0"
-		FNRTS
+		FNRTV
 
 		LOCAL
 
@@ -1320,8 +1732,8 @@ err$l		PUSH	"R0"
 ;   r0 b0 set for manybpp dsavdu font (DSAVDU mode)
 ;   r1 -> redraw block
 ;   r2 -> font block
-; X r0 -> cached data for this substyle
-install_font	FNJSR	"R1,R4-R7,R10,R11"
+; X r0 -> bitmaps for this substyle
+install_font	FNJSR	"R1,R4-R11"
 		LDR	R4,[R2,#fb_flags]
 		TST	R4,#ff_vdu			; VDU font in DSA mode
 		BNE	dsavdu$l
@@ -1333,45 +1745,51 @@ install_font	FNJSR	"R1,R4-R7,R10,R11"
 		LDR	R5,[R5,R2,LSL #2]		; load closest style present
 		CMP	R5,#0				; already cached?
 		CMPNE	R5,#-1
-		MOVNE	R0,#0				; mark no 1bpp block
-		BNE	none$l				; yes - use that
+		MOVNE	R0,R5				; yes - use that
+		BNE	none$l
 
 		BL	load_font_file			; load file
-		BLVC	check_font_range		; add vdu chars
-		BLVC	convert_font			; convert
 		; if error occurs - whether from a corrupt font file, or out of memory
-		; etc, we can't use this font in any case. Default to the base style.
+		; etc, we can't use this font in any case. Default to the closest style.
 		; (this also ensures we never get asked to load it again)
-		MOVVC	R5,R2
-		LDRVS	R5,[R1,#fb_data]
-		MOVVS	R0,#0
-
-		TEQ	R0,R2				; don't free the 1bpp block if
-		MOVEQ	R0,#0				; we're in a 1bpp mode
+		ADDVS	R0,R1,#fb_data
+		LDRVS	R0,[R0,R2,LSL #2]		; load closest style present
 
 none$l		ADD	R1,R1,#fb_data			; store pointer in all blocks
 		MOV	R2,#substyles-1
 loop$l		LDR	R3,[R1,R2,LSL #2]
 		CMP	R3,#-1
-		STREQ	R5,[R1,R2,LSL #2]
+		STREQ	R0,[R1,R2,LSL #2]
 		SUBS	R2,R2,#1
 		BNE	loop$l				; don't worry about base style
 
-		MOVS	R0,R0
-		BLNE	cache_free			; free 1bpp
-
-		MOV	R0,R5				; -> data
+		LDR	R1,[R13]
+		LDR	R3,[R1,#r_workarea]
+		BL	find_chunk			; get the bitmaps
+		TEQ	R0,#0
+		STREQ	R0,[R3,#a_tx_table]
+		FNRTS	EQ				; return R0 = 0 if not defined
+		LDR	R2,[R0,#cde_nglyphs]
+		TEQ	R2,#256				; sort out the translation table
+		LDR	R0,[R0,#cde_data]
+		MOVEQ	R2,#0
+		STREQ	R2,[R3,#a_tx_table]
+		STRNE	R0,[R3,#a_tx_table]
+		ADDNE	R0,R0,#256
 		FNRTS
 
 ; VDU font in DSA mode. Convert the font from an outline to a bitmap.
 dsavdu$l	MOV	R11,R2
 		AND	R10,R0,#1			; keep 1bpp flag
 
-		LDR	R7,[R12,#r_bpp]			; keep global bpp
+		LDR	R9,[R12,#r_bpp]			; keep global bpp
 
 		LDR	R0,[R1,#r_bpp]			; setup fb_bpp
-		STR	R0,[R2,#fb_bpp]
+		STR	R0,[R11,#fb_bpp]
 		STR	R0,[R12,#r_bpp]
+
+		LDR	R7,[R11,#fb_charw]
+		LDR	R8,[R11,#fb_charh]
 
 		LDR	R0,[R2,#fb_1bcache]
 		MOVS	R0,R0
@@ -1380,38 +1798,44 @@ dsavdu$l	MOV	R11,R2
 		MOV	R0,#2				; generate 1bpp
 		BL	dsavdu_convert
 
-		MOVVC	R1,R11
 		MOVVC	R5,#0				; first and last chars already cached
 		MOVVC	R6,#255				;
 		BLVC	check_font_range		; add cursors
-		LDR	R2,[R1,#r_bpp]			; setup fb_bpp
+		LDRVC	R2,[R1,#r_bpp]			; setup fb_bpp
 		ORRVC	R2,R2,#1<<31
 		STRVC	R2,[R12,#r_bpp]
 		BLVC	do_convert_font			; convert to current bpp
-		STR	R7,[R12,#r_bpp]			; restore global bpp
-		STRVC	R2,[R11,#fb_1bcache]
-		FNRTS	VS
+		BLVC	create_chunk_dir
+		STR	R9,[R12,#r_bpp]
+		BVS	err$l
+		STR	R0,[R11,#fb_1bcache]
+		LDR	R0,[R0,#fd_chunk_dir+cde_data]	; get bitmaps
 
-		MOV	R11,R2
-		BL	cache_free			; free the 1bpp source
-
-		MOV	R0,R11
-have1bpp$l	STR	R7,[R12,#r_bpp]			; restore global bpp
-		TST	R10,#1
+have1bpp$l	TST	R10,#1
+		STREQ	R9,[R12,#r_bpp]			; restore global bpp
 		FNRTS	EQ				; we wanted 1bpp bitmaps
 
 		MOV	R0,#1
+		MOV	R2,R11
 		BL	dsavdu_convert
 
+		LDRVC	R2,[R1,#r_bpp]			; setup fb_bpp
+		ORRVC	R2,R2,#1<<31
+		STRVC	R2,[R12,#r_bpp]
+		MOVVC	R2,R0
+		BLVC	create_chunk_dir
+		STR	R9,[R12,#r_bpp]			; restore global bpp
 		STRVC	R0,[R11,#fb_aacache]
 		LDRVC	R1,[R11,#fb_1bcache]
+		LDRVC	R1,[R1,#fd_chunk_dir+cde_data]
 		LDRVC	R3,[R11,#fb_cbpc]
 		ADDVC	R1,R1,R3,LSL #8			; copy cursor characters
-		ADDVC	R2,R0,R3,LSL #8
+		ADDVC	R2,R2,R3,LSL #8
 		RSBVC	R3,R3,R3,LSL #3			; copy 7 chars
-		FNRTS	VS
-		BL	move_bytes
-		LDR	R0,[R11,#fb_aacache]
+		BLVC	move_bytes
+		LDRVC	R0,[R11,#fb_aacache]
+		LDRVC	R0,[R0,#fd_chunk_dir+cde_data]	; get bitmaps
+		FNRTS
 
 ; what to do? We can't return errors from here, but we have no font data to draw.
 ; panic instead.
@@ -1440,6 +1864,44 @@ done$l		STR	R11,[R12,#r_bpp]
 		LOCAL
 
 
+; find a chunk, loading it if necessary
+; E r0 -> font data block  r1 -> redraw block containing chunk number & handle
+; X r0 -> chunk directory entry, glyphs loaded / 0 if chunk not defined
+find_chunk	FNJSR	"R1-R3"
+		LDR	R3,[R1,#r_workarea]
+		LDR	R3,[R3,#a_chunk]
+		ADD	R0,R0,#fd_chunk_dir		; TODO: make binary search
+loop$l		LDR	R2,[R0,#cde_num]
+		CMP	R2,R3
+		ADDLO	R0,R0,#cde_len
+		BLO	loop$l
+		MOVHI	R0,#0
+		FNRTS	HI
+		LDR	R3,[R0,#cde_data]
+		TEQ	R3,#0
+		FNRTS	NE
+
+		; load the chunk
+		PUSH	"R11"
+		MOV	R11,R0				; keep cde
+
+		LDR	R0,[R1,#r_caddr]		; get handle
+		ADD	R1,R12,#font_handles-4
+		MOV	R3,R0,LSR #8
+		LDR	R1,[R1,R3,LSL #2]		; get font block
+		BL	add_font_suffix
+
+		ADDVC	R2,R1,#fb_charw			; load the chunk
+		MOVVC	R1,R11				;
+		BLVC	load_chunk_given_name		;
+
+		MOVVC	R0,R11
+		PULL	"R11"
+		FNRTS
+
+
+		LOCAL
+
 ; convert the bitmaps for a dsavdu font
 ; 1bpp bitmaps are not expanded
 ; E r0 = mode (1 = real bpp, 2 = 1bpp)  r2 -> font block
@@ -1463,7 +1925,7 @@ dsavdu_convert	FNJSR	"R1-R11"
 		STR	R3,[R12,#r_cbpc]		; than the ones in the font block
 		MOV	R10,R3				; keep cbpc
 
-		MOV	R0,#&108			; 106, but 108 is a legal constant
+		MOV	R0,#&108
 		MUL	R0,R3,R0
 		BL	cache_alloc
 		BVS	err$l
@@ -1737,8 +2199,10 @@ nobottom$l	STR	R0,[R1,#4]			; store pointer to next block
 		MOV	PC,R14
 
 		[ |zap$| = "ZapX"
-bad$l		MOV	R0,R14
-		DEBUG	R0
+bad$l		ADRL	R1,Module_header
+		SUB	R1,R14,R1
+		DEBUGF	"Bad free of %0x by %14x (off %1x)"
+		BEEP
 		MOV	PC,R14
 		]
 
@@ -1797,7 +2261,7 @@ loop$l		LDMIA	R11,{R0,R4}			; r0 = size  r4 -> next
 		BL	correct_pointers
 		BL	move_bytes
 
-;		SWI	XOS_NewLine			;
+;		 SWI	XOS_NewLine			;
 
 		B	loop$l
 
@@ -1835,7 +2299,8 @@ correct_pointers
 loop$l		LDR	R0,[R4,#4]!			; must leave r4 pointing to pointer
 		BL	check_pointer
 
-		BL	correct_font_block
+		CMP	R0,#0
+		BLNE	correct_font_block
 
 		SUBS	R5,R5,#1
 		BNE	loop$l
@@ -1850,24 +2315,47 @@ loop$l		LDR	R0,[R4,#4]!			; must leave r4 pointing to pointer
 ; X pointers corrected
 correct_font_block
 		FNJSR	"R4-R5"
+		ADD	R4,R0,#fb_name
+		BL	check_pointer
+
 		LDR	R5,[R0,#fb_flags]
 		TST	R5,#ff_vdu
 		MOVEQ	R5,#substyles			; VDU fonts only have 2 'substyles' -
 		MOVNE	R5,#2				; antialiased and not
-		ADD	R4,R0,#fb_data
+		ADD	R4,R0,#fb_data-4
 
-loop$l		BL	check_pointer			; we needn't explicitly check for
-		ADD	R4,R4,#4			; 0 or -1 since these always fall
-		SUBS	R5,R5,#1			; outside the moving range
-		BNE	loop$l
-
-		ADD	R4,R0,#fb_name
+loop$l		LDR	R0,[R4,#4]!
 		BL	check_pointer
-
+		CMP	R0,#0
+		CMPNE	R0,#-1
+		BLNE	correct_font_data
+		SUBS	R5,R5,#1
+		BNE	loop$l
 		FNRTS
+
 
 		LOCAL
 
+; check pointers in font data block
+; E r0 -> font data  r1-r3 as above
+; X pointers corrected
+correct_font_data
+		FNJSR	"R4"
+		ADD	R4,R0,#fd_null_glyph
+		BL	check_pointer
+		ADD	R4,R0,#fd_cursors
+		BL	check_pointer
+
+		ADD	R0,R0,#fd_chunk_dir
+loop$l		LDR	R4,[R0],#cde_len
+		CMP	R4,#-1
+		FNRTS	EQ
+		ADD	R4,R0,#cde_data-cde_len
+		BL	check_pointer
+		B	loop$l
+
+
+		LOCAL
 
 ; correct one pointer
 ; E r1-r3 as above   r4 -> pointer
@@ -1877,30 +2365,30 @@ check_pointer	FNJSR	"R0"
 		LDR	R0,[R4]
 		CMP	R0,R1
 		CMPHS	R14,R0
-;		FNRTS	LO
-
-;		PUSH	"R0-R2"
-;		ADD	R1,R12,#buffer
-;		MOV	R2,#256
-;		SWI	XOS_ConvertHex8
-;		SWI	XOS_Write0
-;		SWI	&120
-;		SWI	&12D				; -
-;		SWI	&13E				; >
-;		SWI	&120
-;		PULL	"R0-R2"
+;		 FNRTS	LO
+;
+;		 PUSH	"R0-R2"
+;		 ADD	R1,R12,#buffer
+;		 MOV	R2,#256
+;		 SWI	XOS_ConvertHex8
+;		 SWI	XOS_Write0
+;		 SWI	&120
+;		 SWI	&12D				; -
+;		 SWI	&13E				; >
+;		 SWI	&120
+;		 PULL	"R0-R2"
 
 		SUBHS	R14,R1,R2  ; HS
 		SUBHS	R0,R0,R14
 		STRHS	R0,[R4]
 
-;		PUSH	"R0-R2"
-;		ADD	R1,R12,#buffer
-;		MOV	R2,#256
-;		SWI	XOS_ConvertHex8
-;		SWI	XOS_Write0
-;		SWI	XOS_NewLine
-;		PULL	"R0-R2"
+;		 PUSH	"R0-R2"
+;		 ADD	R1,R12,#buffer
+;		 MOV	R2,#256
+;		 SWI	XOS_ConvertHex8
+;		 SWI	XOS_Write0
+;		 SWI	XOS_NewLine
+;		 PULL	"R0-R2"
 
 		FNRTS
 
@@ -1916,37 +2404,9 @@ check_pointer	FNJSR	"R0"
 ; handle_to_redraw first, and this one is called very frequently
 
 ; convert a 16 bit font handle into a cache address (intall fonts if necessary)
-; called if we don't yet know colour masks (assumes 1bpp in dsavdu mode)
-; E r0 = handle  r1 -> redraw block  (no r12)
-; X r0 -> cache ( = real caddr)  all others preserved
-handle_to_caddr	FNJSR	"R2-R3,R12"
-		BL	get_r12
-		ADD	R2,R12,#font_handles-4
-		MOV	R3,R0,LSR #8
-		LDR	R2,[R2,R3,LSL #2]		; get font block
-		LDR	R3,[R2,#fb_flags]
-		TST	R3,#ff_vdu
-		MOVNE	R0,#0				; assume 1bpp if dsavdu mode
-		AND	R3,R0,#1			; get substyles
-		ORR	R3,R3,R0,LSR #4
-		AND	R3,R3,#&0F
-		ADD	R3,R2,R3,LSL #2
-		LDR	R3,[R3,#fb_data]
-		TEQ	R3,#0
-		MOVNE	R0,R3
-		FNRTS	NE
-
-		; font not cached yet.
-		BL	install_font
-		FNRTS
-
-
-; convert a 16 bit font handle into a cache address (intall fonts if necessary)
-; called when we know colours, decides whether to use aa of not
 ; E r0 = handle  r1 -> redraw block  (no r12)  r10/r11 = for/bac colour masks
 ; X r0 -> cache ( = real caddr)  all others preserved
-handle_to_caddr_c
-		FNJSR	"R2-R3,R12"
+handle_to_caddr FNJSR	"R2-R3,R12"
 		BL	get_r12
 		ADD	R2,R12,#font_handles-4
 		MOV	R3,R0,LSR #8
@@ -1960,11 +2420,28 @@ handle_to_caddr_c
 		ADD	R3,R2,R3,LSL #2
 		LDR	R3,[R3,#fb_data]
 		TEQ	R3,#0
-		MOVNE	R0,R3
-		FNRTS	NE
+		BEQ	load$l
+
+		MOV	R0,R3
+		LDR	R3,[R1,#r_workarea]		; keep the null glyph
+		LDR	R2,[R0,#fd_null_glyph]		;
+		STR	R2,[R3,#a_null_glyph]		;
+
+		BL	find_chunk
+		TEQ	R0,#0
+		STREQ	R0,[R3,#a_tx_table]
+		FNRTS	EQ				; return R0 = 0 if not defined
+		LDR	R2,[R0,#cde_nglyphs]
+		TEQ	R2,#256				; sort out the translation table
+		LDR	R0,[R0,#cde_data]
+		MOVEQ	R2,#0
+		STREQ	R2,[R3,#a_tx_table]
+		STRNE	R0,[R3,#a_tx_table]
+		ADDNE	R0,R0,#256
+		FNRTS
 
 		; font not cached yet.
-		BL	install_font
+load$l		BL	install_font
 		FNRTS
 
 
@@ -2062,6 +2539,81 @@ allwrong$l	FNPULL
 		LOCAL
 
 
+; return the bitmap for a given character
+; E r3 -> next character  r4 = offset caddr
+; X if redraw_control_code returns +ve
+;      r2 -> bitmap  r0 corrupt  others updated by redraw_control_code
+;   else
+;      all regs as returned by redraw_control_code
+get_bitmap	FNJSR
+		LDRB	R0,[R3],#1			; get the character
+		TEQ	R0,#0
+		BLEQ	redraw_control_code		; deal with control codes
+		CMP	R0,#0
+		FNRTS	MI
+
+		LDR	R14,[R1,#r_workarea]
+		LDR	R2,[R14,#a_tx_table]		; perform the translation
+		CMP	R2,#0
+		LDRNEB	R0,[R2,R0]
+		SUBNES	R0,R0,#1
+		BMI	null$l
+
+		CMP	R4,#&8000			; check if chunk present
+		LDRHS	R2,[R1,#r_cbpc]
+		MLAHS	R2,R0,R2,R4			; ok
+		FNRTS	HS
+
+null$l		LDR	R2,[R14,#a_null_glyph]
+		LDR	R14,[R14,#a_loff]
+		ADD	R2,R2,R14
+		MOV	R0,#0
+		FNRTS
+
+		LOCAL
+
+
+; return the bitmap for a given cursor
+; E r3 -> next character  r4 = offset caddr
+; X if redraw_control_code returns +ve
+;      r2 -> bitmap / 0 for 7F  r0 corrupt  others updated by redraw_control_code
+;   else
+;      all regs as returned by redraw_control_code
+get_cursor_bitmap
+		FNJSR	"R12"
+		LDRB	R0,[R3],#1			; get the character
+		TEQ	R0,#0
+		BLEQ	redraw_control_code		; deal with control codes
+		CMP	R0,#0
+		FNRTS	MI
+
+		AND	R0,R0,#&FF			; check for inverting cursor
+		CMP	R0,#6				;
+		MOVHS	R2,#0				;
+		FNRTS	HS				;
+
+		LDR	R14,[R1,#r_caddr]		; check for handles
+		CMP	R14,#&8000			;
+		MOVHS	R2,R4				;
+
+		BLLO	get_r12				;
+		LDRLO	R14,[R1,#r_caddr]		;
+		ADDLO	R2,R12,#font_handles-4		;
+		MOVLO	R14,R14,LSR #8			;
+		LDRLO	R2,[R2,R14,LSL #2]		; get font block
+		LDRLO	R2,[R2,#fb_data]		; base substyle
+		LDRLO	R2,[R2,#fd_cursors]		; cursors
+
+		LDR	R14,[R1,#r_cbpc]
+		MLA	R2,R0,R14,R2
+		LDR	R14,[R1,#r_workarea]
+		LDR	R14,[R14,#a_loff]
+		ADD	R2,R2,R14
+		FNRTS
+
+		LOCAL
+
+
 ; ensure we have workarea for DSA mode
 ; E r1 -> redraw block
 ; X block updated
@@ -2074,7 +2626,7 @@ check_dsa_workarea
 		LDR	R0,[R1,#r_caddr]
 		BL	get_font_block
 		LDRVC	R0,[R2,#fb_cbpl]
-		ADDVC	R0,R0,#a_topofvars
+		ADDVC	R0,R0,#a_dsa_top
 		BLVC	cache_alloc
 		STRVC	R0,[R1,#r_workarea]
 		LDRVC	R0,[R1,#r_flags]		; flag we've done it

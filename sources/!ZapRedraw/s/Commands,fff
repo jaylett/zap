@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.6 2003/08/26 00:26:55 christian Exp $
+; $Id: Commands,fff,v 1.7 2004/03/29 16:12:02 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -467,6 +467,14 @@ hex8		FNJSR
 		SWIVC	XOS_NewLine
 		FNRTS
 
+hex8c		FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20120
+		FNRTS
+
 filesize	FNJSR
 		ADD	R1,R12,#buffer
 		MOV	R2,#256
@@ -635,15 +643,23 @@ vdu$l		SWI	XOS_WriteS
 		SWI	XOS_WriteS
 		= "   aa cache:   ",0
 		ALIGN
-		LDRVC	R0,[R11,#fb_aacache]
+		LDRVC	R8,[R11,#fb_aacache]
+		MOVVC	R0,R8
 		BLVC	hex8
+		FNRTS	VS
+		MOVS	R0,R8
+		BLNE	doss$l
 		FNRTS	VS
 
 		SWI	XOS_WriteS
 		= "   1bpp cache: ",0
 		ALIGN
-		LDRVC	R0,[R11,#fb_1bcache]
+		LDRVC	R8,[R11,#fb_1bcache]
+		MOVVC	R0,R8
 		BLVC	hex8
+		FNRTS	VS
+		MOVS	R0,R8
+		BLNE	doss$l
 		FNRTS	VS
 
 		SWI	XOS_WriteS
@@ -675,19 +691,13 @@ vdu$l		SWI	XOS_WriteS
 
 		FNRTS
 
-
+		; dump substyle in R10
 ss$l		FNJSR
 		MOV	R9,#38
 		SWI	XOS_WriteS
 		= "       ",0
-		FNRTS	VS
-		TEQ	R10,#0
-		BNE	not0$l
-
-		SUB	R9,R9,#5
-		SWI	XOS_WriteS
-		= "base ",0
 		ALIGN
+		BLVC	print_ss
 		FNRTS	VS
 saddr$l		MOV	R0,#' '
 saloop$l	SWI	XOS_WriteC
@@ -695,7 +705,77 @@ saloop$l	SWI	XOS_WriteC
 		SUBS	R9,R9,#1
 		BNE	saloop$l
 		LDR	R0,[R11,R10,LSL #2]
+		BL	hex8c
+
+		LDR	R8,[R11,R10,LSL #2]
+		MOV	R0,#0
+clop$l		CMP	R0,R10
+		FNPULL	HS
+		BHS	doss$l
+		LDR	R1,[R11,R0,LSL #2]
+		CMP	R1,R8
+		BEQ	csame$l
+		ADD	R0,R0,#1
+		B	clop$l
+
+csame$l		PUSH	"R10"
+		MOV	R10,R0
+		SWI	XOS_WriteS
+		=	"( = ",0
+		ALIGN
+		BL	print_ss
+		SWI	XOS_WriteI + ')'
+		SWI	XOS_NewLine
+		PULL	"R10"
+		FNRTS
+
+
+doss$l		FNJSR
+		SWI	XOS_WriteS
+		=	10,13,"         Null glyph: ",0
+		ALIGN
+		LDR	R0,[R8,#fd_null_glyph]
 		BL	hex8
+
+		SWI	XOS_WriteS
+		=	"         Cursors: ",0
+		ALIGN
+		LDR	R0,[R8,#fd_cursors]
+		BL	hex8
+
+		SWI	XOS_WriteS
+		=	"         Chunk directory:",13,10,0
+		ALIGN
+
+		ADD	R8,R8,#fd_chunk_dir
+cd$l		LDR	R0,[R8]
+		CMP	R0,#-1
+		BEQ	done$l
+
+		SWI	XOS_WriteS
+		=	"           ",0
+		ALIGN
+		LDR	R0,[R8],#4
+		BL	hex8c
+		LDR	R0,[R8],#4
+		BL	hex8c
+		LDR	R0,[R8],#4
+		BL	hex8c
+		LDR	R0,[R8],#4
+		BL	hex8
+		B	cd$l
+
+done$l		SWI	XOS_NewLine
+		FNRTS
+
+; print the substyle in R10 - keep count in R9
+print_ss	FNJSR
+		TEQ	R10,#0
+		BNE	not0$l
+		SUB	R9,R9,#5
+		SWI	XOS_WriteS
+		= "base ",0
+		ALIGN
 		FNRTS
 
 not0$l		TST	R10,#1<<1
@@ -720,12 +800,11 @@ not6$l		TST	R10,#1<<3
 		ALIGN
 		FNRTS	VS
 not7$l		TST	R10,#1<<0
-		BEQ	saddr$l
+		FNRTS	EQ
 		SUB	R9,R9,#14
 		SWI	XOS_WriteS
 		= "strikethrough ",0
 		ALIGN
-		BVC	saddr$l
 		FNRTS
 
 

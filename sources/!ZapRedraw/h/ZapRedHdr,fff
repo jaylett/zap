@@ -1,10 +1,10 @@
 ; Standard ZapRedraw header file
 ; If this one changes then they all have to be recompiled!
-; $Id: ZapRedHdr,fff,v 1.9 2003/08/26 00:26:55 christian Exp $
+; $Id: ZapRedHdr,fff,v 1.10 2004/03/29 16:12:02 christian Exp $
 
  GBLS |zap$|
  GBLS |zapdir$|
-|zap$| SETS "Zap"			; Zap or ZapX assembly
+|zap$| SETS "ZapX"			; Zap or ZapX assembly
 |zapdir$| SETS "<":CC:|zap$|:CC:"$Dir>" ; Application directory
 
  GBLL Profile
@@ -41,6 +41,9 @@ MARGINS		* FULL			; stick with current behaviour for now
 ;--------------------------------------------------------------------------------------
 ; 64 bytes workspace = 16 variables
 ; y's only need to be calculated once!
+; NOTE: the size of this block is fixed at 64 by the API for ZapRedraw versions < 0.40.
+;	backwards-compatible features must not add to this space
+;
 ;				;      D S A	   |	   V D U
 		    ^ 0
 
@@ -56,39 +59,26 @@ a_stack2	    # 4		; stacked R4 (bmp) | cur for/bac col
 a_stack3	    # 4		; stacked R10 (for)| actual for col
 a_stack4	    # 4		; stacked R11 (bac)| actual bac col
 a_temp1		    # 4		;	temporary lowest sub word
-;a_vf_font_bitmaps	# 0	; VF: font block
-a_spr1		    # 4		; general 1	   | saved
-;a_vf_font_width		# 0
-a_spr2		    # 4		; general 2	   | R0-R3
-;a_vf_font_height	# 0
-a_spr3		    # 4		; general 3	   | of vdu
-;a_vf_font_flags		# 0
-a_spr4		    # 4		; general 4	   | output
-;a_vf_char		# 8	; VF: x,y of top left of first char
-;a_vf_clip		# 8	; VF: x,y of top left of clip rectangle
-;a_vf_clip_size		# 8	; VF: width,height of clip rectangle
-;a_vf_string		# 4	; VF: pointer to string info block
-;a_vf_colour		# 4	; VF: pointer to colour data
-;a_vf_font		# 4	; VF: pointer to font info block
-;a_vf_string_ptr		# 4	; VF: string block
-;a_vf_string_length	# 4
-;a_vf_string_0		# 4
-;a_vf_colour_fg		# 4	; VF: colour block
-;a_vf_colour_bg		# 4
-;a_vf_colour_gcol	# 4
-;a_vf_colour_flags	# 4
-;a_vf_draw_flags		# 4
-a_topofvars	    # 4		; must not be used
-;a_normfont	     # 4	 ; general 4	    | output
-;a_boldfont	     # 4	 ; general 4	    | output
-;a_italfont	     # 4	 ; general 4	    | output
-;a_topofvars	     # 4	 ; general 4	    | output
+a_spr1		    # 4		;		   | saved
+a_spr2		    # 4		;		   | R0-R3
+a_spr3		    # 4		;		   | of vdu
+a_spr4		    # 4		;		   | output
+a_topofvars	    * @		; must not be used
+
+; alternative names for DSA mode
+		    ^ :INDEX: a_spr1
+a_loff		    # 4		; line offset	   |
+a_tx_table	    # 4		; -> tx table / 0  |
+a_null_glyph	    # 4		; -> null glyph	   |
+a_chunk		    # 4		; current chunk number
+a_dsa_top	    * @
+
 
 ;--------------------------------------------------------------------------------------
 ; private module workspace
 
 		^ 0
-redraw_block	# 104					; fake small redraw block (r_)
+redraw_block	# r_end					; fake small redraw block (r_)
 							; must be at offset 0
 
 cache_addr	# 4					; pointer to dynamic area
@@ -128,6 +118,7 @@ vf_is_present		* 1<<0
 vf_mode_has_changed	* 1<<1
 vf_can_plot_text	* 1<<2
 vf_can_plot_rectangle	* 1<<3
+
 
 ;--------------------------------------------------------------------------------------
 ; font block - don't change the order of things in here (see handle_to_redraw etc)
@@ -171,6 +162,23 @@ ss_strikethrough * (1<<0)				; don't know who chose this
 ss_bold		 * (1<<5)				; convention...
 ss_italic	 * (1<<6)				;
 ss_underlined	 * (1<<7)				;
+
+;--------------------------------------------------------------------------------------
+; font data
+		^ 0
+fd_null_glyph	# 4					; -> null glyph data
+fd_cursors	# 4					; -> cursor data
+fd_chunk_dir	* @					; chunk directory -1 term array
+
+;--------------------------------------------------------------------------------------
+; chunk directory entry
+; fixed by font file format
+		^ 0
+cde_num		# 4					; base number (enc number BIC 255)
+cde_nglyphs	# 4					; number of glyphs in chunk
+cde_foff	# 4					; file offset from start of data
+cde_data	# 4					; -> glyph data in memory / 0
+cde_len		* @
 
 ;--------------------------------------------------------------------------------------
 ; redraw flags (in r_flags)

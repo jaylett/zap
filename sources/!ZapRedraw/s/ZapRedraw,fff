@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.20 2004/03/21 17:26:58 christian Exp $
+; $Id: ZapRedraw,fff,v 1.21 2004/03/29 16:12:02 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -27,12 +27,15 @@
  EXPORT read_system_chars
  EXPORT cache_font_chars
 
+ EXPORT adb_create_sub
+
  EXPORT get_r12
 
  EXPORT profile_start
  EXPORT profile_end
  EXPORT profile_dump
 
+ EXPORT Module_header
 
 ; module header
 
@@ -1047,14 +1050,15 @@ div_mod_1
 ; Skip one control code					    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;E R1=pointer to start of control sequence R2=for R3=bac R4=font
-;X R1-R4 updated
+;E R1=pointer to start of control sequence R2=for R3=bac R4=font R5=chunk
+;X R1-R5 updated
 ;  R0>0 if it was a character
 ;  R0=0 if we've reached the line end
 ;  R0<0 if this didn't count as a character
 
 ; Note that for backwards compatability with earlier versions of
 ; ZapRedraw, if no 0,9 or 0,10 characters are encountered, R4 is preserved.
+; Similarly, if no 0,11 characters are encountered, R5 is preserved.
 
 skip_control_char
  LDRB R0,[R1],#1		; get next char
@@ -1073,6 +1077,7 @@ skip_ctrl_start
  B skip_ctrl_4			; cursor merge
  B skip_ctrl_9			; font change
  B skip_ctrl_10			; font and colour change
+ B skip_ctrl_11			; chunk change
 skip_ctrl_end
 
 skip_ctrl_0
@@ -1094,15 +1099,21 @@ skip_ctrl_3
  ADD R1,R1,#2
  MOV PC,R14
 
-skip_ctrl_4
+skip_ctrl_4			; counts as one printable character
  FNJSR
  ADD R1,R1,#2			; skip the cols
+a$l
  LDRB R0,[R1],#1		; next char
  TEQ R0,#0
  BLEQ skip_control_char
+ CMP R0,#0
+ BMI a$l
+b$l
  LDRB R0,[R1],#1		; and mask character
  TEQ R0,#0
  BLEQ skip_control_char
+ CMP R0,#0
+ BMI b$l
  FNRTS
 
 skip_ctrl_6
@@ -1116,15 +1127,21 @@ skip_ctrl_7
  MOV PC,R14
 
 skip_ctrl_9
- LDRB R4,[R1],#1		; new font
+ LDRB R4,[R1],#1		; new substyle
  MVN R0,#0			; not a char
  MOV PC,R14
 
 skip_ctrl_10
  LDRB R2,[R1],#1		; new for
  LDRB R3,[R1],#1		; new bac
- LDRB R4,[R1],#1		; new font
+ LDRB R4,[R1],#1		; new substyle
  MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_11
+ LDRB R5,[R1],#1		; new chunk
+ MOV R5,R5,LSL #8               ;
+ MVN R0,#0                      ; not a char
  MOV PC,R14
 
 ; space save above...?
@@ -1815,30 +1832,32 @@ l$l
 ; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;
 ; ;E R0=number of chars to skip or -1 to move to the end
-; ;  R1=string start R2=Foreground colour R3=Background colour R4=Font
+; ;  R1=string start R2=Foreground colour R3=Background colour R4=Font R5=chunk
 ; ;X R1=next print char (or the 0,2 if reached that first)
 ; ;  R0>R1  => Character was found and R0 is the end
 ; ;  R0=<R1 => Reached end first. R1-R0 characters left to skip
-; ;  R2-R4 updated |
+; ;  R2-R5 updated |
 
 find_character
- FNJSR "R5-R6"
- MOV R5,R0			; save num of chars to skip
+ FNJSR "R6-R7"
+ MOV R7,R0			; save num of chars to skip
 fc_1
- MOV R6,R1			; save char start
+ PUSH "R0-R5"
  LDRB R0,[R1],#1		; get next char
  TEQ R0,#0
  BLEQ skip_control_char
  CMP R0,#0
+ ADDMI R13,R13,#4*6
  BMI fc_1			; wasn't a character
+ ADDEQ R13,R13,#4*6
  BEQ fc_2			; reached line end
- SUBS R5,R5,#1
- BCS fc_1			; was R5>=1 - if so skip more
- MOV R0,R1			; end of the char
- MOV R1,R6			; start of the char
+ SUBS R7,R7,#1
+ ADDCS R13,R13,#4*6
+ BCS fc_1			; was R7>=1 - if so skip more
+ PULL "R0-R5"			; restore chunk, style etc as before the char
  FNRTS
 fc_2
- SUB R0,R1,R5			; we had R4 (>=0) left to look for
+ SUB R0,R1,R7			; we had R4 (>=0) left to look for
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2161,8 +2180,10 @@ adb_create_char
  CMP R0,#(adb_end-adb_start)/4
  MOVGE R0,#&40			; do an "@" if it goes off the end
  BGE adb_copy_char
+ PUSH "R4"
  MLA R4,R5,R3,R4
  BL adb_create_sub
+ PULL "R4"
  ADD R5,R5,#1
  B adb_0
 adb_copy_char
@@ -2189,6 +2210,7 @@ adb_start
  B adb_103
  B adb_104
  B adb_105
+ B adb_103	; null glyph - empty square for now
 adb_end
 
 adb_7F
