@@ -1,0 +1,1304 @@
+; Buttons - a Zap extension
+; $Id: buttons,fff,v 1.1 2003/01/29 23:38:29 christian Exp $
+
+ GET ZapSource:h.ZapHeader
+ GET <ZapExtSource$Dir>.h.RegNames
+ GET <ZapExtSource$Dir>.h.Macros
+ GET h.buttons
+
+; disable embedded functions names (saves about 1k)
+EMBED_FUNCTION_NAMES SETL {FALSE}
+
+	ENTRY
+
+mod_header	DCD	0				; start offset
+		DCD	mod_init			; init code
+		DCD	0				; finalisation
+		DCD	0				; sevice handler
+		DCD	mod_title			; title
+		DCD	mod_help			; help
+		DCD	0				; commands
+		DCD	0				; the 4 SWI ones
+		DCD	0				;
+		DCD	0				;
+		DCD	0				;
+		DCD	0				; messages file
+		DCD	module_flags			; module flags
+
+		MOV	PC,R14				; backwards compatibility - Tim's
+							; extension had a jump table hereish
+
+mod_title	=	"ZapButtons",0
+
+mod_help	=	"ZapButtons",9,"2.00 (00 Jan 0000) © Zap Developers",0
+		ALIGN
+
+module_flags	DCD	1				; 32 bit compatible
+
+
+; ---------------------------------
+
+mod_init	FNJSR	"R11"
+
+		MOV	R0,#6				; get some workspace
+		MOV	R3,#:INDEX:numvars
+		SWI	XOS_Module
+		MOVVC	R11,R2
+		STRVC	R11,workspace
+		STRVC	R2,[R12]
+
+		MOVVC	R0,#18				; find Zap and add ourselves
+		ADRVC	R1,zap				;
+		SWIVC	XOS_Module			;
+		FNRTS	VS				;
+		MOV	R12,R4				;
+		ADR	R0,command_table		;
+		FNcall	Zap_AddCommands,R1		;
+
+		MOV	R1,#0
+		MOV	R2,R11
+		MOV	R3,#:INDEX:numvars
+		FNcall	Zap_FillWords,R0
+
+		MOV	R0,#1				; add our filter routines
+		ADR	R1,filter_e_start		; assumes Zap is paged in
+		MOV	R2,R11
+		MOV	R3,#-1
+		MOV	R4,#e_start
+		FNcall	Zap_AddFilter,R5
+
+		MOV	R0,#1
+		ADR	R1,filter_e_end
+		MOV	R2,R11
+		MOV	R3,#-1
+		MOV	R4,#e_end
+		FNcall	Zap_AddFilter,R5
+
+		MOV	R0,#1
+		ADR	R1,filter_e_openwindow
+		MOV	R2,R11
+		MOV	R3,#-1
+		MOV	R4,#e_openwindow
+		FNcall	Zap_AddFilter,R5
+		FNRTS					; done for now
+
+zap		= "Zap",0
+
+
+get_workspace	LDR	R11,workspace
+		MOV	PC,R14
+
+workspace	DCD	0
+
+
+; ---------------------------------
+
+command_table	DCD	command_table
+		DCD	service_handler
+		FNcom	"BUTTONS_START",Buttons_Start
+		FNcom	"BUTTONS_FLAGSTOGGLE",Buttons_FlagsToggle
+		FNcom	"BUTTONS_MOVE",Buttons_Move
+		FNcom	"BUTTONS_CLOSE",Buttons_Close
+		FNcom	"BUTTONS_CHANGE",Buttons_Change
+		FNcom	"ZAPBUTTONS",Buttons
+		DCD	0
+
+
+; ---------------------------------
+
+; e_start post filter: create a button bar for this mode
+		FNAME	filter_e_start
+filter_e_start	FNJSR	"R8-R10"
+		TEQ	R8,#0
+		LDRNE	R0,[R8,#w_info]
+		TSTNE	R0,#winfo_buttons_on
+		FNRTS	EQ
+
+		MOV	R0,#0				; create button bar 0
+		BL	create_buttons
+		FNRTS
+
+
+		LOCAL
+
+; e_end post filter: remove the button bar for this mode
+		FNAME	filter_e_end
+filter_e_end	B	delete_buttons
+
+
+		LOCAL
+
+
+; e_openwindow post filter: move the button bar
+		FNAME	filter_e_openwindow
+filter_e_openwindow
+		TEQ	R0,#0
+		MOVEQ	PC,R14
+		TEQ	R8,#0				; check button turned on here
+		LDRNE	R0,[R8,#w_info]
+		TSTNE	R0,#winfo_buttons_on
+		MOVEQ	PC,R14
+
+		FNJSR	"R1-R10"
+		MOV	R6,R0
+		MOV	R5,R1
+		BL	get_button_hand			; get the buttons bar handle
+		TEQ	R0,#0
+		FNRTS	EQ
+
+		STR	R0,[R13,#-64]!			; find where the pane is
+		MOV	R1,R13
+		SWI	XWimp_GetWindowState
+
+		LDR	R0,[R1,#32]			; window flags
+		TST	R0,#1<<16			; is the window open?
+		MOVNE	R1,R13
+		BLNE	reopen_buttons
+
+		ADD	R13,R13,#64
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; command service handler
+; ---------------------------------
+
+		FNAME	service_handler
+service_handler	CMP	R1,#&8000
+		BHS	wimp_message
+		SUB	R1,R1,#4
+		CMP	R1,#((end$l-start$l)/4)
+		MOVHS	PC,R14
+
+		FNJSR	"R1-R11"
+		BL	get_workspace
+		ADD	PC,PC,R1,LSL #2
+		FNRTS
+start$l		B	discard$l			; window closing
+		B	gained$l			; window focus gained
+		FNRTS					; window being opened
+		B	lost$l				; window focus lost
+end$l
+
+; a window is being discarded
+discard$l	BL	delete_buttons
+		FNRTS
+
+; a window has lost the input focus
+lost$l		BL	get_button_hand			; focus lost - close but don't
+		TEQ	R0,#0				; delete the buttons
+		STRNE	R0,[R13,#-4]
+		SUBNE	R1,R13,#4
+		SWINE	XWimp_CloseWindow
+		FNRTS
+
+; a window has gained the input focus
+gained$l	LDR	R0,[R8,#w_info]			; check if this window has buttons
+		TST	R0,#winfo_buttons_on		;
+		FNRTS	EQ				;
+
+		MOV	R1,R8
+		SWI	XWimp_GetWindowState
+
+		BL	get_button_hand
+		TEQ	R0,#0
+		BEQ	new$l
+
+		STR	R0,[R13,#-64]!			; get current pane position
+		MOV	R1,R13
+		SWI	XWimp_GetWindowState
+
+		BL	reopen_buttons			; reopen the pane
+		ADD	R13,R13,#64
+		FNRTS
+
+new$l		BL	create_buttons			; create buttons
+		FNRTS
+
+
+		LOCAL
+
+; reopen a button bar
+; E R1 -> wimp_open block for pane  R8 -> wimp_open block for window  r9 -> buttons block
+; X pane opened
+		FNAME	reopen_buttons
+reopen_buttons	FNJSR
+		LDR	R3,[R8,#w_minx]
+		LDR	R4,[R8,#w_maxy]
+		LDR	R3,[R1,#w_minx]			; sort out Xs
+		LDR	R4,[R1,#w_maxx]
+		SUB	R4,R4,R3			; width
+		LDR	R0,[R8,#w_minx]
+		LDR	R3,[R9,#bb_xoff]
+		ADD	R0,R0,R3
+		STR	R0,[R1,#w_minx]
+		ADD	R0,R0,R4
+		STR	R0,[R1,#w_maxx]
+
+		LDR	R3,[R1,#w_miny]			; and Ys
+		LDR	R4,[R1,#w_maxy]
+		SUB	R4,R4,R3
+		LDR	R0,[R8,#w_maxy]
+		LDR	R3,[R9,#bb_yoff]
+		ADD	R0,R0,R3
+		STR	R0,[R1,#w_maxy]
+		SUB	R0,R0,R4
+		STR	R0,[R1,#w_miny]
+
+		LDR	R0,[R1,#w_handle]
+		LDR	R0,[R8,#w_infront]		; open it above the text window
+		STR	R0,[R1,#w_infront]
+		SWI	XWimp_OpenWindow
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; unrecognised wimp message handler
+; E r0 = reason  R1 -> block
+; X
+		FNAME	wimp_message
+wimp_message	TEQ	R3,#2				; open window request
+		TEQNE	R3,#6				; mouse click
+		TEQNE	R3,#17
+		MOVNE	PC,R14
+
+		FNJSR	"R1-R11"
+		BL	get_workspace
+		TEQ	R3,#2
+		BEQ	open$l
+		TEQ	R3,#17
+		BEQ	user$l
+
+; mouse click
+click$l		MOV	R6,R1				; keep wimp block
+		LDR	R0,[R1,#12]
+		BL	get_button_wind
+		TEQ	R8,#0
+		FNRTS	EQ				; unknown
+
+		LDRB	R0,[R8,#w_format]		; get R10
+		BL	get_mode_block
+		TEQ	R10,#0
+		FNRTS	EQ
+
+		LDR	R0,[R6,#8]
+		TST	R0,#2
+		BNE	menu$l
+
+		LDR	R1,[R9,#bb_template]		; get template number
+		LDR	R2,[R6,#16]			; and icon number
+		BL	execute_script
+		FNRTS
+
+; menu click
+menu$l		BL	get_menu
+		CMP	R1,#-1
+		FNRTS	EQ
+
+		LDMIA	R6,{R2,R3}			; mouse x,y
+		SUB	R2,R2,#64
+		FNcall	Zap_OpenMenu,R0
+		FNRTS
+
+; open window request
+open$l		MOV	R6,R1				; keep wimp block
+		LDR	R0,[R1,#0]
+		BL	get_button_wind
+		TEQ	R8,#0
+		FNRTS	EQ				; unknown
+
+		MOV	R1,R6				; open the window
+		SWI	XWimp_OpenWindow
+
+		LDR	R0,[R8,#w_minx]			; update the offsets
+		LDR	R2,[R1,#w_minx]
+		SUB	R0,R2,R0
+		STR	R0,[R9,#bb_xoff]
+
+		LDR	R0,[R8,#w_maxy]
+		LDR	R2,[R1,#w_maxy]
+		SUB	R0,R2,R0
+		STR	R0,[R9,#bb_yoff]
+		FNRTS
+
+; user message
+user$l		LDR	R0,=&502			; HelpRequest
+		CMP	R0,R2
+		FNRTS	NE
+
+		MOV	R6,R1				; keep wimp block
+		LDR	R0,[R1,#32]
+		BL	get_button_wind
+		TEQ	R8,#0
+		FNRTS	EQ				; unknown
+
+		LDRB	R0,[R8,#w_format]		; get R10
+		BL	get_mode_block
+		TEQ	R10,#0
+		FNRTS	EQ
+
+		LDR	R1,[R9,#bb_template]		; get template number
+		LDR	R2,[R6,#36]			; and icon number
+		BL	get_scripts
+		BL	get_scripts_help
+		TEQ	R0,#0
+		BNE	gothelp$l
+
+		ADD	R2,R6,#20			; no help, so use default
+		MOV	R3,#256-20
+		ADR	R1,default$l
+		FNcall	Zap_LookupToken
+		ADD	R0,R2,R3
+		B	send$l
+
+gothelp$l	MOV	R1,R0
+		ADD	R0,R6,#20
+		BL	strcpy
+
+send$l		SUB	R0,R0,R6			; store the length
+		ADD	R0,R0,#3
+		BIC	R0,R0,#3
+		STR	R0,[R6,#0]
+		LDR	R0,=&503			; HelpReply
+		MOV	R1,R6
+		FNcall	Zap_Reply,R2
+		FNRTS
+
+default$l	=	"buttons_help:This is a buttons bar",0
+		ALIGN
+
+		LTORG
+
+
+		LOCAL
+
+; ---------------------------------
+; BUTTONS_START command
+
+		DCD	0
+Buttons_Start	FNJSR	"R1-R4,R11"
+		BL	get_workspace
+		BL	filter_e_start			; create buttons for this window
+		FNRTS
+
+
+; ---------------------------------
+; BUTONS_CLOSE command
+
+		DCD	0
+Buttons_Close	FNJSR	"R1-R4,R11"
+		BL	get_workspace
+		BL	delete_buttons			; remove them
+		LDR	R0,[R8,#w_info]			; keep them off
+		BIC	R0,R0,#winfo_buttons_on
+		STR	R0,[R8,#w_info]
+		FNRTS
+
+
+; ---------------------------------
+; BUTTONS_CHANGE command
+
+		DCD	8				; byte parameter
+Buttons_Change	FNJSR	"R1-R5,R11"
+		BL	get_workspace
+		LDR	R5,[R8,#w_info]			; see if we have buttons
+		TST	R5,#winfo_buttons_on
+		FNRTS	EQ
+
+		LDR	R5,[R0]
+		CMP	R0,#3                           ; range check
+		FNRTS	HS
+		BL	delete_buttons			; remove current buttons
+		MOV	R0,R5
+		BL	create_buttons			; create new ones
+		FNRTS
+
+
+; ---------------------------------
+; BUTONS_MOVE command
+
+		DCD	0
+Buttons_Move	FNJSR	"R1-R4,R11"
+		BL	get_workspace
+
+		BL	get_button_hand			; find the window handle from R8
+		TEQ	R0,#0
+		FNRTS	EQ
+
+		SUB	R1,R13,#40			; get curent position
+		STR	R0,[R1],#4
+		STR	R0,[R1]
+		SWI	XWimp_GetWindowState
+		MOV	R0,#1				; drag window position
+		STR	R0,[R1],#-4
+		SWI	XWimp_DragBox
+		FNRTS
+
+
+; ---------------------------------
+; BUTTONS command
+
+		DCD	7+c_TickableMenuEntry
+Buttons		ADR	R0,param$l			; call "BUTTONS_FLAGSTOGGLE 0"
+		B	Buttons_FlagsToggle
+
+param$l		DCD	0
+
+
+; ---------------------------------
+; BUTONS_FLAGSTOGGLE command
+
+		DCD	7+c_Param_Words+c_TickableMenuEntry
+Buttons_FlagsToggle
+		FNJSR	"R1-R4,R11"
+		BL	get_workspace
+		LDR	R0,[R0]
+		BL	calculate_masks
+
+		AND	R0,R0,#&F			; convert to w_info mask
+		AND	R1,R1,#&F			;
+		MOV	R0,R0,LSL #12			;
+		MOV	R1,R1,LSL #12			;
+
+		TEQ	R8,#0				; get current flags
+		LDRNE	R14,[R8,#w_info]
+		BNE	a$l
+		MOV	R1,#36				; opt_info
+		FNcall	Zap_ReadVar,R0
+
+a$l		TEQ	R2,#15
+		BNE	set$l
+		AND	R14,R14,R1			; check tick state
+		TEQ	R14,R1				; all set?
+		MOVEQ	R0,#1				; yes so tick
+		MOVNE	R0,#0
+		BL	buttons_available		; fade if unavailable
+		ADDNES	R0,R0,#2
+		FNRTS
+
+set$l		BIC	R14,R14,R0
+		EOR	R14,R14,R1
+
+		TEQ	R8,#0				; write new flag
+		STRNE	R14,[R8,#w_info]
+		BNE	b$l
+		MOV	R0,R14
+		MOV	R1,#36				; opt_info
+		FNcall	Zap_WriteVar,R2
+		FNRTS
+
+b$l		TST	R14,#winfo_buttons_on		; flags have changed
+		BEQ	delete$l
+		FNcall	Zap_GetWindOff,R1
+		MOV	R0,#0
+		BL	create_buttons
+		FNRTS
+
+delete$l	FNcall	Zap_GetWindOff,R1
+		BL	delete_buttons
+		FNRTS
+
+
+		LOCAL
+
+;E R0 = 4 x 8 bit instruction blocks. Each block has format:
+;	b0-b4 = 0-31 number of bit in the word to toggle
+;	b5/b6 = 00 => toggle the bit
+;		01 => set the bit
+;		10 => clear the bit
+;		11 => reserved
+;	b7    = must be set to show this block active (except lowest byte
+;		where its unused by this sub - others may use it)
+;X R0 = BIC mask  R1 = eor to accomplish this
+		FNAME	calculate_masks
+calculate_masks	FNJSR	"R2-R3"
+		ORR	R2,R0,#1<<7			; lowest byte always contains a block
+		MOV	R0,#0
+		MOV	R1,#0				; default mask/eor (does nothing)
+a$l		TST	R2,#1<<7			; active block?
+		FNRTS	EQ				; no - finished
+		AND	R3,R2,#&1F			; bit number
+		MOV	R14,#1
+		MOV	R14,R14,LSL R3			; bit mask
+		ANDS	R3,R2,#&60			; action
+		ORREQ	R1,R1,R14			; toggle
+		TEQ	R3,#&20
+		ORREQ	R0,R0,R14
+		ORREQ	R1,R1,R14			; set the bit
+		TEQ	R3,#&40
+		ORREQ	R0,R0,R14			; clear the bit
+		MOV	R2,R2,LSR#8
+		B	a$l
+
+
+		LOCAL
+
+; --------------------------------------------------
+; Code to manage the buttons resources for each mode
+; --------------------------------------------------
+
+; heap block containg an array of mode resources
+
+		^	0
+mr_mode		#	4				; mode number of this block
+mr_count	#	4				; number of panes open for this mode
+mr_scripts	#	4				; scripts
+mr_scripts_end	#	4				; scripts end
+mr_sprites	#	4				; sprite area
+mr_menu		#	4				; menu pointer (ZapWimp format)
+mr_template0	#	4				; up to 4 templates
+mr_template1	#	4				;
+mr_template2	#	4				;
+mr_template3	#	4				;
+mr_length	*	@
+
+; get the mode block, creating one if it doesn't exist
+; E r8
+; X r10 -> block
+		FNAME	get_mode_block
+get_mode_block	FNJSR	"R9"
+		LDRB	R9,[R8,#w_format]		; mode number
+		LDR	R10,mode_blocks
+		LDR	R1,mode_blocklen
+
+loop$l		TEQ	R1,#0
+		BEQ	none$l
+		LDR	R14,[R10,#mr_mode]
+		TEQ	R14,R9
+		FNRTS	EQ
+
+		ADD	R10,R10,#mr_length
+		SUB	R1,R1,#mr_length
+		B	loop$l
+
+none$l		LDR	R0,mode_blocks			; create a new block
+		LDR	R10,mode_blocklen
+		ADD	R1,R10,#mr_length
+		FNcall	Zap_Ensure,R2
+		STR	R1,mode_blocklen
+		STR	R0,mode_blocks
+		ADDVC	R10,R0,R10			; point to it
+
+		MOVVC	R1,#0				; initialise it
+		MOVVC	R2,R10
+		MOVVC	R3,#mr_length
+		FNcallc	Zap_FillWords,VC,R0
+
+		STRVC	R9,[R10,#mr_mode]
+		FNRTS
+
+
+		LOCAL
+
+; get the buttons path for this mode
+; E r0 -> buffer  r10 = mode block
+; X buffer filled with path
+		FNAME	get_mode_path
+get_mode_path	FNJSR	"R9"
+		ADR	R1,zap$l			; we want "Zap<mode>:Buttons."
+		BL	strcpy
+		MOV	R9,R0
+
+		LDR	R0,[R10,#mr_mode]
+		FNcall	Zap_ReadMode,R1
+		LDR	R1,[R1,#e_title * 2]
+		SUB	R0,R9,#1
+		BL	strcpy
+		SUB	R0,R0,#1
+		ADR	R1,path$l
+		BL	strcpy
+		FNRTS
+
+zap$l		=	"Zap",0
+path$l		=	":Buttons.",0
+		ALIGN
+
+
+		LOCAL
+
+; -------------------------------------------------
+; Code to load resources necessary for buttons bars
+; -------------------------------------------------
+
+; get the sprites area for a mode
+; E r10 -> mode block
+; X r1 -> menu / -1
+		FNAME	get_sprites
+get_menu	LDR	R1,[R10,#mr_menu]		; return if we've already loaded it
+		TEQ	R1,#0
+		MOVNE	PC,R14
+
+		FNJSR	"R9"
+		SUB	R13,R13,#256			; get the path
+		MOV	R0,R13
+		BL	get_mode_path
+		ADR	R1,menus$l			; add on the leafname
+		MOV	R0,R13
+		BL	strcat
+
+		MOV	R0,#17				; See if a Buttons Menus file exists
+		MOV	R1,R13
+		SWI	XOS_File
+		TEQ	R0,#1
+		BNE	usemode$l
+
+		MOV	R0,R13				; load it
+		FNcall	Zap_LoadMenu,R1
+		BVS	err$l
+
+		LDR	R1,[R0,#4]			; use handle 0
+		STR	R1,[R10,#mr_menu]
+		FNcall	Zap_Free,R2			; free the handles block
+		B	done$l
+
+usemode$l	LDR	R0,[R10,#mr_mode]
+		FNcall	Zap_ReadMode,R1
+		BVS	err$l
+		LDR	R1,[R1,#e_menu * 2]
+		STR	R1,[R10,#mr_menu]
+		B	done$l
+
+err$l		MOV	R1,#-1
+		STR	R1,[R10,#mr_menu]
+done$l		ADDS	R13,R13,#256
+		FNRTS
+
+menus$l		=	"Menus",0
+		ALIGN
+
+
+		LOCAL
+
+; get the sprites area for a mode
+; E r10 = mode block
+; X r0 = sprites area (1 if Sprites file doesn't exist)
+		FNAME	get_sprites
+get_sprites	LDR	R0,[R10,#mr_sprites]		; return if we've already loaded it
+		TEQ	R0,#0
+		MOVNE	PC,R14
+
+		FNJSR	"R9"
+		SUB	R13,R13,#256			; get the path
+		MOV	R0,R13
+		BL	get_mode_path
+		ADR	R1,sprites$l			; add on the leafname
+		MOV	R0,R13
+		BL	strcat
+
+		MOV	R0,#17				; read its length
+		MOV	R1,R13
+		SWI	XOS_File
+
+		ADDVC	R0,R4,#8			; get a block
+		FNcallc	Zap_Claim,VC,R1
+		BVS	fail$l
+
+		MOV	R9,R0				; load it in
+		MOV	R1,R0
+		MOV	R0,#10
+		ADD	R0,R0,#&100
+		MOV	R2,R13
+		SWI	XOS_SpriteOp
+		BVS	bad$l
+
+		STR	R9,[R10,#mr_sprites]		; store it
+		MOV	R0,R9
+		ADD	R13,R13,#256
+		FNRTS
+
+bad$l		ADDS	R1,R0,#0			; free the block
+		MOV	R0,R9
+		FNcall	Zap_Free,R2
+fail$l		MOV	R0,#1				; use the Wimp area
+		STR	R0,[R10,#mr_sprites]
+		ADDS	R13,R13,#256
+		FNRTS
+
+sprites$l	=	"Sprites",0
+		ALIGN
+
+
+		LOCAL
+
+; get a template
+; E r0 = template number  r10 -> mode block
+; X r1 -> window defn / -1
+		FNAME	get_template
+get_template	ADD	R2,R10,#mr_template0		; return if we've already loded it
+		LDR	R1,[R2,R0,LSL #2]
+		TEQ	R1,#0
+		MOVNE	PC,R14
+
+		FNJSR	"R7-R9"
+		MOV	R9,R0				; keep buttons number
+
+		MOV	R0,#-1				; mark as attempting to load
+		STR	R0,[R2,R9,LSL #2]
+
+		SUB	R13,R13,#256
+		MOV	R0,R13
+		BL	get_mode_path
+		ADR	R1,templates$l			; add on the leafname
+		MOV	R0,R13
+		BL	strcat
+
+		MOV	R0,#17				; check the file exists
+		MOV	R1,R13
+		SWI	XOS_File
+		TEQ	R0,#1
+		MOVNE	R1,#-1
+		BNE	ret$l
+
+		MOV	R1,R13
+		SWI	XWimp_OpenTemplate
+		BVS	ret$l
+
+		ADR	R0,buttons$l			; copy "Buttons<n>" to
+		LDMIA	R0,{R1-R3}			; word-aligned memory
+		STMIA	R13,{R1-R3}
+		MOV	R0,R9
+		ADD	R1,R13,#7
+		MOV	R2,#2
+		SWI	XOS_ConvertCardinal1
+
+		MOV	R1,#0				; read the size
+		MOV	R2,#0
+		MOV	R3,#0
+		MOV	R4,#-1
+		MOV	R5,R13
+		MOV	R6,#0
+		SWI	XWimp_LoadTemplate
+		BVS	cret$l
+		TEQ	R6,#0				; ensure the template exists
+		MOVEQ	R1,#-1
+		BEQ	cret$l
+
+		MOV	R7,R1				; claim the block
+		MOV	R8,R2
+		ADD	R0,R7,R8
+		ADD	R0,R0,#32
+		FNcall	Zap_Claim,R1
+		BVS	cret$l
+
+		ADD	R1,R10,#mr_template0
+		STR	R0,[R1,R9,LSL #2]
+
+		MOV	R1,R0				; read it in
+		ADD	R2,R0,R7
+		ADD	R2,R2,#8
+		ADD	R3,R2,R8
+		ADD	R3,R3,#8
+		MOV	R4,#-1
+		MOV	R5,R13
+		MOV	R6,#0
+		SWI	XWimp_LoadTemplate
+		BVS	cret$l
+
+		BL	get_sprites
+		ADDVC	R7,R10,#mr_template0
+		LDRVC	R1,[R7,R9,LSL #2]
+		STRVC	R0,[R1,#64]			; store sprite area
+
+cret$l		MOVVS	R1,#-1				; return closing the template
+		SWI	XWimp_CloseTemplate
+ret$l		ADDS	R13,R13,#256			; just return
+		FNRTS
+
+buttons$l	=	"Buttons",0,0,0,0,0
+templates$l	=	"Templates",0
+		ALIGN
+
+
+; Check if buttons are available
+; E r8
+; X EQ if available
+		FNAME	buttons_available
+buttons_available
+		FNJSR	"R0-R4,R10"
+		BL	get_mode_block
+
+		SUB	R13,R13,#256
+		MOV	R0,R13
+		BL	get_mode_path
+		ADR	R1,templates$l			; add on the leafname
+		MOV	R0,R13
+		BL	strcat
+
+		MOV	R0,#17				; check the file exists
+		MOV	R1,R13
+		SWI	XOS_File
+		TEQ	R0,#1
+		ADD	R13,R13,#256
+		FNRTS
+
+
+		LOCAL
+
+; get the scripts
+; E r10
+; X r0 -> scripts / -1
+		FNAME	get_scripts
+get_scripts	LDR	R0,[R10,#mr_scripts]		; return if we've already loaded it
+		TEQ	R0,#0
+		MOVNE	PC,R14
+
+		FNJSR	"R1-R2,R7-R9"
+		SUB	R13,R13,#256
+		MOV	R0,R13
+		BL	get_mode_path
+		ADR	R1,scripts$l			; add on the leafname
+		MOV	R0,R13
+		BL	strcat
+
+		MOV	R0,#17				; read its size
+		MOV	R1,R13
+		SWI	XOS_File
+		TEQ	R0,#1				; check it exists
+		BNE	fail$l
+
+		ADD	R0,R4,#2			; claim the block
+		FNcall	Zap_Claim,R1
+		STRVC	R0,[R10,#mr_scripts]
+
+		MOVVC	R7,R0				; load it
+		MOVVC	R2,R0
+		MOVVC	R0,#16
+		MOVVC	R1,R13
+		MOVVC	R3,#0
+		SWIVC	XOS_File
+		BVS	fail$l
+
+		MOV	R0,#0				; ensure it's terminated
+		STRB	R0,[R7,R4]
+
+		MOV	R1,R7				; convert LFs to NULs
+		ADD	R2,R7,R4
+		STR	R2,[R10,#mr_scripts_end]
+		LDR	R4,lfs$l
+loop$l		LDR	R0,[R1]
+		EOR	R3,R0,R4
+		TST	R3,#&FF
+		BICEQ	R0,R0,#&FF
+		TST	R3,#&FF<<8
+		BICEQ	R0,R0,#&FF<<8
+		TST	R3,#&FF<<16
+		BICEQ	R0,R0,#&FF<<16
+		TST	R3,#&FF<<24
+		BICEQ	R0,R0,#&FF<<24
+		STR	R0,[R1],#4
+		CMP	R1,R2
+		BLS	loop$l
+
+		LDR	R0,[R10,#mr_scripts]		; return the pointer
+		ADD	R13,R13,#256
+		FNRTS
+
+fail$l		MOV	R1,#-1				; mark as failed
+		STR	R1,[R10,#mr_scripts]
+		ADD	R13,R13,#256
+		FNRTS
+
+lfs$l		DCD	&0A0A0A0A
+scripts$l	=	"Scripts",0
+		ALIGN
+
+
+		LOCAL
+
+; -----------------------------------------
+; code to keep track of active buttons bars
+; -----------------------------------------
+
+		^	0
+bb_wind		#	4				; window offset bar is attached to
+bb_hand		#	4				; handle of buttons window
+bb_template	#	4				; template number of this bar
+bb_xoff		#	4				; x offset of pane
+bb_yoff		#	4				; y offset of pane
+bb_length	*	@
+
+; add a buttons bar to the list of open buttons bars
+; E r0 = window handle  r1 = templte number  r8  r10
+; X r9 -> buttons block
+		FNAME	add_buttons
+add_buttons	FNJSR	"R0,R6-R7"
+		MOV	R6,R0
+		MOV	R7,R1
+
+		LDR	R0,buttons_blocks
+		LDR	R1,buttons_blocklen
+
+		ADD	R1,R1,#bb_length		; another entry
+		FNcall	Zap_Ensure,R2
+		FNRTS	VS
+		STR	R0,buttons_blocks
+		STR	R1,buttons_blocklen
+
+		SUB	R1,R1,#bb_length
+		ADD	R9,R0,R1
+		STR	R6,[R9,#bb_hand]		; store the window handle
+		FNcall	Zap_GetWindOff,R1
+		STR	R0,[R9,#bb_wind]		; and attachment
+		STR	R7,[R9,#bb_template]		; and template number
+		FNRTS
+
+
+; remove a button bar from the list of open bars
+; E r8
+; X r0 = window handle / 0
+		FNAME	remove_buttons
+remove_buttons	FNJSR	"R6"
+		FNcall	Zap_GetWindOff,R1
+
+		LDR	R2,buttons_blocks
+		LDR	R3,buttons_blocklen
+
+loop$l		TEQ	R3,#0				; not found?
+		MOVEQ	R0,#0
+		FNRTS	EQ
+		LDR	R1,[R2,#bb_wind]		; search for the bar
+		TEQ	R1,R0
+		SUB	R3,R3,#bb_length
+		ADDNE	R2,R2,#bb_length
+		BNE	loop$l
+
+		LDR	R6,[R2,#bb_hand]
+		ADD	R1,R2,#bb_length		; shift the subsequent entries up
+		FNcall	Zap_MoveBytes,R0
+
+		LDR	R0,buttons_blocklen		; one less entry
+		SUB	R0,R0,#bb_length
+		STR	R0,buttons_blocklen
+		MOV	R0,R6
+		FNRTS
+
+
+		LOCAL
+
+; find a button bar's handle
+; E r8
+; X r0 = handle / 0  r9 -> button block
+		FNAME	get_button_hand
+get_button_hand	FNJSR
+		FNcall	Zap_GetWindOff,R1
+		LDR	R9,buttons_blocks
+		LDR	R1,buttons_blocklen
+
+loop$l		TEQ	R1,#0				; not found?
+		MOVEQ	R0,#0
+		MOVEQ	R9,#0
+		FNRTS	EQ
+		LDR	R3,[R9,#bb_wind]		; search for the bar
+		TEQ	R3,R0
+		SUBNE	R1,R1,#bb_length
+		ADDNE	R9,R9,#bb_length
+		BNE	loop$l
+		LDR	R0,[R9,#bb_hand]
+		FNRTS
+
+
+		LOCAL
+
+; find a button bar's window
+; E r0 = handle
+; X r8 = window or 0  r9 -> button block
+		FNAME	get_button_wind
+get_button_wind	FNJSR	"R6"
+		LDR	R6,buttons_blocks
+		LDR	R1,buttons_blocklen
+
+loop$l		TEQ	R1,#0				; not found?
+		MOVEQ	R8,#0
+		MOVEQ	R9,#0
+		FNRTS	EQ
+		LDR	R3,[R6,#bb_hand]		; search for the bar
+		TEQ	R3,R0
+		SUBNE	R1,R1,#bb_length
+		ADDNE	R6,R6,#bb_length
+		BNE	loop$l
+		LDR	R0,[R6,#bb_wind]
+		FNcall	Zap_ConvWindOff,R1
+		TEQ	R8,#0
+		MOVNE	R9,R6
+		FNRTS
+
+
+		LOCAL
+
+; open a button bar for the first time
+; E r0 = tamplate number to open  r8
+; X
+		FNAME	create_buttons
+create_buttons	FNJSR	"R1-R5,R7,R10"
+		MOV	R7,R0
+
+		BL	get_button_hand			; check if this window already has a bar
+		TEQ	R0,#0
+		BNE	open$l
+
+		BL	get_mode_block
+		FNRTS	VS
+
+		MOV	R0,R7
+		BL	get_template
+		CMP	R1,#-1				; templates exist?
+		LDREQ	R0,[R8,#w_info]			; no - disable buttons for this window
+		BICEQ	R0,R0,#winfo_buttons_on
+		STREQ	R0,[R8,#w_info]
+		FNRTS	EQ
+
+		SWI	Wimp_CreateWindow
+		MOVVC	R1,R7
+		BLVC	add_buttons			; add it to the list of active buttons
+
+open$l		SUBVC	R1,R13,#64
+		STRVC	R0,[R1]
+		SWIVC	Wimp_GetWindowState
+		LDRVC	R0,[R1,#w_minx]			; get -width
+		LDRVC	R2,[R1,#w_maxx]
+		SUBVC	R2,R0,R2
+		LDRVC	R0,[R1,#w_miny]			; and height
+		LDRVC	R3,[R1,#w_maxy]
+		SUBVC	R3,R3,R0
+
+		SUBVC	R0,R2,#2			; adjust to remove overlap
+		STRVC	R0,[R9,#bb_xoff]		; keep the inital offsets
+		MOVVC	R0,#0
+		STRVC	R0,[R9,#bb_yoff]
+
+		LDRVC	R0,[R8,#w_minx]
+		SUBVC	R0,R0,#2
+		STRVC	R0,[R1,#w_maxx]
+		ADDVC	R0,R0,R2
+		STRVC	R0,[R1,#w_minx]
+
+		LDRVC	R0,[R8,#w_maxy]
+		STRVC	R0,[R1,#w_maxy]
+		SUBVC	R0,R0,R3
+		STRVC	R0,[R1,#w_miny]
+
+		SWIVC	Wimp_OpenWindow
+		FNRTS
+
+
+		LOCAL
+
+; remove a button bar from window
+; E r8
+; X
+		FNAME	delete_buttons
+delete_buttons	FNJSR
+		BL	remove_buttons			; remove from the list of active buttons
+		TEQ	R0,#0				; check returned window handle
+		STRNE	R0,[R13,#-4]
+		SUBNE	R1,R13,#4
+		SWINE	XWimp_DeleteWindow
+		FNRTS
+
+
+; ----------------------------------
+; code to decode and process Scripts
+; ----------------------------------
+
+; execute a command for a button
+; E r1 = buttons template number  r2 = button  r8  r10
+; X
+		FNAME	execute_script
+execute_script	FNJSR	"R6"
+		BL	get_scripts
+		FNRTS	VS
+
+		BL	get_scripts_command
+		MOVS	R6,R0
+		BEQ	noscript$l
+
+		LDR	R0,[R8,#w_file]			; get R9
+		FNcall	Zap_ConvFileOff,R1
+
+		LDRB	R1,[R6],#1			; check for no focus flag
+		TEQ	R1,#'%'
+		BEQ	nofocus$l
+		SUB	R6,R6,#1
+		LDR	R0,[R8,#w_poff]			; put focus in associated window
+		FNcall	Zap_PutCaret,R1
+
+nofocus$l	LDRB	R1,[R6]				; check for don't learn flag
+		TEQ	R1,#'$'
+		ADDEQ	R6,R6,#1
+		MOVEQ	R1,#1<<31			; set don't learn bit
+		MOVNE	R1,#0
+		MOV	R0,R6
+		FNcall	Zap_CommandString,R2		; execute it
+		FNRTS
+
+		; warn about not having scripts
+noscript$l	ADR	R0,wmsg$l
+		MOV	R1,#1<<29
+		FNcall	Zap_Warning,R2
+		MOV	R0,#-1
+		FNRTS
+
+wmsg$l		=	"buttons_w_noscript",0
+		ALIGN
+
+
+		LOCAL
+
+; find the scripts command for a given button
+; E r0 -> scripts  r1 = template number  r2 = button number
+; X r0 -> scripts entry / 0
+		FNAME	get_scripts_command
+get_scripts_command
+		FNJSR
+		BL	get_scripts_entry		; find the entry
+		TEQ	R0,#0
+		FNRTS	EQ				; none
+		LDR	R3,[R10,#mr_scripts_end]
+loop$l		CMP	R0,R3				; don't go off the file end
+		MOVHS	R0,#0
+		FNRTS	HS
+		LDRB	R1,[R0]				; get line prefix
+		TEQ	R1,#'-'
+		MOVEQ	R0,#0				; next button - not found
+		FNRTS	EQ
+		TEQ	R1,#'|'				; help entry?
+		FNRTS	NE				; no - is a command
+		BL	str_next
+		B	loop$l
+
+
+		LOCAL
+
+; find the scripts help for a given button
+; E r0 -> scripts  r1 = template number  r2 = button number
+; X r0 -> scripts entry / 0
+		FNAME	get_scripts_help
+get_scripts_help
+		FNJSR
+		BL	get_scripts_entry		; get the entry
+		TEQ	R0,#0
+		FNRTS	EQ
+		LDR	R3,[R10,#mr_scripts_end]
+loop$l		CMP	R0,R3				; don't go off the file end
+		BHS	not$l
+		LDRB	R1,[R0]
+		TEQ	R1,#'|'				; help entry?
+		BEQ	got$l
+		TEQ	R1,#'-'				; next button?
+		BEQ	not$l
+		BL	str_next
+		B	loop$l
+
+got$l		ADD	R0,R0,#1
+		BL	str_skipspaces
+		FNRTS
+
+not$l		MOV	R0,#0
+		FNRTS
+
+
+		LOCAL
+
+; find the scripts entry for a given button
+; E r0 -> scripts  r1 = template number  r2 = button number
+; X r0 -> scripts entry / 0
+		FNAME	get_scripts_entry
+get_scripts_entry
+		FNJSR	"R7"
+		MOV	R7,R2
+		BL	scripts_findbuttons
+		TEQ	R0,#0
+		FNRTS	EQ
+
+		LDR	R3,[R10,#mr_scripts_end]
+loop$l		CMP	R0,R3				; don't go off the eof
+		MOVHS	R0,#0
+		FNRTS	HS
+
+		TEQ	R7,#0				; found it?
+		FNRTS	EQ
+		LDRB	R1,[R0]
+		TEQ	R1,#'-'
+		SUBEQ	R7,R7,#1
+		BL	str_next
+		B	loop$l
+
+
+		LOCAL
+
+; find the entries for a given buttons bar
+; this just looks for  \<\(<\|(\)\#\*<n>
+; E r0 -> scripts  r1 = number  r10
+; X r0 -> scripts entries / 0
+scripts_findbuttons
+		FNJSR
+		ADD	R2,R1,#&30			; get ASCII number
+		LDR	R3,[R10,#mr_scripts_end]
+loop$l		CMP	R0,R3
+		MOVHS	R0,#0
+		FNRTS	HS
+		LDRB	R1,[R0],#1
+		TEQ	R1,#'<'
+		TEQNE	R1,#'('
+		BEQ	brac$l
+		BL	str_next
+		B	loop$l
+
+brac$l		LDRB	R1,[R0],#1
+		TEQ	R1,#0
+		BEQ	loop$l
+		TEQ	R1,R2
+		BNE	brac$l
+		BL	str_next
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; String manipulation
+; ---------------------------------
+
+
+; copy a string  r1 -> r0
+		FNAME	strcpy
+strcpy		LDRB	R2,[R1],#1			; copy the string
+		STRB	R2,[R0],#1
+		TEQ	R2,#0
+		BNE	strcpy
+		MOV	PC,R14
+
+; concat a string  r1 -> r0
+		FNAME	strcpy
+strcat		LDRB	R2,[R0],#1			; find the end
+		TEQ	R2,#0
+		BNE	strcat
+		SUB	R0,R0,#1
+		B	strcpy				; copy it in
+
+; strip spaces from string at R0
+		FNAME	str_skipspaces
+str_skipspaces	LDRB	R1,[R0],#1
+		TEQ	R1,#' '
+		TEQNE	R1,#9
+		BEQ	str_skipspaces
+		SUB	R0,R0,#1
+		MOV	PC,R14
+
+; skip to the next line in a scripts file
+; E R0 -> current entry
+; X R0 -> next entry
+		FNAME	str_next
+str_next	LDRB	R1,[R0],#1
+		TEQ	R1,#0
+		BNE	str_next
+		MOV	PC,R14
+
+
+
+
+ END
