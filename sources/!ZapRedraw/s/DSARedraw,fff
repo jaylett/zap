@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.16 2004/04/15 11:52:14 christian Exp $
+; $Id: DSARedraw,fff,v 1.17 2004/11/05 18:48:53 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -624,14 +624,6 @@ clear_raster_pixel_any
 ;  R3,R5-R7,R10-R11 updated
 
 call_redraw_raster_main
-	CMP	R12, #6
-	BHS	dispatch$l		; clear or something; if -ve, not 8 width
-	LDR	R0, [R1, #r_charh]
-	TEQ	R0, #16
-	ADDEQ	R12, R12, #13
-	TEQNE	R0, #8
-	MOVNE	R12, #-1
-dispatch$l
 	ADD	PC,PC,R12,LSL#2
 	B	redraw_raster_main_any  ; offset -1	(arbitrary bpp and width)
 	B	redraw_raster_main_any  ; offset 0	8*8 at 2 cols
@@ -647,33 +639,10 @@ dispatch$l
 	B	clear_raster_main_3	; 256 cols
 	B	clear_raster_main_4
 	B	clear_raster_main_5
-	B	redraw_raster_main_any  ; offset 13	8*16 at 2 cols
-	B	redraw_raster_main_any	;		8*16 at 4 cols
-	B	redraw_raster_main_16_2 ;		8*16 at 16 cols
-	B	redraw_raster_main_16_3 ;		8*16 at 256 cols
-	B	redraw_raster_main_16_4	;		8*16 at 32k cols
-	B	redraw_raster_main_16_5	;		8*16 at 16M cols
 
 	LOCAL
 
 redraw_raster_main_8_2
-	FNJSR
-	RSB	R9,R6,#32
-loop$l	BL	get_bitmap
-	LDR	R0,[R2]
-	AND	R2,R10,R0		; R2=foreground bit
-	BIC	R0,R11,R0		; R0=background bit
-	ORR	R0,R2,R0		; R0=end bitmap
-	ORR	R7,R7,R0,LSL R6		; mask in
-	STR	R7,[R5],#4		; save word
-	MOV	R7,R0,LSR R9		; start of new buffer
-	SUBS	R8,R8,#1
-	BGT	loop$l
-	FNRTS
-
-	LOCAL
-
-redraw_raster_main_16_2
 	FNJSR
 	RSB	R9,R6,#32
 loop$l	BL	get_bitmap
@@ -706,28 +675,6 @@ loop$l	LDRB	R0,[R3],#1		; get next char
 	LOCAL
 
 redraw_raster_main_8_3
-	FNJSR
-	RSB	R9,R6,#32
-loop$l	BL	get_bitmap
-	LDMIA	R2,{R12,R14}		; get bitmap
-	AND	R2,R10,R12		; R2=foreground bit
-	BIC	R0,R11,R12		; R0=background bit
-	ORR	R12,R2,R0		; R12=first bitmap
-	AND	R2,R10,R14
-	BIC	R0,R11,R14
-	ORR	R14,R2,R0		; R14=second bitmap
-	ORR	R0,R7,R12,LSL R6	; NB Don't need R0 see 4 below
-	MOV	R12,R12,LSR R9
-	ORR	R12,R12,R14,LSL R6
-	MOV	R7,R14,LSR R9		; shuffle round
-	STMIA	R5!,{R0,R12}		; save output
-	SUBS	R8,R8,#1
-	BGT	loop$l
-	FNRTS
-
-	LOCAL
-
-redraw_raster_main_16_3
 	FNJSR
 	RSB	R9,R6,#32
 loop$l	BL	get_bitmap
@@ -799,41 +746,6 @@ loop$l	BL	get_bitmap
 
 	LOCAL
 
-redraw_raster_main_16_4
-	FNJSR
-	RSB	R9,R6,#32
-loop$l	BL	get_bitmap
-	MOV	R0,R2
-	LDMIA	R0!,{R12,R14}		; get first two words of bitmap
-	AND	R2,R10,R12		; R2=foreground bit
-	BIC	R12,R11,R12		; background bit
-	ORR	R12,R2,R12		; R12=first bitmap
-	AND	R2,R10,R14
-	BIC	R14,R11,R14
-	ORR	R14,R2,R14		; R14=second bitmap
-	ORR	R7,R7,R12,LSL R6
-	MOV	R12,R12,LSR R9
-	ORR	R12,R12,R14,LSL R6	; prepare next two words for output
-	STMIA	R5!,{R7,R12}		; save output
-	MOV	R7,R14,LSR R9		; new buffer contents
-	LDMIA	R0!,{R12,R14}		; get last two words of bitmap
-	AND	R2,R10,R12		; R2=foreground bit
-	BIC	R12,R11,R12		; background bit
-	ORR	R12,R2,R12		; R12=first bitmap
-	AND	R2,R10,R14
-	BIC	R14,R11,R14
-	ORR	R14,R2,R14		; R14=second bitmap
-	ORR	R7,R7,R12,LSL R6
-	MOV	R12,R12,LSR R9
-	ORR	R12,R12,R14,LSL R6	; prepare next two words for output
-	STMIA	R5!,{R7,R12}		; save output
-	MOV	R7,R14,LSR R9		; new buffer contents
-	SUBS	R8,R8,#1
-	BGT	loop$l
-	FNRTS
-
-	LOCAL
-
 clear_raster_main_4
 	FNJSR
 	RSB	R9,R6,#32		; NB Background R11 will change
@@ -852,45 +764,6 @@ loop$l	LDRB	R0,[R3],#1		; Don't seed! get next char
 	LOCAL
 
 redraw_raster_main_8_5			; NB R6,R7 irrelevant here!
-	FNJSR
-loop$l	BL	get_bitmap
-	MOV	R0,R2
-	LDMIA	R0!,{R7,R9,R12,R14}	; get first four
-	AND	R2,R10,R7
-	BIC	R7,R11,R7		; must do bics etc for fonts/merge
-	ORR	R7,R2,R7
-	AND	R2,R10,R9
-	BIC	R9,R11,R9
-	ORR	R9,R2,R9
-	AND	R2,R10,R12		; R2=foreground bit
-	BIC	R12,R11,R12		; background bit
-	ORR	R12,R2,R12		; R12=first bitmap
-	AND	R2,R10,R14
-	BIC	R14,R11,R14
-	ORR	R14,R2,R14		; R14=second bitmap
-	STMIA	R5!,{R7,R9,R12,R14}
-	LDMIA	R0!,{R7,R9,R12,R14}	; get first four
-	AND	R2,R10,R7
-	BIC	R7,R11,R7		; must do bics etc for fonts/merge
-	ORR	R7,R2,R7
-	AND	R2,R10,R9
-	BIC	R9,R11,R9
-	ORR	R9,R2,R9
-	AND	R2,R10,R12		; R2=foreground bit
-	BIC	R12,R11,R12		; background bit
-	ORR	R12,R2,R12		; R12=first bitmap
-	AND	R2,R10,R14
-	BIC	R14,R11,R14
-	ORR	R14,R2,R14		; R14=second bitmap
-	STMIA	R5!,{R7,R9,R12,R14}
-	MOV	R7,#0			; new buffer contents
-	SUBS	R8,R8,#1
-	BGT	loop$l
-	FNRTS
-
-	LOCAL
-
-redraw_raster_main_16_5			; NB R6,R7 irrelevant here!
 	FNJSR
 loop$l	BL	get_bitmap
 	MOV	R0,R2
