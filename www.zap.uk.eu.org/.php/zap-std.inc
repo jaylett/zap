@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.1 2002/01/23 20:45:55 ds Exp $
+  // $Id: zap-std.inc,v 1.2 2002/01/23 20:59:14 ds Exp $
 
   // setroot: find the document's root URL and put it in $root.
   //	      Must be called from the includer immediately after inclusion.
@@ -239,7 +239,7 @@ EOF;
 <address>
 <a href="${root}copyright">&copy; Copyright Zap Developers 2001. All rights reserved.</a>
 EOF;
-    $date = ereg_replace ('^\$Date: 2002/01/23 20:45:55 $date);
+    $date = ereg_replace ('^\$Date\: ', '', $date);
     $date = ereg_replace (' \$$', '', $date);
     print '<br>Updated: '.$date;
     echo <<<EOF
