@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.7 2002/11/14 19:30:30 christian Exp $
+; $Id: Template,fff,v 2.8 2002/11/20 03:32:11 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -2030,12 +2030,11 @@ new_read_disc_sub
 	LOCAL
 
 ; E R0 - start, R1 - end, R2 - task handle **R0<R1**
-; X CS if range invlaid.
+; X CS if range invalid.
 	FNAME	validateaddress
 validateaddress
 	FNJSR	"R0-R2"
-	CMP	R0,#&3800000		; ROM?
-	RSBHSS	R14,R1,#&4000000
+	BL	is_in_rom
 	BHS	isROM$l
 	SUB	R13,R13,#16
 	CMP	R0,#&8000
@@ -2068,6 +2067,41 @@ notapp$l
 isROM$l	CMP	R0,R1
 	FNRTS
 
+
+; determine if a given address is in ROM
+; E R0 -> start  R1 -> end   R0 < R1
+; X CS if in ROM
+	FNAME	is_in_rom
+is_in_rom
+	FNJSR	"R0-R8"
+	MOV	R7,#-1			; minimum ROM address
+	MOV	R8,#0			; maximum ROM
+
+	MOV	R0,#19
+	MOV	R1,#0
+	MOV	R2,#-1			; System ROM section
+loop$l	SWI	XOS_Module
+	BVS	done$l
+	CMP	R2,#-1			; still in ROM?
+	BNE	done$l
+	CMP	R3,R7			; find the address from the name
+	MOVLO	R7,R3			; pointer, which is inside the module
+	CMP	R3,R8
+	MOVHS	R8,R3
+	B	loop$l
+
+done$l	MOV	R7,R7,LSR #20		; round to 1M boundary
+	MOV	R7,R7,LSL #20
+	ADD	R8,R8,#1
+	MOV	R8,R8,LSR #20
+	MOV	R8,R8,LSL #20
+
+        LDMIA	R13,{R0,R1}
+	CMP	R0,R7
+	CMPHS	R8,R0
+	FNRTS
+
+
  LOCAL
 
 ;E R0=buffer R1=start address R2=end address
@@ -2086,20 +2120,22 @@ read_memory
  BL validateaddress
  PULL "R0-R2"
  BCS invalid$l
- CMP R1,#&04000000		; 64M
- BCS logical$l			; dynamic areas and other logical areas
- CMP R2,#&04000000
- BHI invalid$l			; interval spans 64M
- CMP R1,#&03800000
- BCS read$l			; direct read (in rom area)
- FNLDR R14,wimp_limit
- CMP R1,R14			; 16M or 28M
- BCS logical$l			; logical read
+ FNLDR	R14,wimp_limit
+ CMP	R1,R14
+ BHS	notapp$l
  CMP R1,#&8000
  BCS app$l			; application space read
  CMP R2,#&8000
- BHI invalid$l			; not in os space
+ BHS invalid$l			; crosses boundary
  B read$l			; direct read
+notapp$l
+ PUSH	"R0-R2"
+ MOV	R0,R1
+ MOV	R1,R2
+ BL	is_in_rom
+ PULL 	"R0-R2"
+ BCS	read$l			; ROM space - direct read
+ B	logical$l		; other logical area
 app$l				; read application workspace
  FNLDR R14,wimp_mzap
  MOV R3,R0			; dest buffer
