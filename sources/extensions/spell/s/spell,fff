@@ -1,0 +1,3103 @@
+; spell.s
+; converted from spell.bas by bas2asm.pl
+
+	GET	h.ZapSpell
+	
+firstline
+	DCD	0x0
+	DCD	StartUpHere
+	DCD	0x0
+	DCD	0x0
+	DCD	D1
+	DCD	ModHelpString
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+Data3
+	=	"Zap", 0
+	DCD	0x0
+StartUpHere
+	STMFD	sp!, {lr}
+	LDR	r2, [r12, #0]
+	CMP	r2, #0
+	BNE	ModuleInit
+		;  fist call...
+	MOV	r0, #6
+	MOV	r3, #0x20
+	SWI	XOS_Module
+	LDMVSFD	sp!, {pc}
+	STR	r2, [r12, #0]
+	ADRL	r0, Data47
+;	FNlong_adr("  ",0,Data47%)	; FIXME: function
+	STR	r2, [r0, #0]
+	MOV	r0, #0
+	STR	r0, [r2, #20]
+ModuleInit
+	MOV	r0, #4
+	STR	r0, [r2, #12]
+	MOV	r0, #18
+	ADR	r1, Data3
+	SWI	XOS_Module
+		; MOVVC   R0,#12
+		; ADRVC   R1,Data3%
+	MOVVC	r0, #0x0C
+	SWIVC	XOS_Module
+	LDMVSFD	sp!, {pc}
+	MOV	r12, r4
+	LDR	r2, [r3, #20]
+	ADD	r3, r3, r2
+	LDRB	r0, [r3, #3]
+	TEQ	r0, #'X'
+	ADDEQ	r3, r3, #1
+	LDRB	r0, [r3, #5]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'1'
+	BHI	MakeError
+	BNE	RefDataTab
+	LDRB	r0, [r3, #7]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'0'
+	BHI	MakeError
+	BNE	RefDataTab
+	LDRB	r0, [r3, #8]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'0'
+	BHI	MakeError
+RefDataTab
+	MOV	r0, #Module_Claim
+	MOV	r3, #ws_size	;  Workspace needed.
+	SWI	XOS_Module	;  Claim space.
+	LDMVSFD	sp!, {pc}	;  Return on failure.
+		;  STR R2,[R12]  ; Store workspace address.
+	STR	r2, WorkspaceAddr
+		; MOV R11,R2
+	MOV	r1, #0	;  Fill with zeros.
+		; MOV R2,R11
+	MOV	r3, #ws_size
+	FNcall	Zap_FillWords
+;	FNcall(Zap_FillWords)  	; FIXME: function	;  Clear workspace.
+	ADRL	r0, CmdTable
+;	FNlong_adr("  ",0,CmdTable)	; FIXME: function
+	FNcall	Zap_AddCommands
+;	FNcall(Zap_AddCommands)	; FIXME: function
+	LDMFD	sp!, {pc}
+MakeError
+	ADR	r0, ErrorMess
+	SWI	OS_GenerateError
+ErrorMess
+	DCD	0x00
+	=	"ZapSpell requires Zap version 1.00 or greater."
+	DCW	0x0
+	ALIGN
+Tk1frm12andret
+	LDR	r0, [r11, #12]
+	SUBS	r0, r0, #1
+	STR	r0, [r11, #12]
+	MVNNE	r0, #0
+	MOVS	pc, lr
+ZapModeWord
+	STMFD	sp!, {r0 - r2, lr}
+	LDR	r1, [r11, #4]
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #0x0164	;  REM Zap_GetModeWord - read mode word
+	MOV	lr, pc
+	MOV	pc, r2
+	MOV	r7, r0
+	LDMFD	sp!, {r0 - r2, pc}
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Data47
+	DCD	0x0
+Branch208
+	LDR	r11, Data47
+	MOV	pc, lr
+Branch210
+	STMFD	sp!, {r0, r1, lr}
+	LDR	r11, Data47
+	LDR	r0, [r8, #40]
+	AND	r0, r0, #0xFF
+	MVN	lr, #0
+	LDR	r1, [r11, #8]
+	TEQ	r0, r1
+	ADDEQ	lr, lr, #1
+	LDRNE	r1, [r11, #4]
+	TEQNE	r0, r1
+	ADDEQ	lr, lr, #1
+	LDRNE	r1, [r11, #0]
+	TEQNE	r0, r1
+	ADDEQ	lr, lr, #1
+	LDMFD	sp!, {r0, r1, pc}
+	STMFD	sp!, {r11, lr}
+	LDR	r11, Data47
+	TEQ	r1, #0
+	BLEQ	Tk1frm12andret
+	LDMFD	sp!, {r11, pc}
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+D1
+	=	"ZapSpell", 0, 0, 0, 0	;  this is aligned!
+ModHelpString
+	=	"ZapSpell", 0x09, "0.20 (10 Jul 2000) "
+		;      EQUS "Tim Tyler"
+		;      EQUB &00
+lp1
+	=	"Tim Tyler", 0x00
+	ALIGN
+CmdTable
+	DCD	CmdTable
+	DCD	zap_service
+	=	"IMPRESSIONSPELL_ADDWORD", 0
+	DCD	impressionspell_addword
+	=	"IMPRESSIONSPELL_BUF", 0
+	DCD	impressionspell_buf
+	=	"IMPRESSIONSPELL_CURRENT", 0
+	DCD	impressionspell_current
+	=	"IMPRESSIONSPELL_DELDIC", 0, 0
+	DCD	impressionspell_deldic
+	=	"IMPRESSIONSPELL_DELWORD", 0
+	DCD	impressionspell_delword
+	=	"IMPRESSIONSPELL_LOADDIC", 0
+	DCD	impressionspell_loaddic
+	=	"IMPRESSIONSPELL_NEXT", 0, 0, 0, 0
+	DCD	impressionspell_next
+	=	"IMPRESSIONSPELL_OFFSETS", 0
+	DCD	impressionspell_offsets
+	=	"IMPRESSIONSPELL_PREV", 0, 0, 0, 0
+	DCD	impressionspell_prev
+	=	"IMPRESSIONSPELL_SAVEDIC", 0
+	DCD	impressionspell_savedic
+	=	"IMPRESSIONSPELL_SELBUF", 0, 0
+	DCD	impressionspell_selbuf
+	=	"IMPRESSIONSPELL_SELECTION", 0, 0, 0
+	DCD	ImpressionSpellSelection
+	=	"IMPRESSIONSPELL_USEDIC", 0, 0
+	DCD	impressionspell_usedic
+	=	"ISPELL", 0, 0
+	DCD	ISpell
+	=	"SPELL", 0, 0, 0
+	DCD	spell
+	=	"SPELL_ASYOUTYPE", 0
+	DCD	spell_asyoutype
+	=	"SPELL_CLOSE", 0
+	DCD	spell_close
+	=	"SPELL_INFOBOX", 0, 0, 0
+	DCD	spell_infobox
+	=	"SPELL_REPLACE", 0, 0, 0
+	DCD	spell_replace
+	=	"SPELL_SAVEBOX", 0, 0, 0
+	DCD	spell_savebox
+	=	"WORDWORKS_SELECTION", 0
+	DCD	WordWorksSelection
+	DCD	0
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+inctypeofcommand
+	LDR	r0, typeofcommand
+	ADD	r0, r0, #0x100
+	STR	r0, typeofcommand
+	MOV	pc, lr
+
+	DCD	0x21
+impressionspell_offsets
+	STMFD	sp!, {lr}
+	CMP	r8, #0
+	LDMEQFD	sp!, {pc}
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	LDMEQFD	sp!, {pc}
+	MOV	r0, #1
+	STRB	r0, typeofcommand
+	BL	inctypeofcommand
+	LDMIA	r0!, {r1, r2}
+	SUBS	lr, r2, r1	;  Integrity checking for a change...
+	BMI	reportproblem3
+	BEQ	reportproblem3
+	CMP	r1, #0
+	BMI	reportproblem3
+	LDR	r0, [r9, #f_len]
+	CMP	r2, r0
+	BGT	reportproblem3
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}
+	SWI	XHourglass_On
+	SWI	XHourglass_On
+	BLVC	checkthespelling
+	SWIVC	XHourglass_Off
+	SWIVC	XHourglass_Off
+	LDMFD	sp!, {pc}
+
+	DCD	0x1
+impressionspell_buf
+	STMFD	sp!, {lr}
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}
+	CMP	r8, #0
+	LDMLEFD	sp!, {pc}
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	LDMEQFD	sp!, {pc}
+	MOV	r0, #0
+	STRB	r0, typeofcommand
+	BL	inctypeofcommand
+	LDR	r2, [r9, #f_len]
+	CMP	r2, #0
+	BEQ	reportproblem3
+	MOV	r1, #0
+		;     SWI &107
+	BL	informmodeofspell
+	SWI	XHourglass_On
+	SWI	XHourglass_On
+	BLVC	checkthespelling
+	SWIVC	XHourglass_Off
+	SWIVC	XHourglass_Off
+	BLVC	unsetflagsofanythown
+	LDMFD	sp!, {pc}
+		; E R1 = 0 R2 = ?
+		; X R1 = ? R2 = ?
+informmodeofspell
+	STMFD	sp!, {lr}
+	MOV	r3, r2
+	MOV	r2, r1
+	MOV	r1, #10
+	LDR	r0, typeofcommand
+	MOV	r11, #e_init
+	FNcall	Zap_CallMode
+;	FNcall(Zap_CallMode)	; FIXME: function
+	MOV	r1, r2
+	MOV	r2, r3
+	LDMFD	sp!, {pc}
+
+	DCD	0x1
+impressionspell_selbuf
+	STMFD	sp!, {r1 - r12, lr}
+	MOV	r7, r9
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {r1 - r12, pc}
+	CMP	r8, #0
+	LDMLEFD	sp!, {r1 - r12, pc}
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	LDMEQFD	sp!, {r1 - r12, pc}
+	MOV	r0, #1
+	STRB	r0, typeofcommand
+	BL	inctypeofcommand
+	LDR	r2, [r9, #f_len]
+	FNcall	Zap_GetSel
+;	FNcall(Zap_GetSel)	; FIXME: function
+	BCS	theendofspelling
+	CMP	r7, r9	;  in this window?
+	BNE	theendofspelling
+	CMP	r2, #0
+	BEQ	reportproblem3
+	ADD	r2, r1, r2
+	SWI	XHourglass_On
+	SWI	XHourglass_On
+	BLVC	informmodeofspell
+	BLVC	checkthespelling
+	SWIVC	XHourglass_Off
+	SWIVC	XHourglass_Off
+theendofspelling
+	BLVC	unsetflagsofanythown
+	LDMFD	sp!, {r1 - r12, pc}
+unsetflagsofanythown
+	STMFD	sp!, {lr}
+	LDR	lr, anysofar
+	CMP	lr, #0
+	BEQ	_altered_8	;  beep too.
+	LDR	r8, throwbackr8
+	LDR	r9, throwbackr9
+	ADR	r0, flagstogg
+	FNcall	Zap_CommandString
+;	FNcall(Zap_CommandString)	; FIXME: function
+	LDMFD	sp!, {pc}
+flagstogg
+	=	"FFLAGS_TOGGLE 3", 0
+	ALIGN
+		; E R1 = offset of start  R2 = offset of end
+		; X throwback buffer created...
+checkthespelling
+	STMFD	sp!, {lr}
+	LDR	lr, [r9, #f_len]
+	CMP	r2, lr	;  ????
+	SUBCS	r2, lr, #1
+	CMP	r1, #0	;  ????
+	MOVMI	r1, #0
+	MOV	r6, r1
+	MOV	lr, #0
+	STR	lr, anysofar
+	LDR	r11, [r9, #f_name]
+	FNcall	Zap_GetFileOff
+;	FNcall(Zap_GetFileOff)	; FIXME: function
+	CMP	r0, #0
+	LDMMIFD	sp!, {pc}
+	MOV	r10, r0
+	FNcall	Zap_GetWindOff
+;	FNcall(Zap_GetWindOff)	; FIXME: function
+	STR	r0, woffstored
+tospellloop
+	BL	checkescape
+	LDMCSFD	sp!, {pc}
+	BL	getr8r9
+	BL	showpercentage
+	MOV	r0, r1
+	BL	charfromoffset
+	CMP	r0, #'a'
+	BICCS	r0, r0, #0x20
+	CMP	r0, #'Z'	;  no, Z
+	BGT	tosonxtwd
+	CMP	r0, #'A'
+	BCC	tosonxtwd
+inaworkok
+	MOV	r3, #0
+	ADRL	r4, spacetempstore
+;	FNlong_adr("  ",4,spacetempstore)	; FIXME: function
+tospellloop2
+	MOV	r0, r1
+	BL	charfromoffset
+	MOV	lr, r0
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	CMP	lr, #'''
+	CMPNE	lr, #'A'
+	BCC	lastnowtospell	;  never fires...?
+	CMP	lr, #'Z'	;  Z.
+	BGT	lastnowtospell
+	STRB	r0, [r4, r3]
+	ADD	r3, r3, #1
+	CMP	r3, #MAX_LENGTH
+	BCS	failedend
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	tospellloop2
+	B	lastnowtospell
+		;  LDMFD D !,{PC}
+	DCD	0
+impressionspell_next
+	STMFD	sp!, {lr}
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}
+	SWI	XHourglass_On
+	CMP	r8, #0
+	BLE	theendnext
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	BEQ	theendnext
+	BL	chkifwindopen
+	BLNE	newalreadyopen
+	MOV	r0, #3
+	STRB	r0, typeofcommand
+	BL	setupcaretptr
+	LDR	r1, [r10, #c_off]
+	BL	informmodeofspell
+	LDR	r2, [r9, #f_len]
+nextloop
+	BL	checkescape
+	BCS	_altered_8
+	MOV	r0, r1
+	BL	charfromoffset
+	CMP	r0, #'a'
+	BICCS	r0, r0, #0x20
+	CMP	r0, #'Z'	;  no, Z
+	BGT	tosonxtwd2
+	CMP	r0, #'A'
+	BCC	tosonxtwd2
+	MOV	r3, #0
+	ADR	r4, spacetempstore
+nextloop2
+	MOV	r0, r1
+	BL	charfromoffset
+	MOV	lr, r0
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	CMP	lr, #'''
+	CMPNE	lr, #'A'
+	BCC	lastnowtospell2
+	CMP	lr, #'Z'	;  Z.
+	BGT	lastnowtospell2
+	STRB	r0, [r4, r3]
+	ADD	r3, r3, #1
+	CMP	r3, #MAX_LENGTH
+	BCS	failedend2
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	nextloop2
+theendnext
+		;     SWI &107 not called...
+	SWI	XHourglass_Off
+	LDMFD	sp!, {pc}
+	DCD	0x0
+impressionspell_current
+	STMFD	sp!, {lr}
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}	;  Hmm...
+	SWI	XHourglass_On
+	CMP	r8, #0
+	BLE	theendnext
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	BEQ	theendnext
+	MOV	r0, #4
+	STRB	r0, typeofcommand
+	BL	setupcaretptr
+	LDR	r1, [r10, #c_off]
+	BL	informmodeofspell
+	LDR	r2, [r9, #f_len]
+	CMP	r2, #0
+	BEQ	emptyfilesoaard
+	CMP	r1, r2
+	SUBCS	r1, r2, #1
+	CMP	r1, #0
+	BMI	_altered_8	;  ???????????
+loop
+	BL	prevalpha
+	CMP	r1, #0
+		; BEQ justend
+	BLGT	prevnonalpha
+	CMP	r1, #0
+		; BEQ justend
+	BL	nextalpha
+		; BCS justend (safe...)
+getonwiththecheck
+	MOV	r5, r1
+	LDR	r2, [r9, #f_len]	;  overkill?
+	MOV	r3, #0
+	ADR	r4, spacetempstore
+	MOV	r5, r1
+loop2
+	MOV	r0, r1
+	CMP	r1, r2
+	BCS	_altered_8
+	BL	charfromoffset
+	MOV	lr, r0
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	CMP	lr, #'''
+	CMPNE	lr, #'A'
+	BCC	imitatetospell
+	CMP	lr, #'Z'	;  Z.
+	BGT	imitatetospell
+	STRB	r0, [r4, r3]
+	ADD	r3, r3, #1
+	CMP	r3, #MAX_LENGTH
+	BCS	_altered_8
+	ADD	r1, r1, #1
+		;     CMP R1,R2
+	B	loop2
+		;     B justend
+emptyfilesoaard
+	ADR	r4, spacetempstore
+	MOV	r0, #0
+	STRB	r0, [r4]
+	B	imitatetospell
+	DCD	0x0
+impressionspell_prev
+	STMFD	sp!, {lr}
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}
+	SWI	XHourglass_On
+	CMP	r8, #0
+	BLE	theendnext
+	BL	chkifwindopen
+	BLNE	newalreadyopen
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	BEQ	theendnext
+	MOV	r0, #2
+	STRB	r0, typeofcommand
+	BL	setupcaretptr
+	LDR	r1, [r10, #c_off]
+	BL	informmodeofspell
+prevloop
+	BL	checkescape
+	BCS	_altered_8
+	LDR	r2, [r9, #f_len]
+	BL	prevalpha
+	CMP	r1, #0
+	BEQ	_altered_8
+	BL	prevnonalpha
+	CMP	r1, #0
+	BEQ	_altered_8
+	BL	prevalpha
+	CMP	r1, #0
+	BEQ	_altered_8
+	BL	prevnonalpha
+	CMP	r1, #0
+	BEQ	_altered_8
+	BL	prevalpha
+	CMP	r1, #0
+	BEQ	_altered_8
+	ADD	r1, r1, #1
+	BL	nextalpha
+_altered_0
+	MOV	r5, r1
+	MOV	r3, #0
+	ADR	r4, spacetempstore
+prevloop2
+	MOV	r0, r1
+	BL	charfromoffset
+	MOV	lr, r0
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	CMP	lr, #'''
+	CMPNE	lr, #'A'
+	BCC	lastnowtospell3
+	CMP	lr, #'Z'	;  Z.
+	BGT	lastnowtospell3
+	STRB	r0, [r4, r3]
+	ADD	r3, r3, #1
+	CMP	r3, #MAX_LENGTH
+	BCS	failedend3
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	prevloop2
+justend
+		;     BL beep
+		;     SWI &107
+	B	theendnext
+getr8r9
+	STMFD	sp!, {r0, lr}
+	MOV	r0, r10
+	FNcall	Zap_ConvFileOff
+;	FNcall(Zap_ConvFileOff) 	; FIXME: function	;  get R9...
+	LDR	r0, woffstored
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff) 	; FIXME: function	;  get R8...
+	LDMFD	sp!, {r0, pc}
+typeofcommand
+	DCD	0x0
+woffstored
+	DCD	0x0
+throwbackr8
+	DCD	0x0
+throwbackr9
+	DCD	0x0
+anysofar
+	DCD	0x0
+filenamename_token
+	=	"spell_tb_file", 0
+querynamename2_token
+	=	"spell_tb_line", 0
+	ALIGN
+reporttouserspelling
+	STMFD	sp!, {r1 - r11, lr}
+	BL	copyinlinenumber
+	LDR	lr, anysofar
+	CMP	lr, #0
+	BLEQ	startupthrowback
+	ORR	r0, r1, #(1 << 31)
+	MOV	r1, r11	;  stored f_name !
+	ADR	r2, spacetempstore - 10
+		; MOV R2,R4
+	ADR	r3, filenamename_token	;  problemreporttoolong
+	ORR	r3, r3, #1<<31
+	MOV	r4, r10	;  the relevant file...
+	MOV	r5, #0x100	;  flags - 1 extra line...
+	ORR	r5, r5, #2	;  spell!
+	ADR	r6, querynamename2_token	; 
+	ORR	r6, r6, #1<<31
+	MOV	r7, #0	;  no comment after filenames
+	LDR	r8, throwbackr8
+	LDR	r9, throwbackr9
+	FNcall	Zap_Throwback
+;	FNcall(Zap_Throwback)	; FIXME: function
+	LDMFD	sp!, {r1 - r11, pc}
+		; E R1 = offset, R8/R9
+copyinlinenumber
+	STMFD	sp!, {r1 - r11, lr}
+	MOV	r0, r1
+	MOV	r11, #e_clnoff
+	FNcall	Zap_CallMode
+;	FNcall(Zap_CallMode)	; FIXME: function
+	ADD	r7, r2, #1
+	MOV	r0, r7
+	ADR	r1, spacetempstore - 10
+	MOV	r2, #16	;  bigger?
+	SWI	XOS_ConvertInteger4	;  decimal
+	ADRVC	r3, spacetempstore - 10
+	SUBVC	r1, r1, r3
+	ADDVC	r3, r3, #8
+	SUBVC	r1, r3, r1
+	LDRVC	r0, fourspaces
+	STRVC	r0, spacetempstore - 12
+	STRVC	r0, spacetempstore - 8
+	STRVC	r0, spacetempstore - 4
+	MOVVC	r0, r7
+	MOVVC	r2, #16	;  bigger?
+	SWIVC	XOS_ConvertInteger4	;  decimal
+	MOVVC	r0, #32
+	STRVCB	r0, [r1]
+	LDMFD	sp!, {r1 - r11, pc}
+	=	"ab"
+tenleftlineni
+	=	"cdefghij  "
+spacetempstore
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+	DCD	0x0
+problemreportstring
+	=	"spell_noimpression", 0
+problemreporttoolong
+	=	"spell_toolong", 0
+problemreportbufsiz
+	=	"spell_bufsize", 0
+ispellmodnamed
+	=	"ImpressionSpell", 0
+	ALIGN
+chkforispellmod
+	STMFD	sp!, {lr}
+	MOV	r0, #0x12
+	ADR	r1, ispellmodnamed
+	SWI	XOS_Module
+	LDMFD	sp!, {pc}
+reportproblem2
+	STMFD	sp!, {r1 - r12, lr}
+	MOV	r1, #1<<29
+	ADR	r0, problemreporttoolong
+	FNcall	Zap_Warning
+;	FNcall(Zap_Warning)	; FIXME: function
+	LDMFD	sp!, {r1 - r12, pc}
+reportproblem
+	MOV	r1, #1<<29
+	ADR	r0, problemreportstring
+	FNcall	Zap_Warning
+;	FNcall(Zap_Warning)	; FIXME: function
+	MOVS	lr, #0
+	LDMFD	sp!, {pc}
+		;     ORRS PC,R14,#1<<28 ; V bit...
+reportproblem3
+	MOV	r1, #1<<29
+	ADR	r0, problemreportbufsiz
+	FNcall	Zap_Warning
+;	FNcall(Zap_Warning)	; FIXME: function
+	LDMFD	sp!, {pc}
+chkifwindopen
+		;  X sets up R1 and EQ if closed?
+	STMFD	sp!, {r0, r1, lr}
+	LDR	lr, spellwindowhandle
+	CMP	lr, #0
+	LDMEQFD	sp!, {r0, r1, pc}
+	LDR	r1, templatewkspace1	;  um, store regs...?
+	STR	lr, [r1]
+	SWI	XWimp_GetWindowState
+	LDR	r1, templatewkspace1
+	LDR	lr, [r1, #32]	;  flags...
+	TST	lr, #(1 << 16)
+	LDMFD	sp!, {r0, r1, pc}
+templatewkspace1
+	DCD	0x0
+templatewkspace2
+	DCD	0x0
+adrofspri
+	DCD	0x0
+	DCD	7 + (1 << 16)
+spell_savebox
+	LDR	r0, spellsavewindowhandle
+	MOV	pc, lr
+	DCD	7 + (1 << 16)
+spell_infobox
+		; CMP R2,#16
+	LDR	r0, spellinfowindowhandle
+	MOV	pc, lr
+	DCD	7
+spell_close
+	STMFD	sp!, {lr}
+	LDR	r0, spellwindowhandle
+	SUB	r1, sp, #4
+	STR	r0, [r1]
+	SWI	XWimp_CloseWindow
+	LDMFD	sp!, {pc}
+	DCD	0x0 + (1 << 16)
+spell
+	STMFD	sp!, {lr}
+	BL	tojustrtrnpntr
+	TEQ	r2, #16	;  huh?
+	LDMEQFD	sp!, {pc}
+		; BEQ justrtrnpntr
+	STMFD	sp!, {r1 - r12}
+		;  BL loadmoduleattempt
+		;  MOV R7,R2
+	BL	chkifwindopen
+	BLNE	newalreadyopen
+	BNE	alreadyopen
+	LDR	r1, templatewkspace1
+	LDR	r2, [r1, #4]
+	LDR	lr, [r1, #12]
+	SUB	r2, lr, r2	;  xsize
+	LDR	r3, [r1, #8]
+	LDR	lr, [r1, #16]
+	SUB	r3, lr, r3	;  ysize
+	LDR	lr, [r8, #w_handle]
+	STR	lr, [r1]
+	SWI	XWimp_GetWindowState
+	LDR	r0, spellwindowhandle
+		;  CMP R7,#16
+		;  BEQ spellquickexit
+	STR	r0, [r1]
+	LDR	r0, [r1, #12]
+	SUB	r0, r0, #32
+	STR	r0, [r1, #12]
+	SUB	r0, r0, r2
+	STR	r0, [r1, #4]
+	LDR	r0, [r1, #16]
+	SUB	r0, r0, #48
+	STR	r0, [r1, #16]
+	SUB	r0, r0, r3
+	STR	r0, [r1, #8]
+	MOV	r0, #0
+	STR	r0, [r1, #20]
+	STR	r0, [r1, #24]
+openthatwindow
+	MVN	r0, #0
+	STR	r0, [r1, #28]	;  open at front...
+	SWIEQ	XWimp_OpenWindow
+alreadyopen
+	LDMFD	sp!, {r1 - r12}
+	BL	impressionspell_current
+	LDMFD	sp!, {pc}
+newalreadyopen
+	STMFD	sp!, {lr}
+	LDR	r1, templatewkspace1
+	LDR	r0, spellwindowhandle
+	STR	r0, [r1]
+	SWI	XWimp_GetWindowState
+	MOVS	r0, #0
+	MVN	r0, #0
+	STR	r0, [r1, #28]	;  open at front...
+	SWIEQ	XWimp_OpenWindow
+	MVNS	lr, #0
+	LDMFD	sp!, {pc}
+whatwasinserted
+	DCD	0
+
+	DCD	16
+spell_asyoutype
+	STMFD	sp!, {r1 - r12, lr}
+	LDR	r0, [r0]	;  address of char?/char itself...
+		;     LDR R0,[R0]            ; char itself...
+		;     MOV R0,#32
+	STR	r0, whatwasinserted
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {r1 - r12, pc}
+	BL	tojustrtrnpntr
+	SWI	XHourglass_On
+	CMP	r8, #0
+	BLE	hgoff
+	LDR	r1, [r8, #w_handle]
+	CMN	r1, #1
+	BEQ	hgoff
+	MOV	r0, #5
+	STRB	r0, typeofcommand	;  hmm...
+		;     BL setupcaretptr
+	LDR	r2, [r9, #f_len]
+	CMP	r2, #0
+	BEQ	hgoff
+	LDR	r1, [r10, #c_off]
+	SUBS	r1, r1, #1
+	BMI	hgoff
+	BL	informmodeofspell
+	BL	getspelledarea
+	BVS	hgoff
+	B	pretendtospell
+tojustrtrnpntr
+	STMFD	sp!, {lr}	;  must match with elsewhere!
+justrtrnpntr
+	STMFD	sp!, {r1 - r12}
+	LDR	r1, templatewkspace1
+	CMP	r1, #0
+	BLEQ	loadtemplates
+	LDR	r0, spellwindowhandle
+	LDMFD	sp!, {r1 - r12}
+	LDMFD	sp!, {pc}	;  must match with elsewhere!
+		;  X returns R1 ?,R2 ?,R3 = LEN R5=start
+		;  WAS V IF EOF/>20 CHARS...
+getspelledarea
+	STMFD	sp!, {lr}
+	BL	prevalpha
+	BL	prevnonalpha
+	BL	nextalpha
+	MOV	r5, r1
+	MOV	r3, #0
+	ADR	r4, spacetempstore
+loop2b
+	CMP	r1, r2
+	MOVCC	r0, r1
+	MOVCS	r0, #0
+	BLCC	charfromoffset	; 
+	MOV	lr, r0
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	CMP	lr, #'''
+	CMPNE	lr, #'A'
+	LDMCCFD	sp!, {pc}	;  v clear...
+	CMP	lr, #'Z'
+	LDMGTFD	sp!, {pc}	;  v clear...
+	STRB	r0, [r4, r3]
+	ADD	r3, r3, #1
+	CMP	r3, #MAX_LENGTH
+	LDMCSFD	sp!, {pc}	;  v clear...
+		;     BCS rapidending
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	loop2b
+	LDMFD	sp!, {pc}	;  v clear...
+		; .rapidending
+		;     LDMFD D !,{R14}
+		;     ORR PC,R14,#1<<28 ; V
+loadtemplates
+	STMFD	sp!, {lr}
+	ADR	r1, adrofsprpfile
+	BL	loadandretptr2
+	ADR	r1, adroftempfile
+	SWI	XWimp_OpenTemplate
+	MOV	r0, #tempwkspacesize
+	FNcall	Zap_Claim
+;	FNcall(Zap_Claim)	; FIXME: function
+	STR	r0, templatewkspace1
+	MOV	r11, r0
+	MOV	r0, #iconwkspacesize
+	FNcall	Zap_Claim
+;	FNcall(Zap_Claim)	; FIXME: function
+	STR	r0, templatewkspace2
+	MOV	r10, r0
+	MOV	r1, r11
+	MOV	r2, r10
+	ADD	r3, r2, #iconwkspacesize
+	MVN	r4, #0
+	ADR	r5, spelltempnam
+	MOV	r6, #0
+	SWI	XWimp_LoadTemplate
+	MOV	r1, r11
+	LDR	r0, adrofspri
+	STR	r0, [r1, #64]
+	SWI	XWimp_CreateWindow
+	STR	r0, spellwindowhandle
+	MOV	r1, r11
+	ADR	r5, spellinfonam
+	SWI	XWimp_LoadTemplate
+	MOV	r1, r11
+	SWI	XWimp_CreateWindow
+	STR	r0, spellinfowindowhandle
+	MOV	r1, r11
+	ADR	r5, spellsavenam
+	SWI	XWimp_LoadTemplate
+	MOV	r1, r11
+	SWI	XWimp_CreateWindow
+	STR	r0, spellsavewindowhandle
+	SWI	XWimp_CloseTemplate
+	LDMFD	sp!, {pc}
+fourspaces
+		;  aligned...
+	=	"    "
+spelltempnam
+	=	"SpellBox", 0, 0, 0, 0 
+spellinfonam
+	=	"SpellInfo", 0, 0, 0
+spellsavenam
+	=	"SpellSave", 0, 0, 0
+adroftempfile
+	=	"<ZapSpell$Templates>", 0
+adrofsprpfile
+	=	"<ZapSpell$Sprites>", 0, 0, 0
+	ALIGN
+loadandretptr2
+	STMFD	sp!, {r1 - r5, lr}
+	MOV	r0, #5
+	SWI	XOS_File
+	BIC	r0, r4, #3
+	ADD	r0, r0, #0x10
+	FNcall	Zap_Claim
+;	FNcall(Zap_Claim)	; FIXME: function
+	STR	r0, adrofspri
+	ADD	r4, r4, #5
+	STR	r4, [r0]
+	MOV	r3, #0
+	ADD	r2, r0, #4
+	MOV	r0, #255
+	SWI	XOS_File
+	LDMFD	sp!, {r1 - r5, pc}
+		; E R0 = buffer containing word to be spelled.
+		;   R1 = offset of word in the Zap buffer...
+		;   R3 = Word length
+		;   R4 = buffer containing word to be spelled.
+		; X NE if word is not spelt right...
+spellchkword
+	STMFD	sp!, {r2 - r7, r11, lr}
+	SUB	r7, r1, r3
+	MOV	r6, r1
+prespellchk
+	MOV	r0, r4
+		;  XSpell_CheckWord ; returns cs(?) if not found...
+		;  XSpell_EnumWord ; returns ne if not found...
+	SWI	XSpell_EnumWord	;  returns/corrupts R1 ;(
+	MVNEQ	r0, #0
+	MOVEQ	r1, r6
+	LDMEQFD	sp!, {r2 - r7, r11, pc}
+		; STR R1,currspellnumber
+	MOV	r0, r7
+	MOV	r1, #9
+	LDR	r5, typeofcommand
+	MOV	r11, #e_init
+	FNcall	Zap_CallMode
+;	FNcall(Zap_CallMode)	; FIXME: function
+	CMP	r1, #1
+	BEQ	testforone
+	CMP	r1, #2
+	BEQ	testfortwo
+	CMP	r1, #0
+	BEQ	trythatagain
+	MVN	r0, #0
+	CMPMI	r0, r0	;  clear to EQ if negative...
+	MOV	r1, r6
+	LDMFD	sp!, {r2 - r7, r11, pc}
+		;  X EQ - word OK. NE - word wrong...
+		;    R0 = -1 ok / R0 > 0 new offset...
+trythatagain
+	ADD	r4, r4, r0
+	ADD	r7, r7, r0
+	B	prespellchk
+testforone
+	MOV	r1, r0
+	CMP	r0, r0	;  clear to EQ if negative...
+	LDMFD	sp!, {r2 - r7, r11, pc}
+testfortwo
+	MOV	r1, r0
+	CMP	r0, lr	;  make NE...
+	LDMFD	sp!, {r2 - r7, r11, pc}
+		;  ******* WIMPy bits... *******
+startupthrowback
+	STMFD	sp!, {r1 - r12, lr}
+	MOV	r0, #42
+	ORR	r0, r0, #((3<<30) + (1<<29))	;  r1 = name token, r2 = colouring list
+	ADR	r1, throwbacktitle
+	ADR	r2, tb_redrawtokens
+	FNcall	Zap_CreateThrowback
+;	FNcall(Zap_CreateThrowback)	; FIXME: function
+	STR	r8, throwbackr8
+	STR	r9, throwbackr9
+	STR	lr, anysofar
+	LDMFD	sp!, {r1 - r12, pc}
+tb_redrawtokens
+	DCD	0
+	DCD	13
+	=	"spell_tb_line", 0
+	ALIGN
+	DCD	0
+	DCD	10 + (6<<28)
+	=	"spell_tb_file", 0
+	ALIGN
+	DCD	0
+	DCD	0
+throwbacktitle
+	=	"spell_title", 0
+	ALIGN
+icontmpdata
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+WorkspaceAddr
+	DCD	0
+		; E xxx NOT ! R1 -> offset of string to insert... R2=len...
+insertsometext
+	STMFD	sp!, {r0 - r9, lr}
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	LDMEQFD	sp!, {r0 - r9, pc}
+	MOV	r6, r1	;  offset.
+	MOV	r7, r2	;  len.
+	MOV	r2, #writablenumber
+	BL	gettextfromicnum
+	MOV	r5, r0
+	MOV	r2, r7
+	CMP	r2, #0
+	BLE	noselectionpresent
+	CMP	r2, #MAX_LENGTH
+	MOVCS	r2, #MAX_LENGTH
+	MOV	r3, r6
+	MOV	r6, r5
+		;     SWI &107 ; ??????????????????????
+_altered_1
+	MOV	r0, r3
+	BL	charfromoffset
+	ADD	r3, r3, #1
+		;     LDRB R0,[R3],#1
+	STRB	r0, [r5], #1
+	SUBS	r2, r2, #1
+	BNE	_altered_1
+	MOV	r0, #0
+	STRB	r0, [r5], #1
+	SUB	r5, r5, r6
+	SUB	r5, r5, #1
+	BL	reallysetthecaret
+	LDR	lr, asyoutypeflag
+	BLEQ	redrawiconnow	;  not if sayt on...
+	LDMFD	sp!, {r0 - r9, pc}
+gettextfromicnum
+		;  E R0,R2 ;X R0
+	ADR	r1, icontmpdata
+	STMIA	r1, {r0, r2}
+	SWI	XWimp_GetIconState
+	LDR	r0, [r1, #28]
+	MOV	pc, lr
+		;  insert selection into icon 0 of box.
+		; E xxx NOT ! R0 -> string to insert...
+insertselection
+	STMFD	sp!, {r0 - r9, lr}
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	LDMEQFD	sp!, {r0 - r9, pc}
+	MOV	r2, #writablenumber
+	BL	gettextfromicnum
+	MOV	r5, r0
+	FNcall	Zap_ReadSel
+;	FNcall(Zap_ReadSel)	; FIXME: function
+	CMP	r3, #0
+	BEQ	noselectionpresent
+	MOV	r4, r3
+	MOV	r6, r5
+_altered_2
+	LDRB	r0, [r3], #1
+	STRB	r0, [r5], #1
+	SUBS	r2, r2, #1
+	BNE	_altered_2
+	MOV	r0, #0
+	STRB	r0, [r5], #1
+	SUB	r5, r5, r6
+	SUB	r5, r5, #1
+	BL	reallysetthecaret
+	BL	redrawiconnow
+	MOV	r0, r4
+	FNcall	Zap_Free
+;	FNcall(Zap_Free)	; FIXME: function
+	LDMFD	sp!, {r0 - r9, pc}
+redrawiconnow
+	ADR	r1, icontmpdata
+	MOV	r2, #0
+	STR	r2, [r1, #8]
+	STR	r2, [r1, #12]
+	SWI	XWimp_SetIconState
+	MOV	pc, lr
+wordtonumber
+	STMFD	sp!, {r1 - r6, lr}
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	BEQ	anendproblem
+	LDR	r0, spellwindowhandle
+	MOV	r2, #writablenumber	;  wi number
+	BL	gettextfromicnum
+	BVS	anendproblem
+	LDRB	r6, [r0]
+	CMP	r6, #32
+	BCC	anendproblem
+	MOV	r6, r1
+	MOV	r2, #0
+	BL	strCPY
+	STR	r2, nofuppsercaselet
+		; CMP R1,R0
+		; BEQ anendproblem
+	MOV	r0, r6
+	BL	sortsinglesout
+	SUB	r1, r1, r0	;  length (important)
+	SWI	XSpell_FindWord	;  nearest....?
+	CMP	r0, #0
+	BMI	anendproblem
+	LDMVCFD	sp!, {r1 - r6, pc}
+anendproblem
+	MOV	r0, #0	;  AARDVARK!
+	STR	r0, nofuppsercaselet
+	LDMFD	sp!, {r1 - r6, pc}
+nofuppsercaselet
+	DCD	0
+currspellnumber
+	DCD	0x0
+		; E none
+dispdicfromoffs
+	STMFD	sp!, {r0 - r9, lr}
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	LDMEQFD	sp!, {r0 - r9, pc}
+	BL	wordtonumber
+	BL	boundlowerpartofdic
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r9, pc}
+		; E R7 = 0-7 iconnumber R6 = offset of first word.
+updateanicon
+	STMFD	sp!, {r1 - r12, lr}
+	LDR	r0, spellwindowhandle
+	MOV	r2, #dicicnostart
+	ADD	r2, r2, r7
+	BL	gettextfromicnum
+	MOV	r5, r0
+	MOV	r4, r5
+	ADD	r0, r6, r7
+	SWI	XSpell_GetWord
+	MOV	r3, r1
+	LDR	r2, nofuppsercaselet
+updateaniconloop
+	LDRB	r0, [r3], #1
+	CMP	r0, #'A'
+	BCC	astraightcopy
+	TST	r2, #0xFF
+	BEQ	astraightcopy
+	TST	r2, #0x100
+	CMPEQ	r4, r5
+	ORRNE	r0, r0, #0x20
+astraightcopy
+	STRB	r0, [r5], #1
+	CMP	r0, #32
+	BCS	updateaniconloop
+	BL	redrawiconnow
+	LDMFD	sp!, {r1 - r12, pc}
+	DCD	0
+spell_replace
+	STMFD	sp!, {r0 - r11, lr}
+click_replace
+	LDRB	r0, typeofcommand
+	CMP	r0, #5
+	BEQ	as_you_do_type
+	FNcall	Zap_GetSel
+;	FNcall(Zap_GetSel) 	; FIXME: function	;  get R8,R9
+	BCS	repl_notastring	;  notastring ; beep...!
+insertnew_repl
+		;     FNcall(Zap_StartOp)
+	MOV	r6, r2	;  number
+	MOV	r7, r1	;  offset...
+		;     MOV R0,#&12
+		;     FNcall(Zap_Command)
+	LDR	r0, spellwindowhandle
+	MOV	r2, #writablenumber	;  wi number
+		;     MOV R2,#writablenumber
+	BL	gettextfromicnum
+	MOV	r3, r0
+	MOV	r4, #0
+_altered_3
+	LDRB	r0, [r3, r4]
+	ADD	r4, r4, #1
+	CMP	r0, #32
+	BCS	_altered_3
+	SUB	r4, r4, #1
+	MOV	r1, r7
+		;     MOV R0,#&11
+	MOV	r2, r6
+		;     STMFD R13 !,{R8,R9}      ; needed!?
+	FNcall	Zap_StartOp
+;	FNcall(Zap_StartOp)	; FIXME: function
+	FNcall	Zap_ReplaceArea
+;	FNcall(Zap_ReplaceArea)	; FIXME: function
+		;     LDMFD R13 !,{R8,R9}      ; needed!?
+	FNcall	Zap_StopOp
+;	FNcall(Zap_StopOp)	; FIXME: function
+	FNcall	Zap_StopOp
+;	FNcall(Zap_StopOp)        	; FIXME: function	;  needed due to bug in R_Area!?
+	MOV	r1, #10
+	FNcall	Zap_ReadVar
+;	FNcall(Zap_ReadVar)	; FIXME: function
+		;     CMP     R0,#0
+		;     BEQ     aftergetcarehwh2
+	MOV	r1, #5
+	CMP	r0, #2
+	CMPNE	r0, #5
+	MOVEQ	r1, #6
+	FNcall	Zap_ReadVar
+;	FNcall(Zap_ReadVar)	; FIXME: function
+	MOV	r10, r0
+	ADD	r0, r7, r4
+	FNcall	Zap_JumptoOffset
+;	FNcall(Zap_JumptoOffset)	; FIXME: function
+	LDMFD	sp!, {r0 - r11, pc}
+repl_notastring
+		;     BL beep
+repl_postnotastring
+	LDMFD	sp!, {r0 - r11, pc}
+as_you_do_type
+	BL	setupcaretptr
+	LDR	r0, [r10, #c_wind]
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff)	; FIXME: function
+	LDR	r2, [r9, #f_len]
+	LDR	r1, [r10, #c_off]
+	SUBS	r1, r1, #1	;  ??????????????
+	BMI	repl_postnotastring
+	BL	getspelledarea
+	BVS	repl_notastring
+	MOV	r1, r5
+	MOV	r2, r3
+	B	insertnew_repl
+scrolldown1
+	STMFD	sp!, {lr}
+	STR	r0, currspellnumber
+	MOV	r6, r0
+	MOV	r7, #0	;  (numindic - 2)
+scrolldloop
+	LDR	r0, spellwindowhandle
+	MOV	r2, #dicicnostart
+	ADD	r2, r2, r7
+	ADD	r2, r2, #1
+	BL	gettextfromicnum
+	MOV	r5, r0
+	MOV	r2, #dicicnostart
+	ADD	r2, r2, r7
+	STR	r2, [r1, #4]
+	SWI	XWimp_GetIconState
+	LDR	r1, [r1, #28]
+	MOV	r0, r5
+	BL	strcpy
+	BL	redrawiconnow
+	ADD	r7, r7, #1
+	CMP	r7, #(numindic - 1)
+	BNE	scrolldloop
+	MOV	r7, #(numindic - 1)
+	BL	updateanicon
+	LDMFD	sp!, {pc}
+scrollup1
+	STMFD	sp!, {lr}
+	STR	r0, currspellnumber
+	MOV	r6, r0
+	MOV	r7, #(numindic - 2)
+_altered_4
+	LDR	r0, spellwindowhandle
+	MOV	r2, #dicicnostart
+	ADD	r2, r2, r7
+	BL	gettextfromicnum
+	MOV	r5, r0
+	MOV	r2, #dicicnostart
+	ADD	r2, r2, r7
+	ADD	r2, r2, #1
+	STR	r2, [r1, #4]
+	SWI	XWimp_GetIconState
+	LDR	r1, [r1, #28]
+	MOV	r0, r5
+	BL	strcpy
+	BL	redrawiconnow
+	SUBS	r7, r7, #1
+	BPL	_altered_4
+	MOV	r7, #0
+	BL	updateanicon
+	LDMFD	sp!, {pc}
+click_aninsertion
+	MOV	r10, r0
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BEQ	nowordworksatall
+	MOV	r2, r10
+	LDR	r0, spellwindowhandle
+	BL	gettextfromicnum
+	BL	WordWorksChkplease
+nowordworksatall
+	MOV	r2, r10
+	LDR	r0, spellwindowhandle
+	BL	gettextfromicnum
+	MOV	r5, r0
+	MOV	r2, #writablenumber
+	LDR	r0, spellwindowhandle
+	MOV	r2, #writablenumber
+	BL	gettextfromicnum
+	MOV	r1, r0
+	MOV	r6, r1
+	MOV	r0, r5
+	BL	strcpy
+	SUB	r5, r1, r6
+	BL	setthecaret
+	BL	redrawiconnow
+	LDMFD	sp!, {r0 - r11, pc}
+reallysetthecaret
+	STMFD	sp!, {r0 - r4, lr}
+	LDR	lr, spellwindowhandle
+	LDR	r0, carettst0
+	CMP	r0, lr
+	LDMNEFD	sp!, {r0 - r4, pc}
+	LDR	r2, carettst2
+	LDR	r3, carettst3
+	LDR	r4, carettst4
+	MOV	r1, #writablenumber
+	SWI	XWimp_SetCaretPosition
+	LDMFD	sp!, {r0 - r4, pc}
+		; E R1,R5 ; 11=&A5 = means flag -> to exit
+setthecaret
+	CMP	r11, #0xA5
+	MOVEQ	pc, lr
+	STMFD	sp!, {r1 - r12, lr}
+	ADRL	r1, spacetempstore
+;	FNlong_adr("AL",1,spacetempstore)	; FIXME: function
+	SWI	XWimp_GetCaretPosition
+	LDR	lr, [r1]
+	LDR	r0, spellwindowhandle
+	CMP	r0, lr
+	LDMNEFD	sp!, {r1 - r12, pc}
+insetthecaret
+	LDR	r2, [r1, #08]
+	LDR	r3, [r1, #12]
+	LDR	r4, [r1, #16]
+	LDR	r0, [r1]
+	LDR	r1, [r1, #04]
+	SWI	XWimp_SetCaretPosition
+	LDMFD	sp!, {r1 - r12, pc}
+spellwindowhandle
+	DCD	0x0
+spellinfowindowhandle
+	DCD	0x0
+spellsavewindowhandle
+	DCD	0x0
+poll_click
+	STMFD	sp!, {r0 - r11, lr}
+	LDR	r0, [r1, #12]
+	LDR	lr, spellsavewindowhandle
+	CMP	r0, lr
+	BEQ	click_savebox
+	LDR	lr, spellwindowhandle
+	CMP	r0, lr
+	LDMNEFD	sp!, {r0 - r11, pc}
+	LDR	r0, [r1, #8]
+	TST	r0, #2
+	BNE	click_menu
+	LDR	r0, [r1, #16]
+	CMP	r0, #9
+	BEQ	click_find
+	CMP	r0, #10
+	BEQ	click_cancel
+	CMP	r0, #2
+	BEQ	click_onprev
+	CMP	r0, #3
+	BEQ	click_oncurrent
+	CMP	r0, #4
+	BEQ	click_onnext
+	CMP	r0, #5
+	BEQ	click_replace
+	CMP	r0, #6
+	BEQ	click_add
+	CMP	r0, #7
+	BEQ	click_ign
+	CMP	r0, #8
+	BEQ	click_del
+	CMP	r0, #11
+	BEQ	click_chkselection
+	CMP	r0, #12
+	BEQ	click_chkawholefile
+	CMP	r0, #13
+	BEQ	click_up3
+	CMP	r0, #14
+	BEQ	click_up2
+	CMP	r0, #15
+	BEQ	click_up1
+	CMP	r0, #16
+	BEQ	click_down1
+	CMP	r0, #17
+	BEQ	click_down2
+	CMP	r0, #18
+	BEQ	click_down3
+	CMP	r0, #dicicnostart
+	BCC	notastring
+	CMP	r0, #(dicicnostart + numindic)
+	BLCC	click_aninsertion
+notastring
+		;     BL beep
+		;     SWI     &107
+	LDMFD	sp!, {r0 - r11, pc}
+click_savedrag
+	ADRL	r1, WorkspaceAddr
+;	FNlong_adr("  ",1,WorkspaceAddr)	; FIXME: function
+	LDR	r1, [r1]
+	SWI	Wimp_GetPointerInfo
+	LDR	r2, [r1]
+	LDR	r3, [r1, #4]
+	LDR	lr, spellsavewindowhandle
+	STR	lr, [r1]
+	MOV	lr, #5
+	STR	lr, [r1, #4]
+	SUB	r4, r2, #34
+	SUB	r5, r3, #34
+	STR	r4, [r1, #8]
+	STR	r5, [r1, #12]
+	ADD	r4, r2, #34
+	ADD	r5, r3, #34
+	STR	r4, [r1, #16]
+	STR	r5, [r1, #20]
+	MOV	lr, #0
+	STR	lr, [r1, #24]
+	STR	lr, [r1, #28]
+	MVN	lr, #0
+	STR	lr, [r1, #32]
+	STR	lr, [r1, #36]
+	MOV	r0, #0
+	ADR	r2, enddragroutine
+	FNcall	Zap_DragBox
+;	FNcall(Zap_DragBox)	; FIXME: function
+	LDMFD	sp!, {r0 - r11, pc}
+enddragroutine
+	STMFD	sp!, {lr}
+	ADRL	r4, WorkspaceAddr
+;	FNlong_adr("  ",4,WorkspaceAddr)	; FIXME: function
+	LDR	r4, [r4]
+	ADD	r1, r4, #8
+	SWI	Wimp_GetPointerInfo
+	LDR	lr, [r1, #0]
+	STR	lr, [r4, #28]
+	LDR	lr, [r1, #4]
+	STR	lr, [r4, #32]
+	MOV	lr, #0x40000
+	STR	lr, [r4, #36]
+	MOV	lr, #0xD00
+	ORR	lr, lr, #0x84
+	STR	lr, [r4, #40]
+	ADD	r1, r4, #64
+	LDR	r0, spellsavewindowhandle
+	MOV	r2, #1
+	STMIA	r1, {r0, r2}
+	SWI	XWimp_GetIconState
+	LDR	r0, [r1, #28]	;  get path.
+		;  find full stop...
+	MOV	r1, #0
+	MOV	r3, r0
+_altered_5
+	LDRB	lr, [r3], #1
+	CMP	lr, #'.'
+	MOVEQ	r0, r3
+	CMP	lr, #32
+	BCS	_altered_5
+	ADD	r1, r4, #44
+	BL	strcpy
+	SUB	lr, r1, r4	;  length
+	ADD	lr, lr, #7	;  rounded up...
+	BIC	lr, lr, #3
+	STR	lr, [r4]
+	MOV	lr, #0xA5	;  my ref???
+	STR	lr, [r4, #12]
+	STR	lr, savingrefrence
+	MOV	lr, #1
+	STR	lr, [r4, #16]
+	MOV	r0, #17
+	MOV	r1, r4
+	LDR	r2, [r4, #20]
+	LDR	r3, [r4, #24]
+	SWI	Wimp_SendMessage
+		;  send data save...
+	LDMFD	sp!, {pc}
+click_saveud
+		; FNlong_adr("  ",1,icontmpdata)
+	LDR	r0, spellsavewindowhandle
+	MOV	r2, #1
+	BL	gettextfromicnum
+		; STMIA   R1,{R0,R2}
+		; SWI     "XWimp_GetIconState"
+		; LDR     R0,[R1,#28]         ; get path.
+	BL	impressionspell_savedic	;  no 'no csd...'
+	LDMFD	sp!, {r0 - r11, pc}
+click_savemenu
+	LDMFD	sp!, {r0 - r11, pc}
+click_add
+	MOV	r8, #0
+		; FNlong_adr("  ",1,icontmpdata)
+	LDR	r0, spellwindowhandle
+	MOV	r2, #writablenumber	;  wi number
+	BL	gettextfromicnum
+		; STMIA   R1,{R0,R2}
+		; SWI     "XWimp_GetIconState"
+		; LDR     R0,[R1,#28]
+	BL	impressionspell_addword
+	LDMFD	sp!, {r0 - r11, pc}
+click_ign
+	LDMFD	sp!, {r0 - r11, pc}
+click_del
+	MOV	r8, #0
+		; FNlong_adr("  ",1,icontmpdata)
+	LDR	r0, spellwindowhandle
+	MOV	r2, #writablenumber	;  wi number
+	BL	gettextfromicnum
+		;     STMIA   R1,{R0,R2}
+		;    SWI     "XWimp_GetIconState"
+		;   LDR     R0,[R1,#28]
+	BL	impressionspell_delword
+	LDMFD	sp!, {r0 - r11, pc}
+click_chkawholefile
+	BL	setupcaretptr
+	LDR	r0, [r10, #c_wind]
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff) 	; FIXME: function	;  get R8,R9
+	CMP	r8, #0
+	BLGT	impressionspell_buf
+	LDMFD	sp!, {r0 - r11, pc}
+click_chkselection
+	FNcall	Zap_GetSel
+;	FNcall(Zap_GetSel) 	; FIXME: function	;  get R8,R9
+	BLCC	impressionspell_selbuf
+	LDMFD	sp!, {r0 - r11, pc}
+click_up3
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_down3
+inclick_up3
+	LDR	r0, currspellnumber
+	SUBS	r0, r0, #64
+	MOVMI	r0, #0
+		; STR R0,currspellnumber
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r11, pc}	;  ;(
+click_up2
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_down2
+inclick_up2
+	LDR	r0, currspellnumber
+	SUBS	r0, r0, #8
+	MOVMI	r0, #0
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r11, pc}	;  ;(
+click_up1
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_down1
+inclick_up1
+	LDR	r0, currspellnumber
+	SUBS	r0, r0, #1
+	BLPL	scrollup1
+	LDMFD	sp!, {r0 - r11, pc}	;  ;(
+click_down1
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_up1
+inclick_down1
+	BL	getdicmaximum
+	SUB	lr, r0, #7
+	LDR	r0, currspellnumber
+	ADD	r0, r0, #1
+	CMP	r0, lr
+	MOVCS	r0, lr
+	STR	r0, currspellnumber
+	BLLE	scrolldown1
+	LDMFD	sp!, {r0 - r11, pc}
+click_down2
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_up2
+inclick_down2
+	BL	getdicmaximum
+	SUB	lr, r0, #7
+	LDR	r0, currspellnumber
+	ADD	r0, r0, #8
+	CMP	r0, lr
+	MOVCS	r0, lr
+		; STR R0,currspellnumber
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r11, pc}	;  ;(
+click_down3
+	LDR	r0, [r1, #8]
+	TST	r0, #1
+	BNE	inclick_up3
+inclick_down3
+	BL	getdicmaximum
+	SUB	lr, r0, #7
+	LDR	r0, currspellnumber
+	ADD	r0, r0, #64
+	CMP	r0, lr
+	MOVCS	r0, lr
+		; STR R0,currspellnumber
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r11, pc}
+boundlowerpartofdic
+	STMFD	sp!, {r7, lr}
+	MOV	r7, r0
+	BL	getdicmaximum
+	SUB	lr, r0, #(numindic - 1)
+	CMP	r7, lr
+	MOVCC	r0, r7
+	MOVCS	r0, lr
+		;  SWICS &107 beep if bottom...
+	LDMFD	sp!, {r7, pc}
+maxdicnum
+	DCD	0x0
+getdicmaximum
+	LDR	r0, maxdicnum
+	MOV	pc, lr
+getdicmax
+		;  set it up once...!?!?
+	STMFD	sp!, {r0 - r2, lr}
+	LDR	r0, maxdicnum
+	CMP	r0, #0
+	LDMNEFD	sp!, {r0 - r2, pc}
+		;     ADR R0,zymogenishere
+		;     MOV R1,#6 ; needed ! length of "ZYGOTE"
+	SWI	XSpell_ImpressionInfo	;  Spell_FindWord" ; nearest....?
+		;     LDMVSFD R13 !,{R0-R2,PC}
+	STRVC	r1, maxdicnum
+	LDMFD	sp!, {r0 - r2, pc}
+		; .zymogenishere
+		;  = "ZYGOTE", 0, 0 ; not zymogen!
+poll_keypress
+	STMFD	sp!, {lr}
+	LDR	r0, [r1, #24]
+	SUB	lr, r0, #0x100
+	CMP	lr, #0x8A
+	BEQ	pretendreplaceontab
+	CMP	lr, #0x8E
+	BEQ	move_down1
+	CMP	lr, #0x8F
+	BEQ	move_up1
+	CMP	lr, #0x9E
+	BEQ	move_down2
+	CMP	lr, #0x9F
+	BEQ	move_up2
+	CMP	lr, #0xCD
+	BEQ	copyitinsert
+	CMP	r0, #13
+	LDMNEFD	sp!, {pc}
+	BL	wordtonumber
+	BL	boundlowerpartofdic
+	BL	displayoffdic
+	LDMFD	sp!, {pc}
+move_down1
+	BL	getdicmaximum
+	SUB	lr, r0, #7
+	LDR	r0, currspellnumber
+	ADD	r0, r0, #1
+	CMP	r0, lr
+	MOVCS	r0, lr
+	BL	displayoffdic
+	LDMFD	sp!, {pc}
+move_up1
+	LDR	r0, currspellnumber
+	SUBS	r0, r0, #1
+	MOVMI	r0, #0
+	BL	displayoffdic
+	LDMFD	sp!, {pc}
+move_down2
+	BL	getdicmaximum
+	SUB	lr, r0, #7
+	LDR	r0, currspellnumber
+	ADD	r0, r0, #8
+	CMP	r0, lr
+	MOVCS	r0, lr
+	BL	displayoffdic
+	LDMFD	sp!, {pc}
+move_up2
+	LDR	r0, currspellnumber
+	SUBS	r0, r0, #8
+	MOVMI	r0, #0
+	BL	displayoffdic
+	LDMFD	sp!, {pc}
+copyitinsert
+	MOV	r0, #dicicnostart
+	LDMFD	sp!, {lr}
+	STMFD	sp!, {r0 - r11, lr}
+	B	click_aninsertion
+pretendreplaceontab
+	LDMFD	sp!, {lr}
+	STMFD	sp!, {r0 - r11, lr}
+	B	click_replace
+zap_service
+	CMP	r1, #0
+	MOVEQ	r0, #0
+	MOVEQ	pc, lr
+	CMP	r1, #4
+	BEQ	aclosedmsg
+	CMP	r1, #0x8000
+	MOVCC	pc, lr
+	CMP	r3, #2
+	BEQ	poll_open
+	CMP	r3, #3
+	BEQ	poll_close
+	CMP	r3, #6
+	BEQ	poll_click
+	CMP	r3, #8
+	BEQ	poll_keypress
+	CMP	r3, #11
+	BEQ	poll_losecaret
+	CMP	r3, #12
+	BEQ	poll_gaincaret
+	CMP	r3, #17
+	CMPNE	r3, #18
+	CMPNE	r3, #19
+	BEQ	poll_message
+	MOV	pc, lr
+aclosedmsg
+	STMFD	sp!, {r1 - r12, lr}
+	BL	chkifwindopen
+	LDMEQFD	sp!, {r1 - r12, pc}
+	MOV	r7, #0
+	ADR	r10, cntsub
+	FNcall	Zap_AllWindow
+;	FNcall(Zap_AllWindow)	; FIXME: function
+	CMP	r7, #2
+	LDMCSFD	sp!, {r1 - r12, pc}
+	ADRL	r1, spellwindowhandle
+;	FNlong_adr("  ",1,spellwindowhandle)	; FIXME: function
+	SWI	XWimp_CloseWindow
+	LDMFD	sp!, {r1 - r12, pc}
+cntsub
+	ADD	r7, r7, #1
+	MOV	pc, lr
+savingrefrence
+	DCD	0x0
+poll_message
+	STMFD	sp!, {lr}
+		;  MOV     R7,R1      ; save for later
+	LDR	lr, [r1, #16]
+	CMP	lr, #2	;  Data save ack...
+	BEQ	possiblyretsavmsg
+	LDR	lr, [r1, #20]	;  WH
+	LDR	r3, spellwindowhandle
+	CMP	lr, r3
+	LDMNEFD	sp!, {pc}
+	LDR	lr, [r1, #16]
+	CMP	lr, #3
+	LDMNEFD	sp!, {pc}
+	ADD	r0, r1, #44
+	BL	impressionspell_loaddic	;  preserves R1...!
+	MOVVC	r0, #4
+	STRVC	r0, [r1, #16]
+	MOVVC	r0, #17
+	MOVVC	r2, #0
+	SWIVC	XWimp_SendMessage
+	LDMFD	sp!, {pc}
+possiblyretsavmsg
+		;  LDR     R14,[1,#12]           ; my ref
+		;  LDR     R3,savingrefrence
+		;  CMP     R14,R3
+		;  LDMNEFD R13 !,{PC}
+	MOV	r7, r1
+		; SWI     &107
+	LDR	lr, [r7, #36]
+	CMN	lr, #1
+	BEQ	dontcopinfname
+		; FNlong_adr("  ",1,icontmpdata)
+	LDR	r0, spellsavewindowhandle
+	MOV	r2, #1
+	BL	gettextfromicnum
+		;     STMIA   R1,{R0,R2}
+		;    SWI     "XWimp_GetIconState"
+		;   LDR     R1,[R1,#28]         ; get path.
+	MOV	r1, r0
+	ADD	r0, r7, #44
+	BL	strcpy
+dontcopinfname
+	ADD	r0, r7, #44
+	BL	impressionspell_savedic	;  no 'no csd...'
+	MOV	r0, #17
+	MOV	r1, r7
+	LDR	r2, [r1, #20]
+	LDR	r3, [r1, #24]
+	MOV	lr, #3
+	STR	lr, [r1, #16]
+	SWI	Wimp_SendMessage
+	LDMFD	sp!, {pc}
+poll_losecaret
+	STMFD	sp!, {lr}
+	LDR	r0, [r1]
+	LDR	r3, spellwindowhandle
+	CMP	r0, r3
+	LDMNEFD	sp!, {pc}
+	LDR	r0, [r1, #4]
+	CMP	r0, #writablenumber
+	LDMNEFD	sp!, {pc}
+	MOV	r0, #0
+	STR	r0, activeicon
+	LDMFD	sp!, {pc}
+poll_gaincaret
+	STMFD	sp!, {lr}
+	LDR	r0, [r1]
+	LDR	r3, spellwindowhandle
+	CMP	r0, r3
+	LDMNEFD	sp!, {pc}
+	LDR	r0, [r1, #4]
+	CMP	r0, #writablenumber
+	LDMNEFD	sp!, {pc}
+	BL	activated
+	LDMFD	sp!, {pc}
+activeicon
+	DCD	0
+activated
+	STMFD	sp!, {lr}
+	MOV	r0, #1
+	STR	r0, activeicon
+	MVN	r1, #4
+	ADR	r2, activecallback	; ???
+	FNcall	Zap_CallBack
+;	FNcall(Zap_CallBack)	; FIXME: function
+	LDMFD	sp!, {pc}
+activecallback
+	STMFD	sp!, {r1 - r12, lr}
+	LDR	r0, activeicon
+	CMP	r0, #0
+	BEQ	cbtheend
+	MOV	r2, #writablenumber
+		;  FNlong_adr("AL",1,icontmpdata)
+	LDR	r0, spellwindowhandle
+	BL	gettextfromicnum
+		;     STMIA R1,{R0,R2}
+		;    SWI "XWimp_GetIconState"
+		;   LDR R0,[R1,#28]
+	ADR	r1, cbstringcmp
+	BL	strCMP
+	BEQ	setupnextone
+	BL	strCPY
+	BL	dispdicfromoffs
+setupnextone
+	BL	activated
+cbtheend
+	LDMFD	sp!, {r1 - r12, pc}
+cbstringcmp
+	=	"xxxx0000xxxx0000xxxx0000xxxx0000eee", 0
+		;  Misc bits (no address space requirements)...
+nextalpha
+		;  R1,R2 pos and end... ;X CS if beyond EOF!
+	STMFD	sp!, {lr}
+loop3
+	CMP	r1, r2
+	LDMCSFD	sp!, {pc}
+	MOV	r0, r1
+	BL	charfromoffset	; 
+	CMP	r0, #'a'
+	BICCS	r0, r0, #0x20
+	CMP	r0, #'Z'	;  no, Z
+	ADDGT	r1, r1, #1
+	BGT	loop3
+	CMP	r0, #'A'
+	ADDCC	r1, r1, #1
+	BCC	loop3
+	ADD	lr, lr, #0	;  clc...
+	LDMFD	sp!, {pc}
+carettst0
+	DCD	0x0
+carettst2
+	DCD	0x0
+carettst3
+	DCD	0x0
+carettst4
+	DCD	0x0
+		; E R1 = the end of the word...
+highlightandquit
+	MOV	r7, r1
+	BL	setupcaretptr
+	ADRL	r1, spacetempstore
+;	FNlong_adr("AL",1,spacetempstore)	; FIXME: function
+	SWI	XWimp_GetCaretPosition
+	LDR	lr, [r1]
+	STR	lr, carettst0
+	LDR	lr, [r1, #8]
+	STR	lr, carettst2
+	LDR	lr, [r1, #12]
+	STR	lr, carettst3
+	LDR	lr, [r1, #16]
+	STR	lr, carettst4
+	MOV	r0, r7
+	FNcall	Zap_GotoOffset
+;	FNcall(Zap_GotoOffset)	; FIXME: function
+	MOV	r1, r7
+	SUB	r2, r7, r3
+	MOV	r3, r7
+	FNcall	Zap_AlterSel
+;	FNcall(Zap_AlterSel)	; FIXME: function
+	BL	insertselection
+	BL	dispdicfromoffs
+	B	theendnext
+		; E R1 = the end of the word...
+		;   R3 = ?
+dodirtywork
+	STMFD	sp!, {lr}
+	MOV	r7, r1
+	BL	setupcaretptr
+	ADRL	r1, spacetempstore
+;	FNlong_adr("AL",1,spacetempstore)	; FIXME: function
+	SWI	XWimp_GetCaretPosition
+	LDR	lr, [r1]
+	STR	lr, carettst0
+	LDR	lr, [r1, #8]
+	STR	lr, carettst2
+	LDR	lr, [r1, #12]
+	STR	lr, carettst3
+	LDR	lr, [r1, #16]
+	STR	lr, carettst4
+	SUB	r1, r7, r3
+	SUB	r2, r7, r1
+		;     CMP R2,#MAX_LENGTH ; ?????
+		;     LDMGEFD R13 !,{PC}
+	BL	insertsometext
+	BL	dispdicfromoffs
+	LDMFD	sp!, {pc}
+failedend2
+	BL	reportproblem2
+	B	tosonxtwd2
+failedend
+	BL	reportproblem2
+	B	tosonxtwd
+toloadimpspellmodule
+	STMFD	sp!, {r1 - r12, lr}
+	BL	chkforispellmod
+	LDMVCFD	sp!, {r1 - r12, pc}
+	BLVS	trytoloadimpspellmodule
+	BL	chkforispellmod
+	LDMFD	sp!, {r1 - r12, pc}
+charfromoffset
+	STMFD	sp!, {lr}
+	CMP	r0, #0
+		;     SWIMI   &107
+	LDR	lr, [r9, #f_len]
+	CMP	r0, lr
+		;     SWICS   &107
+	LDR	lr, [r9, #f_splito]
+	CMP	r0, lr
+	LDRCS	lr, [r9, #f_splits]
+	ADDCS	r0, r0, lr
+	LDR	lr, [r9, #f_ptr]
+	LDRB	r0, [lr, r0]
+	LDMFD	sp!, {pc}
+lastnowtospell
+	CMP	r3, #3
+	BCC	tosonxtwd
+	BL	stripapostrophes
+	BL	spellchkword
+	BLNE	reporttouserspelling
+tosonxtwd
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	tospellloop
+	LDMFD	sp!, {pc}
+lastnowtospell2
+	CMP	r3, #3
+	BCC	tosonxtwd2
+	BL	stripapostrophes
+	BL	spellchkword
+	BNE	highlightandquit
+tosonxtwd2
+	ADD	r1, r1, #1
+	CMP	r1, r2
+	BLT	nextloop
+		;     BL beep
+		;     SWI &107
+	B	theendnext
+lastnowtospell3
+	CMP	r3, #3
+	BCC	tosonxtwd3
+	BL	stripapostrophes
+	BL	spellchkword
+	BNE	highlightandquit
+tosonxtwd3
+	MOV	r1, r5
+	CMP	r1, r2
+	BLT	prevloop
+		;     BL beep
+		;      SWI &107
+	B	theendnext
+stripapostrophes
+	STMFD	sp!, {r2, lr}
+aloop
+	ADD	r2, r4, r3	;  strip trailing "'"s
+	LDRB	lr, [r2, #-1]
+	CMP	lr, #'''
+	SUBEQ	r3, r3, #1
+	SUBEQ	r1, r1, #1
+	BEQ	aloop
+	BIC	lr, lr, #0x20	;  strip any "'s"s
+	CMP	lr, #'S'
+	CMPNE	lr, #'D'	;  shame'd !
+	LDREQB	lr, [r2, #-2]
+	CMPEQ	lr, #'''
+	SUBEQ	r3, r3, #2	;  cope with apostrophe "'S" in Fred's...
+	SUBEQ	r1, r1, #2	;  cope with apostrophe "'S" in Fred's...
+	MOV	lr, #0
+	STRB	lr, [r4, r3]
+	LDMFD	sp!, {r2, pc}
+imitatetospell
+	BL	stripapostrophes
+	B	highlightandquit
+prevnonalpha
+	CMP	r1, r2
+	MOVCS	pc, lr
+	STMFD	sp!, {lr}
+_altered_6
+	MOV	r0, r1
+	BL	charfromoffset
+	CMP	r0, #'a'
+	BICCS	r0, r0, #0x20
+	CMP	r0, #'Z'	;  no, Z
+	LDMGTFD	sp!, {pc}
+	CMP	r0, #'''
+	CMPNE	r0, #'A'
+	LDMCCFD	sp!, {pc}
+	SUBS	r1, r1, #1
+	BGT	_altered_6
+	MOV	r1, #0
+	LDMFD	sp!, {pc}
+prevalpha
+	CMP	r1, r2
+	MOVCS	pc, lr
+	STMFD	sp!, {lr}
+_altered_7
+	MOV	r0, r1
+	BL	charfromoffset
+	CMP	r0, #'a'
+	BICCS	r0, r0, #0x20
+	CMP	r0, #'Z'	;  no, Z
+	BGT	ontotheprevbit
+		; CMP R0,#ASC"'"
+	CMP	r0, #'A'
+	BCC	ontotheprevbit
+	CMP	r0, #'Z'
+	LDMLEFD	sp!, {pc}
+ontotheprevbit
+	SUBS	r1, r1, #1
+	BGT	_altered_7
+atthestart
+	MOV	r1, #0
+	LDMFD	sp!, {pc}
+		;  callback start
+meatofcallback
+	STMFD	sp!, {r0 - r9, lr}
+	LDR	r7, countermultitask
+	SUBS	lr, r7, #numindic	;  = *zero*
+	BEQ	endofeverything
+	ADD	r7, r7, #1
+	STR	r7, countermultitask
+	LDR	r6, currspellnumber
+loop1a
+	BL	updateanicon
+	LDR	lr, asyoutypeflag
+	CMP	lr, #0
+	BEQ	asbefore_thanks
+	CMP	r7, #0
+	BEQ	callbackinayt
+asbefore_thanks
+	BL	newcallback
+	MOV	lr, #0
+	STR	lr, asyoutypeflag	;  cancelled...
+	LDMFD	sp!, {r0 - r9, pc}
+endofeverything
+	MOV	lr, #0
+	STR	lr, inmultitaskflag
+	LDMFD	sp!, {r0 - r9, pc}
+callbackinayt
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	LDMEQFD	sp!, {r0 - r9, pc}	;  Hmm...
+	MOV	r7, r0
+	MOV	r2, #dicicnostart
+	BL	gettextfromicnum
+	MOV	r6, r0
+	MOV	r0, r7
+	MOV	r2, #writablenumber
+	BL	gettextfromicnum
+	MOV	r1, r0
+	MOV	r0, r6
+	BL	strcpy
+	BL	redrawiconnow	;  gets the right one?
+	BL	newcallback
+	LDMFD	sp!, {r0 - r9, pc}
+asyoutypeflag
+	DCD	0
+startcallback
+	STR	r0, currspellnumber
+	MVN	r0, #0
+	STR	r0, countermultitask
+	MOV	pc, lr
+newcallback
+	STMFD	sp!, {lr}
+	MVN	r1, #0
+	ADR	r2, meatofcallback
+	FNcall	Zap_CallBack
+;	FNcall(Zap_CallBack)	; FIXME: function
+	LDMFD	sp!, {pc}
+		;  callback end
+countermultitask
+	DCD	0x10000	;  BIGISH...
+inmultitaskflag
+	DCD	0
+	DCD	7 + (3 << 3)
+impressionspell_loaddic
+		;  preserves R1...!
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {r1, r7, lr}
+	MOV	r7, r0
+		;     FNlong_adr("  ",1,icontmpdata)
+	BL	tojustrtrnpntr	;  make sure all set up...?
+	LDR	r0, spellsavewindowhandle	;  ???
+	MOV	r2, #1
+	BL	gettextfromicnum
+		;     STMIA   R1,{R0,R2}
+		;    SWI     "XWimp_GetIconState"
+		;   LDR     R1,[R1,#28]         ; get path.
+	MOV	r1, r0
+	MOV	r0, r7
+	BL	strcpy
+	MOV	r0, r7
+	SWI	XSpell_LoadUser
+	BVS	normalrpterr
+	BL	dispdicfromoffs
+	LDMFD	sp!, {r1, r7, pc}
+	DCD	7 + (3 << 3)
+impressionspell_usedic
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {lr}
+	ADR	r1, defaultdicname
+	BL	strcpy
+	ADR	r1, defaultdicname
+	LDRB	r0, [r1]
+	CMP	r0, #0
+	LDMEQFD	sp!, {pc}
+	BL	checkifdicispresent
+	MOV	r0, r1
+	SWI	XSpell_CreateUser
+	LDMVCFD	sp!, {pc}
+	CMP	r8, #0
+	BEQ	onlywaytoreport
+normalrpterr
+	MOV	r1, #100
+	ADD	r0, r0, #4	;  text of error report...
+	FNcall	Zap_Warning
+;	FNcall(Zap_Warning)	; FIXME: function
+onlywaytoreport
+		;     BL beep         ; beep if there is a problem
+	LDMFD	sp!, {pc}
+		;  .nodicavailable
+		; E R1 = name of dic.
+		; X EQ if dic is present... NE if not.
+defaultdicname
+	=	"USER"
+	DCD	0
+	DCD	0
+somezeros
+	DCD	0
+	DCD	7
+impressionspell_deldic
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {lr}
+	BL	ensuresomeuserdic
+	ADR	r1, defaultdicname
+	SWI	XSpell_RemoveDictionary
+	BVS	normalrpterr
+	LDMFD	sp!, {pc}
+	DCD	7 + (3 << 3)
+impressionspell_delword
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {lr}
+	BL	ensuresomeuserdic
+	ADR	r1, defaultdicname
+	SWI	XSpell_DeleteWord
+	BVS	normalrpterr
+	BL	dispdicfromoffs
+	LDMFD	sp!, {pc}
+	DCD	7 + (3 << 3)
+impressionspell_addword
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {lr}
+	BL	ensuresomeuserdic
+	ADR	r1, defaultdicname
+	SWI	XSpell_AddWord
+	BVS	normalrpterr
+	BL	dispdicfromoffs
+	LDMFD	sp!, {pc}
+	DCD	7 + (3 << 3)
+impressionspell_savedic
+	CMP	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {lr}
+	BL	ensuresomeuserdic
+	MOV	r1, r0
+	ADR	r0, defaultdicname
+	LDRB	lr, [r0]
+	CMP	lr, #0
+	LDMEQFD	sp!, {pc}
+	SWI	XSpell_SaveDictionaryWithPath
+	BVS	normalrpterr
+	LDMFD	sp!, {pc}
+checkifdicispresent
+	STMFD	sp!, {r0, r1, lr}
+	ADR	r0, somezeros
+	ADR	r1, defaultdicname
+	SWI	XSpell_AddWord
+		; MVNVC R0,#0
+		; LDMVCFD R13 !,{R0,PC} ; never fires...?
+		; CMP R0,#0
+		; LDMLEFD R13 !,{R0,PC} ; never fires...?
+		; SWI &107
+	LDR	r0, [r0]
+	AND	r0, r0, #0xFF
+	CMP	r0, #2	;  EQ if dic is present...
+	LDMFD	sp!, {r0, r1, pc}
+_altered_8
+		;     BL beep
+		;     SWI &107
+	B	theendnext
+failedend3
+	BL	reportproblem2
+	B	tosonxtwd3
+sortsinglesout
+	LDRB	r2, [r6], #1
+	CMP	r2, #33
+	LDRCSB	r2, [r6]
+	CMP	r2, #33
+	MOVCS	pc, lr
+	MOV	r2, #'A'
+	STRB	r2, [r6], #1
+	STRB	r2, [r6], #1
+	MOV	r2, #0
+	STRB	r2, [r6], #1
+	ADD	r1, r1, #1	;  increase length
+	MOV	pc, lr
+ensuresomeuserdic
+	STMFD	sp!, {r0, r1, lr}
+	ADR	r1, defaultdicname
+	BL	checkifdicispresent
+	MOV	r0, r1
+	SWINE	XSpell_CreateUser
+	LDMFD	sp!, {r0, r1, pc}
+menufilepath
+	=	"<ZapSpell$Menus>", 0
+	ALIGN
+		; EQUD   &1
+spell_menu
+	STMFD	sp!, {lr}
+	LDR	r0, tempS2	;  don't bother
+	CMP	r0, #0
+	BNE	premenuchk
+	ADR	r0, menufilepath
+	FNcall	Zap_LoadMenu
+;	FNcall(Zap_LoadMenu)	; FIXME: function
+		; MOV     R1,R7
+		; BL      loadandretptr
+		; CMP     R0,#0
+		; BMI     nomenutobemade
+		; 
+		; FNcall(Zap_ReadMenu)
+		; MOV     R6,R0
+	STR	r0, tempS2	;  don't bother
+		; LDR     R0,tempS1
+		; FNcall(Zap_Free)
+premenuchk
+	LDR	r7, [r0, #4]
+	CMP	r7, #0
+	BEQ	nomenutobemade
+	ADRL	r1, WorkspaceAddr
+;	FNlong_adr("  ",1,WorkspaceAddr)	; FIXME: function
+	LDR	r1, [r1]
+	SWI	Wimp_GetPointerInfo
+	LDR	r2, [r1, #0]
+	LDR	r3, [r1, #4]
+	SUB	r2, r2, #32
+	ADD	r3, r3, #0
+	MOV	r1, r7
+	FNcall	Zap_OpenMenu
+;	FNcall(Zap_OpenMenu)	; FIXME: function
+nomenutobemade
+	LDMFD	sp!, {pc}
+tempS2
+	DCD	0x0
+click_onprev
+	LDR	lr, [r1, #8]
+	ANDS	lr, lr, #1
+	BNE	inclick_onnext
+inclick_onprev
+	BL	setupcaretptr
+	LDR	r0, [r10, #c_wind]
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff) 	; FIXME: function	;  get R8,R9
+	BL	impressionspell_prev
+	LDMFD	sp!, {r0 - r11, pc}
+click_onnext
+	LDR	lr, [r1, #8]
+	ANDS	lr, lr, #1
+	BNE	inclick_onprev
+inclick_onnext
+	BL	setupcaretptr
+	LDR	r0, [r10, #c_wind]
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff) 	; FIXME: function	;  get R8,R9
+	BL	impressionspell_next
+	LDMFD	sp!, {r0 - r11, pc}
+click_oncurrent
+	BL	setupcaretptr
+	LDR	r0, [r10, #c_wind]
+	FNcall	Zap_ConvWindOff
+;	FNcall(Zap_ConvWindOff) 	; FIXME: function	;  get R8,R9
+	BL	impressionspell_current
+	LDMFD	sp!, {r0 - r11, pc}
+setupcaretptr
+	STMFD	sp!, {r0 - r1, lr}
+	MOV	r1, #5
+	FNcall	Zap_ReadVar
+;	FNcall(Zap_ReadVar)	; FIXME: function
+	MOV	r10, r0
+	LDMFD	sp!, {r0 - r1, pc}
+click_cancel
+	ADD	r1, r1, #12
+	SWI	XWimp_CloseWindow
+	LDMFD	sp!, {r0 - r11, pc}
+click_find
+	BL	wordtonumber
+	BL	boundlowerpartofdic
+	BL	displayoffdic
+	LDMFD	sp!, {r0 - r11, pc}
+noselectionpresent
+	MOV	r0, #0
+	STRB	r0, [r5], #1
+	MOV	r5, #0
+	BL	setthecaret
+	BL	redrawiconnow
+	LDMFD	sp!, {r0 - r9, pc}
+		;  X CS if pressed...
+checkescape
+	STMFD	sp!, {r0, r1, r2, lr}
+	MOV	r0, #129
+	MOV	r1, #0x8F
+	MOV	r2, #255
+	SWI	XOS_Byte
+	LDMFD	sp!, {r0, r1, r2, pc}
+click_savebox
+	LDR	r0, [r1, #8]	;  buttons.
+	TST	r0, #2
+	BNE	click_savemenu
+	LDR	r0, [r1, #16]
+	CMP	r0, #0
+	BEQ	click_saveud
+	CMP	r0, #3
+	BEQ	click_savedrag
+	CMP	r0, #4
+	BEQ	click_cancel
+	LDMFD	sp!, {r0 - r11, pc}
+click_menu
+	MOV	r8, #0
+	MOV	r9, #0
+	BL	spell_menu
+	LDMFD	sp!, {r0 - r11, pc}
+		; E R0 -> top of displayed dictionary...
+displayoffdic
+	STMFD	sp!, {lr}
+	BL	startcallback
+	BLVC	chkifwindopen
+	LDMEQFD	sp!, {pc}	;  not open.
+	BLVC	loadmoduleattempt	;  new...
+	LDMEQFD	sp!, {pc}
+	LDR	lr, inmultitaskflag
+	CMP	lr, #0
+	LDMNEFD	sp!, {pc}
+	STR	sp, inmultitaskflag	;  any non-zero value...
+	BL	newcallback
+	LDMFD	sp!, {pc}
+poll_open
+	STMFD	sp!, {lr}
+	LDR	r0, [r1]
+	LDR	lr, spellwindowhandle
+	CMP	r0, lr
+	LDR	lr, spellsavewindowhandle
+	CMPNE	r0, lr
+	LDR	lr, spellinfowindowhandle
+	CMPNE	r0, lr
+		;     LDMNEFD R13 !,{PC}
+		;     MVN     R0,#0
+		;     STR     R0,[R1,#28] ; open at front...
+		;     MVN R0,#0
+		;     STR R0,[R1,#28] ; open at front...
+	SWIEQ	XWimp_OpenWindow
+	LDMFD	sp!, {pc}
+poll_close
+	STMFD	sp!, {lr}
+	LDR	r0, [r1]
+	LDR	lr, spellwindowhandle
+	CMP	r0, lr
+	LDR	lr, spellsavewindowhandle
+	CMPNE	r0, lr
+	LDR	lr, spellinfowindowhandle
+	CMPNE	r0, lr
+		;    LDMNEFD R13 !,{PC}
+	SWIEQ	XWimp_CloseWindow
+	LDMFD	sp!, {pc}
+localendofword
+	DCD	0
+pretendtospell
+		;     B endchks1
+	STR	r1, localendofword
+	BL	stripapostrophes
+	STR	pc, asyoutypeflag
+	BL	dodirtywork
+	ADRL	r0, whatwasinserted
+;	FNlong_adr("  ",0,whatwasinserted)	; FIXME: function
+	LDRB	r0, [r0]
+		; CMP R0,#&C0   ; delete pressed - or umlaut/grave/acute...
+		; BGT endchks1 ; problem before here...
+	CMP	r0, #'z'
+	BGT	tochks1
+	CMP	r0, #'a'
+	BGE	endchks1
+	CMP	r0, #'Z'
+	BGT	tochks1
+	CMP	r0, #'''	;  Hmm...
+	CMPNE	r0, #'A'
+	BGE	endchks1
+tochks1
+		; compare the main and the first icon?
+	LDR	r0, spellwindowhandle
+	CMP	r0, #0
+	BEQ	endchks1
+	MOV	r6, r1	;  offset.
+	MOV	r7, r2	;  len.
+	MOV	r2, #writablenumber
+	BL	gettextfromicnum
+	MOV	r5, r0
+	BL	strlen
+	CMP	r0, #2
+	BLE	endchks1
+		;  ???
+		; BL informmodeofspell
+		; E R0 = buffer containing word to be spelled.
+		;   R1 = offset of word in the Zap buffer...
+		;   R3 = Word length
+		;   R4 = buffer containing word to be spelled.
+		; X NE if word is not spelt right...
+	MOV	r0, r5
+	BL	strlen
+	MOV	r3, r0
+	MOV	r0, r5
+	LDR	r1, [r10, #c_off]
+	MOV	r4, r5
+	BL	spellchkword
+	BEQ	endchks1
+		;  ???
+		; FNlong_adr("  ",0,currspellnumber)
+		; LDR R0,[R0]
+		; SWI "XSpell_GetWord"   ; E R0 ;X R1
+		;     STR R1,crntspltxtptr
+		;     LDR R1,crntspltxtptr
+		; MOV R0,R5              ; nearest word...
+		; BL strCMP
+		; BEQ endchks1
+	LDR	r1, [r10, #c_off]
+	LDR	r2, localendofword
+	ADD	r2, r2, #1
+	CMP	r2, r1
+	BCC	endchks1
+		;     LDR R14,whatwasinserted
+		;     CMP R14,#46
+	BL	beep
+endchks1
+hgoff
+	SWI	XHourglass_Off	;  not called...?
+isclosed
+iserror
+	LDMFD	sp!, {r1 - r12, pc}
+crntspltxtptr
+	DCD	0
+beep
+	STMFD	sp!, {r0, lr}
+	ADR	r0, beepnamed
+	FNcall	Zap_CommandString
+;	FNcall(Zap_CommandString)	; FIXME: function
+	LDMFD	sp!, {r0, pc}
+beepnamed
+	=	"BEEP", 0, 0, 0, 0
+		; .insertintowritable
+		;     STMFD D !,{R0-R7,R14}
+		;     LDR R0,spellwindowhandle
+		;     CMP R0,#0
+		;     LDMEQFD R13 !,{R0-R7,PC}
+		;     MOV R7,R1
+		;     MOV R2,#writablenumber
+		;     BL gettextfromicnum
+		;     MOV R1,R0
+		;     MOV R0,R7
+		;     BL strcpy
+		;     BL redrawiconnow
+		;     LDMFD D !,{R0-R7,PC}
+strlen
+	STMFD	sp!, {r1, lr}
+	MOV	r1, r0
+	MOV	r0, #0
+_altered_9
+	LDRB	lr, [r1], #1
+	CMP	lr, #32
+	ADDCS	r0, r0, #1
+	BCS	_altered_9
+	LDMFD	sp!, {r1, pc}
+		;  ***************************************************
+		;  *         End of TT's spelling stuff...           *
+		;  ***************************************************
+		;  Name:;  Spelling
+		;  Purpose:; Zap commands that deal with spelling.
+		;  Author:; LEN Elliott Hughes, 1995
+		;  Spell check command -----------
+	DCD	1
+ISpell
+	STMFD	sp!, {lr}
+	BL	ReleaseShiftAndCtrl
+		;  Check we've seen !ISpell
+	ADR	r0, IspellStr
+	ADD	r0, r0, #1
+	MOV	r1, #0
+	MOV	r2, #(1<<31)
+	MOV	r3, #0
+	MOV	r4, #0
+	SWI	XOS_ReadVarVal
+	TEQ	r2, #0
+	BEQ	ISpellNotSeen
+	ADRL	r2, WorkspaceAddr
+;	FNlong_adr("  ",2,WorkspaceAddr)	; FIXME: function
+	LDR	r2, [r2]
+	MOV	r4, #ws_size
+	SUB	r4, r4, #1
+	ADR	r1, IspellStr
+l00
+	LDRB	r3, [r1], #1	;  Read byte from string.
+	TEQ	r3, #0
+	BEQ	ISpell_AddStuff
+	STRB	r3, [r2], #1	;  Store byte from string.
+	SUBS	r4, r4, #1
+	B	l00
+IspellStr
+	=	"<ISpell$Dir>", 0
+	ALIGN
+ISpell_AddStuff
+	MOV	r3, #'>'
+	STRB	r3, [r2], #1
+	MOV	r3, #' '
+	STRB	r3, [r2], #1
+	SUB	r4, r4, #2
+	B	CallLaTeX_copyfilename
+ISpellNotSeen
+	ADR	r0, ISpellNotSeenError
+	MOV	r2, #0
+	FNcall	Zap_LookupError
+;	FNcall(Zap_LookupError)	; FIXME: function
+	LDMFD	sp!, {pc}
+ISpellNotSeenError
+	DCD	0
+	=	"spell_noispell", 0
+		;  ADR R0,ISpellNotSeenError
+		;  ORRS PC,R14,#(1<<28)
+		; .ISpellNotSeenError
+		;  DCD 0
+		;  = "ISpell has not been seen", 0
+	ALIGN
+CallLaTeX_copyfilename
+		;  Copy filename into block (R2=write address).
+	LDR	r1, [r9, #f_name]	;  Pointer to filename. ?? TT ??
+lab00
+	LDRB	r3, [r1], #1	;  Read byte from filename.
+	STRB	r3, [r2], #1	;  Store byte from filename.
+	SUBS	r4, r4, #1
+	BEQ	FilenameTooLong
+	TEQ	r3, #0	;  End of string?
+	BNE	lab00
+CallLaTeXGo
+		;  Execute command in our workspace.
+	ADRL	r0, WorkspaceAddr
+;	FNlong_adr("  ",0,WorkspaceAddr)	; FIXME: function
+	LDR	r0, [r0]
+	SWI	XWimp_StartTask	;  Not OS_CLI, because that's exec()!
+	LDMFD	sp!, {pc}
+FilenameTooLong
+		;  Report an error and return.
+	ADR	r0, FilenameTooLongError
+	MOV	r2, #0
+	FNcall	Zap_LookupError
+;	FNcall(Zap_LookupError)	; FIXME: function
+	LDMFD	sp!, {pc}
+FilenameTooLongError
+	DCD	0
+	=	"spell_filenametoolong", 0
+		;    ADR R0,FilenameTooLongError
+		;    LDMFD R13 !,{R14}
+		;    ORRS PC,R14,#&10000000
+		; .FilenameTooLongError
+		;    DCD 0
+		;    =   "Filename too long", 0
+	ALIGN
+		;  -----------
+	DCD	1
+ImpressionSpellSelection
+	STMFD	sp!, {lr}
+		;  Check that the Impression Spell module's loaded.
+	BL	loadmoduleattempt
+	LDMEQFD	sp!, {pc}
+		;  MOV R0,#Module_LookUp
+		;  ADR R1,ispellmodnamed
+		;  SWI "XOS_Module"
+		; 
+		;  ; Return if Impression Spell isn't there.
+		;  ADRVS R0,NoImpressionSpellError
+		;  LDMVSFD  R13!,{PC}
+	ADRL	r3, WorkspaceAddr
+;	FNlong_adr("  ",3,WorkspaceAddr)	; FIXME: function
+	LDR	r3, [r3]
+		;  See if there's a selection or not.
+	FNcall	Zap_GetSel
+;	FNcall(Zap_GetSel) 	; FIXME: function	;  idiotic - use readsel - TT.
+		;  Return without a beep if there's no selection.
+	LDMCSFD	sp!, {pc}
+		;  There's a selection, so construct a command from it. R1=file
+		;  offset, R2 = length, R3 = workspace addr, R7 = char table.
+	TEQ	r2, #0
+	LDMEQFD	sp!, {pc}	;  Return if it's the null selection.
+	LDR	r5, [r9, #f_splito]	;  Split offset.
+	CMP	r1, r5	;  Which half?
+	LDRCS	r0, [r9, #f_splits]	;  Skip split.
+	ADDCS	r1, r1, r0
+	LDR	r4, [r9, #f_ptr]	;  Addr of file start.
+	ADD	r1, r1, r4
+	ADD	r6, r5, r4	;  Addr of split.
+		;  R2 = selection length.
+	CMP	r2, #255
+	MOVGE	r2, #255
+		;  R1 = selection addr, R3 = workspace addr, R6 = split addr.
+	MOV	r7, #0	;  flag.
+l01
+		;  Mind the gap!
+	CMP	r1, r6	;  Are we at the split?
+	LDREQ	r0, [r9, #f_splits]
+	ADDEQ	r1, r1, r0	;  Jump it!
+	LDRB	r0, [r1], #1	;  Get character.
+		;  Are we still in a word?
+	CMP	r0, #' '
+	BLE	aspacefound	;  NO WAY!
+	BIC	r0, r0, #0x20
+	ORR	r7, r7, #1
+	STRB	r0, [r3], #1
+getthenextisone
+	SUBS	r2, r2, #1	;  Decrement sel. length.
+	BNE	l01
+xxF02
+		;  Add NUL terminator.
+	MOV	r0, #0
+	STRB	r0, [r3]
+AIS_DoSpellCheck
+		;  Do spell check.
+	ADRL	r0, WorkspaceAddr
+;	FNlong_adr("  ",0,WorkspaceAddr)	; FIXME: function
+	LDR	r0, [r0]
+		;  next assembles to EF0A0083
+		;  .XSpell_CheckWord * &A0083
+	SWI	XSpell_CheckWord
+		;  ZapENH is getting bloated... time for shit like this!
+		;  MOVCS R0,#7
+		;  SWICS XOS_WriteC
+		;     BLCS beep
+		;   SWICS &107 ; XOS_WriteI+7
+	LDMFD	sp!, {pc}
+aspacefound
+	CMP	r7, #0
+	BEQ	getthenextisone
+	B	xxF02
+		; --
+		; ;; [ 1=0 ; START OF COMMENTED OUT BLOCK
+		; ;;
+		; ;; DCD 0
+		; ;;.ImpressionSpellWord
+		; ;; STMFD  R13 !,{R14}
+		; ;;
+		; ;; ; Check that the Impression Spell module's loaded.
+		; ;; MOV R0,#Module_LookUp
+		; ;; ADR R1,ImpressionSpell
+		; ;; SWI XOS_Module
+		; ;;
+		; ;; ; Return if Impression Spell isn't there.
+		; ;; ADRVS R0,NoImpressionSpellError
+		; ;; LDMVSFD  R13 !,{PC}
+		; ;;
+		; ;; LDR R3,WorkspaceAddr ; R3 = address to copy word to.
+		; ;;
+		; ;; BL GetWord
+		; ;; B AIS_DoSpellCheck
+		; ;;
+		; ;; ] ; END OF COMMENTED OUT BLOCK
+		;  .NoImpressionSpellError
+		;   DCD 0
+		;   = "Impression Spell isn't loaded", 0
+		;   ALIGN
+NoWordWorksError
+	DCD	0
+	=	"spell_nowordworks", 0
+	=	"WordWorks isn't loaded", 0
+	ALIGN
+		;  Send to WordWorks command ----------------------------------
+	DCD	1
+WordWorksSelection
+	STMFD	sp!, {lr}
+		;  Check that the impulse module's loaded.
+	MOV	r0, #Module_LookUp
+	ADR	r1, Impulse
+	SWI	XOS_Module
+		;  Report error if Impulse isn't there.
+	BVC	skiperror_wordworks
+	ADR	r0, NoWordWorksError
+	MOV	r2, #0
+	FNcall	Zap_LookupError
+;	FNcall(Zap_LookupError)	; FIXME: function
+	LDMFD	sp!, {pc}
+skiperror_wordworks
+	ADRL	r3, WorkspaceAddr
+;	FNlong_adr("  ",3,WorkspaceAddr)	; FIXME: function
+	LDR	r3, [r3]
+		;  Copy the start of the NewRegion command into our workspace.
+	ADR	r1, NewRegionCommand
+l03
+	LDRB	r2, [r1], #1	;  Get byte from command.
+	TEQ	r2, #0	;  End of command?
+	STRNEB	r2, [r3], #1	;  Store byte of command.
+	BNE	l03	;  No.
+		;  See if there's a selection or not.
+	FNcall	Zap_GetSel
+;	FNcall(Zap_GetSel)	; FIXME: function
+		;  Return with a beep if there isn't.
+		;  MOVCS R0,#7
+		;  SWICS XOS_WriteC
+		;     BLCS beep
+		; SWICS &107 ; XOS_WriteI+7
+	LDMCSFD	sp!, {pc}
+AWW_Selection
+		;  There's a selection, so construct a command from it. R1=file
+		;  offset, R2 = length, R3 = workspace addr.
+	TEQ	r2, #0
+	LDMEQFD	sp!, {pc}	;  Return if it's the null selection.
+	LDR	r5, [r9, #f_splito]	;  Split offset.
+	CMP	r1, r5	;  Which half?
+	LDRCS	r0, [r9, #f_splits]	;  Skip split.
+	ADDCS	r1, r1, r0
+	LDR	r4, [r9, #f_ptr]	;  Addr of file start.
+	ADD	r1, r1, r4
+	ADD	r6, r5, r4	;  Addr of split.
+		;  R2 = selection length.
+	CMP	r2, #200	;  Maximum length (det. exprmntly)
+	MOVGE	r2, #200	;  Ensure it's never > 200 bytes.
+		;  R1 = selection addr, R3 = workspace addr, R6 = split addr.
+l0x
+		;  Mind the gap!
+	CMP	r1, r6	;  Are we at the split?
+	LDREQ	r0, [r9, #f_splits]
+	ADDEQ	r1, r1, r0	;  Jump it!
+	LDRB	r0, [r1], #1	;  Get character.
+		;  Are we still in a word?
+	CMP	r0, #' '
+	BLE	F02	;  NO WAY!
+	STRB	r0, [r3], #1
+	SUBS	r2, r2, #1	;  Decrement sel. length.
+	BNE	l0x
+F02
+		;  Add NUL terminator.
+	MOV	r0, #0
+	STRB	r0, [r3]
+AWW_SendCommand
+	MOV	r0, #Impulse_Command
+	ADRL	r1, WorkspaceAddr
+;	FNlong_adr("  ",1,WorkspaceAddr)	; FIXME: function
+	LDR	r1, [r1]
+	MOV	r2, #0
+	MOV	r3, #0
+	MOV	r4, #0
+	MVN	r5, #0	;  We don't want a reply.
+	MOV	r6, #0	;  We aren't telling our task handle!
+	MOV	r7, #0
+		;  next assembles to EF0628C2
+	SWI	XImpulse_SendMessage
+	LDMFD	sp!, {pc}
+		;  Send to WordWorks command ----------------------------------
+WordWorksChkplease
+	STMFD	sp!, {lr}
+	MOV	r7, r0
+		;  Check that the impulse module's loaded.
+	MOV	r0, #Module_LookUp
+	ADR	r1, Impulse
+	SWI	XOS_Module
+		;  Report error if Impulse isn't there.
+	BVC	skiperror_wordworks2
+	ADR	r0, NoWordWorksError
+	MOV	r2, #0
+	FNcall	Zap_LookupError
+;	FNcall(Zap_LookupError)	; FIXME: function
+	LDMFD	sp!, {pc}
+skiperror_wordworks2
+	ADRL	r3, WorkspaceAddr
+;	FNlong_adr("  ",3,WorkspaceAddr)	; FIXME: function
+	LDR	r3, [r3]
+		;  Copy the start of the NewRegion command into our workspace.
+	ADR	r1, NewRegionCommand
+lxxx3
+	LDRB	r2, [r1], #1	;  Get byte from command.
+	TEQ	r2, #0	;  End of command?
+	STRNEB	r2, [r3], #1	;  Store byte of command.
+	BNE	lxxx3	;  No.
+	MOV	r0, r7
+	MOV	r1, r3
+	BL	strcpy
+AWW_SendCommand2
+		;  MOV R1,R0
+	MOV	r0, #Impulse_Command
+	ADRL	r1, WorkspaceAddr
+;	FNlong_adr("  ",1,WorkspaceAddr)	; FIXME: function
+	LDR	r1, [r1]
+	MOV	r2, #0
+	MOV	r3, #0
+	MOV	r4, #0
+	MVN	r5, #0	;  We don't want a reply.
+	MOV	r6, #0	;  We aren't telling our task handle!
+	MOV	r7, #0
+		;  next assembles to EF0628C2
+	SWI	XImpulse_SendMessage
+	LDMFD	sp!, {pc}
+		;  --
+		; ;;  [ 1=0 ; START OF COMMENTED OUT BLOCK
+		; ;;
+		; ;;  DCD 0
+		; ;; .WordWorksWord
+		; ;;  STMFD  R13 !,{R14}
+		; ;;
+		; ;;  ; Check that the impulse module's loaded.
+		; ;;  MOV R0,#Module_LookUp
+		; ;;  ADR R1,Impulse
+		; ;;  SWI XOS_Module
+		; ;;
+		; ;;  ; Report error if Impulse isn't there.
+		; ;;  ADRVS R0,NoWordWorksError
+		; ;;  LDMVSFD  R13 !,{PC}
+		; ;;
+		; ;;  LDR R3,WorkspaceAddr
+		; ;;
+		; ;;  ; Copy the start of the NewRegion command into our workspace.
+		; ;;  ADR R1,NewRegionCommand
+		; ;; .Back00
+		; ;;  LDRB R2,[R1],#1  ; Get byte from command.
+		; ;;  TEQ R2,#0   ; End of command?
+		; ;;  STRNEB R2,[R3],#1  ; Store byte of command.
+		; ;;  BNE Back00   ; No.
+		; ;;
+		; ;;  ; R3 = address to copy word to.
+		; ;;  BL GetWord
+		; ;;  B AWW_SendCommand
+		; ;;
+		; ;;  ] ; END OF COMMENTED OUT BLOCK
+Impulse
+	=	"Impulse", 0
+NewRegionCommand
+	=	"NewRegion ", 0
+	ALIGN
+		; ;; [ 1=0 ; START OF COMMENTED OUT BLOCK
+		; ;;.GetWord
+		; ;; STMFD  R13 !,{R14}
+		; ;;
+		; ;; ; Scan backwards from current file offset.
+		; ;;
+		; ;; LDR R1,c_off  ; Current file offset.
+		; ;; MOV R2,#200   ; Maximum word length.
+		; ;; ; R3 = address to write to.
+		; ;;
+		; ;; LDR R5,[R9,#f_splito] ; Split offset.
+		; ;; CMP R1,R5   ; Which half?
+		; ;;
+		; ;; LDRCS R0,[R9,#f_splits] ; Skip split.
+		; ;; ADDCS R1,R1,R0
+		; ;;
+		; ;; LDR R4,[R9,#f_ptr] ; Addr of file start.
+		; ;; ADD R1,R1,R4
+		; ;;
+		; ;; ADD R6,R5,R4  ; Addr of split.
+		; ;;
+		; ;; ; R1 = start addr, R3 = workspace addr, R6 = split addr.
+		; ;;
+		; ;;.01
+		; ;; ; Mind the gap!
+		; ;; CMP R1,R6   ; Are we at the split?
+		; ;; LDREQ R0,[R9,#f_splits]
+		; ;; ADDEQ R1,R1,R0  ; Jump it!
+		; ;;
+		; ;; LDRB R0,[R1],#1  ; Get character.
+		; ;;
+		; ;; ; Are we still in a word?
+		; ;; CMP R0,#ASC" "
+		; ;; BLE %F02   ; NO WAY!
+		; ;;
+		; ;; STRB R0,[R3],#1
+		; ;;
+		; ;; SUBS R2,R2,#1  ; Decrement sel. length.
+		; ;; BNE %B01
+		; ;;
+		; ;;.02 ; NUL terminate and return.
+		; ;; MOV R0,#0
+		; ;; STRB R0,[R3]
+		; ;; LDMFD  R13 !,{PC}
+		; ;;
+		; ;; ] ; END OF COMMENTED OUT BLOCK
+		; ;;
+		; ;;; --
+		; ;;
+		; ;; END; of commands that talk to Computer Concepts' stuff.
+ReleaseShiftAndCtrl
+		;  Wait for both shift and ctrl to be released.
+		;  Copied from ZapMJE.
+	MOV	r0, #202
+	MOV	r1, #0
+	MOV	r2, #255
+	SWI	XOS_Byte
+	TST	r1, #2_01001000
+	BNE	ReleaseShiftAndCtrl
+	MOVS	pc, lr
+whichmode
+		;  \E r0 -> mode name, r8
+		;  \X EQ if mode name corresponds to mode of text(r8), NE if not
+	STMFD	sp!, {r0 - r1, lr}
+	LDRB	r0, [r8, #w_format]	;  get mode number
+	FNcall	Zap_ReadMode
+;	FNcall(Zap_ReadMode)	; FIXME: function
+	LDR	r0, [r1, #8]
+	LDR	r1, [sp]
+		;  r0 -> actual mode name
+		;  r1 -> requested mode name
+	BL	strcmp
+	LDMFD	sp!, {r0 - r1, pc}
+strcmp
+		;  compares string at r0 with string at r1
+		;  \E r0,r1 ->strings
+		;  \X EQ if match, NE if not. Other flags preserved
+	BIC	lr, lr, #Zbit
+	STMFD	sp!, {r0 - r3, lr}
+scmp_l
+	LDRB	r2, [r0], #1
+	LDRB	r3, [r1], #1
+	TEQ	r2, r3
+	LDMNEFD	sp!, {r0 - r3, pc}^	;  if not matching...
+	TEQ	r2, #0
+	BNE	scmp_l	;  loop until ended
+		;  now r2=r3=0; strings ended
+	LDMFD	sp!, {r0 - r3, lr}
+	ORRS	pc, lr, #Zbit
+strCMP
+		;  compares string at r0 with string at r1 (case insens)
+		;  \E r0,r1 ->strings
+		;  \X EQ if match, NE if not. Other flags preserved
+	BIC	lr, lr, #Zbit
+	STMFD	sp!, {r0 - r3, lr}
+_altered_10
+	LDRB	r2, [r0], #1
+	BIC	r2, r2, #0x20
+	LDRB	r3, [r1], #1
+	BIC	r3, r3, #0x20
+	TEQ	r2, r3
+	LDMNEFD	sp!, {r0 - r3, pc}^	;  if not matching...
+	TEQ	r2, #0
+	BNE	_altered_10	;  loop until ended
+		;  now r2=r3=0; strings ended
+	LDMFD	sp!, {r0 - r3, lr}
+	ORRS	pc, lr, #Zbit
+strcpy
+		;  copys string at r0 with to space at r1
+		;  \E r0 -> corrupt, R1 -> null at end of R1
+	STMFD	sp!, {lr}
+_altered_11
+	LDRB	lr, [r0], #1
+	STRB	lr, [r1], #1	;  abort happens here...!
+	CMP	lr, #32
+	BCS	_altered_11
+		;  SUB R1,R1,#1
+	MOV	lr, #0
+	STRB	lr, [r1, #-1]!	;  ensure zero-terminated...
+	LDMFD	sp!, {pc}
+strCPY
+		;  copys string at r0 with to space at r1
+		;  \E r0 -> corrupt, R1 -> null at end of R1
+	STMFD	sp!, {lr}
+	LDRB	lr, [r0]
+	CMP	lr, #'a'
+	ORRCS	r2, r2, #0x100
+_altered_12
+	LDRB	lr, [r0], #1
+	CMP	lr, #'a'
+	BICCS	lr, lr, #0x20
+	ADDCS	r2, r2, #1
+	STRB	lr, [r1], #1
+	CMP	lr, #32
+	BCS	_altered_12
+	SUB	r1, r1, #1
+	LDMFD	sp!, {pc}
+showpercentage
+	STMFD	sp!, {r0, r1, r2, r3, lr}
+	SUB	r2, r2, r6
+	SUB	r1, r1, r6
+	MOV	r3, #100
+	MUL	r1, r3, r1
+	CMP	r2, #0
+	MOVEQ	r2, #1
+	MOVMI	r2, #1
+	DIVIDE	r1, r2, r0, r3
+;	FNdivide(1,2,0,3,14)	; FIXME: function
+	CMP	r0, #0
+	MOVLE	r0, #1
+	CMP	r0, #99
+	MOVGT	r0, #99
+	SWI	XHourglass_Percentage
+	LDMFD	sp!, {r0, r1, r2, r3, pc}
+loadmoduleattempt
+	STMFD	sp!, {lr}
+	BL	toloadimpspellmodule
+	BVS	reportproblem
+	BL	getdicmax	;  !?!?!
+	BLVC	getuserdics	;  !?!?!
+	MVNS	lr, #0
+	LDMFD	sp!, {pc}
+firstattempt
+	DCD	0
+getuserdics
+	LDR	r0, firstattempt
+	CMP	r0, #0
+	MOVNE	pc, lr
+	STR	lr, firstattempt
+	STMFD	sp!, {r1 - r11, lr}
+	MOV	r0, #6
+	MOV	r3, #0x100
+	SWI	XOS_Module	;  too big?
+	MOV	r11, r2
+	MOV	r1, r11
+	ADR	r0, varcmdname
+	MOV	r2, #255	;  ???
+	MOV	r3, #0
+	MOV	r4, #0
+	SWI	XOS_ReadVarVal
+	BVS	anerrorclear
+	MOV	r0, r11
+	FNcall	Zap_CommandString
+;	FNcall(Zap_CommandString)	; FIXME: function
+anerrorclear
+	MOV	r0, #7
+	MOV	r2, r11
+	SWI	XOS_Module
+	MOV	r11, r0
+	LDMFD	sp!, {r1 - r11, lr}
+	BIC	pc, lr, #(&F << 28)	;  all flags!
+		; .anerrorclear
+		;     MOV R0,#7
+		;     MOV R2,R11
+		; 
+		;     SWI "XOS_Module"
+		;     MOV R11,R0
+		;     
+		;     ADR R0,aaproblem
+		;     LDMFD R13 !,{R1-R11,PC}
+		;     BIC PC,E,#(&F << 28) ; all flags!
+		; .aaproblem
+		; DCD 0 : = "Probs... :-(", 0
+		; ALIGN
+trytoloadimpspellmodule
+	STMFD	sp!, {lr}
+	MOV	r0, #1
+	ADR	r1, loadimpspell
+	SWI	XOS_Module
+	LDMFD	sp!, {lr}
+	BIC	pc, lr, #(&F << 28)	;  all flags!
+loadimpspell
+	=	"ZapSpellImpression:!SpellMod"
+	=	0
+varcmdname
+	=	"ZapSpell$Command"
+	=	0
+	ALIGN
+
+	END
