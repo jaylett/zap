@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.5 2001/05/15 16:57:48 james Exp $
+; $Id: taskwindow,fff,v 1.6 2001/06/16 04:06:13 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
@@ -171,12 +171,12 @@ taskwindow_menu
  FNRTS
 
 taskwindow_diesilently
- STMFD	R13 !,{R0,R2-R11,R14}
+ FNJSR	"R0,R2-R11"
  LDR	R1,localcopyof_mode_taskwindow
  FNcall Zap_GetModeWord
  ANDS	R1,R0,#1 << 30			; die silently bit...
  MOVNE  R1,#-1
- LDMFD	R13 !,{R0,R2-R11,PC}
+ FNRTS
 
 started$l
  FNJSR "R3"
@@ -731,7 +731,7 @@ end$l
 ;  Uses .taskw_str to store the command
 
 TaskWindow
- STMFD R13!,{R1-R12,R14}
+ FNJSR "R1-R12"
  LDR R11,[R12]			; this module's workspace
  MOV R3,R0			; save tail
  ADD R1,R11,#taskw_str
@@ -772,7 +772,7 @@ ta3
 ta1
  ADD R0,R11,#taskw_str
  SWI XOS_CLI
- LDMFD R13!,{R1-R12,PC}
+ FNRTS
 
 ta_s0 FNS ("%TaskWindow ")
 ta_s1 FNS ("-ctrl")
@@ -807,7 +807,7 @@ TaskWindow_Open
  FNRTS
 
 TaskWindow_NewTask
- STMFD R13!,{R1-R2,R10,R14}	; please open a task window
+ FNJSR "R1-R2,R10"	; please open a task window
  MOV R10,R1			; wimp message
  LDR R0,[R10,#8]
  STR R0,[R10,#12]		; copy my ref
@@ -817,27 +817,27 @@ TaskWindow_NewTask
  SWI XWimp_SendMessage		; acknowledge
  ADDVC R10,R10,#20		; command to use
  BLVC create_task_window	; start up a task window
- LDMFD R13!,{R1-R2,R10,PC}
+ FNRTS
 
 ;E R8/R9=0 for normal startup/address of command to use
 ;X Taskwindow file created DB #
 
 resurrect_task_window
- STMFD R13!,{R1-R9,R14}
+ FNJSR "R1-R9"
  ADR R0,tw_s0
  SWI XOS_CLI			; check task window module ok
  MOVVC R10,#0
  BVC rude_tw_entry
- LDMFD R13!,{R1-R9,PC}
+ FNRTS
 
 ;E R10=0 for normal startup/address of command to use
 ;X Taskwindow file created DB #
 
 create_task_window
- STMFD R13!,{R1-R9,R14}
+ FNJSR "R1-R9"
  ADR R0,tw_s0
  SWI XOS_CLI			; check task window module ok
- LDMVSFD R13!,{R1-R9,PC}
+ FNRTS VS
  MOV R0,#&F00
  ORR R0,R0,#&FF
  MOV R1,#1
@@ -849,7 +849,7 @@ create_task_window
  FNcall Zap_CreateFile		; create an empty R8/R9
  MOVVC R0,#0
  FNcallc Zap_PutCaret,VC	; bung cursor in there
- LDMVSFD R13!,{R1-R9,PC}
+ FNRTS VS
 rude_tw_entry
  MOV R6,#&20			; space
  FNLDR R1,buf_detoken		; place to put start command
@@ -860,14 +860,14 @@ rude_tw_entry
  BL strcpy
  TEQ R10,#0
  STRNEB R6,[R1],#1		; add space
- STMFD R13!,{R1}		; save string pointer
+ PUSH "R1"		; save string pointer
  MOV R1,#4
  FNcall Zap_ReadVar		; get zap's task handle
- LDMFD R13!,{R1}
- LDMVSFD R13!,{R1-R9,PC}
+ PULL "R1"
+ FNRTS VS
  MOV R2,#16
  SWI XOS_ConvertHex8		; insert task handle
- LDMVSFD R13!,{R1-R9,PC}
+ FNRTS VS
  ADR R2,tw_s2
  TEQ R10,#0
  STRNEB R6,[R1],#1		; add space
@@ -875,14 +875,14 @@ rude_tw_entry
  FNcall Zap_GetWindOff
  MOV R2,#16
  SWI XOS_ConvertHex8		; add in as my unique handle
- LDMVSFD R13!,{R1-R9,PC}
+ FNRTS VS
  TEQ R10,#0
  STRNEB R6,[R1],#1		; add extra space on the end
  MOV R0,#0
  STRB R0,[R1]			; terminator
  FNLDR R0,buf_detoken
  SWI XWimp_StartTask		; try and start up task
- LDMFD R13!,{R1-R9,PC}
+ FNRTS
 
 tw_s0 FNS ("RMEnsure TaskWindow 0.29 RMLoad System:Modules.Task")
 tw_s1 FNS ("TaskWindow -task &")
@@ -945,13 +945,13 @@ sub$l				; R1=message block R11=file offset
 mess2$l DCD &400C7		; Name is reply message
 
 TaskWindow_Morio
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
 
  LDR R0,[R1,#4]			; child handle
  BL find_task_window		; R9=taskwindow
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  TEQ R9,#0
- LDMEQFD R13!,{R1-R11,PC}	; not found
+ FNRTS EQ	; not found
 
  LDR R7,[R9,#f_source]		; data buffer
  LDR R14,[R7,#52]		; flags
@@ -962,7 +962,7 @@ TaskWindow_Morio
  BIC R0,R0,#1<<3		; modified...?
  STR R0,[R9,#f_flags]
  FNcall Zap_NewFileTitle
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
  LOCAL
 
@@ -1068,11 +1068,11 @@ end$l				; end / error
  FNRTS
 
 tw_restore_car
- STMFD R13!,{R0-R1,R14}
+ FNJSR "R0-R1"
  MOV R0,R10
  MOV R1,#10
  FNcall Zap_WriteVar		; restore the caret mode
- LDMFD R13!,{R0-R1,PC}^
+ FNRTSS
 
 ;X R10=cursor block of the input cursor
 
@@ -1379,7 +1379,7 @@ taskwindow_output_char
  LDR R0,[R0,#52]
  TST R0,#1<<4
  MOVNE PC,R14
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  MOV R4,R3			; save data
  MOV R5,R2			; save num
  LDR R2,[R7,#4]			; 'scn' cursor x
@@ -1389,16 +1389,16 @@ ta10
  STR R3,[R7,#8]			; save cursor posn
  BL twc_buf_xy_maybepad		; R2/R3=work x,y
  BLVC tw_findoffset		; R6=start off R1=line len
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  LDR R2,[R7,#4]			; 'scn' cursor x
  LDR R3,[R7,#8]			; 'scn' cursor y
  CMP R1,R2
  BLLT tw_padd_x			; add spaces to get column here
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  CMP R1,R2
  BLGT tw_overwrite		; overwrite some chars
  BLVC tw_add			; add remaining chars
- LDMVSFD R13!,{R1-R6,PC}	; 'till reach txt window max
+ FNRTS VS	; 'till reach txt window max
  CMP R5,#0			; finished?
  BLE ta11
  ADD R3,R3,#1			; move to next line
@@ -1408,13 +1408,13 @@ ta10
  BLT ta10			; still in window
  MOV R0,#1
  BL tw_scroll_up		; scroll the window up one line
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  SUB R3,R1,#1
  B ta10				; carry on
 ta11
  STR R2,[R7,#4]
  STR R3,[R7,#8]			; save cursor posn
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 
  LOCAL
 
@@ -1464,16 +1464,16 @@ tw_padd_y
  FNRTS
 
 tw_padd_x
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  SUB R2,R2,R1			; number of spaces to add in
  ADD R1,R6,R1			; offset to add it at
  MOV R0,#&20			; char to add
  BL tw_getblanks
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  MOV R0,#1			; insert
  FNcall Zap_DoCommand		; insert extra spaces
- LDMVSFD R13!,{R1-R3,PC}
- LDMFD R13!,{R1-R3,R14}
+ FNRTS VS
+ FNPULL
  MOV R1,R2			; now cursors matched
  MOV PC,R14
 
@@ -1481,21 +1481,21 @@ tw_padd_x
 ;X R3=buf_detoken containg R2*char in R0 #
 
 tw_getblanks
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R3,R0			; save char
  FNLDR R0,buf_detoken
  MOV R1,R2
  FNcall Zap_Ensure
- LDMVSFD R13!,{R1-R2,PC}
+ FNRTS VS
  FNSTR R0,buf_detoken
  MOV R1,R0			; buffer
  MOV R0,R3			; char
  MOV R3,R1			; save buffer pointer
  BL strstr
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 tw_overwrite
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  SUB R1,R1,R2			; num could be overwitten (>0)
  LDR R0,[R7,#24]
  SUB R0,R0,R2			; num cols left in text window
@@ -1504,36 +1504,36 @@ tw_overwrite
  CMP R0,R5
  MOVGT R0,R5			; num can overwrite
  CMP R0,#0			; any left?
- LDMLEFD R13!,{R1-R3,PC}
+ FNRTS LE
  ADD R1,R6,R2			; offset
  MOV R2,R0			; number
  MOV R3,R4			; data
  MOV R0,#3			; replace
  FNcall Zap_DoCommand
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  MOV R0,R2			; save number done
- LDMFD R13!,{R1-R3,R14}
+ FNPULL
  ADD R4,R4,R0
  SUB R5,R5,R0
  ADD R2,R2,R0			; update vals
  MOV PC,R14
 
 tw_add
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  LDR R0,[R7,#24]
  SUB R0,R0,R2			; num cols left
  CMP R0,R5
  MOVGT R0,R5			; num can insert
  CMP R0,#0
- LDMLEFD R13!,{R1-R3,PC}
+ FNRTS LE
  ADD R1,R6,R2			; offset
  MOV R2,R0			; number
  MOV R3,R4			; data
  MOV R0,#1			; insert
  FNcall Zap_DoCommand
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  MOV R0,R2			; save number done
- LDMFD R13!,{R1-R3,R14}
+ FNPULL
  ADD R4,R4,R0
  SUB R5,R5,R0
  ADD R2,R2,R0
@@ -1543,7 +1543,7 @@ tw_add
 ;X window scrolled up by R0 lines #
 
 tw_scroll_up
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  MOV R1,R0			; save number of lines
  LDR R14,[R7,#16]
  TEQ R14,#0
@@ -1559,7 +1559,7 @@ tw_scroll_up
  LDR R0,[R7,#56]
  ADD R0,R0,R1
  STR R0,[R7,#56]		; scroll whole screen
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 tw18
  LDR R2,[R7,#16]		; min x
  LDR R3,[R7,#20]		; top line of window
@@ -1568,14 +1568,14 @@ tw18
  SUB R4,R4,R2			; width
 tw27
  CMP R3,R5			; finished?
- LDMCSFD R13!,{R1-R5,PC}
+ FNRTS CS
  ADD R3,R3,R1			; line to get from
  BL tw_getline			; read line data
  SUBVC R3,R3,R1			; line to write to
  BLVC tw_putline		; write
  ADDVC R3,R3,#1			; move to next line
  BVC tw27
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;E R2=x off R3=y off R7=buffer R8/R9
 ;X R0=char at this posn
@@ -1617,22 +1617,22 @@ tw_getline
  LDR R0,[R7,#28]		; max y
  CMP R3,R0
  BGE tw32
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  FNLDR R0,buf_detoken
  MOV R1,R4
  FNcall Zap_Ensure
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  FNSTR R0,buf_detoken
  MOV R5,R2			; save x val
  BL twc_to_xy_nopad		; get work xy
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  BL tw_findoffset		; R6=line start R1=line width
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  MOV R2,R1			; save line width
  FNLDR R3,buf_detoken		; buffer
 tw29
  CMP R4,#0			; finished ?
- LDMLEFD R13!,{R1-R6,PC}
+ FNRTS LE
  CMP R5,R2
  MOVCS R0,#&20
  ADDCC R0,R6,R5
@@ -1642,38 +1642,38 @@ tw29
  SUB R4,R4,#1
  B tw29
 tw32
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R0,#&20
  MOV R2,R4
  BL tw_getblanks		; fill buf with blanks -> R3
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;E R2=x off R3=y off R4=width R7=buffer R8/R9
 ;X line data written from buf_detoken #
 
 tw_putline
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  MOV R5,R2			; save x val
  BL twc_to_xy_nopad		; get work xy
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  BL tw_findoffset		; R6=line start R1=line width
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  MOV R2,R5			; restore x val
  MOV R5,R4			; save length
  FNLDR R4,buf_detoken		; get data
  CMP R1,R2
  BLLT tw_padd_x
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  CMP R1,R2
  BLGT tw_overwrite
  BLVC tw_add
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 
 ;E R0=num of lines R7=buf R8/R9
 ;X window scrolled down by R0 lines #
 
 tw_scroll_down
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  MOV R1,R0			; save number of lines
  LDR R14,[R7,#16]
  TEQ R14,#0
@@ -1690,7 +1690,7 @@ tw_scroll_down
  SUBS R0,R0,R1
  MOVMI R0,#0
  STR R0,[R7,#56]		; scroll whole screen
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 tw22
  LDR R2,[R7,#16]		; min x
  LDR R5,[R7,#20]		; top line of window
@@ -1700,14 +1700,14 @@ tw22
  SUB R3,R3,#1			; first line to write
 tw28
  CMP R3,R5			; finished?
- LDMLTFD R13!,{R1-R5,PC}
+ FNRTS LT
  SUB R3,R3,R1			; line to get from
  BL tw_getline			; read line data
  ADDVC R3,R3,R1			; line to write to
  BLVC tw_putline		; write
  SUBVC R3,R3,#1			; move to next line
  BVC tw28
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;E R7=taskwindow buffer R8/R9
 ;X R2=work x R3=work y of cursor with file padded #
@@ -1858,10 +1858,10 @@ tw_show_output
 	FNRTS
 
 tw_vdu23
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  LDRB R0,[R4],#1		; get reason code
  TEQ R0,#7
- LDMNEFD R13!,{R1-R11,PC}
+ FNRTS NE
 
 tw_scrollwindow
  LDRB R0,[R4],#1		; extent (window/screen)
@@ -1871,15 +1871,15 @@ tw_scrollwindow
  TEQ R0,#3
  BEQ tws_up
  TEQ R0,#2
- LDMNEFD R13!,{R1-R11,PC}
+ FNRTS NE
 tws_down
  MOV R0,#1
  BL tw_scroll_down
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 tws_up
  MOV R0,#1
  BL tw_scroll_up
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 tw_mode
  FNJSR "R1-R3"
@@ -1923,7 +1923,7 @@ tw_newwidth
  FNRTS
 
 tw_define
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  LDRB R2,[R4]			; min x
  LDRB R3,[R4,#3]		; min y
  LDRB R0,[R4,#2]
@@ -1932,50 +1932,50 @@ tw_define
  ADD R1,R1,#1			; max y
  CMP R2,R0
  CMPLT R3,R1
- LDMGEFD R13!,{R1-R3,PC}
+ FNRTS GE
  LDR R14,[R7,#12]		; screen height
  CMP R1,R14
- LDMGTFD R13!,{R1-R3,PC}
+ FNRTS GT
  LDR R14,[R8,#w_bpl]
  CMP R0,R14
- LDMGTFD R13!,{R1-R3,PC}
+ FNRTS GT
  STR R2,[R7,#16]
  STR R3,[R7,#20]
  STR R0,[R7,#24]
  STR R1,[R7,#28]		; set window defn
  STR R2,[R7,#4]
  STR R3,[R7,#8]			; and put cursor at top left
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 tw_tab
- STMFD R13!,{R2-R3,R14}
+ FNJSR "R2-R3"
  LDRB R0,[R4]			; tab x
  LDR R2,[R7,#16]		; min x
  LDR R14,[R7,#24]
  SUB R14,R14,R2			; width x
  CMP R0,R14
- LDMCSFD R13!,{R2-R3,PC}
+ FNRTS CS
  ADD R2,R2,R0
  LDRB R0,[R4,#1]
  LDR R3,[R7,#20]		; min y
  LDR R14,[R7,#28]
  SUB R14,R14,R3			; height y
  CMP R0,R14
- LDMCSFD R13!,{R2-R3,PC}
+ FNRTS CS
  ADD R3,R3,R0
  STR R2,[R7,#4]
  STR R3,[R7,#8]			; cursor x,y
- LDMFD R13!,{R2-R3,PC}
+ FNRTS
 
 tw_cls
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  LDR R1,[R7,#16]		; min x
  LDR R2,[R7,#24]		; max x
  SUB R2,R2,R1			; width
  MOV R4,R2			; save width
  MOV R0,#&20			; char
  BL tw_getblanks		; R3=buf detoken
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  MOV R2,R1			; min x
  LDR R3,[R7,#20]		; min y
  STR R2,[R7,#4]
@@ -1983,11 +1983,11 @@ tw_cls
  LDR R1,[R7,#28]		; max y
 tw30
  CMP R3,R1
- LDMCSFD R13!,{R1-R4,PC}	; finished
+ FNRTS CS	; finished
  BL tw_putline			; blank that line
  ADDVC R3,R3,#1
  BVC tw30
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 
 tw_cr
  LDR R0,[R7,#16]		; window minx
@@ -1995,7 +1995,7 @@ tw_cr
  MOV PC,R14
 
 tw_forspace
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  LDR R1,[R7,#4]			; x coord
  ADD R1,R1,R2			; new column
  MOV R2,#0			; num lines to move down
@@ -2010,10 +2010,10 @@ tw20
  STR R1,[R7,#4]			; new column
  CMP R2,#0
  BLGT tw_lf			; move down some rows
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 tw_lf
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  BL tw_insertlinefeeds		; insert some LFs...
  LDR R0,[R7,#8]
  ADD R0,R0,R2			; move down R2 lines
@@ -2028,10 +2028,10 @@ tw_lf
  STRVC R0,[R7,#8]		; new y
 noscrollupneeded$l
  BLVC tw_showcursor		; make sure cursor visible etc....????
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 tw_backspace
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  LDR R1,[R7,#4]			; x coord
  SUB R1,R1,R2			; new column
  MOV R2,#0			; num lines to move up
@@ -2046,22 +2046,22 @@ tw23
  STR R1,[R7,#4]			; new column
  CMP R2,#0
  BLGT tw_upline			; move up some rows
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 tw_upline
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R0,[R7,#8]
  SUB R0,R0,R2			; move down R2 lines
  LDR R1,[R7,#20]		; min y
  CMP R0,R1
  STRGE R0,[R7,#8]
- LDMGEFD R13!,{R1,PC}
+ FNRTS GE
  SUB R0,R1,R0			; num lines to scroll down
  BL tw_scroll_down
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  MOV R0,R1
  STR R0,[R7,#8]			; new y
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 tw_bell
  FNJSR
@@ -2082,7 +2082,7 @@ tw_restore_window
  FNRTS
 
 tw_delete
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  MOV R5,R2			; save num
  LDR R2,[R7,#4]
  LDR R3,[R7,#8]
@@ -2091,18 +2091,18 @@ tw19
  STR R3,[R7,#8]
  BL twc_buf_xy_nopad		; R2/R3=work x,y
  BLVC tw_findoffset		; R6=start off R1=line len
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  LDR R2,[R7,#4]			; scn x
  LDR R3,[R7,#8]			; scn y
  CMP R1,R2
  BLLT tw_unpadd_x
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  CMP R1,R2
  BLGT tw_blank
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  CMP R1,R2
  BLEQ tw_delchar
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  CMP R5,#0			; finished
  BLE tw21			; yes
  SUB R3,R3,#1			; move to previous line
@@ -2114,11 +2114,11 @@ tw19
  BL tw_scroll_down
  MOVVC R3,R1
  BVC tw19
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 tw21
  STR R2,[R7,#4]
  STR R3,[R7,#8]			; save cursor posn
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 
 tw_unpadd_x
  FNJSR
@@ -2135,13 +2135,13 @@ tw_unpadd_x
  FNRTS
 
 tw_blank
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  LDR R14,[R7,#16]		; window lhs
  SUB R0,R2,R14			; number could blank
  CMP R0,R5
  MOVGT R0,R5			; num want to blank
  CMP R0,#0
- LDMLEFD R13!,{R1-R3,PC}
+ FNRTS LE
  ADD R1,R6,R2			; current offset
  MOV R2,R0			; num
  SUB R1,R1,R2			; offset to blank at
@@ -2150,7 +2150,7 @@ tw_blank
  MOVVC R0,#3			; replace
  FNcallc Zap_DoCommand,VC
  MOVVC R0,R2			; save number blanked
- LDMFD R13!,{R1-R3,R14}
+ FNPULL
  SUBVC R2,R2,R0
  SUBVC R5,R5,R0
  MOV PC,R14
@@ -2158,20 +2158,20 @@ tw_blank
 ;\E R2 = column?
 ;   R5 = max value which could be deleted?
 tw_delchar
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  LDR R14,[R7,#16]		; window lhs
  SUB R0,R2,R14			; number could delete
  CMP R0,R5
  MOVGT R0,R5			; num want to delete
  CMP R0,#0
- LDMLEFD R13!,{R1-R5,PC}	; um error...?
+ FNRTS LE	; um error...?
  ADD R1,R6,R2			; current offset
  MOV R2,R0			; num
  SUB R1,R1,R2			; offset to delete at
  MOV R0,#2			; delete
  FNcall Zap_DoCommand
  MOVVC R0,R2			; save number deleted
- LDMFD R13!,{R1-R5,R14}
+ FNPULL
  SUBVC R2,R2,R0
  SUBVC R5,R5,R0
  SUBVC R1,R1,R0
@@ -2207,7 +2207,7 @@ eighttens$l
 ;X R2=screen width R3=screen height in chars #
 
 taskwindow_mode
- STMFD R13!,{R1,R4,R14}
+ FNJSR "R1,R4"
  MOV R4,R0			; save mode
  MOV R1,#2
  SWI XOS_ReadModeVariable
@@ -2216,7 +2216,7 @@ taskwindow_mode
  MOVVC R1,#1
  SWIVC XOS_ReadModeVariable
  ADDVC R2,R2,#1			; width
- LDMFD R13!,{R1,R4,PC}
+ FNRTS
 
  DCD	&8017
 Cmdtaskwindowflagstoggle
@@ -2229,9 +2229,10 @@ Cmdtaskwindowflagstoggle
  CMP	 R1,#0
  MOVLE	 PC,R14
 
- STMFD	 R13 !,{R1-R11,R14}
+ FNJSR
+ PUSH	 "R1-R11"
  FNcall  Zap_GetModeWord
- LDMFD	 R13 !,{R1-R11}
+ PULL	 "R1-R11"
  MOV	 R7,R0
 
  CMP	 R2,#15
@@ -2258,7 +2259,7 @@ Cmdtaskwindowflagstoggle
  ADRL	 R1,localcopyof_mode_taskwindow
  LDR	 R1,[R1]
  FNcall  Zap_PutModeWord
- LDMFD	 R13 !,{PC}
+ FNRTS
 
  LOCAL
 

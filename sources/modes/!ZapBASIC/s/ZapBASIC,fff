@@ -1,5 +1,5 @@
 ; Contains BASIC module header and non mode specific code.
-; $Id: ZapBASIC,fff,v 1.5 2000/10/08 22:22:48 ds Exp $
+; $Id: ZapBASIC,fff,v 1.6 2001/06/16 04:06:13 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
@@ -211,12 +211,12 @@ Null
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 RunProgram
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R0,#2			; run module
  ADRL R1,title_string
  MOV R2,#0
  SWI XOS_Module			; start the module as an app
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; menu handling							 ;
@@ -226,79 +226,79 @@ RunProgram
 ;X R0=w_mode/opt_mode for that mode #
 
 get_mode_word
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  BEQ ge10			; options menu
  ADD R0,R8,#w_mode0
  LDR R0,[R0,R10,LSL#2]		; mode word
- LDMFD R13!,{R1,PC}
+ FNRTS
 ge10
  ADD R1,R10,#&100		; variable number
  FNcall Zap_ReadVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R0=value R8=window/0 R10=mode
 ;X R0 saved in w_basic/opt_basic
 
 put_mode_word
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  BEQ pu10			; options menu
  ADD R14,R8,#w_mode0
  STR R0,[R14,R10,LSL#2]		; save mode word
- LDMFD R13!,{R1,PC}
+ FNRTS
 pu10
  ADD R1,R10,#&100		; variable number
  FNcall Zap_WriteVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R8=winodow/0
 ;X R0=w_format/opt_format #
 
 get_format
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  LDRNE R0,[R8,#w_format]
- LDMNEFD R13!,{R1,PC}
+ FNRTS NE
  MOV R1,#3
  FNcall Zap_ReadVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R8=winodow/0
 ;X R0=w_flags/opt_flags #
 
 get_flags
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  LDRNE R0,[R8,#w_flags]
- LDMNEFD R13!,{R1,PC}
+ FNRTS NE
  MOV R1,#2
  FNcall Zap_ReadVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R0=value R8=window/0
 ;X R0 saved in w_format/opt_format
 
 put_format
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  STRNE R0,[R8,#w_format]
- LDMNEFD R13!,{R1,PC}
+ FNRTS NE
  MOV R1,#3
  FNcall Zap_WriteVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R0=value R8=window/0
 ;X R0 saved in w_flagst/opt_flags
 
 put_flags
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  TEQ R8,#0
  STRNE R0,[R8,#w_flags]
- LDMNEFD R13!,{R1,PC}
+ FNRTS NE
  MOV R1,#2
  FNcall Zap_WriteVar
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Redraw line						      ;
@@ -362,7 +362,7 @@ save_mode_word
 ;X R0=w_bpl calculated as for standard text mode #
 
 calc_mode_width
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  ADD R14,R1,R1,LSL#8
  ADD R14,R14,R14,LSL#16
  STR R14,[R8,#w_cr]		; set up return character
@@ -374,7 +374,7 @@ calc_mode_width
  CMP R0,#5
  MOVLE R0,#5
  STR R0,[R8,#w_bpl]		; save the width
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Set initial mode words				     ;
@@ -528,7 +528,7 @@ div_mod_1
  SUB R3,R3,#4
  TEQ R3,#0
  BNE div_mod_1			; DO NOT CORRUPT CARRY
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; ERRORS					     ;
@@ -546,7 +546,7 @@ $la	ADD R0,PC,#8			; address of the error message
 	= $b,0
  |
 $la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#1<<28		; return with an error
+	ORRS PC,R14,#1<<28		; return with an error	; !!! ARM32 FIXME
 	DCD (ENUM+$a)			; the error number
 	= $c,0
  ]
@@ -556,7 +556,7 @@ $la	ADD R0,PC,#0			; address of the error message
 	MACRO
 $la	FNierr $a,$b
 $la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#1<<28		; return with an error
+	ORRS PC,R14,#1<<28		; return with an error	; !!! ARM32 FIXME
 	DCD (ENUM+$a)			; the error number
 	= $b,0
 	ALIGN
@@ -584,7 +584,7 @@ err41 FNerr  35,("basic_nolineno"),("No line number")
 ;X Tags 'at offset xxx' onto the error string. VS on exit #
 
 error_offset
- STMFD R13!,{R1,R2,R3,R14}
+ FNJSR "R1-R3"
  MOV R3,R1			; save offset
  ADDS R2,R0,#0			; clv and start of error block
  FNLDR R1,buf_error
@@ -608,8 +608,7 @@ error_offset
  ;ADR R2,err_s2
  ;BL strcpy
  FNLDR R0,buf_error
- LDMFD R13!,{R1-R3,R14}
- ORRS PC,R14,#Vbit
+ FNRTV
 err_s0
  FNS (" at offset &")
 ;err_s1
@@ -654,7 +653,7 @@ strcopy
  BCS strcopy
  MOV R0,#0
  STRB R0,[R1,#-1]
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;E R1=dest R2=source (copy till <32 and add no zero)
 ;X R0=terminatior R1=end of dest R2=char after terminator |
@@ -827,14 +826,14 @@ eof$l
 ;X byte written with no checking |
 
 cln_writec
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  LDR R1,[R9,#f_splito]
  CMP R2,R1
  LDRCS R1,[R9,#f_splits]
  ADDCS R2,R2,R1
  LDR R1,[R9,#f_ptr]
  STRB R0,[R1,R2]
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SERVICE CALL HANDLER					       ;
@@ -842,7 +841,7 @@ cln_writec
 
 service_call
  LDR R12,[R12]
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Run program handling						;
@@ -1246,13 +1245,13 @@ localcopyof_zapversion
 ;X CS if key pressed |
 
 test_forkey
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  EOR R1,R0,#&FF
  MOV R2,#&FF
  MOV R0,#&81
  SWI XOS_Byte
  CMP R1,#&FF
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Extra commands					    ;
@@ -1541,7 +1540,7 @@ key_command_table
 
  DCD (1<<12)
 DELWORDLEFT
- STMFD R13!,{R14}
+ FNJSR
 
  LDR R3,[R10,#c_off]
  MOV R0,R3
@@ -1563,13 +1562,13 @@ dwl01
  FNcall Zap_StopOp
 
 dwl02
- LDMFD R13!,{PC}
+ FNRTS
 
 ; \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\;
 
  DCD (1<<12)
 DELWORDRIGHT
- STMFD R13!,{R14}
+ FNJSR
 
  LDR R3,[R10,#c_off]
  MOV R0,R3
@@ -1591,7 +1590,7 @@ dwr01
  FNcall Zap_StopOp
 
 dwr02
- LDMFD R13!,{PC}
+ FNRTS
 
 ; \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\;
 ; \ Subroutines                                                  \;
@@ -1599,7 +1598,7 @@ dwr02
 ; \ Move one word forward in file
 ; \ (In) R0 = file offset, (Out) R0 = new file offset
 fwd_word
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  LDR R2,[R9,#f_len]
 
  CMP R0,R2
@@ -1624,12 +1623,12 @@ fw02
  BCC fw02
 
 fw_eof
- LDMFD R13!,{R1-R2,PC}^
+ FNRTSS
 
 ; \ Move one word backward in file
 ; \ (In) R0 = file offset, (Out) R0 = new file offset
 back_word
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
 
 bw01
  SUBS R0,R0,#1
@@ -1648,13 +1647,13 @@ bw02
 
 bw_eof
  ADD R0,R0,#1
- LDMFD R13!,{R1,PC}^
+ FNRTSS
 
 ; redundant code...?
 ; \ Get a character from a file buffer
 ; \ (In) R0=file offset (Out) R1=char
 getc_off
- STMFD R13!,{R0,R14}
+ FNJSR "R0"
 
  LDR R1,[R9,#f_splito]
  CMP R0,R1
@@ -1663,19 +1662,19 @@ getc_off
  LDR R1,[R9,#f_ptr]
  LDRB R1,[R1,R0]
 
- LDMFD R13!,{R0,PC}^
+ FNRTSS
 
 ; \ Check whether a character is a word constituent
 ; \ (In) R1=char (Out) CS=Word, CC=NonWord
 wordchar
- STMFD R13!,{R0-R2,R14}
+ FNJSR "R0-R2"
  ADR R0,wordtab
  MOV R2,R1,LSR #5
  LDR R0,[R0,R2,ASL #2]
  AND R1,R1,#&1F
  ADD R1,R1,#1
  MOVS R0,R0,LSR R1
- LDMFD R13!,{R0-R2,PC}
+ FNRTS
 
 ; \ Word characters (A-Z,a-z,0-9,_)
 wordtab
