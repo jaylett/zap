@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.12 2003/02/05 17:29:29 christian Exp $
+; $Id: CreateFile,fff,v 2.13 2003/04/13 23:55:40 ds Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES  * 0
@@ -280,17 +280,38 @@ precarryon$l
 	BL	goto_file_offset	; hopefully simply works...
 carryon$l
 	PULL	"R10"
+	FNLDR	R6,wimp_flagbits
+	TST	R6,#wfb_kbd_mod_valid
+	BNE	no_modifiers		; hmm, we already have modifiers
 	FNLDR	R1,opt_temporary	; set by paste GC code
 	MOV	R0,#0
 	CMP	R1,#0
 	FNSTR	R0,opt_temporary
-	MOVEQ	R0,#&81
-	MOVEQ	R1,#&FF			; either shift
-	MOVEQ	R2,#&FF
-	SWIEQ	XOS_Byte		; scan keyboard
+	BIC	R6,R6,#wfb_kbd_mod_all
+	BNE	no_modifiers		; don't do modifiers
+	MOV	R0,#&81
+	MOV	R1,#&FF			; either shift
+	MOV	R2,#&FF
+	SWI	XOS_Byte		; scan keyboard
 	FNRTS	VS
-	TEQ	R1,#&FF
-	BEQ	name$l			; shift held so inject name
+	ORRCS	R6,R6,#wfb_kbd_mod_shift
+	MOV	R0,#&81
+	MOV	R1,#&FE			; either ctrl
+	MOV	R2,#&FF
+	SWI	XOS_Byte		; scan keyboard
+	FNRTS	VS
+	ORRCS	R6,R6,#wfb_kbd_mod_ctrl
+	MOV	R0,#&81
+	MOV	R1,#&FD			; either alt
+	MOV	R2,#&FF
+	SWI	XOS_Byte		; scan keyboard
+	FNRTS	VS
+	ORRCS	R6,R6,#wfb_kbd_mod_alt
+	ORR	R6,R6,#wfb_kbd_mod_valid
+no_modifiers
+	FNSTR	R6,wimp_flagbits
+	TST	R6,#wfb_kbd_mod_shift
+	BNE	name$l			; shift held so inject name
 	MOV	R0,#0
 	SWI	XHourglass_On
 	MOV	R0,#5
@@ -338,12 +359,21 @@ name$l					; insert name instead of file
 	MOVVC	R1,R3
 	MOVVC	R2,R11
 	BLVC	strcpy			; copy in name
-	MOVVC	R0,#&20
-	STRVCB  R0,[R1]			; add a space
-	MOVVC	R0,#&11			; insert block
-	MOVVC	R1,R10			; ins point
-	ADDVC	R2,R4,#1
-	BLVC	execute_command
+	FNRTS	VS
+	AND	R6,R6,#wfb_kbd_mod_ctrl:OR:wfb_kbd_mod_alt
+	MOV	R0,#&20
+	TEQ	R6,#wfb_kbd_mod_ctrl
+	LDREQB	R0,[R8,#w_cr]		; Ctrl => CR
+	TEQ	R6,#wfb_kbd_mod_alt
+	LDREQB	R0,[R8,#w_tabc]		; Alt => TAB
+	TEQ	R6,#wfb_kbd_mod_ctrl:OR:wfb_kbd_mod_alt
+					; both => nothing
+	STRNEB	R0,[R1]			; add a space
+	MOV	R0,#&11			; insert block
+	MOV	R1,R10			; ins point
+	MOV	R2,R4
+	ADDNE	R2,R2,#1
+	BL	execute_command
 	FNRTS
 
 

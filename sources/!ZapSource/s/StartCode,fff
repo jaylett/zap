@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.25 2003/03/21 18:07:48 ds Exp $
+; $Id: StartCode,fff,v 2.26 2003/04/13 23:55:40 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -221,6 +221,9 @@ fatal_wimp_error
 ;X Error reported and goes back to main loop
 	FNAME	wimp_error
 wimp_error
+	FNLDR	R14,wimp_flagbits
+	BIC	R14,R14,#wfb_kbd_mod_valid
+	FNSTR	R14,wimp_flagbits
 	FNLDR	R14,wimp_pollnum	; get poll number
 	TST	R14,#1<<31		; did this poll number error before
 	BNE	cancel$l		; if so then cancel to prevent infinite loop
@@ -279,6 +282,11 @@ are_we_initialising
 	FNAME	dispatch_wimp_poll
 dispatch_wimp_poll
 	FNJSR
+	TEQ	R0,#17
+	TEQNE	R0,#18
+	FNLDR	R14,wimp_flagbits,NE
+	BICNE	R14,R14,#wfb_kbd_mod_valid
+	FNSTR	R14,wimp_flagbits,NE
 	CMP	R0,#(end$l-start$l)/8
 	ADDCC	PC,PC,R0,LSL #3		; dispatch
 	BL	wimp_passon		; out of range
@@ -1018,7 +1026,7 @@ normalmenu$l
 	MOVEQ	R0,#0			; main menu
 specialmenu$l
 	FNLDR	R14,wimp_flagbits,EQ
-	BICEQ	R14,R14,#1
+	BICEQ	R14,R14,#wfb_fromsavesel
 	FNSTR	R14,wimp_flagbits,EQ
 	BL	read_menu_handle
 gotmenuhandle$l
@@ -1792,7 +1800,7 @@ sub$l					; R0=type R1=mess R2=mess num R11=block
 	FNAME	data_load
 data_load				; app/filer wants me to load a file
 	MOV	R11,#0			; no data block if from filer
-	FNSTR	R11,opt_temporary	; tell inject_file to check Shift
+	FNSTR	R11,opt_temporary	; tell inject_file to check modifiers
 data_load_start				; reply to previous messages R11=block
 	FNJSR
 	SYSLOGF "Message: data_load, message at %1x", LOG_FILE
