@@ -34,12 +34,13 @@
 # You'll need to change the following if you add additional compilation
 # units.
 
-OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Messages o/Cursors \
+OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/CreateWind o/AlterTxt o/Search o/Commands o/Execute \
 		  o/Update o/Mode0 o/Mode1 o/Mode2 o/Mode3 o/Mode4 o/Mode4dis \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
-		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions
+		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
+		  o/ModuleBits 
 
 # You may need to change some of the following if your system is different
 # to mine. (Link and Asm need to point to as_ro and link_ro, whatever
@@ -49,7 +50,7 @@ OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Messages o/Cursors \
 asm		= as_ro
 link		= link_ro
 asmflags	= -objasm -nolocal -o $@
-linkflags	= -o $@ -B 0 -bin
+linkflags	= -o o/tmplink -B 0 -bin
 
 # We need rm, but it's almost always the same. You may need to change
 # this on dubious Unixoids so we're using GNU rm instead of the vendor
@@ -60,8 +61,7 @@ rm		= rm -f
 #
 # First, the internal tools we use
 makehdr		= data/unix/makehdr
-#timestamp	= data/unix/timestamp
-timestamp	= perl -pi -e '$d = `date +"%d %b %Y"`; chomp $d; s/00 Jan 0000/$d/'
+timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
 
 # The bits after here are fairly standard GNU make incantations.
 # Watch out for variable substitution (the $(subst) stuff), which
@@ -76,11 +76,11 @@ o/%:		s/%,fff
 
 # Final target:
 
-Zap:		Zap,ffa
-
-Zap,ffa:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
+Zap:		tmplink
+		$(timestamp) < o/tmplink > Zap,ffa
+		
+tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
 		$(link) $(linkflags) $(OBJECTS)
-		$(timestamp) Zap,ffa
 
 clean:
 		$(rm) o/* t/* $(subst o/,h/,$(OBJECTS)) Zap,ffa
