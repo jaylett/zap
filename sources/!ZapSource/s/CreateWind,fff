@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.11 2003/03/21 18:07:48 ds Exp $
+; $Id: CreateWind,fff,v 2.12 2003/04/20 14:55:54 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -18,6 +18,7 @@
  GET h.Commands
  GET h.TMTVars
  GET h.Fonts
+ GET h.TabStops
 
  IMPORT get_mode_0Box
  IMPORT getmoduleversionnumber
@@ -407,7 +408,7 @@ call_correct_wind_blk
 
 	FNAME	correct_wind_blk
 correct_wind_blk
-	FNJSR
+	FNJSR	"R11"
 	LDR	R0,[R8,#w_format]
 	TST	R0,#&3000
 	LDREQ	R0,[R8,#w_cr]
@@ -425,9 +426,6 @@ correct_wind_blk
 	TST	R14,#1
 	BLEQ	correct_width
 	FNRTS	VS
-	LDR	R14,local_nws_correctflags
-	TST	R14,#1<<3
-	BLNE	set_new_correct_width
 	LDRVC	R0,[R8,#w_width]	; get width
 	ADDVC	R0,R0,#1		; add for few pixs on right
 	ADDVC	R0,R0,#7
@@ -1347,6 +1345,10 @@ free_window
 	BLVC	heap_free
 	LDRVC	R0,[R8,#w_dsafontname]
 	BLVC	heap_free
+	LDRVC	R0,[R8,#w_tabstops]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_tabstring]
+	BLVC	heap_free
 	BLVC	free_modedata
 	FNRTS
 
@@ -1452,37 +1454,34 @@ de6	CMP	R2,R3
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R8/R9 (uses e_width)
-;X user format used to set up margin/width/bpl #
+;X user format used to set up margin/width/bpl/tabstops #
 	FNAME	correct_width
 correct_width
-	FNJSR	"R1,R11"
-	LDR	R1,[R8,#w_mwidth]	; margin width
-	CMP	R1,#0
-	MOVLE	R1,#0
+	FNJSR	"R7,R11"
+	LDR	R7,[R8,#w_mwidth]	; margin width
+	CMP	R7,#0
+	MOVLE	R7,#0
 	LDR	R0,[R8,#w_format]	; format
 	TST	R0,#1<<8
 	BEQ	nolinenumbersatall
 	LDR	R14,[R8,#w_info]	; format
 	AND	R0,R14,#7
-	ADD	R1,R1,R0		; add on space for line nos if needed
-	ADD	R1,R1,#2
+	ADD	R7,R7,R0		; add on space for line nos if needed
+	ADD	R7,R7,#2
 	TST	R14,#8
-	ADDNE	R1,R1,#2
+	ADDNE	R7,R7,#2
 nolinenumbersatall
-	STR	R1,[R8,#w_margin]	; save margin
-	MOV	R11,#e_width
-	BL	call_mode
-	ADDVC	R0,R0,R1		; total width
-	STRVC	R0,[R8,#w_width]
-	LDRVC	R0,[R8,#w_width]
-	FNRTS
+	STR	R7,[R8,#w_margin]	; save margin
 
-set_new_correct_width
-	FNJSR	"R1,R11"
-; LDR R0,[R8,#w_bpl]		; hmm...
-; MOV R11,#e_setwidth
-; BL call_mode
-; LDRVC R0,[R8,#w_width]	; no one cares...
+	FNLDR	R0,wimp_maxaw,VC	; get tab list for longest width we could have
+	BLVC	get_tab_stops
+
+	MOVVC	R11,#e_width		; calculate the width (uses tabstops)
+	BLVC	call_mode
+	ADDVC	R7,R0,R7		; total width
+	STRVC	R7,[R8,#w_width]
+
+	BLVC	get_tab_stops		; then get the list for the real list
 	FNRTS
 
 

@@ -1,5 +1,5 @@
 ; Contains mode entry points for text mode.
-; $Id: SoftWrap,fff,v 2.3 2002/11/11 13:21:13 christian Exp $
+; $Id: SoftWrap,fff,v 2.4 2003/04/20 14:55:55 christian Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -50,7 +50,9 @@ local_zapwkspace
 findnextphysl
  FNJSR "R1,R2,R3,R8-R12"
 
- LDRB R10,[R8,#w_tabc]
+ LDR R10,[R8,#w_tabstops]
+ PUSH "R10"				; keep tabstop list on stack, because
+ LDRB R10,[R8,#w_tabc]			; we lose R8 later
 
  PUSH "R0-R1,R12"
  MOV R0,#einterrogate_SoftWrapChars
@@ -121,6 +123,7 @@ swchar_dontdoathing
  TEQ R8,R9
  MOVNE R0,R8
 
+ PULL "R14"
  FNRTCC				; this also clears V, so that's alright
 
 dft_str_for_sw
@@ -138,12 +141,14 @@ possibiltyofwraphere2
 
 fnpl_tab
  TEQ R1,#0			; tab mode = none?
- ORRNE R11,R11,#7
- ADD R11,R11,#1
- ;STR R14,local_arecenttab
+ ADDEQ R11,R11,#1
+ LDRNE R2,[R13]			; fetch w_tabstops from stack
+ LDRNE R2,[R2,R11,LSL #1]
+ ADDNE R11,R11,R2,LSR #16
  MOV PC,R14
 
 fnpl_eolchar
+ PULL "R14"			; correct stack
  FNRTCS
 
 fnpl_eolchar2
@@ -152,12 +157,14 @@ fnpl_eolchar2
  ADDEQ R0,R0,R5
  CMP R0,R6
  BCS fnpl_eot
+ PULL "R14"			; correct stack
  FNRTCS
 
 fnpl_eot
  MOV R0,R6
  TEQ R14,R7
  BEQ fnpl_eolchar		; if last char of the file is ';n'
+ PULL "R14"			; correct stack
  FNRTV				; warning: now unpredictable C state
 
 ;;;;;;;;;;;;;;;;;;;;; compute_column ///////////////////////
@@ -171,13 +178,14 @@ compute_column
  MOVEQ R2,#0
  MVNMI R2,#0
  MOVLE PC,R14
- FNJSR "R0-R1,R3-R6,R11"
+ FNJSR "R0-R1,R3-R7,R11"
  LDR R14,[R8,#w_format]
  TST R14,#format_TabDisplayFormat
 
  SUBEQ R2,R1,R0
  FNRTS EQ
 
+ LDR R7,[R8,#w_tabstops]
  LDR R3,[R9,#f_ptr]
  LDR R4,[R9,#f_splito]
  ADD R4,R4,R3
@@ -197,8 +205,10 @@ compute_column
 cc_lp
  LDRB R14,[R0],#1
  TEQ R14,R11
- ORREQ R2,R2,#7
- ADD R2,R2,#1
+ ;ORREQ R2,R2,#7
+ LDRNE R14,[R7,R2,LSL #1]
+ ADDNE R2,R2,R14,LSR #16
+ ADDEQ R2,R2,#1
  CMP R0,R4
  ADDEQ R0,R0,R5
  CMP R0,R1
@@ -958,6 +968,11 @@ mrl_tab ; returns EQ if only 1 character to do.
  ;PUSH "R5"
  LDR R5,[R8,#w_txtw]		;
  SUB R5,R3,R5			; foreground...
+ LDR R14,[R8,#w_tabstops]
+ LDR R14,[R14,R12,LSL #1]
+ ADD R14,R12,R14,LSR #16
+ ;BIC R14,R12,#7
+ ;ADD R14,R14,#8			; r14 = final column.
  MOV R7,#32
  MOV R8,#32
  MOV R9,#32			; default and spaces mode
@@ -965,8 +980,6 @@ mrl_tab ; returns EQ if only 1 character to do.
  MOVHI R8,#'-'			; ']'
  MOVHI R9,R11			; '--------->' mode
  MOVEQ R7,R11			; '->        ' mode
- BIC R14,R12,#7
- ADD R14,R14,#8			; r14 = final column.
  SUB R0,R14,R12			; r0 = number to do.
  MOV R12,R14			; R12 = final column.
  MOV R14,#1
