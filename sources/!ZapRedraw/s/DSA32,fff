@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw in 32bpp modes
-; $Id: DSA32,fff,v 1.1 2003/06/09 23:09:38 christian Exp $
+; $Id: DSA32,fff,v 1.2 2003/06/10 11:35:16 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -68,7 +68,6 @@ redraw_raster_32bpp
 	LDR	R0,[R1,#r_palette]
 	LDR	R10,[R0,R10,LSL #2]
 	LDR	R11,[R0,R11,LSL #2]	; get bit masks
-	LDR	R12,[R1,#r_bpp]
 	LDR	R7,[R1,#r_workarea]	; R7=workarea values
 	LDR	R0,[R1,#r_minx]
 	ADD	R5,R5,R0,LSL #2		; start screen address
@@ -98,8 +97,9 @@ ok$l	LDR	R0,[R1,#r_flags]
 	LDR	R9,[R1,#r_scrollx]
 	CMP	R9,#0
 	RSBMI	R9,R9,#0		; number of pixels to clear
-	BLMI	clear_pixels		; draw the left margin
+	BLMI	clear_pixels_choose
 
+	LDR	R7,[R1,#r_workarea]	; R7=workarea values
 	LDR	R9,[R7,#a_x1]		; first character pixel offset
 	TEQ	R9,#0
 	BEQ	aligned$l		; first character aligned
@@ -109,18 +109,19 @@ ok$l	LDR	R0,[R1,#r_flags]
 	BL	redraw_raster_pixel	; draw end of first character
 
 aligned$l
+	LDR	R7,[R1,#r_workarea]	; R7=workarea values
 	LDR	R8,[R7,#a_x3]		; number of whole chars to do
 	CMP	R8,#0
 	BLE	lastchar$l
 	BL	redraw_raster_main
 
 lastchar$l
+	LDR	R7,[R1,#r_workarea]	; R7=workarea values
 	LDR	R8,[R7,#a_x4]
 	CMP	R8,#0
 	BLE	end$l			; nothing left to do
 	MOV	R9,#0
 	BL	redraw_raster_pixel	; draw start of last character
-
 end$l	FNRTS
 
 
@@ -134,7 +135,6 @@ end$l	FNRTS
 ;  R8=number of pixels to write >0 (within a single character)
 ;  R9=pixel offset within the char to start at
 ;  R10=foreground mask R11=background mask
-;  R12=sub to call resolution+clear or not
 ;X R0,R2,R8-R9,R12 corrupted
 ;  R1,R4 preserved
 ;  R3,R5-R7,R10-R11 updated
@@ -145,15 +145,19 @@ redraw_raster_pixel
 	LDRB	R0,[R3],#1
 	TEQ	R0,#0
 	BLEQ	redraw_control_code
+	FNPULL
 	CMP	R0,#-1
-	FNRTS	EQ			; already plotted
+	MOVEQ	PC,R14			; already plotted
 	LDR	R2,[R1,#r_cbpc]
 	MLA	R2,R0,R2,R4		; address of bitmap
 	ADD	R2,R2,R9,LSR #3		; byte address of bitmap
 	ANDS	R0,R9,#7		; bit offset within byte
 	MOVS	R9,R8			; number of pixels to write
-	BLNE	redraw_pixels 		; write these
-	FNRTS
+	MOVEQ	PC,R14
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	BEQ	redraw_pixels
+	B	redraw_pixels_transp
 
 clear$l	LDRB	R0,[R3],#1
 	TEQ	R0,#0
@@ -162,7 +166,10 @@ clear$l	LDRB	R0,[R3],#1
 	CMP	R0,#-1
 	FNPULL
 	MOVEQ	PC,R14			; already plotted
-	B	clear_pixels
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	BEQ	clear_pixels
+	B	clear_pixels_transp
 
 
 
@@ -184,6 +191,12 @@ redraw_raster_main
 	MOV	R6,R8
 	TEQ	R4,#0
 	BEQ	clear$l
+
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	ADREQ	R7,redraw_pixels
+	ADRNE	R7,redraw_pixels_transp
+
 	LDR	R8,[R1,#r_charw]
 loop$l	LDRB	R0,[R3],#1		; get char
 	TEQ	R0,#0
@@ -194,19 +207,25 @@ loop$l	LDRB	R0,[R3],#1		; get char
 	LDRNE	R2,[R1,#r_cbpc]
 	MLANE	R2,R0,R2,R4		; address of bitmap
 	MOVNE	R0,#0
-	BLNE	redraw_pixels
+	MOVNE	R14,PC			; call redraw_pixels[_transp]
+	MOVNE	PC,R7
 	SUBS	R6,R6,#1		; done another character
 	BGT	loop$l
 	FNRTS
 
 clear$l	LDR	R8,[R1,#r_charw]
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	ADREQ	R7,clear_pixels
+	ADRNE	R7,clear_pixels_transp
 cloop$l	LDRB	R0,[R3],#1		; get char
 	TEQ	R0,#0
 	MOVEQ	R9,#0
 	BLEQ	redraw_control_code
 	MOV	R9,R8			; number of pixels to clear
 	CMP	R0,#-1
-	BLNE	clear_pixels
+	MOVNE	R14,PC			; call clear_pixels[_transp]
+	MOVNE	PC,R7
 	SUBS	R6,R6,#1		; done another character
 	BGT	cloop$l
 	FNRTS
@@ -219,12 +238,18 @@ cloop$l	LDRB	R0,[R3],#1		; get char
 
 	LOCAL
 
+redraw_pixels_choose
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	BNE	redraw_pixels_transp
+
+	; FALL THROUGH
+
 ;E R2      = bit address of bitmap line
 ;  R5      = output address
 ;  R9      = number of pixels to write > 0.
 ;  R10-R11 = colour masks
 ;X R0,R9 corrupted R5 updated, all else saved |
-
 redraw_pixels
 	MOV	R12,#1
 	ORR	R12,R12,#1<<24		; end of shift-register marker
@@ -243,12 +268,78 @@ loop2$l	TST	R0,R12
 
 	LOCAL
 
+
+clear_pixels_choose
+	LDR	R7,[R1,#r_flags]
+	TST	R7,#rf_transparent
+	BNE	clear_pixels_transp
+
+	; FALL THROUGH
+
 ;E R5  = output
 ;  R9  = number of _pixels_ to clear > 0.
 ;  R11 = background mask
 ;X R9 corrupted R5-R7 updated, all else saved |
 ;  Bits cleared to background colour.
 clear_pixels
+loop$l	STR	R11,[R5],#4
+	SUBS	R9,R9,#1		; do another pixel
+	BGT	loop$l
+	MOV	PC,R14
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Redraw pixel transparent subs				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+;E R2      = bit address of bitmap line
+;  R5      = output address
+;  R9      = number of pixels to write > 0.
+;  R10-R11 = colour masks
+;X R0,R9 corrupted R5 updated, all else saved |
+
+redraw_pixels_transp
+	FNJSR
+	LDR	R12,[R1,#r_palette]	; get the background mask
+	LDR	R14,[R1,#r_bac]
+	LDR	R14,[R12,R14,LSL #2]
+
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	MOV	R12,R12,LSL R0
+loop$l	LDRB	R0,[R2],#1
+	EOR	R0,R0,#&FF
+loop2$l	TST	R0,R12
+	STREQ	R10,[R5]		; plot if for
+	TEQNE	R11,R14
+	STRNE	R11,[R5]		; plot if bac and not r_bac
+	ADD	R5,R5,#4
+	SUBS	R9,R9,#1
+	FNRTS	LE
+	MOVS	R12,R12,LSL #1
+	BCC	loop2$l
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	B	loop$l
+
+	LOCAL
+
+;E R5  = output
+;  R9  = number of _pixels_ to clear > 0.
+;  R11 = background mask
+;X R0,R9 corrupted R5-R7 updated, all else saved |
+;  Bits cleared to background colour.
+clear_pixels_transp
+	LDR	R0,[R1,#r_palette]	; get the background mask
+	LDR	R12,[R1,#r_bac]
+	LDR	R0,[R0,R12,LSL #2]
+	TEQ	R0,R11
+	ADDEQ	R5,R5,R9,LSL #2
+	MOVEQ	PC,R14
+
 loop$l	STR	R11,[R5],#4
 	SUBS	R9,R9,#1		; do another pixel
 	BGT	loop$l
@@ -292,20 +383,31 @@ control_code_4_32bpp
 	ORR	R12,R12,#1<<24		; end of shift-register marker
 	MOV	R12,R12,LSL R14
 
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_transparent
+	LDRNE	R0,[R1,#r_palette]	; get background mask
+	LDRNE	R14,[R1,#r_bac]
+	LDRNE	R14,[R0,R14,LSL #2]
+	MOVEQ	R14,#1			; an invalid colour mask
+
 loop$l	LDRB	R0,[R6],#1
 	LDRB	R2,[R7],#1
+	EOR	R0,R0,#&FF
 loop2$l	TST	R2,R12			; alt char bit set
 	BNE	alt$l
-	TST	R0,R12			; base char bit set?
-	STREQ	R11,[R5],#4
-	STRNE	R10,[R5],#4
+	TST	R0,R12
+	STREQ	R10,[R5]		; plot if for
+	TEQNE	R11,R14
+	STRNE	R11,[R5]		; plot if bac and not r_bac
 	B	next$l
 
 alt$l	TST	R0,R12			; base char bit set?
-	STREQ	R9,[R5],#4
-	STRNE	R8,[R5],#4
+	STREQ	R8,[R5]			; plot if for
+	TEQNE	R9,R14
+	STRNE	R9,[R5]			; plot if bac and not r_bac
 
-next$l	SUBS	R4,R4,#1
+next$l	ADD	R5,R5,#4
+	SUBS	R4,R4,#1
 	BLE	done$l
 	MOVS	R12,R12,LSL #1
 	BCC	loop2$l
@@ -314,7 +416,7 @@ next$l	SUBS	R4,R4,#1
 	B	loop$l
 
 clear$l	PULL	"R9,R14"		; number of pixels to do
-	BL	clear_pixels
+	BL	clear_pixels_choose
 
 done$l	MOV	R0,#-1
 	FNRTS
@@ -360,18 +462,28 @@ control_code_8_32bpp
 	ORR	R12,R12,#1<<24		; end of shift-register marker
 	MOV	R12,R12,LSL R14
 
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_transparent
+	LDRNE	R0,[R1,#r_palette]	; get background mask
+	LDRNE	R14,[R1,#r_bac]
+	LDRNE	R14,[R0,R14,LSL #2]
+	MOVEQ	R14,#1			; an invalid colour mask
+
 loop$l	LDRB	R0,[R6],#1
 	LDRB	R2,[R7],#1
+	EOR	R0,R0,#&FF
 loop2$l	TST	R2,R12			; alt char bit set
 	BNE	alt$l
-	TST	R0,R12			; base char bit set?
-	STREQ	R11,[R5],#4
-	STRNE	R10,[R5],#4
+	TST	R0,R12
+	STREQ	R10,[R5]		; plot if for
+	TEQNE	R11,R14
+	STRNE	R11,[R5]		; plot if bac and not r_bac
 	B	next$l
 
-alt$l	STR	R9,[R5],#4
+alt$l	STR	R9,[R5]
 
-next$l	SUBS	R4,R4,#1
+next$l	ADD	R5,R5,#4
+	SUBS	R4,R4,#1
 	BLE	done$l
 	MOVS	R12,R12,LSL #1
 	BCC	loop2$l
@@ -384,11 +496,11 @@ cc8_1	MOV	R10,R8
 	PULL	"R9,R14"
 	ADD	R2,R6,R14,LSR #3
 	AND	R0,R14,#7
-	BL	redraw_pixels
+	BL	redraw_pixels_choose
 	B	done$l
 
 clear$l	PULL	"R9,R14"		; number of pixels to do
-	BL	clear_pixels
+	BL	clear_pixels_choose
 
 done$l	MOV	R0,#-1
 	FNRTS
