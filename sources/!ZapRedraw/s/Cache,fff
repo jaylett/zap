@@ -1,12 +1,13 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.20 2004/10/25 23:31:46 christian Exp $
+; $Id: Cache,fff,v 1.21 2004/11/01 09:38:30 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
  GET h.DSARedraw
  GET h.VDURedraw
  GET h.Messages
+ GET h.ListFonts
 
  EXPORT init_cache
  EXPORT kill_cache
@@ -1127,8 +1128,8 @@ load_font_file  FNJSR	"R1,R2,R5-R11"
 		MOV	R0,#&4D
 		ADRL	R2,fonts_path
 		SWI	XOS_Find
+		MOVVS	R0,R1				; get filename
 		FNPULL	VS
-		MOVVS	R4,R1				; get filename
 		BVS	error_notfound
 
 		MOV	R11,R0				; keep handle
@@ -1348,8 +1349,8 @@ load_chunk_given_name
 		ADRL	R2,fonts_path
 		SWI	XOS_Find
 		ADD	R2,R0,#4
+		MOVVS	R0,R1				; get filename
 		FNPULL	VS
-		MOVVS	R4,R1				; get filename
 		BVS	error_notfound
 
 		MOV	R1,R0				; load the chunk
@@ -1385,7 +1386,8 @@ load_chunk_given_name
 ; E r0 -> name
 ; X r0 -> new name,  r1 = ff_ssallowed if substyles allowed else 0
 canonicalise_font_name
-		FNJSR	"R10-R11"
+		FNJSR	"R9-R11"
+		MOV	R9,R0
 		MOV	R11,R0				; keep a copy of the string
 		MOV	R10,#0				; no substyles to start with
 
@@ -1393,13 +1395,31 @@ canonicalise_font_name
 		MOVEQ	R1,#0
 		FNRTS	EQ
 
-		ADD	R1,R12,#buffer			; make a copy of the name
-		MOV	R2,R11
-		BL	strcopy
+		BL	font_idfn_from_id		; find font in font list
+		TEQ	R0,#0				;
+		MOVNE	R1,R0				;
+		BNE	gotidfn$l			;
+
+		MOV	R1,R0				; if not found try to find idfn anyway
+		MOV	R2,#'F'				;
+		SWI	XFont_FindField			;
+		TEQ	R2,#0				;
+		BEQ	notfound$l			;
+
+gotidfn$l	MOV	R11,R1
+
+		ADD	R2,R12,#buffer			; make a copy of the name
+copy$l		LDRB	R0,[R1],#1
+		STRB	R0,[R2],#1
+		CMP	R0,#' '
+		TEQHS	R0,#'\'
+		BHI	copy$l
+		MOV	R0,#0
+		STRB	R0,[R2,#-1]
 
 		MOV	R0,#21				; read file info given path string
 		ADD	R1,R12,#buffer
-		ADR	R4,fonts_path
+		ADRL	R4,fonts_path
 		SWI	XOS_File
 		FNRTS	VS
 
@@ -1410,27 +1430,29 @@ canonicalise_font_name
 
 		ADD	R0,R12,#buffer			; if it's a directory, add .0
 		BL	strlen				; and check that.
-		ADD	R0,R0,R1
+		ADD	R11,R0,R1
 		MOV	R1,#'.'
-		STRB	R1,[R0],#1
+		STRB	R1,[R11]
 		MOV	R1,#'0'
-		STRB	R1,[R0],#1
+		STRB	R1,[R11,#1]
 		MOV	R1,#0
-		STRB	R1,[R0]
+		STRB	R1,[R11,#2]
 
 		MOV	R0,#21				; read file info given path string
 		ADD	R1,R12,#buffer
-		ADR	R4,fonts_path
+		ADRL	R4,fonts_path
 		SWI	XOS_File
+		MOV	R1,#0
+		STRB	R1,[R11]
 		FNRTS	VS
 
 		MOV	R10,#ff_ssallowed		; if the next test returns,
 							;  substyles are allowed
 
-nodir$l		BIC	R6,R6,#&F00			; we should now have a file. If
+nodir$l		EOR	R6,R6,#&F00			; we should now have a file. If
 		TEQ	R6,#&FF				; it's a link, follow it
 
-		MOV	R0,R11				; otherwise, this is our canonical
+		ADDNE	R0,R12,#buffer			; otherwise, this is our canonical
 		MOVNE	R1,R10				; name. substyles flag set up above
 		FNRTS	NE
 
@@ -1458,9 +1480,66 @@ notyet$l	MOV	R0,R11				; otherwise this is our canonical
 		MOV	R1,#0				; name, no substyles
 		FNRTS
 
-notfound$l	MOV	R4,R11
-		FNPULL
-error_notfound	ERROR	err_notfound,"NotFound"
+notfound$l	MOV	R0,R9
+		BL	error_notfound
+		FNRTS
+
+
+		LOCAL
+
+
+; E r0 -> font identifier  r2 = 'E' if encodings error
+; X r0 -> not found error block
+error_notfound	FNJSR	"R1-R4,R10-R11"
+		MOV	R10,R0
+		MOV	R11,R2
+
+		MOV	R1,R10				; find the localised name of the font
+		TEQ	R11,#'E'
+		MOVEQ	R2,#'e'
+		MOVNE	R2,#'f'
+		SWI	XFont_FindField
+		TEQ	R2,#0
+		BEQ	tryidfn$l
+
+		MOV	R0,#10				; check if it's in the current territory
+		SWI	XOS_ReadUnsigned
+		SWI	XTerritory_Number
+		TEQ	R0,R2
+		MOVEQ	R2,#31				; control terminated
+		ADDEQ	R1,R1,#1
+		BEQ	igot$l
+
+tryidfn$l	MOV	R1,R10				; try to use the idfn
+		TEQ	R11,#'E'			;
+		MOVEQ	R2,#'E'				;
+		MOVNE	R2,#'F'				;
+		LDRB	R0,[R1]				; don't bother if no \ at all
+		TEQ	R0,#'\'				;
+		SWIEQ	XFont_FindField			;
+		TEQ	R2,#0				;
+		MOVNE	R2,#32				; space terminated
+		MOVEQ	R1,R9				; otherwise use entire string
+		MOVEQ	R2,#31				; control terminated
+
+igot$l		ADD	R0,R12,#buffer			; copy it in
+igotc$l		LDRB	R3,[R1],#1			;
+		STRB	R3,[R0],#1			;
+		CMP	R3,R2				;
+		TEQHS	R3,#'\'				;
+		BHI	igotc$l				;
+		MOV	R3,#0				;
+		STRB	R3,[R0,#-1]			;
+
+		ADD	R4,R12,#buffer			; make the error
+		TEQ	R11,#'E'			;
+		ADRNE	R0,err$l			;
+		ADREQ	R0,erre$l			;
+		BL	messages_error			;
+		FNRTS					;
+
+err$l		ERRTOK	err_notfound,"NotFound"
+erre$l		ERRTOK	err_notfound,"ENotFound"
 
 		LOCAL
 
@@ -2755,6 +2834,14 @@ badindex$l	FNPULL
 ; E r0 -> encoding name
 ; X r0 -> data table / 1 for UTF8 / 2 for UTF16
 get_encoding	FNJSR	"R1-R4"
+		MOV	R1,R0
+		BL	encoding_idfn_from_id
+		TEQ	R0,#0
+		MOVEQ	R0,R1
+		MOVEQ	R2,#'E'
+		BLEQ	error_notfound
+		FNRTS	VS
+
 		LDRB	R1,[R0]				; check for UTF encoding
 		BIC	R1,R1,#&20			;
 		TEQ	R1,#'U'				;

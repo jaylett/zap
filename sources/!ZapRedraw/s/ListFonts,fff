@@ -1,5 +1,5 @@
 ; Contains code to handle font enumeration / menus
-; $Id: ListFonts,fff,v 1.3 2004/04/15 12:36:39 christian Exp $
+; $Id: ListFonts,fff,v 1.4 2004/11/01 09:38:30 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -11,6 +11,8 @@
  EXPORT list_fonts
  EXPORT decode_menu
 
+ EXPORT font_idfn_from_id
+ EXPORT encoding_idfn_from_id
 
 ; font entry flags
 fef_encoding	*	(1<<0)
@@ -222,11 +224,10 @@ menu$l		TST	R2,#lff_tick			; sort out the tickings
 		BEQ	ok$l				;
 							;
 		MOV	R0,R6				;
-		BL	get_font_by_idfn		;
+		BL	get_font_by_id			;
 		TEQ	R7,#0				;
 		LDRNE	R7,[R7,#fe_name]		;
 		STR	R7,[R12,#mmws_tick]		;
-		 ;DEBUGF	"ticking (%7s)"
 
 ok$l		MOV	R0,#0
 		MOV	R8,#0
@@ -782,25 +783,74 @@ ok$l		TST	R11,#dff_encodings		; find the font block
 		MOVEQ	R4,R3				;
 		BEQ	notfound$l			;
 
-		LDR	R0,[R7,#fe_idfn]		; ensure output buffer space / return length
+		LDR	R4,[R7,#fe_idfn]		; ensure output buffer space / return length
+		LDR	R0,[R7,#fe_name]		;
+		TEQ	R0,R4				;
+		BEQ	cidfn$l				;
+							;
+		LDR	R1,[R7,#fe_flags]		;
+		MOV	R1,R1,LSR #24			;
+		MOV	R5,#4				; length of \f<n>
+		CMP	R1,#10				;
+		MOVHS	R5,#5				;
+		CMP	R1,#100				;
+		MOVHS	R5,#6				;
+							;
+		BL	strlen				; localised name
+		ADD	R5,R5,R1			;
+							;
+cidfn$l		LDR	R0,[R7,#fe_name]		; identifier
 		BL	strlen				;
+		ADD	R5,R5,R1			;
 							;
 		TEQ	R3,#0				;
-		ADDEQ	R4,R1,#1			;
+		ADDEQ	R4,R5,#3			; terminator, \F
 		FNRTS	EQ				;
 							;
-		CMP	R1,R4				;
+		CMP	R5,R4				;
 		BLHI	buffer_overflow			;
 		FNRTS	VS				;
 
-		ADD	R4,R1,#1			; copy it in
-		MOV	R2,R0				;
+		ADD	R4,R5,#1			; copy it in
 		MOV	R1,R10				;
-		BL	strcopy				;
 
-		TST	R11,#dff_cr			; sort out terminator
+		MOV	R0,#'\'				;
+		STRB	R0,[R1],#1			;
+		TST	R11,#dff_encodings		;
+		MOVEQ	R0,#'F'				;
+		MOVNE	R0,#'E'				;
+		STRB	R0,[R1],#1			;
+							;
+		LDR	R2,[R7,#fe_idfn]		; identifier
+		BL	strcpy				;
+							;
+		LDR	R3,[R7,#fe_idfn]		;
+		LDR	R2,[R7,#fe_name]		;
+		TEQ	R2,R3				;
+		BEQ	done$l				;
+
+		MOV	R0,#'\'				;
+		STRB	R0,[R1],#1			;
+		TST	R11,#dff_encodings		;
+		MOVEQ	R0,#'f'				;
+		MOVNE	R0,#'e'				;
+		STRB	R0,[R1],#1			;
+
+		LDR	R0,[R7,#fe_flags]
+		MOV	R0,R0,LSR #24
+		MOV	R2,#10
+		SWI	XOS_ConvertCardinal1
+
+		MOV	R0,#' '				;
+		STRB	R0,[R1],#1			;
+
+		LDR	R2,[R7,#fe_name]
+		BL	strcpy
+
+done$l		TST	R11,#dff_cr			; sort out terminator
+		MOVEQ	R14,#10				;
 		MOVNE	R14,#13				;
-		STRNEB	R14,[R1,#-1]			;
+		STRNEB	R14,[R1]			;
 		FNRTS					; done
 
 notfound$l	LDR	R2,[R13]			; quick check for System font
@@ -813,7 +863,7 @@ notfound$l	LDR	R2,[R13]			; quick check for System font
 		BL	messages_error
 		FNRTS
 
-err$l		ERRTOK	err_notfound,"NotFound"
+err$l		ERRTOK	err_badmenu,"BadMenu"
 
 
 
@@ -1045,6 +1095,38 @@ compare$l	FNJSR
 		LOCAL
 
 
+; return the loadable font name from the \F\f bit
+; E r0 -> id
+; X r0 -> name / 0
+font_idfn_from_id
+		FNJSR	"R2,R7"
+		MOV	R2,#0
+		BL	get_font_by_id
+		TEQ	R7,#0
+		LDRNE	R0,[R7,#fe_idfn]
+		MOVEQ	R0,#0
+		FNRTS
+
+
+		LOCAL
+
+
+; return the loadable font name from the \E\e bit
+; E r0 -> id
+; X r0 -> name / 0
+encoding_idfn_from_id
+		FNJSR	"R2,R7"
+		MOV	R2,#lff_encodings
+		BL	get_font_by_id
+		TEQ	R7,#0
+		LDRNE	R0,[R7,#fe_idfn]
+		MOVEQ	R0,#0
+		FNRTS
+
+
+		LOCAL
+
+
 ; return a font block from its name
 ; E r0 -> name  r2 = listfonts encoding flag
 ; X r7 = font block / 0
@@ -1101,18 +1183,96 @@ nom$l		LDR	R6,[R6,#fe_next]
 ; return a font block from its idfn
 ; E r0 -> name  r2 = listfonts encoding flag
 ; X r7 = font block / 0
-get_font_by_idfn
-		FNJSR	"R1"				; simple linear search for exact match
+get_font_by_id
+		FNJSR	"R0-R4"				; simple linear search for exact match
 		TST	R2,#lff_encodings		;
 		LDREQ	R7,[R12,#list_of_fonts]		;
 		LDRNE	R7,[R12,#list_of_encodings]	;
+
+		MOVEQ	R4,#'f'				; try to use localised name
+		MOVNE	R4,#'e'				;
+		MOV	R1,R0				;
+		MOV	R2,R4				;
+		SWI	XFont_FindField			;
+		TEQ	R2,#0				;
+		BEQ	tryidfn$l			;
 							;
+		MOV	R0,#10				; get the territory number
+		SWI	XOS_ReadUnsigned		;
+		MOV	R3,R2				;
+		ADD	R1,R1,#1			;
+		MOV	R2,R4				;
+
 loop$l		TEQ	R7,#0				;
-		LDRNE	R1,[R7,#fe_idfn]		;
-		BLNE	strcasecmp			;
+		BEQ	tryidfn$l			;
+		LDR	R0,[R7,#fe_flags]		; check territory
+		TEQ	R3,R0,LSR #24			;
+		LDREQ	R0,[R7,#fe_name]		;
+		BLEQ	fontcmp				; and name
 		LDRNE	R7,[R7,#fe_next]		;
 		BNE	loop$l				;
+		FNRTS					; got it
+
+tryidfn$l	LDMIA	R13,{R0-R2}			; then try file name
+		TST	R2,#lff_encodings		;
+		LDREQ	R7,[R12,#list_of_fonts]		;
+		LDRNE	R7,[R12,#list_of_encodings]	;
+
+		MOVEQ	R2,#'F'				;
+		MOVNE	R2,#'E'				;
+		MOV	R1,R0				;
+		LDRB	R0,[R1]				; don't bother if no \ at all
+		TEQ	R0,#'\'				;
+		SWIEQ	XFont_FindField			;
+		TEQ	R2,#0				;
+		MOVEQ	R7,#0				;
+		FNRTS	EQ				;
+
+loop2$l		TEQ	R7,#0				;
+		LDRNE	R0,[R7,#fe_idfn]		;
+		BLNE	fontcmp				;
+		LDRNE	R7,[R7,#fe_next]		;
+		BNE	loop2$l				;
 		FNRTS					;
+
+
+		LOCAL
+
+
+; compare font identifier portions
+; E r0,r1 -> strings  r2 = portion letter
+; X Z set if equal
+fontcmp		FNJSR	"R0-R5"
+		TEQ	R2,#'F'				;
+		MOVEQ	R4,#33				; space terminated
+		MOVNE	R4,#32				; control terminated
+
+		TEQ	R0,R1				; null / identical strings are equivalent
+		FNRTS	EQ				;
+
+loop$l		LDRB	R2,[R0],#1			; deal with terminators
+		CMP	R2,R4				;
+		TEQHS	R2,#'\'				;
+		MOVLS	R2,#0				;
+		LDRB	R3,[R1],#1			;
+		CMP	R3,R4				;
+		TEQHS	R3,#'\'				;
+		MOVLS	R3,#0				;
+
+		CMP	R2,#'A'				; ASCII-only case insensitive
+		RSBHSS	R5,R2,#'Z'			;
+		ADDHS	R2,R2,#&20			;
+		CMP	R3,#'A'				;
+		RSBHSS	R5,R3,#'Z'			;
+		ADDHS	R3,R3,#&20			;
+
+		CMP	R2,R3				;
+		FNRTS	NE				;
+		TEQ	R2,#0				;
+		TEQNE	R3,#0				;
+		BNE	loop$l				;
+		FNRTS
+
 
 
 		LOCAL
