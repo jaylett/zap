@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.2 1999/04/22 19:04:04 ds Exp $
+; $Id: taskwindow,fff,v 1.3 1999/07/17 23:06:23 ds Exp $
 
  GET h.ZapBasHdr
  GET h.ZapBasic
@@ -155,7 +155,7 @@ other$l
 	LDR	R0,[R9,#f_source]
 	LDR	R0,[R0,#2]
 	MOV	R0,R0,LSR #16 ; lower 16 bits of task handle
-	SWI	&6250A ; DDEUtils_10
+	SWI	&6258A ; DDEUtils_ 10
 	MOVVS	R0,#0
 	MOVS	PC,R14
 cols$l
@@ -866,9 +866,8 @@ twmode_setwidth
  TEQ R8,#0
  FNRTS EQ
  CMP R1,#0
- FNRTS MI			; just reading the width
- STR R1,[R8,#w_bpl]
- BL tw_newwidth
+ STRPL R1,[R8,#w_bpl]
+ BLPL tw_newwidth
  FNRTS
 
  LOCAL
@@ -905,22 +904,20 @@ loop$l
  CMP R4,#0
  BLE end$l			; finished
  BL tw_getchar
- FNRTS VS
- STRB R0,[R5],#1
- BL tw_increment
- FNRTS VS
- SUB R4,R4,#1			; done one more
- B loop$l
+ STRVCB R0,[R5],#1
+ BLVC tw_increment
+ SUBVC R4,R4,#1			; done one more
+ BVC loop$l
+ FNRTS
 end$l
  BL twc_to_xy_nopad
  STR R2,[R10,#c_col]
  STR R3,[R10,#c_line]		; cursor posn
  FNcall Zap_FindOffset
- FNRTS VS
- STR R0,[R10,#c_off]
- STR R1,[R10,#c_loff]
- FNLDR R3,buf_insert		; buffer
- MOV R2,R6			; number of characters
+ STRVC R0,[R10,#c_off]
+ STRVC R1,[R10,#c_loff]
+ FNLDR R3,buf_insert,VC		; buffer
+ MOVVC R2,R6			; number of characters
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1026,9 +1023,9 @@ resurrect_task_window
  STMFD R13!,{R1-R9,R14}
  ADR R0,tw_s0
  SWI XOS_CLI			; check task window module ok
- LDMVSFD R13!,{R1-R9,PC}
- MOV R10,#0
- B rude_tw_entry
+ MOVVC R10,#0
+ BVC rude_tw_entry
+ LDMFD R13!,{R1-R9,PC}
 
 ;E R10=0 for normal startup/address of command to use
 ;X Taskwindow file created DB #
@@ -1692,10 +1689,9 @@ tw_padd_y
  ADD R2,R2,#1			; number of lines to add in
  MOV R0,#&0A			; char to add
  BL tw_getblanks
- FNRTS VS
- MOV R0,#1			; insert
- LDR R1,[R9,#f_len]		; at end
- FNcall Zap_DoCommand		; insert extra lines
+ MOVVC R0,#1			; insert
+ LDRVC R1,[R9,#f_len]		; at end
+ FNcallc Zap_DoCommand,VC	; insert extra lines
  FNRTS
 
 tw_padd_x
@@ -1806,12 +1802,11 @@ tw27
  LDMCSFD R13!,{R1-R5,PC}
  ADD R3,R3,R1			; line to get from
  BL tw_getline			; read line data
- LDMVSFD R13!,{R1-R5,PC}
- SUB R3,R3,R1			; line to write to
- BL tw_putline			; write
- LDMVSFD R13!,{R1-R5,PC}
- ADD R3,R3,#1			; move to next line
- B tw27
+ SUBVC R3,R3,R1			; line to write to
+ BLVC tw_putline		; write
+ ADDVC R3,R3,#1			; move to next line
+ BVC tw27
+ LDMFD R13!,{R1-R5,PC}
 
 ;E R2=x off R3=y off R7=buffer R8/R9
 ;X R0=char at this posn
@@ -1902,8 +1897,7 @@ tw_putline
  LDMVSFD R13!,{R1-R6,PC}
  CMP R1,R2
  BLGT tw_overwrite
- LDMVSFD R13!,{R1-R6,PC}
- BL tw_add
+ BLVC tw_add
  LDMFD R13!,{R1-R6,PC}
 
 ;E R0=num of lines R7=buf R8/R9
@@ -1940,12 +1934,11 @@ tw28
  LDMLTFD R13!,{R1-R5,PC}
  SUB R3,R3,R1			; line to get from
  BL tw_getline			; read line data
- LDMVSFD R13!,{R1-R5,PC}
- ADD R3,R3,R1			; line to write to
- BL tw_putline			; write
- LDMVSFD R13!,{R1-R5,PC}
- SUB R3,R3,#1			; move to next line
- B tw28
+ ADDVC R3,R3,R1			; line to write to
+ BLVC tw_putline		; write
+ SUBVC R3,R3,#1			; move to next line
+ BVC tw28
+ LDMFD R13!,{R1-R5,PC}
 
 ; ;E R7=taskwindow buffer R8/R9
 ; ;X R2=work x R3=work y of cursor with file padded #
@@ -2015,8 +2008,8 @@ specialcase2$l
  ADD R2,R2,R0
  LDR R0,[R8,#w_height]		; height in lines
  SUB R0,R0,#1
- CMP R3,R0
- FNRTS CC
+; CMP R3,R0
+; FNRTS CC
 ; LDR R0,[R8,#w_height]		; height in lines
 ; ADD R0,R0,#1
 ; STR R0,[R8,#w_height]		; height in lines
@@ -2585,8 +2578,7 @@ Cmdtaskwindowflagstoggle
  CMP	 R1,#0
  MOVLE	 PC,R14
 
- STMFD	 R13 !,{R14}
- STMFD	 R13 !,{R1-R11}
+ STMFD	 R13 !,{R1-R11,R14}
  ;ADRL	 R1,localcopyof_mode_taskwindow
  ;LDR	 R1,[R1]
  FNcall  Zap_GetModeWord
@@ -2652,24 +2644,46 @@ local_stored_cur_posn
 
 mode12_click
  FNJSR "R1-R7"
+ TST R4,#9			; Adjust or drag?
+ MOVNE R0,#0
+ BNE adjordrag$l
 
  PUSH "R1-R10"
+; MOV R0,#129
+; MOV R1,#-2
+; MOV R2,#255
+; SWI XOS_Byte
+; PULL "R1-R10",CS
+; BCS in_progress_clk		; If Ctrl pressed, don't callback
+ MOV R1,#10
+ FNcall Zap_ReadVar
+ TEQ R0,#1			; cursor mode not 1?
+ MOVNE R0,#21			; if so, force Ctrl and callback
+ BNE store$l
  ; test to see if on previous logical line...
  MOV R1,#6			; car_input
  FNcall Zap_ReadVar		; get Zap's R10 cursor pointer
- LDR R4,[R0,#c_col]
- LDR R5,[R0,#c_line]
+ MOV R1,R0
+ FNcall Zap_GetWindOff
+ LDR R14,[R1,#c_wind]
+ TEQ R0,R14			; cursor in different window?
+ MOVNE R0,#0;1<<31		; if so, no forced Ctrl but call back
+ BNE store$l
+ LDR R4,[R1,#c_col]
+ LDR R5,[R1,#c_line]
  BL chkvalidity$l
- MOVEQ R0,#21
+ MOVEQ R0,#21+(1<<31)
  MOVNE R0,#0
- STR R0,local_stored_cur_posn + 24
+store$l
  PULL "R1-R10"
+adjordrag$l
+ STR R0,local_stored_cur_posn + 24
 
- PUSH "R1"
- MOV R1,#5
- FNcall Zap_ReadVar		; get zap's R10 cursor pointer
- MOV R10,R0
- PULL "R1"
+; PUSH "R1"
+; MOV R1,#5
+; FNcall Zap_ReadVar		; get zap's R10 cursor pointer
+; MOV R10,R0
+; PULL "R1"
 
  LDR R14,local_stored_cur_posn
  CMP R14,#-1
@@ -2686,9 +2700,11 @@ mode12_click
  ADD R3,R3,R14
 
  ADR R14,local_stored_cur_posn
- STMIA R14,{R2,R3,R8,R9,R11,R12}
+ LDR R4,[R14,#24]
+ BICS R4,R4,#&FF
+ STMEQIA R14,{R2,R3,R8,R9,R11,R12}
 ; set up a callback to reposition the cursor when buttons are released :-/
- BL callback_cur_posn
+ BLEQ callback_cur_posn
  ;MOV R1,#-8
  ;ADR R2,callback_cur_posn
  ;FNcall Zap_CallBack
@@ -2696,7 +2712,6 @@ mode12_click
  FNRTS
 
 ; LOCAL
-
 in_progress_clk
  BL z_d_clk
  FNRTS
@@ -2889,7 +2904,7 @@ twmode_interrogate
  MOVEQ R0,#0
  MOVEQ PC,R14
  CMP R0,#21			; drags are ctrl-drags...?
- LDREQ R0,local_stored_cur_posn + 24
+ LDREQB R0,local_stored_cur_posn + 24
  MOVEQ PC,R14
 ; CMP R0,#4
 ; BEQ mode0_getswchars
