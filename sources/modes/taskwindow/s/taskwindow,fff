@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.12 2003/02/07 22:27:09 christian Exp $
+; $Id: taskwindow,fff,v 1.13 2003/02/08 00:09:49 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -490,6 +490,20 @@ taskwindow_kill
 	FNJSR	"R0-R12"
 	MOV	R2,#0			; /could/ be important...!?
 	LDR	R7,[R9,#f_source]
+
+	ADRL	r0, twmode_title
+	ADRL	r1, twmode_postfilter
+	LDR	r2, [r7, #48]
+	LDR	r3, [r7]
+	MOV	r4, #0
+	SWI	XFilter_DeRegisterPostFilter
+
+	MOV	r0, #7			; remove the RMA word
+	MOV	r1, r2
+	SWI	XOS_Module
+	MOV	r0, #0
+	STR	r0, [r7, #48]
+
 	LDR	R14,[R7,#52]		; flags
 	TST	R14,#4			; unlinked
 
@@ -916,8 +930,18 @@ TaskWindow_Ego
 	STR	R0,[R7,#32]		; zero queue
 	STR	R0,[R7,#52]		; zero flags
 	STR	R0,[R7,#56]		; screen image offset
-	MOV	R0,#-1
-	BL	taskwindow_mode		; find mode x,y
+
+	MOV	r0, #6			; the text window has to be in RMA
+	MOV	r3, #4
+	SWI	XOS_Module
+	STRVC	r2, [r7, #48]
+
+	LDRVCB	r0, [r8, #w_bpl]	; construct the initial text window
+	MOVVC	r0, r0, LSL #16
+	STRVC	r0, [r2]
+
+	MOVVC	R0,#-1
+	BLVC	taskwindow_mode		; find mode x,y
 	STRVC	R3,[R7,#12]		; screen height
 	BLVC	tw_restore_window
 	FNRTS	VS
@@ -931,8 +955,17 @@ TaskWindow_Ego
 	MOV	R3,#24			; message length
 	ADR	R5,sub$l		; reply sub
 	FNcall  Zap_SendMessage		; ask for the task name
+
+	ADRL	r0, twmode_title	; register the post filter
+	ADRL	r1, twmode_postfilter
+	LDR	r2, [r7, #48]
+	LDR	r3, [r7]
+	MOV	r4, #0
+	SWI	XFilter_RegisterPostFilter
 	FNRTS
+
 mess$l  DCD	&400C6+(1<<28)+(2<<30)
+
 sub$l					; R1=message block R11=file offset
 	FNJSR
 	LDR	R0,mess2$l
@@ -1950,6 +1983,19 @@ tw_define
 	STR	R1,[R7,#28]		; set window defn
 	STR	R2,[R7,#4]
 	STR	R3,[R7,#8]		; and put cursor at top left
+
+	; construct the new text window
+	AND	r2, r2, #255		; xmin
+	AND	r1, r1, #255		; ymin (lowest on screen, max y here}
+	ORR	r2, r2, r1, LSL#8
+	AND	r0, r0, #255		; xmax
+	SUB	r0, r0, #1
+	ORR	r2, r2, r0, LSL#16
+	AND	r3, r3, #255		; ymax (highest on screen , min y here)
+	SUB	r3, r3, #1
+	ORR	r2, r2, r3, LSL#24
+	LDR	r0, [r7, #48]
+	STR	r2, [r0]		; and save it
 	FNRTS
 
 tw_tab
@@ -2074,7 +2120,7 @@ tw_bell
 	FNRTS
 
 tw_restore_window
-	FNJSR
+	FNJSR	"R1"
 	MOV	R0,#0
 	STR	R0,[R7,#4]		; cursor x
 	STR	R0,[R7,#8]		; cursor y
@@ -2084,6 +2130,13 @@ tw_restore_window
 	STR	R0,[R7,#24]		; max x
 	LDR	R0,[R7,#12]
 	STR	R0,[R7,#28]		; max y
+
+	LDRB	r0, [r8, #w_bpl]	; construct the initial text window
+	SUB	r0, r0, #1
+	MOV	r0, r0, LSL#16
+	LDR	r1, [r7, #48]
+	TEQ	r1, #0
+	STRNE	r0, [r1]		; and save it
 	FNRTS
 
 tw_delete
@@ -2240,8 +2293,8 @@ Cmdtaskwindowflagstoggle
 	LDR	R0,[R4]
 	BL	calculate_masks
 
-        TEQ	R2,#15
-        BNE	set$l
+	TEQ	R2,#15
+	BNE	set$l
 	AND	R3,R3,R1		; check tick state
 	TEQ	R3,R1			; all set?
 	MOVEQ	R0,#1			; yes so tick
@@ -2511,6 +2564,28 @@ twmode_interrogate
 	MOVNE	PC,R14
 	MOV	R0,R1
 	MOV	PC,R14
+
+
+; ------------ filter code ------------
+
+tw_prepare
+	DCB 	4			; VDU 4
+	DCB	23,1,0,0,0,0,0,0,0,0	; turn cursor off
+tw_endprepare
+	ALIGN
+
+twmode_postfilter
+	FNJSR	"R0,R1,R12"
+	SWI	XOS_WriteI + 28
+	MOV	r0, r12			; r12 is a pointer to the text window
+	MOV	r1, #4
+	SWI	XOS_WriteN
+
+	ADR	r0, tw_prepare		; text mode, no cursor
+	MOV	r1, #tw_endprepare - tw_prepare
+	SWI	XOS_WriteN
+	FNRTS
+
 
 
 
