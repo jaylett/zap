@@ -499,7 +499,7 @@ findwhichscript
 	MOV	r0, r2
 	ADR	r1, markerstrA + 8
 	MOV	r2, #4
-	SWI	OS_ConvertCardinal1
+	SWI	XOS_ConvertCardinal1
 	ADR	r0, markerstrA
 _altered_5
 	MOV	r1, #0
@@ -784,7 +784,7 @@ inthemiddlefromtw
 	LDRB	r0, [r11, #b_flags + 3]
 	ADR	r1, templatename + 7
 	MOV	r2, #4
-	SWI	OS_ConvertCardinal1
+	SWI	XOS_ConvertCardinal1
 	ADR	r0, templatename
 	LDR	r4, [r11, #b_template]
 	BL	getoffsetofnamedtempl
@@ -1001,7 +1001,7 @@ simplyChangeanypane
 		;  LDR     0,[11,#b_handle]
 		;  LDR     1,adrwhandletable
 		;  STR     0,[1]
-		; 
+		;
 		;  SWI     "Wimp_DeleteWindow"
 	MVN	r1, #1
 	ADR	r2, justdeletewindow
@@ -1011,7 +1011,7 @@ simplyChangeanypane
 	LDRB	r0, [r11, #b_flags + 3]
 	ADRL	r1, templatename + 7
 	MOV	r2, #4
-	SWI	OS_ConvertCardinal1
+	SWI	XOS_ConvertCardinal1
 	ADRL	r0, templatename
 	LDR	r4, [r11, #b_template]
 	BL	getoffsetofnamedtempl
@@ -1071,7 +1071,7 @@ readnumberfromhere
 	STRB	r2, tmpnumspace + 3
 	MOV	r0, #10
 	ADR	r1, tmpnumspace
-	SWI	OS_ReadUnsigned
+	SWI	XOS_ReadUnsigned
 	MOV	pc, lr
 tmpnumspace
 	DCD	0
@@ -1411,57 +1411,59 @@ gomakepanehappen
 	BL	makepanehappen
 	LDMFD	sp!, {r0-r12, pc}
 getthethreeelements
-	STMFD	sp!, {r1-r4, lr}
+	FNJSR	"r1-r4"
 	ADR	r1, markcmdpath
 	BL	loadandretptr
-	LDMVSFD	sp!, {r1-r4, pc}
-	STR	r0, adrofscri
-	BL	changeLFto00
-	ADR	r1, marksprpath
-	BL	loadandretptr2
-	LDMVSFD	sp!, {r1-r4, pc}
-	ADR	r1, marktempath
-	BL	loadandretptr
-	LDMVSFD	sp!, {r1-r4, pc}
-	STR	r0, adroftemp
-	BL	loadmenuifrequired
-	LDMVSFD	sp!, {r1-r4, pc}
-	LDMFD	sp!, {r1-r4, pc}
+	STRVC	r0, adrofscri
+	BLVC	changeLFto00
+	ADRVC	r1, marksprpath
+	BLVC	loadandretptr2
+	ADRVC	r1, marktempath
+	BLVC	loadandretptr
+	STRVC	r0, adroftemp
+	BLVC	loadmenuifrequired
+	FNRTS
 loadmenuifrequired
-	STMFD	sp!, {lr}
+	FNJSR
 	LDR	r0, adrofmenu
 	CMP	r0, #0
-	LDMNEFD	sp!, {pc}
+	FNRTS	NE
 	ADR	r1, markmenpath
 	BL	loadandretptr
 	STR	r0, adrofmenu
-	LDMFD	sp!, {pc}
+	FNRTS
 closeanypanes
-	STMFD	sp!, {r0-r12, lr}
+	FNJSR	"r0-r12"
 	MOV	r0, #2
 	BL	makepanehappen
-	LDMFD	sp!, {r0-r12, pc}
+	FNRTS
 loadandretptr
-	STMFD	sp!, {r1-r5, lr}
+	FNJSR	"r1-r5"
 	MOV	r0, #5
 	SWI	XOS_File
-	LDMVSFD	sp!, {r1-r5, pc}
-	ORR	r0, r4, #3
-	ADD	r0, r0, #0x1
-	STR	r0, tempS2
-	ADD	r0, r0, #0x4
+	FNRTS	VS
+	STR	r4, tempS2
+	ADD	r0, r4, #7
+	BIC	r0, r0, #3
 	FNcall	Zap_Claim
-	STR	r0, tempS1
-	MOV	r3, #0
-	MOV	r2, r0
-	MOV	r0, #255
-	SWI	XOS_File
-	LDMVSFD	sp!, {r1-r5, pc}
+	STRVC	r0, tempS1
+	MOVVC	r3, #0
+	MOVVC	r2, r0
+	MOVVC	r0, #255
+	SWIVC	XOS_File
+	FNRTS	VS
 	LDR	r0, tempS1
 	LDR	r1, tempS2
 	MOV	r2, #0
-	STR	r2, [r0, r1]
-	LDMFD	sp!, {r1-r5, pc}
+	B	zerotest_sja
+zeroloop_sja
+	STRB	r2, [r0, r1]
+	ADD	r1, r1, #1
+zerotest_sja
+	TST	r1, #3
+	BNE	zeroloop_sja
+	STR	r2,[ r0, r1]
+	FNRTS
 loadandretptr2
 	STMFD	sp!, {r1-r5, lr}
 	MOV	r0, #5
@@ -1622,7 +1624,7 @@ D2
 	=	0x1B, 0x00, " provides support for", 0x1B, 0x02, "Zap editor.", 0x0D, "It provides Zap with Buttons.", 0x00
 	ALIGN
 ModHelpString
-	=	"ZapButtons", 0x09, "0.56 (27 Sep 1999) © Tim Tyler", 0x00
+	=	"ZapButtons", 0x09, "0.57 (00 Jan 0000) © Tim Tyler", 0x00
 lp1
 	=	"Tim Tyler", 0x00
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1656,7 +1658,7 @@ regularlycalledA
 	LDMFD	sp!, {r0-r12, pc}
 		; .R8tmp
 		;     EQUD 0
-		; 
+		;
 		; .R9tmp
 		;     EQUD 0
 		; .tmpr2
@@ -1681,24 +1683,24 @@ regularlycalledA
 		;   SUB     3,3,#1
 		;   STR     3,notreentrant
 		;   LDMFD   D !,{R0-R12,PC}
-		;  
+		;
 		;  .callclnoff
 		;   STMFD   D !,{E}
 		;   LDRB    0,entryregstwo + 1
 		;   CMP     0,#&FF
 		;   BEQ     customclnoff
-		;  
+		;
 		;   LDR     0,[9,#f_len]
 		;   BL      notcustomclnoff2
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .customclnoff
 		;   STMFD   D !,{3-12}
 		;   LDR     0,[9,#f_len]
 		;   BL      customclnoff2
 		;   LDMFD   D !,{3-12}
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .getverticalposition
 		;   STMFD   D !,{1-9,R14}
 		;   MVN     0,#0
@@ -1706,20 +1708,20 @@ regularlycalledA
 		;   SWI     "OS_ReadModeVariable"
 		;   MOV     7,2
 		;   STR     7,storedyeigenf
-		;  
+		;
 		;   LDR     1,[8,#w_scrolly]
 		;   RSB     1,1,#0
 		;   MOV     1,1,ASR 7
 		;   MOV     5,1
 		;   LDR     2,[8,#w_rl]
 		;   FNdivide(1,2,0,3,14)
-		;  
+		;
 		;   LDR     2,[8,#w_rl]
 		;   MUL     1,2,0
-		;  
+		;
 		;   SUB     3,5,1
 		;   STR     3,additionalpix
-		;  
+		;
 		;   LDRB    1,entryregstwo + 3
 		;   CMP     1,#&FF
 		;   BLEQ    customclnphy
@@ -1727,9 +1729,9 @@ regularlycalledA
 		;   CMP     1,#&FF
 		;   BLNE    notcustomclnphy
 		;   STR     0,phyoffslinestart
-		;  
+		;
 		;   LDMFD   D !,{1-9,PC}
-		;  
+		;
 		;  .notcustomclnphy
 		;   STMFD   D !,{R14}
 		;   FNlong_adr("AL",9,modenumberlocal)
@@ -1737,34 +1739,34 @@ regularlycalledA
 		;   MOV     11,#e_clnphy
 		;   FNcall(Zap_BaseMode)
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .customclnphy
 		;   STMFD   D !,{R14}
 		;   ADR     E,P% + 8
 		;   LDR     PC,entryregstwo + 8
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .setverticalposition
 		;   STMFD   D !,{1-9,R14}
 		;   LDR     0,phyoffslinestart
-		;  
+		;
 		;   LDRB    1,entryregstwo + 1
 		;   CMP     1,#&FF
 		;   BLEQ    customclnoff2
 		;   LDRB    1,entryregstwo + 1
 		;   CMP     1,#&FF
 		;   BLNE    notcustomclnoff2
-		;  
+		;
 		;   LDR     1,[8,#w_rl]
 		;   MUL     1,0,1
 		;   LDR     3,additionalpix
 		;   ADD     1,1,3
 		;   LDR     7,storedyeigenf
 		;   MOV     1,1,LSL 7
-		;  
+		;
 		;   RSB     0,1,#0
 		;   LDMFD   D !,{1-9,PC}
-		;  
+		;
 		;  .notcustomclnoff2
 		;   STMFD   D !,{R14}
 		;   FNlong_adr("AL",9,modenumberlocal)
@@ -1772,50 +1774,50 @@ regularlycalledA
 		;   MOV     11,#e_clnoff
 		;   FNcall(Zap_BaseMode)
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .customclnoff2
 		;   STMFD   D !,{R14}
 		;   ADR     E,P% + 8
 		;   LDR     PC,entryregstwo + 4
 		;   LDMFD   D !,{PC}
-		;  
+		;
 		;  .phyoffslinestart
 		;  & &0
-		;  
+		;
 		;  .additionalpix
 		;  & &0
-		;  
+		;
 		;  .storedyeigenf
 		;  & &0
-		;  
+		;
 		;  .possiblydowidthwrapping
 		;   STMFD   R13 !,{R0-R12,E}
-		;  
+		;
 		;  ;STR     2,entryregstwo
 		;  ;STR     3,entryregstwo + 4
-		;  
+		;
 		;   LDR     3,notreentrant
 		;   CMP     3,#0
 		;   BNE     reductionattempted
-		;  
+		;
 		;   MVN     0,#0
 		;   MOV     1,#4
 		;   SWI     "OS_ReadModeVariable"
-		;  
+		;
 		;   MOV     6,2
-		;  
+		;
 		;   LDR     2,[8,#w_handle]
 		;   FNlong_adr("AL",1,aqwktable)
 		;   STR     2,[1]
-		;  
+		;
 		;   SWI     "XWimp_GetWindowState" ; REM problem?
 		;   LDMVSFD D !,{R0-R12,PC}
-		;  
+		;
 		;   MOV     3,#&FF
 		;   STR     3,notreentrant
-		;  
+		;
 		;   MOV     11,#0
-		;  
+		;
 		;   LDR     0,[1,#04]
 		;   LDR     2,[1,#12]
 		;   SUB     0,0,2
@@ -1823,7 +1825,7 @@ regularlycalledA
 		;   STR     0,oldwindowdata + 00
 		;   CMP     0,2
 		;  ;OrrNE   11,11,#1
-		;  
+		;
 		;   LDR     0,[1,#08]
 		;   LDR     2,[1,#16]
 		;   SUB     0,0,2
@@ -1831,93 +1833,93 @@ regularlycalledA
 		;   STR     0,oldwindowdata + 04
 		;   CMP     0,2
 		;  ;OrrNE   11,11,#1
-		;  
+		;
 		;   LDR     0,[1,#00]
 		;   LDR     2,oldwindowdata + 08
 		;   STR     0,oldwindowdata + 08
 		;   CMP     0,2
 		;   OrrNE   11,11,#1
-		;  
+		;
 		;   LDR     0,[1,#28]
 		;   LDR     2,oldwindowdata + 12
 		;   STR     0,oldwindowdata + 12
 		;   CMP     0,2
 		;   OrrNE   11,11,#1
-		;  
+		;
 		;   LDR     4,[1,#4]
 		;   LDR     5,[1,#12]
 		;   SUB     4,5,4
 		;   MOV     4,4,LSR 6
-		;  
+		;
 		;   LDR     6,[8,#w_mwidth]
 		;   SUB     4,4,6
-		;  
+		;
 		;   LDR     6,[8,#w_rw]
-		;  
+		;
 		;   FNdivide(4,6,7,0,1)
-		;  
+		;
 		;  ; STR     7,[8,#w_width] ; ??? *NO* very bad idea.
-		;  
+		;
 		;   LDR     6,[8,#w_margin]
 		;   SUB     7,7,6
-		;  
+		;
 		;   LDR     0,entryregstwo
 		;   MOV     0,0,LSR #16
 		;   AndS    0,0,#&FF
 		;   CMP     0,#0
 		;   MovEQ   0,#1
-		;  
+		;
 		;   CMP     7,0
 		;   MOVLT   7,0
-		;  
+		;
 		;   LDR     1,oldwindowdata + 16
 		;   STR     7,oldwindowdata + 16
-		;  
+		;
 		;   CMP     1,7
 		;   OrrNE   11,11,#1
-		;  
+		;
 		;   STR     8,tmpwindblk
-		;  
+		;
 		;   MOV     0,#0
 		;   STR     0,[8,#w_scrollx]
-		;  
+		;
 		;   CMP     11,#0
 		;   BEQ     justthesameasever
-		;  
+		;
 		;   FNcall(Zap_GetWindOff)
 		;   FNcall(Zap_ConvWindOff)
-		;  
+		;
 		;   BL      getverticalposition
-		;  
+		;
 		;   STR     7,[8,#w_bpl]
-		;  
+		;
 		;   MOV     7,#0              ; blat the cache ;-(
 		;   STR     7,[8,#w_coff]     ; REM on
 		;   STR     7,[8,#w_cline]    ; REM on
-		;  
+		;
 		;   STR     7,[8,#w_txth]   ; off.
 		;   STR     7,[8,#w_txtn]   ; off.
 		;   STR     7,[8,#w_coff]   ; off.
 		;   STR     7,[8,#w_clogl]  ; on or off (indifferent)
 		;  ;STR     7,[8,#w_txtlen] ; off.
-		;  
+		;
 		;   BL      callclnoff
-		;  
+		;
 		;   LDR     8,tmpwindblk
-		;  
+		;
 		;   ADD     0,0,#1
 		;   STR     0,[8,#w_height]
-		;  
+		;
 		;   MOV     0,#256
 		;   FNcall(Zap_Claim)
 		;   MOV     10,0
 		;   MOV     1,0
-		;  
+		;
 		;   LDR     0,[8,#w_handle]
 		;   STR     0,[1]
-		;  
+		;
 		;   SWI     "Wimp_GetWindowInfo"
-		;  
+		;
 		;  ; REM LDR     0,[1,#04]
 		;  ; REM LDR     2,[1,#12]
 		;  ; REM SUB     0,0,2
@@ -1925,71 +1927,71 @@ regularlycalledA
 		;  ; REM STR     0,oldwindowdata + 00
 		;  ; REM CMP     0,2
 		;  ; REM BNE     updateandchk
-		;  
+		;
 		;  ; REM LDR     0,[1,#08]
 		;  ; REM LDR     2,[1,#16]
 		;  ; REM SUB     0,0,2
 		;  ; REM LDR     2,oldwindowdata + 04
 		;  ; REM STR     0,oldwindowdata + 04
 		;  ; REM CMP     0,2
-		;  
+		;
 		;  ; REM LDR     0,[1,#w_scrollx]
 		;  ; REM LDR     2,oldwindowdata + 08
 		;  ; REM STR     0,oldwindowdata + 08
 		;  ; REM CMP     0,2
 		;  ; REM BNE     updateandchk
-		;  
+		;
 		;  ; REM LDR     0,[1,#w_scrollx]
 		;  ; REM LDR     2,oldwindowdata + 12
 		;  ; REM STR     0,oldwindowdata + 12
 		;  ; REM CMP     0,2
 		;  ; REM BNE     updateandchk
-		;  
+		;
 		;  .updateandchk
 		;   LDR     0,onentryto
 		;   CMP     0,#1
 		;   BLEQ    tmt_updatewindow
-		;  
+		;
 		;   MVN     0,#0
 		;   MOV     1,#12
 		;   SWI     "OS_ReadModeVariable"
 		;   MOV     6,2
-		;  
+		;
 		;   MVN     0,#0
 		;   MOV     1,#5
 		;   SWI     "OS_ReadModeVariable"
-		;  
+		;
 		;   MOV     6,6,LSL 2
-		;  
+		;
 		;   ADD     1,10,#44
-		;  
+		;
 		;   LDR     5,[8,#w_height]
 		;   LDR     3,[8,#w_rl]
 		;   MUL     5,3,5
-		;  
+		;
 		;   MOV     5,5,LSL 2
-		;  
+		;
 		;   CMP     5,6
 		;   MOVCC   5,6
-		;  
+		;
 		;   RSB     5,5,#0
-		;  
+		;
 		;   LDR     4,[1,#4]
 		;   SUBS    3,5,4
 		;   RSBMI   3,3,#0
 		;   CMP     3,#16 ; REM 16
 		;   BCC     notresizing ; REM justthesameasever
-		;  
+		;
 		;  .resizing
 		;   LDR     4,[1,#4]
 		;   STR     5,[1,#4]
-		;  
+		;
 		;   LDR     0,[8,#w_handle]
-		;  
+		;
 		;   SWI     "Wimp_SetExtent"
-		;  
+		;
 		;   MOV     1,10
-		;  
+		;
 		;  ;RSB     5,5,#0
 		;  ;RSB     4,4,#0
 		;  ;MOV     4,4,LSR #5
@@ -2007,16 +2009,16 @@ regularlycalledA
 		;   BL      setverticalposition
 		;   STR     0,[1,#w_scrolly]
 		;   STR     0,[8,#w_scrolly]
-		;  
+		;
 		;  .notresizing
 		;   MOV     1,10
-		;  
+		;
 		;   LDR     0,onentryto
 		;   CMP     0,#1
-		;  
+		;
 		;   SWIEQ   "Wimp_OpenWindow" ; REM difficulties... toggle?
 		;  ; ***SWIEQ***
-		;  
+		;
 		;  ; SWI     "Wimp_DeleteWindow"
 		;  ;
 		;  ; ADD     1,10,#4
@@ -2047,19 +2049,19 @@ regularlycalledA
 		;  ; SWI     &107
 		;  ; LDR     8,tmpwindblk
 		;  ; STR     0,[8,#w_handle]
-		;  
+		;
 		;  ; LDR     1,gotcaretblock
 		;  ; CMP     1,#0
 		;  ; BLNE    restorecaretnow
-		;  
+		;
 		;   MOV     0,10
 		;   FNcall(Zap_Free)
 		;  .justthesameasever
-		;  
+		;
 		;  .justthebackdoor
 		;   MOV     3,#0
 		;   STR     3,notreentrant
-		;  
+		;
 		;   LDMFD   D !,{R0-R12,PC}
 		; .notreentrant
 		;     EQUD    0
@@ -2096,21 +2098,21 @@ toinitas
 	LDMFD	sp!, {r0-r12, pc}
 		; .tmt_updatewindow
 		;     STMFD   D !,{R0-R12,E}
-		; 
+		;
 		;     STR     8,tmpwindblk
-		; 
+		;
 		;     MVN     5,#0
 		;     STR     5,tmpwindblk + 4
 		;     STR     5,tmpwindblk + 12
 		;     STR     5,tmpwindblk + 16
-		; 
+		;
 		;     ;MOV     1,#5
 		;     ;FNcall(Zap_ReadVar)
 		;     ;LDR     1,[0,#c_off]
 		;     ;STR     1,tmpwindblk + 20
-		; 
+		;
 		;     FNcall(Zap_GetSel)
-		; 
+		;
 		;     BCS     noselectionatall
 		;     Mov     6,1
 		;     STR     1,tmpwindblk + 12
@@ -2118,42 +2120,42 @@ toinitas
 		;     STR     1,tmpwindblk + 16
 		;     STR     8,tmpwindblk + 4
 		;     STR     9,tmpwindblk + 8
-		; 
+		;
 		; .noselectionatall
 		;     LDR     8,tmpwindblk
-		; 
+		;
 		;     FNcall(Zap_GetWindOff)
 		;     FNcall(Zap_ConvWindOff)
-		; 
+		;
 		;     MOV     2,#0
 		;     MOV     3,#0
 		;     FNcall(Zap_AlterSel)
-		; 
+		;
 		;     FNcall(Zap_ClearSel)
-		; 
+		;
 		; .dontclearselhere
 		;     LDR     5,tmpwindblk + 12
 		;     AddS    5,5,#1
 		;     BEQ     nonewselectionrequired
-		; 
+		;
 		;     LDR     8,tmpwindblk + 4
 		;     LDR     9,tmpwindblk + 8
 		;     LDR     2,tmpwindblk + 12
 		;     LDR     3,tmpwindblk + 16
 		;     FNcall(Zap_AlterSel)
-		; 
+		;
 		; .nonewselectionrequired
 		;     LDR     8,tmpwindblk
-		; 
+		;
 		;     FNcall(Zap_GetWindOff)
 		;     FNcall(Zap_ConvWindOff)
-		; 
+		;
 		;     MOV     1,#10
-		; 
+		;
 		;     FNcall(Zap_ReadVar)
 		;     ;CMP     0,#0
 		;     ;BEQ     aftergetcarehwhX
-		; 
+		;
 		;     MOV     1,#5
 		;     CMP     0,#2
 		;     CMPNE   0,#5
@@ -2161,17 +2163,17 @@ toinitas
 		;     MovEQ   1,#6
 		;     CMP     0,#0
 		;     MovEQ   1,#7
-		; 
+		;
 		;     FNcall(Zap_ReadVar)
 		; .preReflectCaret
 		;     MOV     10,0
 		;     FNcall(Zap_ReflectCaret)
-		; 
+		;
 		; .aftergetcarehwh2
 		;     FNlong_adr("AL",1,aqwktable)
 		;     LDR     2,[8,#w_handle]
 		;     STR     2,[1]
-		; 
+		;
 		;     MOV     0,#&90000000
 		;     STR     0,[1,#4]
 		;     STR     0,[1,#8]
@@ -2179,61 +2181,61 @@ toinitas
 		;     STR     0,[1,#12]
 		;     STR     0,[1,#16]
 		;     SWI     "Wimp_UpdateWindow" ; REM problem?
-		; 
+		;
 		;     CMP     0,#0
 		;     BEQ     nomorerectangles
-		; 
+		;
 		;     MOV     0,#&100
 		;     FNcall(Zap_Claim)
 		;     STR     0,queuestore
-		; 
+		;
 		;     MOV     11,0
 		;     MOV     10,#0
-		; 
+		;
 		;     LDR     5,[1,#4]
 		;     LDR     0,[1,#20]
 		;     SUB     5,5,0
-		; 
+		;
 		;     LDR     6,[1,#16]
 		;     LDR     0,[1,#24]
 		;     SUB     6,6,0
 		; .loop
 		;     ; LDR     0,[1]
-		; 
+		;
 		;     LDR     2,[1,#32]
 		;     SUB     2,2,6
 		;     LDR     4,[1,#40]
 		;     SUB     4,4,6
-		; 
+		;
 		;     LDR     3,[1,#36]
 		;     SUB     3,3,5
 		;     LDR     1,[1,#28]
 		;     SUB     1,1,5
-		; 
+		;
 		;     BL      queueforforceredraw
-		; 
+		;
 		;     FNlong_adr("AL",1,aqwktable)
 		;     LDR     2,[8,#w_handle]
 		;     STR     2,[1]
-		; 
+		;
 		;     SWI     "Wimp_GetRectangle"
-		; 
+		;
 		;     CMP     0,#0
 		;     BNE     loop
-		; 
+		;
 		;     BL      forceredrawfromqueue
-		; 
+		;
 		;     LDR     0,queuestore
 		;     FNcall(Zap_Free)
-		; 
+		;
 		; .nomorerectangles
-		; 
+		;
 		;     LDMFD   D !,{R0-R12,PC}
-		; 
+		;
 		; .aftergetcarehwhX
 		;     FNcall(Zap_FindInput)
 		;     B       preReflectCaret
-		; 
+		;
 		; .queuestore
 		;     DCD 0
 		; .queueforforceredraw
@@ -2243,7 +2245,7 @@ toinitas
 		;     STR     4,[11],#4
 		;     ADD     10,10,#1
 		;     MOV     PC,E
-		; 
+		;
 		; .forceredrawfromqueue
 		;     LDR     11,queuestore
 		; .loop
@@ -2252,9 +2254,9 @@ toinitas
 		;     LDR     2,[11,#4]
 		;     LDR     3,[11,#8]
 		;     LDR     4,[11,#12]
-		; 
+		;
 		;     SWI     "Wimp_ForceRedraw"
-		; 
+		;
 		;     ADD     11,11,#16
 		;     SUBS    10,10,#1
 		;     BNE     loop
@@ -2345,7 +2347,7 @@ sortwwout
 sortwwout2
 	STMFD	sp!, {r5, lr}
 	FNcall	Zap_SaveWinStatus
-	FNcall	Zap_NewWinStatus	; 
+	FNcall	Zap_NewWinStatus	;
 	LDMFD	sp!, {r5, pc}
 tosortbbout
 	STMFD	sp!, {r5, lr}
@@ -2439,7 +2441,7 @@ afteralterdelay
 	ADD	r0, r0, r7, LSL #6
 	ADR	r1, switchon + 1
 	MOV	r2, #6
-	SWI	OS_ConvertCardinal2
+	SWI	XOS_ConvertCardinal2
 	MOV	r0, #32
 	STRB	r0, [r1]
 		;  ADR     0,eventnamed
@@ -2566,7 +2568,7 @@ CmdActEvent
 	LDMNEFD	sp!, {pc}
 	MOV	r1, r0
 	MOV	r0, #10
-	SWI	OS_ReadUnsigned
+	SWI	XOS_ReadUnsigned
 	STR	r2, eventdelay
 		;  ADD     1,1,#1
 _altered_21
