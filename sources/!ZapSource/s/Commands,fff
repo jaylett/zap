@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.6 1999/01/15 10:48:00 dj Exp $
+; $Id: Commands,fff,v 1.1.2.7 1999/01/16 18:42:50 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -819,7 +819,7 @@ keymap_name ; R14 on stack
 Beep
 	FNJSR
 	FNLDR	R14,opt_switches
-	TST	R14,#1<<20		; never beep
+	TST	R14,#switch_InhibitBeeping
 	SWIEQ	&20107			; BEEP command
 	FNRTS
 
@@ -3179,77 +3179,49 @@ Minimenu
 Miscops
  LDR R3,[R0]			; number of the option - don't change this!
  MOV R0,#0			; mask
-
- TEQ R3,#0			; auto remove files
- MOVEQ R1,#1<<2
- BEQ new_wind_flags_clear
-
- TEQ R3,#1			; auto clear selections
- MOVEQ R1,#1<<22
- BEQ new_wind_flags_set
-
- TEQ R3,#3			; flashing cursor
- BEQ caret$l
-
- TEQ R3,#4			; check datestamp
- MOVEQ R1,#1<<2
- BEQ new_switches_set
-
- TEQ R3,#5			; auto clear search
- MOVEQ R1,#1<<3
- BEQ new_switches_set
-
- TEQ R3,#6			; confine cursor
- MOVEQ R1,#1<<6
- BEQ new_switches_set
-
- TEQ R3,#7			; trap MSDos CRLFs
- MOVEQ R1,#1<<8			; not 7...?
- BEQ new_switches_set
-
- TEQ R3,#8			; Autoload flashcar
- MOVEQ R1,#1<<28		; /hope/ this is free... ; ???????
- BEQ new_switches_set
-
- TEQ R3,#9			; Autoload Line Editor
- MOVEQ R1,#1<<16		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#10			; Autoload disasm
- MOVEQ R1,#1<<17		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#11			; Autoload Asm
- MOVEQ R1,#1<<18		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#12			; Autoload HidePtr
- MOVEQ R1,#1<<19		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#13			; be tolerANT :-)
- MOVEQ R1,#1<<21
- BEQ new_switches_set
-
- TEQ R3,#14			; Never beep.
- MOVEQ R1,#1<<20		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#15			; No AA DSA.
- MOVEQ R1,#1<<22		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#16			; AL IClear...
- MOVEQ R1,#1<<23		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#17			; AL IClear...
- MOVEQ R1,#1<<30		; tem font mem disable...
- BEQ new_switches_set
-
- TEQ R3,#18			; hscroll removal...
- BEQ hscroll$l
- MOV PC,R14
+ CMP R3,#20
+ ADDLO PC,PC,R3,LSL #3
+ MOVS PC,R14
+ MOV R1,#flags_AutoDeleteFiles		; 0
+  B new_wind_flags_clear
+ MOV R1,#flags_SelectionsVanish		; 1
+  B new_wind_flags_set
+ MOV PC,R14				; 2
+  & 0
+ B caret$l				; 3
+  & 0
+ MOV R1,#switch_CheckDate		; 4
+  B new_switches_set
+ MOV R1,#switch_ClearSearchWindow	; 5
+  B new_switches_set
+ MOV R1,#switch_ConfineCursor		; 6
+  B new_switches_set
+ MOV R1,#switch_TrapCRLF		; 7
+  B new_switches_set
+ MOV R1,#switch_Autoload_flashcar	; 8
+  B new_switches_set
+ MOV R1,#switch_Autoload_lineeditor	; 9
+  B new_switches_set
+ MOV R1,#switch_Autoload_disassembler	;10
+  B new_switches_set
+ MOV R1,#switch_Autoload_assembler	;11
+  B new_switches_set
+ MOV R1,#switch_Autoload_hidepointer	;12
+  B new_switches_set
+ MOV R1,#switch_TolerateBrokenMessages	;13
+  B new_switches_set
+ MOV R1,#switch_InhibitBeeping		;14
+  B new_switches_set
+ MOV R1,#switch_SuppressAntialiasedDSA	;15
+  B new_switches_set
+ MOV R1,#switch_Autoload_iclear		;16
+  B new_switches_set
+ MOV R1,#switch_Autoload_keyboardextend	;17
+  B new_switches_set
+ B hscroll$l				;18
+  & 0
+ MOV R1,#switch_ExecuteStartCom		;19
+  B new_switches_set
 caret$l
  FNJSR
  MOV R0,#2
