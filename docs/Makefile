@@ -23,7 +23,7 @@ debug:		$(chapters) $(appendices) $(controlfiles)
 		$(buttress) -d $(butt_options) $(chapters) $(appendices) $(controlfiles)
 
 webmanual:	$(chapters) $(appendices) $(controlfiles) $(webcontrolfiles)
-		$(buttress) $(butt_options) $(chapters) $(appendices) $(controlfiles)
+		$(buttress) $(butt_options) $(chapters) $(appendices) $(controlfiles) $(webcontrolfiles)
 
 shipmanual:	$(chapters) $(appendices) $(controlfiles)
 		$(buttress) $(butt_options) $(chapters) $(appendices) $(controlfiles)
