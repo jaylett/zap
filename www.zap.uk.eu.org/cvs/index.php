@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.1 2002/01/23 20:27:03 ds Exp $
+  // $Id: index.php,v 1.2 2002/01/29 11:32:43 james Exp $
   include "../.php/zap-std.inc";
   setroot ('cvs/index');
   zap_header ("Zap - CVS access", 'up:../', 'previous:../mirrors:mirrors');
@@ -10,7 +10,7 @@
 
 <p>Zap's source tree is maintained under <a href="http://www.cyclic.com/">CVS</a>, a version/revision control system which lets multiple developers work on one source tree fairly easily. Access to the CVS tree is available through two methods: firstly, via a <a href="http://cvs.tartarus.org/zap/">web gateway</a> which lets you browse the tree, and secondly through CVS <a href="#pserver">pserver</a>. Write access is only available to main Zap developers at present; if you want to contribute material, send it to one of us (if you start sending lots of useful stuff you'll be a main developer by default, and we'll give you write access).</p>
 
-<p>The files in the CVS tree are stored using Acorn's method for storing filetypes under NFS, namely as <samp>&lt;filename&gt;,&lt;filetype&gt;</samp> where the filetype is a three digit hex number with lower case letters. The <a href="http://gallery.uunet.be/John.Tytgat/cvs">RISC OS CVS port</a> will handle this translation automatically, as will RISC OS NFS clients (allowing the files to reside on a UNIX machine).</p>
+<p>The files in the CVS tree are stored using Acorn's method for storing filetypes under NFS, namely as <samp>&lt;filename&gt;,&lt;filetype&gt;</samp> where the filetype is a three digit hex number with lower case letters. The <a href="http://www.cvs.riscos.org.uk/">RISC OS CVS port</a> will handle this translation automatically, as will RISC OS NFS clients (allowing the files to reside on a UNIX machine).</p>
 
 <p>Alternatively, <a href="/ftp/pub/unstable/snapshots/">daily snapshots</a> of development work are generated automatically, both in source and binary form.</p>
 
@@ -117,5 +117,5 @@ bottom of the [System] section.)</p>
 <p>The command to run, from within the !Zap directory, is <kbd>make -f data/unix/Makefile</kbd>. This gives the default build name; you can use <kbd>make -f data/unix/Makefile BUILD=foo</kbd> and <kbd>make -f data/unix/Makefile BUILD=foo-42</kbd> as above.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:03 $');
+  zap_body_end ('$Date: 2002/01/29 11:32:43 $');
 ?>
