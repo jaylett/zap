@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: Exceptions,fff,v 1.1.2.5 1999/07/06 11:36:00 james Exp $
+; $Id: Exceptions,fff,v 1.1.2.6 2000/02/06 23:43:09 ds Exp $
 
  GET h.ModuleBits
  GET h.ZapHeader
@@ -292,6 +292,7 @@ do_dump_zapr13tmp
 ;	LDR	PC,do_dump_ret
 
 rest_straightforwards
+	BL	kill_print_job
 	LDR	R7,local_store_texttmp + 60; "PC"	; ?
 	ADR	R14,std_err_blk_ExitCondition
 	CMP	R0,R14
@@ -369,6 +370,28 @@ displayolderrmsg
 	ADR	R2,zapisnamed
 	SWI	XWimp_ReportError
 	FNRTS
+
+
+	LOCAL
+
+kill_print_job
+	FNJSR	"R0-R1"
+	FNLDR	R0,wimp_print_job
+	TEQ	R0,#0
+	SWINE	&A0149			; XPDriver_AbortJob
+	FNLDR	R1,wimp_print_job
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	FNSTR	R0,wimp_print_job,NE
+	SWINE	XOS_Find		; close file
+	; ignore any errors - for now :-)
+	FNLDR	R0,wimp_print_prevjob	; previous job
+	TEQ	R0,#0
+	MOVNE	R1,#0
+	FNSTR	R1,wimp_print_prevjob,NE
+	SWINE	&A0145			; XPDriver_SelectJob
+	FNRTSS
+
 
 checkanddump
 	FNJSR

@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.19 1999/11/26 13:14:50 james Exp $
+; $Id: Boxes,fff,v 1.1.2.20 2000/02/06 23:43:07 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -134,8 +134,8 @@ $la	LDR$cc $a,[R12,#tem_list]	; address of the template list
 ; b9 don't place caret in window bg
 ;    (but allow window's click handler to if it wants)
 ; b10 adjuct-clicks gain the caret.
-; b11 does something...
-; b12 => window open, as best we can determine (sja, 1999-10-07)
+; b11 interpret Tab/sTab as down/up
+; b15 => window open, as best we can determine (sja, 1999-10-07)
 ;
 ; See the better documentation in s.Template
 
@@ -150,14 +150,14 @@ menu_num_off SETA 0
  FNtem "GotoBox",&84,cw_GotoBox,lc_GotoBox,t_GotoBox
  FNtem "InfoBox",0,cw_InfoBox,lc_InfoBox,t_InfoBox
  FNtem "LoadBox",&100,cw_LoadBox,lc_LoadBox,t_LoadBox ; was 0
- FNtem "MacroBox",6,0,0,t_MacroBox
+ FNtem "MacroBox",&806,0,0,t_MacroBox
  FNtem "Main",6,0,0,t_mode_0Box
  FNtem "MiniBuf",&200,cw_MiniBuf,lc_MiniBuf,t_MiniBuf
  FNtem "MoveBox",&500,0,lc_MoveBox,t_MoveBox
- FNtem "MzapBox",6,cw_MzapBox,lc_MzapBox,t_MzapBox
+ FNtem "MzapBox",&806,cw_MzapBox,lc_MzapBox,t_MzapBox
  FNtem "NextBox",&500,0,lc_NextBox,t_NextBox ; was 0,0 :?
- FNtem "PrintBox",0,cw_PrintBox,lc_PrintBox,t_PrintBox
- FNtem "QuickBox",0,cw_QuickBox,lc_QuickBox,t_QuickBox
+ FNtem "PrintBox",&800,cw_PrintBox,lc_PrintBox,t_PrintBox
+ FNtem "QuickBox",&800,cw_QuickBox,lc_QuickBox,t_QuickBox
  FNtem "QuitBox",&500,0,lc_QuitBox,t_QuitBox ; was &400
  FNtem "ReplaceBox",&884,cw_ReplaceBox,lc_ReplaceBox,t_ReplaceBox
  FNtem "SaveBox",&804,cw_SaveBox,lc_SaveBox,t_SaveBox
@@ -492,7 +492,7 @@ lc_SaveBox
  BEQ c_ret
  CMP R5,#1
  BEQ lc_Save_newexec
- BLO lc_Save_newname ; 0
+ BLO lc_Save_newname_ret ; 0
  CMP R5,#3
  BEQ lc_Save_newtypes
  BLO lc_Save_newload ; 2
@@ -636,6 +636,9 @@ to_cw_SaveBox
  BLPL cw_SaveBox
  FNRTS
 
+lc_Save_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Save_newname
  MOV R5,#11
  MOV R2,#&FF00
@@ -977,7 +980,7 @@ lc_DyingBox
  TST R4,#1			; a mouse click...?
  BEQ c_ret
  CMP R5,#1
- BLO lc_Dying_newname
+ BLO lc_Dying_newname_ret
  BEQ lc_Dying_newexec
  CMP R5,#3
  BLO lc_Dying_newload
@@ -1036,6 +1039,9 @@ lc_Dying_tab
  BL leaf_next_icon
  B c_ret
 
+lc_Dying_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Dying_newname
  FNind R7,t_DyingBox
  LDR R0,[R7,#4]			; flags
@@ -1124,7 +1130,7 @@ lc_SaveSelBox
  TST R4,#1
  BEQ c_ret
  CMP R5,#1
- BLO lc_SaveSel_newname
+ BLO lc_SaveSel_newname_ret
  BEQ lc_SaveSel_newexec
  CMP R5,#3
  BLO lc_SaveSel_newload
@@ -1137,6 +1143,9 @@ keys$l = 'M',11,0
 
  LOCAL
 
+lc_SaveSel_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_SaveSel_newname
  MOV R5,#11
  MOV R2,#&FF00
@@ -2733,7 +2742,7 @@ lc_ReplaceBox
  TST R4,#1
  BEQ c_ret
  TEQ R5,#16			; return pressed in replace with box
- BEQ lc_Replace_replace
+ BEQ lc_Replace_replace_ret
  B c_ret
 keys$l = 'G',12,'K',99,'T',20,'P',98,0
  ALIGN
@@ -2784,6 +2793,9 @@ oww$l
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
 
+lc_Replace_replace_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Replace_replace
  BL resethistorypositions
  BVS s_ret
@@ -3550,6 +3562,8 @@ lc_PrintBox
  BEQ lc_Print_title
  TEQ R5,#10
  BEQ lc_Dying_cancel
+ TEQ R5,#14
+ BEQ lc_Print_colour
  TST R4,#1
  BEQ c_ret
  TEQ R5,#5
@@ -3558,10 +3572,24 @@ lc_PrintBox
  BEQ lc_Print_newstart
  BLO lc_Print_newend
  B c_ret
-keys$l = 'V',7,'S',8,'A',6,'C',10,'Q',10,0
+keys$l = 'V',7,'S',8,'A',6,'F',14,'C',10,'Q',10,0
  ALIGN
 
 lc_Print_title
+ FNLDR R1,opt_flags
+ EOR R1,R1,#1<<16
+ FNSTR R1,opt_flags
+ MVN R0,R1,LSR#16
+ BL icon_set
+ BLVC cw_PrintBox_main
+ B c_ret
+
+lc_Print_colour
+ MOV R0,#0
+ MOV R1,#1<<21
+ BL icon_alter
+ B c_ret
+
  FNLDR R1,opt_flags
  EOR R1,R1,#1<<16
  FNSTR R1,opt_flags
@@ -3604,6 +3632,8 @@ lc_Print_newend
 	BVS	c_ret
 	FNLDR	R10,wimp_print
 	STR	R0,[R10,#print_stop_page]
+	TST	R4,#4			; return if (s)Tab
+	BNE	c_ret
 lc_Print_print
 	SWI	&A0140			; XPDriver_Info
 	BVS	s_ret
@@ -3792,9 +3822,10 @@ lc_MzapBox
  TST R4,#1
  BEQ c_ret
  TEQ R5,#1
- BEQ lc_Mzap_read
- B c_ret
+ BNE c_ret
 
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Mzap_read
  MOV R5,#0
  BL lc_buffernum

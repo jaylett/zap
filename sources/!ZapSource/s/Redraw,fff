@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.1.2.11 2000/01/27 16:34:56 james Exp $
+; $Id: Redraw,fff,v 1.1.2.12 2000/02/06 23:43:09 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -652,9 +652,9 @@ read_font_info
  FNLDR R0,font_cache
  TEQ R0,#0
  MOVEQ PC,R14			; doesn't want fonts
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  BL font_findfont		; get font handle
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  MOV R1,R0			; save handle
  BL font_readinfo		; bounding box in font_[xy]off, font_char[wh]
  BVS re38
@@ -665,19 +665,17 @@ read_font_info
  ;SWI &107			; ?????????? gets here...
  MOV R0,R1
  SWI XFont_LoseFont
- LDMFD R13!,{R1,PC}
+ FNRTS
 re38
- MOV R14,R0
+ PUSH "R0"
  MOV R0,R1			; handle
- MOV R1,R14			; error
  MOV R14,#-1
  FNSTR R14,font_cache		; cache no longer valid
  MOV R14,#10
  FNSTR R14,font_size		; go back to reasonable font size
  SWI XFont_LoseFont
- MOV R0,R1			; restore error
- LDMFD R13!,{R1,R14}
- ORRS PC,R14,#Vbit
+ PULL "R0"			; restore error
+ FNRTV
 
 ;E font_charw/charh/xoff/yoff set up
 ;X Cache ensured, font_bpl/bpc/cachedto set up #
@@ -1841,14 +1839,14 @@ blat_redraw_cache
 ;X R0=file off/R1=log ln of first line. R2-R5,R8-R9 saved
 
 red_cache_lines
- STMFD R13!,{R2-R5,R14}
+ FNJSR "R2-R5"
  MOV R0,R7			; phy ln of first line
  BL cln_phy			; file offset & log ln of first line
- LDMVSFD R13!,{R2-R5,PC}
+ FNRTS VS
  MOV R3,R0			; save file offset
  MOV R5,R1			; save log ln
  TEQ R10,#0
- LDMEQFD R13!,{R2-R5,PC}	; return if no lines to draw
+ FNRTS EQ			; return if no lines to draw
  ADD R4,R7,R10			; phy ln of final line
  MOV R10,R7			; phy ln of first line
  STMFD R13!,{R3,R5}		; save off/log of first line
@@ -1907,7 +1905,8 @@ red_cl_12
  BL setup_fontmc_with_extras	; slow and maybe not even needed :-)
 ; BLVC setup_multiple_fonts
  STRVS R0,[R13]
- LDMFD R13!,{R0-R5,PC}
+ LDMFD R13!,{R0,R1}
+ FNRTS
 red_cl_11
  STR R0,[R13,#4]!
  MOV R1,#14
@@ -1915,9 +1914,9 @@ red_cl_11
  LDR R0,local_ss_info_word
  BL setup_fontmc_with_extras
 ; BLVC setup_multiple_fonts
- STRVS R0,[R13]
- LDMFD R13!,{R0,R2-R5,R14}	; escape
- ORRS PC,R14,#1<<28
+ ADDVS R13,R13,#4
+ LDRVC R0,[R13],#4
+ FNRTV				; escape
 
 local_ss_info_word
  & 0
@@ -2111,7 +2110,7 @@ re1
  SUB R7,R7,R5			; file offset
 ; MOV R1,#14
 ; BL calle_init			; [old broken call to e_init 14]
- LDMFD R13!,{R2-R6,R10,PC}	; return
+ FNRTS
 
 sw_redrawline
  STMFD R13!,{R1-R11}
@@ -2123,7 +2122,7 @@ sw_redrawline
 
 ; MOVVC R1,#14
 ; BLVC calle_init		; [old broken call to e_init 14]
- LDMFD R13!,{R2-R6,R10,PC}	; return
+ FNRTS
 
 ;errorend$l
 ; MOV R1,#14
@@ -2856,7 +2855,7 @@ pnt_fit_pages
 print_file
  FNJSR "R1-R5,R7,R8,R10"
 ; MVN R0,#0			; test!
- FNSTR R0,opt_temporary
+ FNSTR R0,opt_temporary		; colour flag
  LDR R1,[R8,#w_rl]
  LDR R2,[R8,#w_rw]
  LDR R3,[R8,#w_rh]
@@ -2885,19 +2884,20 @@ print_file
  FNRTS				; may be VS and error...
 
 print_file_sub
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R0,#&8F			; Openout with errors
  ADR R1,print_file_s0
  MOV R2,#0
  SWI XOS_Find			; open printer file
 ; BVS pn8			; ???
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOVS R11,R0			; save handle
- LDMEQFD R13!,{R1-R11,PC}	; file not opened !
+ FNRTS EQ			; file not opened !
+ FNSTR R11,wimp_print_job
  LDR R1,[R9,#f_name]		; title
  SWI &A0145			; PDriver_SelectJob
  BVS pn8			; close file and error
- MOV R7,R0			; save previous Job
+ FNSTR R0,wimp_print_prevjob
  FNLDR R10,wimp_print
  BL pnt_matrix
  LDR R1,[R10,#print_start_page]	; start page(from 0)
@@ -2920,35 +2920,40 @@ pn4
  CMP R4,R3
  BCC pn4
  BL print_page			; print the page
- BVS pn6
  ADDVC R1,R1,#1			; next page
- B pn3
+ BVC pn3
+ B pn6
 pn7
- MOV R0,R11
+ FNLDR R0,wimp_print_job
  SWI &A0148			; XPDriver_EndJob
  BVS pn6
  MOV R0,#0
- MOV R1,R11
+ FNLDR R1,wimp_print_job
+ FNSTR R0,wimp_print_job
  SWI XOS_Find			; close file
 ; LDMVSFD R13!,{R1-R11,PC}
- MOVVC R0,R7			; previous Job
+ FNLDR R0,wimp_print_prevjob,VC	; previous Job
+ MOV R11,#0
+ FNSTR R11,wimp_print_prevjob
  SWIVC &A0145			; XPDriver_SelectJob
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 pn6
- ADDS R8,R0,#0			; save error pointer & clv
- MOV R0,R11
+ PUSH "R0"
+ FNLDR R0,wimp_print_job
  SWI &A0149			; XPDriver_AbortJob
- MOV R0,R7
+ FNLDR R0,wimp_print_prevjob	; previous Job
+ MOV R11,#0
+ FNSTR R11,wimp_print_prevjob
  SWI &A0145			; XPDriver_SelectJob
- MOV R0,R8
+ PULL "R0"
 pn8
- ADDS R8,R0,#0			; save error pointer & clv
+ PUSH "R0"
  MOV R0,#0
- MOV R1,R11
+ FNLDR R1,wimp_print_job
+ FNSTR R0,wimp_print_job
  SWI XOS_Find			; close file
- MOV R0,R8			; restore error pointer
- LDMFD R13!,{R1-R11,R14}
- ORRS PC,R14,#Vbit		; return with error
+ PULL "R0"
+ FNRTV				; return with error
 
 print_file_s0	FNS ("printer:")
 
@@ -3099,8 +3104,9 @@ add_fudge_factors
 ;E R1=page num R8-R9=file R10=wimp_print and rectangles sent to printer
 ;X Rectangles got from printer driver and plotted WB KB WD #
 
+
 print_page
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R7,R1			; save page number
  ADD R0,R7,#1			; page
  LDR R1,[R8,#w_txtw]		; cached line width
@@ -3119,10 +3125,10 @@ print_page
  ADDVC R2,R7,#1			; page
  ADDVC R3,R11,#44			; page number string
  SWIVC &A014C			; XPDriver_DrawPage
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 pn12
  TEQ R0,#0
- LDMEQFD R13!,{R1-R11,PC}	; finished
+ FNRTS EQ			; finished
  CMP R2,#0			; is ID<0
  ADDPL R0,R10,#print_column_rectangle
  ADDMI R0,R10,#print_title_rectangle
@@ -3140,12 +3146,12 @@ pn12
  STR R3,[R11,#w_scrolly]	; current scroll for this column
  MOV R1,R11
  BL print_rectangle		; print the rectangle
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 pn13
  ADD R1,R11,#28
  SWI &A014D			; XPDriver_GetRectangle
- LDMVSFD R13!,{R1-R11,PC}
- B pn12				; do next rectangle
+ BVC pn12			; do next rectangle
+ FNRTS
 pn14
  MOV R0,#0
  STR R0,[R11,#w_scrollx]
@@ -3163,8 +3169,8 @@ pn14
  MOV R0,#0
  STR R0,[R1,#4]			; only one line
  BL print_area_font
- LDMVSFD R13!,{R1-R11,PC}
- B pn13				; next rectangle
+ BVC pn13			; next rectangle
+ FNRTS
 
 ;E R1=area to redraw (as for Wimp_Redraw) R8-R9
 ;X Area printed by vdu redraw #

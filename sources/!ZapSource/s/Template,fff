@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 1.1.2.8 1999/10/21 17:44:49 james Exp $
+; $Id: Template,fff,v 1.1.2.9 2000/02/06 23:43:10 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -106,9 +106,11 @@ make_window_mode_0 ; dud
 ;		b9 don't place caret in window bg
 ;		   (but allow window's click handler to if it wants)
 ;		b10 adjuct-clicks gain the caret.
-;		b11 does something...?
-;		b12 window is open (vague attempt to track this better)
-;		b13-b15 reserved
+;		b11 interpret Tab/sTab as down/up
+;		b12 reserved
+;		b13 reserved
+;		b14 reserved
+;		b15 window is open (vague attempt to track this better)
 ;		b16-b31 Window specific (eg colour number)
 ; #&08 Window handle of the template / -1 if not created
 ; #&0C Window offset of associated Zap window (->R8) / -1 if none
@@ -865,7 +867,7 @@ close_leaf_window
  FNRTS EQ			; window already dead
  LDR R0,[R7,#4]			; get flags
  BIC R0,R0,#1<<3		; clear kill state
- BIC R0,R0,#1<<12		; clear 'open' state
+ BIC R0,R0,#1<<15		; clear 'open' state
  STR R0,[R7,#4]
  TST R0,#1
  BNE a$l			; not a menu window
@@ -1000,14 +1002,14 @@ process_leaf_key
  LDR R6,[R7]			; window data
  LDR R3,[R7,#4]			; window flags
  SUB R14,R0,#&100		; key-&100
+ MOV R4,#1<<31			; this is an unkown key click so far
  TST R3,#1<<11
  BEQ nottab$l
  TEQ R14,#&8A
- BEQ down$l
+ BEQ tabdown$l
  TEQ R14,#&9A
- BEQ up$l
+ BEQ tabup$l
 nottab$l
- MOV R4,#1<<31			; this is an unkown key click so far
  TEQ R0,#&1B
  BEQ close$l			; escape so close window
  CMP R5,#0
@@ -1094,15 +1096,29 @@ sup$l
  BNE fkey$l
  LDR R5,[R6,#84]		; last icon
 down$l
+ MOV R4,#4
  TST R3,#2
  MVNEQ R0,#0
  MOVNE R0,#1
  B move$l
+tabdown$l
+ MOV R4,#5
+ TST R3,#2
+ MVNEQ R0,#0
+ MOVNE R0,#1
+ B fromreturn$l
+tabup$l
+ MOV R4,#5
+ TST R3,#2
+ MOVEQ R0,#1
+ MVNNE R0,#0
+ B fromreturn$l
 sdown$l
  TST R3,#&80
  BNE fkey$l
  LDR R5,[R6,#84]
 up$l
+ MOV R4,#4
  TST R3,#2
  MOVEQ R0,#1
  MVNNE R0,#0
@@ -1226,6 +1242,9 @@ a$l
 
 ;E R2=xos R3=yos R4=mouse buttons
 ;  R5=icon handle/minus key letter R7=index entry
+;  If R5 is Tab or sTab, R4 b2..0 = 101
+;  If R5 is Up or Down,  R4 b2..0 = 100
+;  If R5 is Return,      R4 b2..0 = 001
 ;X Leaf click dealt with CS to close window. #
 
 process_leaf_click
@@ -1236,7 +1255,7 @@ process_leaf_click
  ; declaim carry DOES NOT corrupt 'C' flag...
  FNRTS
 
-;E R2=xos R3=yos R4=mouse buttons R5=icon handle R7=index entry
+;E as for process_leaf_click
 ;X Action taken according to click & CS to request window be closed
 ;  R0-R11 corrupted
 
@@ -2683,7 +2702,7 @@ open_leaf_window
  STR R0,[R1,#w_infront]		; create open block
  SWI XWimp_OpenWindow		; open window
  LDR R1,[R7,#4]			; flags
- ORR R1,R1,#1<<12		; window is open
+ ORR R1,R1,#1<<15		; window is open
  STR R1,[R7,#4]
  LDMFD R13!,{R1-R9,PC}
 
