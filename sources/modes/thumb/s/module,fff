@@ -1,0 +1,764 @@
+; Thumb mode
+; $Id: module,fff,v 1.1 2002/11/27 18:18:04 christian Exp $
+
+ GET h.ThumbH
+
+		AREA |!!!Module_Header|,CODE,READONLY
+
+		ENTRY
+
+mod_header	DCD	0				; start offset
+		DCD	mod_init			; init code
+		DCD	0				; finalisation
+		DCD	0				; sevice handler
+		DCD	mod_title			; title
+		DCD	mod_help			; help
+		DCD	0				; commands
+		DCD	0				; the 4 SWI ones
+		DCD	0				;
+		DCD	0				;
+		DCD	0				;
+		DCD	0				; messages file
+		DCD	module_flags			; module flags
+
+
+mod_title	=	"ZapThumb",0
+
+mod_help	=	"ZapThumb",9,"0.01 (00 Jan 0000) © Zap Developers",0
+		ALIGN
+
+module_flags	DCD	1				; 32 bit compatible
+
+
+mod_init	FNJSR	"R0-R4,R11"
+
+		MOV	R11,#0				; no workspace
+
+		MOV	R0,#18				; find Zap and add our mode
+		ADR	R1,zap$l			;
+		SWI	XOS_Module			;
+		FNRTS	"VS"				;
+		MOV	R12,R4				;
+		ADR	R0,thumb_modetable		;
+		FNcall	Zap_AddMode,R1			;
+		FNRTS					; done for now
+
+zap$l		= "Zap",0
+
+
+; ---------------------------------
+
+thumb_modetable	DCD	thumb_modetable			; offset of mode table
+		DCD	thumb_title			; mode title string
+		DCD	thumb_author			; author string
+		DCD	4				; base mode number (code mode)
+		DCD	1<<12 + 1<<13			; messages, cloneable
+		DCD	thumb_init			; offset of initialisation code
+		DCD	0				; offset of your menu
+		DCD	thumb_tableend-thumb_modetable	; length of table
+		DCD	0				; mode_postload
+		DCD	0				; mode_presave
+		DCD	0				; mode_loading
+		DCD	thumb_start			; mode_start
+		DCD	thumb_end			; mode_end
+		DCD	thumb_width			; mode_width
+		DCD	0				; mode_linecol
+		DCD	0				; mode_lineoff
+		DCD	thumb_clnphy			; mode_clnlog
+		DCD	thumb_clnphy			; mode_clnphy
+		DCD	thumb_clnoff			; mode_clnoff
+		DCD	0				; mode_nextline
+		DCD	0				; mode_minus
+		DCD	thumb_plus			; mode_plus
+		DCD	0				; mode_sminus
+		DCD	thumb_plus			; mode_splus
+		DCD	0				; mode_cminus
+		DCD	0				; mode_cplus
+		DCD	thumb_redrawline		; mode_redrawline
+		DCD	0				; mode_redrawlnum
+		DCD	0				; mode_char
+		DCD	0				; mode_delete
+		DCD	0				; mode_tab
+		DCD	0				; mode_return
+		DCD	0				; mode_renumber
+		DCD	0				; mode_saveandrun
+		DCD	0				; mode_linestart
+		DCD	0				; mode_lineend
+		DCD	0				; mode_linenext
+		DCD	0				; mode_lineprev
+		DCD	0				; mode_copy
+		DCD	0				; mode_joinline
+		DCD	0				; mode_splitline
+		DCD	0				; mode_aligncaret
+		DCD	0				; mode_command
+		DCD	0				; mode_compile
+		DCD	0				; mode_formattext
+		DCD	0				; mode_run
+		DCD	0				; mode_runandquit
+		DCD	0				; mode_basic
+		DCD	thumb_search			; mode_search
+		DCD	0				; mode_replace
+		DCD	0				; mode_selection
+		DCD	thumb_click			; mode_click
+		;DCD	0				; mode_message
+		;DCD	0				; mode_setwidth
+		;DCD	0				; mode_listfns
+		;DCD	0				; mode_prevline
+		;DCD	0				; mode_openwindow
+		;DCD	0				; mode_interrogate
+		;DCD	0				; mode_returnword
+		;DCD	0				; mode_help
+		;DCD	0				; mode_stripspaces
+thumb_tableend
+
+thumb_title	= "Thumb",0
+thumb_author	= "Christian Ludlam",0
+
+		ALIGN
+
+		LOCAL
+
+
+; ----------- init options -------------
+
+		FNAME	"thumb_init"
+thumb_init
+		[ :DEF: Debug
+		TEQ	R1,#0
+		MOVEQ	R0,#-1				; prevent zap killing my module
+		MOVEQ	PC,R14				; so we know where we went wrong
+		]
+
+		TEQ	R1,#2				; zap has initialised me -
+		BEQ	init_2$l			;   check options
+		TEQ	R1,#6				; zap wants colour names
+		ADREQ	R1,colours$l			;
+		MOV	PC,R14				; don't care
+
+; zap has initialised us - check our options
+init_2$l	FNJSR	"R1,R2,R8"			;
+		MOV	R1,R0				; keep mode number
+		MOV	R8,#0				; default options
+		FNcall	Zap_GetModeWord			;
+		FNRTS	VS				;
+		TEQ	R0,#0				;
+		BNE	checkopts$l			; we have options - check their validity
+
+		LDR	R0,default0$l			; default word 0
+		MOV	R2,#0				;
+		FNcall	Zap_ModeData			;
+		LDR	R0,default1$l			;
+		MOV	R2,#1				; and 1
+		FNcall	Zap_ModeData			;
+		LDR	R0,defaultmode$l		; and default mode word
+		FNcall	Zap_PutModeWord			;
+		MOV	R0,#numberofcolours		; and number of colours
+		FNcall	Zap_ModeColourNum		;
+		MOV	R2,#9				; and set up default colours
+		BL	default_colours			;
+		FNRTS					;
+
+checkopts$l	MOV	R0,#-1				; check we have enough colours
+		FNcall	Zap_ModeColourNum		;
+		CMP	R0,#numberofcolours		;
+		FNRTS	HS				;
+		MOV	R0,#numberofcolours		;
+		FNcall	Zap_ModeColourNum		;
+		MOV	R2,R0				;
+		BL	default_colours			;
+		FNRTS					;
+
+default0$l	DCD	&0500004D
+default1$l	DCD	&0200000F
+defaultmode$l	DCD	1
+
+colours$l	= "thumb_colours",0
+		ALIGN
+
+		LOCAL
+
+; E  r1 = mode numner  r2 = number of existing colours  r8 = 0
+		FNAME	"default_colours"
+default_colours	FNJSR	"R4-R5"
+		ADR	R4,table$l
+		SUB	R5,R2,#9			; subtract system colours
+loop$l		LDR	R0,[R4,R5,LSL #2]
+		FNcall	Zap_ModeColour
+		ADD	R2,R2,#1
+		ADD	R5,R5,#1
+		CMP	R2,#numberofcolours
+		BLS	loop$l
+		FNRTS
+
+table$l		DCD	&99999930			; ascii chars	(grey bold)
+		DCD	&00BBFF30			; hex chars	(orange bold)
+		DCD	&00CC0050			; comments	(green italic)
+		DCD	&FFBB0010			; SWIs		(light blue)
+		DCD	&EEEEEE10			; SWI names	(light grey)
+		DCD	&00BBFF10			; hex chars	(orange)
+		DCD	&0000DD50			; Undefined	(bright red italic)
+		DCD	&AAFFFF10			; Registers	(beige)
+		DCD	&EEEEEE10			; # ! ,		(light grey)
+		DCD	&BBBBBB10			; [ ]		(grey)
+		DCD	&BBBBBB10			; { }		(grey)
+		DCD	&EEEEEE10			; immediates	(light grey)
+		DCD	&BBBBBB10			; branches	(grey)
+		DCD	&DDDDDD10			; LDR / STR	(grey)
+		DCD	&DDDDDD10			; LDM / STM	(grey)
+		DCD	&DDDDDD10			; PUSH R14	(grey)
+		DCD	&DDDDDD10			; POP  PC	(grey)
+
+
+
+; ------------ start & end ------------
+
+		FNAME	"thumb_start"
+thumb_start	FNJSR
+		LDRB	R0,[R8,#w_format]		; mode number
+		FNcall	Zap_RestoreModeWord
+		FNRTS
+
+		FNAME	"thumb_end"
+thumb_end	FNJSR
+		LDRB	R0,[R8,#w_format]		; mode number
+		FNcall	Zap_SaveModeWord
+		FNRTS
+
+
+		LOCAL
+
+
+; --------------- redraw -----------------
+
+		FNAME	"thumb_redrawline"
+thumb_redrawline
+		FNJSR	"R8,R9,R12"
+
+		LDR	R1,[R9,#f_len]			; return quickly if at EOF
+		SUB	R14,R7,R5			;
+		CMP	R14,R1				;
+		ADDHS	R11,R11,#1			;
+		FNRTS	HS				;
+
+		BL	getc$l				; get the two byte instruction
+		MOV	R2,R0				; + b31 set if only half in file
+		STRB	R2,[R6]				;
+		BL	getc$l				;
+		STRCCB	R0,[R6,#1]			;
+		MOVCC	R1,#0				;
+		MOVCS	R1,#1<<31			;
+
+		TST	R4,#1<<17			; Big Endian?
+		ORREQ	R12,R2,R0,LSL #8		;
+		ORRNE	R12,R0,R2,LSL #8		;
+		ORR	R12,R12,R1			; add in 'half' flag
+
+		TST	R12,#1<<31			; only the one byte
+		BEQ	allopc$l			;
+		TST	R4,#1<<17			; big endian?
+		ADDEQ	R1,R6,#7			;
+		ADDNE	R1,R6,#5			;
+		MOV	R0,R12				;
+		MOV	R2,#4				;
+		SWI	XOS_ConvertHex2			;
+		B	opccommon$l			;
+
+allopc$l	MOV	R0,R12				; do Hex chars
+		ADD	R1,R6,#5			;
+		MOV	R2,#8				;
+		SWI	XOS_ConvertHex4			;
+opccommon$l	MOV	R0,#' '				;
+		STRB	R0,[R6,#9]			;
+		STRB	R0,[R6,#11]			;
+
+		MOV	R0,#':'				; colons
+		STRB	R0,[R6,#3]			; ascii colon
+		STRB	R0,[R6,#10]			; hex colon
+
+		; disassembly
+		TST	R12,#1<<31
+		ADDNE	R3,R6,#12			; just past last used character
+		BNE	colour$l
+
+		SUB	R1,R7,R5			; get file offset of this line
+		SUB	R1,R1,#2			; of the /start/ of the line
+		LDR	R0,[R8,#w_addr]
+		ADD	R1,R1,R0
+		MOV	R0,R12
+		SWI	&60381				; XDebugger_DisassembleThumb
+		ADDVS	R3,R6,#12			; error - ignore disassebly
+		BVS	colour$l			;
+
+		LDR	R2,[R8,#w_width]
+		LDR	R3,[R8,#w_margin]
+		SUB	R2,R2,R3
+		SUB	R2,R2,#12
+		ADD	R3,R6,#12
+disloop$l	LDRB	R0,[R1],#1			; copy the disassembly in
+		TEQ	R0,#0
+		BEQ	colour$l
+		STRB	R0,[R3],#1
+		SUBS	R2,R2,#1
+		BNE	disloop$l
+
+		; now colour it
+colour$l	LDR	R2,[R8,#w_txtw]
+
+		MOV	R4,#5				; ASCII characters
+		MOV	R9,#c_ascii			;
+ccharloop$l	BL	storecol$l			;
+		SUBS	R4,R4,#1			;
+		BNE	ccharloop$l			;
+
+		MOV	R4,#7				; HEX characters
+		MOV	R9,#c_hex			;
+hcharloop$l	BL	storecol$l			;
+		SUBS	R4,R4,#1			;
+		BNE	hcharloop$l			;
+
+		MOV	R9,#c_fg			; mnemonic
+
+		LDRB	R1,[R6]				; Undefined or Unpredictable?
+		TEQ	R1,#'U'				;
+		BEQ	undefined$l			;
+
+		TEQ	R1,#'B'				; check for branches
+		BNE	notb$l				;
+		MOV	R0,#1				;
+		BL	geto$l				;
+		TEQ	R0,#'I'				; or BIC
+		MOVNE	R9,#c_branch			;
+		BNE	instrloop$l			;
+
+notb$l		AND	R0,R12,#&F400			; PUSH or POP?
+		TEQ	R0,#&B400			;
+		BNE	notpushpop$l			;
+		TST	R12,#1<<8			; LR or PC in list?
+		MOVEQ	R9,#c_ldm			; no - colour as LDM
+		BEQ	instrloop$l			;
+		TST	R12,#(1<<11)			; loading?
+		MOVEQ	R9,#c_pushr14			;
+		MOVNE	R9,#c_pullpc			;
+		B	instrloop$l			;
+
+notpushpop$l	AND	R0,R12,#&FF00			; SWI?
+		TEQ	R0,#&DF00			;
+		MOVEQ	R9,#c_swi			;
+		BEQ	instrloop$l			;
+
+		AND	R0,R12,#&F000			; LDM or STM?
+		TEQ	R0,#&C000			;
+		MOVEQ	R9,#c_ldm			;
+		BEQ	instrloop$l			;
+
+		CMP	R0,#&5000			; LDR / STR in its various forms
+		RSBHSS	R1,R0,#&9000			;
+		MOVHS	R9,#c_ldr			;
+		BHS	instrloop$l			;
+		AND	R0,R12,#&F800			;
+		TEQ	R0,#&4800			;
+		MOVEQ	R9,#c_ldr			;
+		BEQ	instrloop$l			;
+
+
+instrloop$l	LDRB	R0,[R6]				; colour the mnemonic
+		TEQ	R0,#' '				;
+		BEQ	spaces$l			;
+		BL	storecol$l			;
+		B	instrloop$l			;
+
+spaces$l	MOV	R9,#c_fg			;
+spacesloop$l	LDRB	R0,[R6]				; and the spaces after it
+		TEQ	R0,#' '				;
+		BNE	params$l			;
+		BL	storecol$l			;
+		B	spacesloop$l			;
+
+params$l	TEQ	R9,#c_swi			; if we had a SWI, colour its name
+		BEQ	swiname$l			;
+		B	a$l				;
+
+onecol$l	BL	storecol$l			; store colour for one character
+a$l		MOV	R9,#c_fg			;
+
+next$l		LDRB	R0,[R6]				; main loop for each parameter character
+		TEQ	R0,#';'				;
+		BEQ	comment$l			;
+		TEQ	R0,#'R'				;
+		BEQ	register$l			;
+		TEQ	R0,#'P'				;
+		BEQ	pc$l				;
+		TEQ	R0,#'&'				;
+		BEQ	number$l			;
+		CMP	R0,#'0'				;
+		RSBHSS	R1,R0,#'9'			;
+		BHS	number$l
+
+		TEQ	R0,#','				; misc punctuation
+		TEQNE	R0,#'!'				;
+		MOVEQ	R9,#c_punct			;
+		BEQ	onecol$l			;
+
+		TEQ	R0,#'#'				;
+		BEQ	immediate$l			;
+
+		TEQ	R0,#'['				; square brackets
+		TEQNE	R0,#']'				;
+		MOVEQ	R9,#c_squares			;
+		BEQ	onecol$l			;
+
+		TEQ	R0,#'{'				; braces
+		TEQNE	R0,#'}'				;
+		MOVEQ	R9,#c_curlies			;
+		;BEQ	onecol$l			;
+
+		B	onecol$l			; unknown (fg)
+
+; possibly PC
+pc$l		MOV	R0,#1				; check for PC
+		BL	geto$l				;
+		TEQ	R0,#'C'				;
+		MOVEQ	R9,#c_registers			;
+		BLEQ	storecol$l			;
+		B	onecol$l			;
+
+; SWI names
+swiname$l	LDRB	R0,[R6]				; check it's a name
+		BIC	R0,R0,#&20			;
+		CMP	R0,#'A'				;
+		RSBHSS	R1,R0,#'Z'			;
+		MOVHS	R9,#c_swiname			;
+		BHS	finishline$l			;
+		B	next$l				;
+
+; immediate numbers
+immediate$l	MOV	R9,#c_punct			; colour the #
+		BL	storecol$l			;
+		MOV	R9,#c_immediate			;
+immloop$l	LDRB	R0,[R6]				; colour 0-9A-F&-
+		CMP	R0,#'0'				;
+		RSBHSS	R1,R0,#'9'			;
+		BHS	immok$l				;
+		BIC	R1,R0,#&20			;
+		CMP	R1,#'A'				;
+		RSBHSS	R1,R1,#'F'			;
+		BHS	immok$l				;
+		TEQ	R0,#'&'				;
+		TEQNE	R0,#'-'				;
+		BNE	next$l				;
+immok$l		BL	storecol$l			;
+		B	immloop$l			;
+
+; registers
+register$l	MOV	R9,#c_registers			; colour a register
+		BL	storecol$l			; R
+		BL	storecol$l			; 1
+		LDRB	R0,[R6]				; see if R10-R15
+		CMP	R0,#'0'				;
+		RSBHSS	R0,R0,#'5'			;
+		BLHS	storecol$l			; yes
+		B	next$l				;
+
+; numbers
+number$l	MOV	R9,#c_numbers			; hex numbers
+numloop$l	BL	storecol$l			;
+		LDRB	R0,[R6]				;
+		CMP	R0,#'0'				;
+		RSBHSS	R1,R0,#'9'			;
+		BHS	numloop$l			;
+		BIC	R0,R0,#&20			;
+		CMP	R0,#'A'				;
+		RSBHSS	R1,R0,#'F'			;
+		BHS	numloop$l			;
+		B	next$l				;
+
+; comments
+comment$l	MOV	R9,#c_comments			; store the colour until we run out of chars
+finishline$l	BL	storecol$l			;
+		B	finishline$l			;
+
+; undefined or unpredictable instructions
+undefined$l	MOV	R9,#c_undefined			; store the colour until we run out of chars
+		B	finishline$l			;
+
+; store the colour. Doesn't return if finished the line
+; E r2 = w_txtw  r3 -> end output address  r6 -> current output address  r9 = colour
+; X r1 corrupt  r6 incremented
+storecol$l	STRB	R9,[R6,R2]
+		MOV	R1,#c_bg
+		STRB	R1,[R6,R2,LSL #1]
+		ADD	R6,R6,#1
+		CMP	R6,R3
+		MOVLO	PC,R14
+
+finished$l	ADD	R11,R11,#1
+		FNRTS
+
+; get a character
+; E r5 = apparant file start  r7 = address  r10 = end of section
+; X r5 / r7 / r10 updated  r0 = byte  /  CS if off end of file
+getc$l		CMP	R7,R10
+		BLO	getc_ok$l
+		LDR	R0,[R9,#f_len]			; load length of file
+		ADD	R0,R0,R5			; add apparent start
+		CMP	R7,R0				; at end of file?
+		MOVHS	R0,#0
+		MOVHS	PC,R14
+		LDR	R1,[R9,#f_splits]		; load split size
+		ADD	R7,R7,R1			; add to input pointer
+		ADD	R5,R5,R1			; and apparent start
+		ADD	R10,R10,R1			; and to contiguous end
+getc_ok$l	LDRB	R0,[R7],#1
+		CLC
+		MOV	PC,R14
+
+; get a character from the OUTPUT
+; E r0 = offset  r6 = current output pointer
+; X r0 = char / 0 if unreadable
+geto$l		ADD	R0,R0,R6			; check it's in the output
+		CMP	R0,R3				;
+		LDRLOB	R0,[R0]				; load it if there
+		MOVHS	R0,#0				; otherwise unknown
+		MOV	PC,R14				;
+
+
+		LOCAL
+
+
+; ------------- e_clnphy -------------
+
+		FNAME	"thumb_clnphy"
+thumb_clnphy	MOV	R1,R0				; logical line = physical line
+		MOV	R0,R0,LSL #1			; file offset = physical line * 2
+		MOV	PC,R14				;
+
+
+; ------------- e_clnoff -------------
+
+		FNAME	"thumb_clnoff"
+thumb_clnoff	BIC	R1,R0,#1
+		MOV	R0,R0,LSR #1
+		MOV	R2,R0
+		MOV	PC,R14
+
+
+; ------------- e_click -------------
+
+		FNAME	"thumb_click"
+thumb_click	CMP	R1,#2
+		BLO	default$l			; simple drag, or single click
+		TST	R4,#3				; multiple click + drag
+		BNE	default$l
+
+		TST	R1,#1
+		BNE	total$l
+
+		FNJSR
+		FNcall	Zap_FindOffset,R11
+		MOV	R2,R0
+		ADD	R3,R2,#2
+		LDR	R14,[R9,#f_len]
+		CMP	R3,R14
+		MOVHS	R3,R14
+		FNPULL
+		TEQ	R2,R3
+		BNE	sel$l
+		FNjump	Zap_ClearSel,R11
+sel$l		FNjump	Zap_AlterSel,R11
+
+default$l	FNjump	Zap_DefaultClick,R11
+
+total$l		MOV	R2,#0
+		LDR	R3,[R9,#f_len]
+		FNjump	Zap_AlterSel,R11
+
+
+		LOCAL
+
+
+; ---------------- e_width ---------------
+
+		FNAME	"thumb_width"
+thumb_width	FNJSR	"R1-R2"
+		MOV	R0,#2
+		STR	R0,[R8,#w_bpl]
+		MOV	R0,#-1
+		LDRB	R1,[R8,#w_format]		; mode number
+		MOV	R2,#0
+		FNcall	Zap_ModeData,R3			; read the first word of mode data
+		AND	R0,R0,#&FF
+		CMP	R0,#1
+		MOVLT	R0,#1				; width
+		LDRB	R1,[R8,#w_format]		; mode number
+		ADD	R14,R8,#w_mode0
+		LDR	R1,[R14,R1,LSL #2]!		; load in our mode word
+		BIC	R1,R1,#255
+		ORR	R1,R1,R0
+		STR	R1,[R14]			; save in our mode word
+		ADD	R0,R0,#12
+		FNRTS
+
+
+		LOCAL
+
+
+; ------------- e_search -------------
+
+; E R1 = 2 => R3 = search file offset  R4 = direction
+;   R1 = 3 => R1 = detokenised str  R2 = offset/-ve  R3 = file off of line  R10 = len
+;   R1 = 4 => As for 3 but R2 = end of match offset
+; X If R1 = 2 return vals as passed with R1 = 3
+;   If R1 = 3 return R1 = 0  R2 = file off of match   R3 = next offset
+;   If R1 = 4 return R1 = 0  R2 = file off of match end
+
+		FNAME	"thumb_search"
+thumb_search	TEQ	R1,#3
+		BEQ	next$l				; find match offset and next line
+		TEQ	R1,#4
+		BEQ	end$l				; find end of match offset
+		TEQ	R1,#2
+		MOVNE	PC,R14
+
+start$l		FNJSR					; get line to search through
+		;CMP	R4,#0				; check search direction
+		;ADDPL	R3,R3,#1			; offset 1 means go to the next line
+		BIC	R3,R3,#1			; file offset of 'line start'
+		MOV	R0,R3
+		BL	read_halfword			; R0 = opcode
+		LDR	R1,[R8,#w_addr]			; address of first byte
+		ADD	R1,R1,R3			; address to assume instruction came from
+		SWI	&60381
+		FNRTS	VS
+		MOV	R10,R2				; save the length
+		CMP	R4,#0
+		MOVPL	R2,#0				; offset in the detokenised line
+		SUBMI	R2,R10,#1			; start at the line end
+		FNRTS
+
+; find match offset and next line
+next$l		MOV	R1,#0
+		CMP	R2,#0
+		MOVPL	R2,R3				; file offset of match (off in str ignored)
+		ADD	R3,R3,R4,LSL #1			; jump a halfword in the correct direction
+		MOV	PC,R14
+
+; find end of match offset
+end$l		MOV	R1,#0
+		ADD	R2,R3,#1
+		MOV	PC,R14
+
+
+		LOCAL
+
+
+; -------------- e_plus --------------
+
+; E r0 = current file offset of start of line
+; X r1 = new file offset  r2 = -1
+		FNAME	"thumb_plus"
+thumb_plus	FNJSR
+		MOV	R11,R0				; keep current offset
+		BL	read_halfword			; determine the type of branch
+		AND	R1,R0,#&F000			;
+		TEQ	R1,#&D000			;
+		BEQ	conditional$l			;
+		TEQ	R1,#&F000			;
+		BEQ	bl$l				;
+		AND	R1,R0,#&F800			;
+		TEQ	R1,#&E000			;
+		BEQ	unconditional$l			;
+nothing$l	MOV	R1,R11				; not a branch
+		MOV	R2,#-1				;
+		FNRTS					;
+
+; unconditional branch
+; 1110 0ooo oooo oooo
+unconditional$l	MOV	R0,R0,LSL #21			; sign extend
+		MOV	R1,R0,ASR #20			;
+common$l	MOV	R0,R11				; drop a mark at the current offset
+		ADD	R11,R1,R11			; new offset
+		FNcall	Zap_InsertMark,R1		;
+		ADD	R1,R11,#4			; PC offset
+		MOV	R2,#-1				;
+		FNRTS
+
+; conditional branch
+; 1101 cond oooo oooo
+conditional$l	AND	R1,R0,#&0F00			; BNV == SWI
+		TEQ	R1,#&0F00			;
+		BEQ	nothing$l			;
+		MOV	R0,R0,LSL #24			; sign extend
+		MOV	R1,R0,ASR #23			; multiply by 2
+		B	common$l			;
+
+; branch with link
+; 1111 0ooo oooo oooo  followed by
+; 1111 1ooo oooo oooo
+bl$l		MOV	R2,R0				;
+		TST	R0,#1<<11			;
+		ADDEQ	R0,R11,#2			; get suffix or prefix
+		SUBNE	R0,R11,#2			;
+		BL	read_halfword			;
+		AND	R1,R0,#&F000			; not right
+		TEQ	R1,#&F000			;
+		BNE	nothing$l			;
+		AND	R1,R0,#&0800			; ensure we have a prefix / suffix pair
+		AND	R3,R2,#&0800			;
+		TEQ	R1,R3				;
+		BEQ	nothing$l			;
+		TST	R2,#1<<11			; determine order
+		BIC	R0,R0,#&F800			; clear opcode bits
+		BIC	R2,R2,#&F800			;
+		MOVEQ	R2,R2,LSL #21			; sign extend
+		MOVEQ	R2,R2,ASR #11			;
+		MOVEQ	R0,R0,LSL #1                    ;
+		MOVNE	R0,R0,LSL #21			;
+		MOVNE	R0,R0,ASR #11			;
+		MOVNE	R2,R2,LSL #1			;
+		ORR	R1,R0,R2			; merge
+		SUBNE	R1,R1,#2			; correct for 2nd instruction offset
+		B	common$l			;
+
+
+		LOCAL
+
+
+; ---------- utility routines ------------
+
+; read a halfword from the file buffer
+; E r0 = file offset  R8 R9
+; X r0 = halfword
+		FNAME	"read_halfword"
+read_halfword	FNJSR	"R1-R3"
+		MOV	R2,R0
+		BL	read_byte
+		MOV	R3,R0
+		ADD	R0,R2,#1
+		BL	read_byte
+		LDR	R2,[R8,#w_format]
+		TST	R2,#1<<17			; big endian?
+		ORREQ	R0,R3,R0,LSL #8
+		ORRNE	R0,R0,R3,LSL #8
+		FNRTS
+
+
+; read a byte from the file buffer
+; E r0 = offset	  R8 R9
+; X r0 = byte
+		FNAME	"read_byte"
+read_byte	LDR	R1,[R9,#f_len]			; check it's within the file
+		CMP	R0,R1				;
+		MOVHS	R0,#0				;
+		MOVHS	PC,R14				;
+		LDR	R1,[R9,#f_splito]		; adjust for the split
+		CMP	R0,R1				;
+		LDRHS	R1,[R9,#f_splits]		;
+		ADDHS	R0,R0,R1			;
+		LDR	R1,[R9,#f_ptr]			;
+		LDRB	R0,[R1,R0]			;
+		MOV	PC,R14				;
+
+
+
+
+	END
