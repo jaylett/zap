@@ -1,5 +1,5 @@
 ; TabStops		<nemo@20000.org>
-; $Id: TabStops,fff,v 2.1 2003/04/20 14:55:55 christian Exp $
+; $Id: TabStops,fff,v 2.2 2003/07/04 12:44:34 christian Exp $
 ;
 ; 0.01	27 Oct 2001	Initial version
 ; 0.02	9 Apr 2003	commented, coz I forgot how it worked
@@ -205,26 +205,28 @@ MTSD_exit	ADD	R4, R4, #48
 ; E r0 = width  r8 (with mode number)
 ; X w_tabstops filled in
 		FNAME	get_tab_stops
-get_tab_stops	FNJSR	"R7"
+get_tab_stops	FNJSR	"R6,R7"
 		MOV	R7,R0
 
 		LDR	R0,[R8,#w_tabstops]		; free the existing tabstop list
 		BL	heap_free
-		MOVVC	R0,R7,LSL #1
-		BLVC	heap_claim
-		STRVC	R0,[R8,#w_tabstops]
-
+		MOV	R6,#0
+		STR	R6,[R8,#w_tabstops]
 		MOVVC	R11,#e_interrogate
 		MOVVC	R0,#einterrogate_TabStops
 		BLVC	call_mode
 		FNRTS	VS
 
 		TEQ	R0,#einterrogate_NoTabs		; doesn't need w_tabstops at all
-		MOVEQ	R0,#0
-		STREQ	R0,[R8,#w_tabstops]
 		FNRTS	EQ
 
-		TEQ	R0,#einterrogate_FixedTabs
+		MOV	R6,R0
+		MOV	R0,R7,LSL #1
+		BL	heap_claim
+		FNRTS	VS
+		STR	R0,[R8,#w_tabstops]
+
+		TEQ	R6,#einterrogate_FixedTabs
 		ADREQ	R0,default$l
 		BLNE	get_tab_string
 		LDR	R1,[R8,#w_tabstops]
