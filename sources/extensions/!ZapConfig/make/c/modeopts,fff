@@ -1,0 +1,529 @@
+/*	modeopts.c
+	© James Aylett	*/
+
+#include "modeopts.h"
+
+void close_modeopts()
+{
+  ModeOptsOpen=FALSE;
+  close_child(ModeOpts);
+
+  zap_mode_flags.flags.width = update_number(ModeOpts, 7);
+  zap_mode_flags_1.flags.line_no_width = update_number(ModeOpts, 10) - 1;
+  zap_mode_flags_2.flags.keymap = update_number(ModeOpts, 58);
+
+  save_modeopts();
+  free_keys();
+}
+
+void open_modeopts(int num)
+{
+  int old_mode_number;
+  /* first, set mode_name to point to "Text" somewhere
+   * then load_modeopts() will pick out the relevant
+   * options block.
+   */
+  if(ModesMenu==NULL)
+    open_optionset();
+
+  old_mode_number=mode_number;
+
+  mode_number=num;
+  mode_name=ModesMenu->items[mode_number].icondata.text;
+  if (!load_modeopts())
+  {
+    mode_number=old_mode_number;
+    mode_name=ModesMenu->items[mode_number].icondata.text;
+    makeerror(FALSE,"ENoSuchMode");
+    return;
+  }
+
+  update_modeopts();
+
+  open_child(ModeOpts, 7);
+  ModeOptsOpen=TRUE;
+}
+
+void update_modeopts()
+{
+  int i;
+
+  set_indtext(windows[ModeOpts].openblock.window,2,mode_name);
+  set_flag(ModeOpts, 5, zap_mode_flags.flags.auto_width);
+  icon_print(ModeOpts,7,"%i",zap_mode_flags.flags.width);
+
+  if(zap_mode_flags.flags.show_line_numbers)
+  {
+    if(zap_mode_flags.flags.lines_are_lines)
+    {
+      if(zap_mode_flags.flags.lines_physical)
+        i=1;
+      else
+        i=2;
+    }
+    else
+      i=3;
+  }
+  else
+    i=0;
+  sprintf(output,"LineNosM%i", i);
+  lookup_message(MessageBlock,output,output,256);
+  set_indtext(windows[ModeOpts].openblock.window,9,output);
+
+  set_flag(ModeOpts, 11, zap_mode_flags.flags.lines_base);
+
+  sprintf(output,"TabDisplayM%i", zap_mode_flags.flags.tab_display_format);
+  lookup_message(MessageBlock,output,output,256);
+  set_indtext(windows[ModeOpts].openblock.window,13,output);
+
+  set_flag(ModeOpts, 16, zap_mode_flags.flags.line_or_stream_edit);
+  set_flag(ModeOpts, 17, zap_mode_flags.flags.non_standard_edit);
+  set_flag(ModeOpts, 18, zap_mode_flags.flags.auto_indent);
+  set_flag(ModeOpts, 19, zap_mode_flags.flags.overwrite);
+  set_flag(ModeOpts, 20, zap_mode_flags.flags.hex_entry);
+
+  sprintf(output,"TabEditM%i", zap_mode_flags.flags.tab_entry_mode);
+  lookup_message(MessageBlock,output,output,256);
+  set_indtext(windows[ModeOpts].openblock.window,22,output);
+
+  set_flag(ModeOpts, 24, zap_mode_flags.flags.tabs_as_spaces);
+  set_flag(ModeOpts, 15, zap_mode_flags.flags.strip_spaces);
+  set_flag(ModeOpts, 32, zap_mode_flags_1.flags.line_number_colon);
+
+  icon_print(ModeOpts,34,"%i",zap_mode_flags_1.flags.line_no_width+1);
+
+  set_flag(ModeOpts, 51, zap_mode_flags_1.flags.bigendian);
+  set_flag(ModeOpts, 48, zap_mode_flags_1.flags.spell_as_you_type);
+  set_flag(ModeOpts, 55, zap_mode_flags_1.flags.block_edit);
+
+  set_flag(ModeOpts, 49, zap_mode_flags_1.flags.wordwrap);
+  set_flag(ModeOpts, 50, zap_mode_flags_1.flags.linewrap);
+  set_flag(ModeOpts, 35, zap_mode_flags_1.flags.window_wrap);
+  set_flag(ModeOpts, 37, zap_mode_flags_1.flags.soft_wrap);
+  set_flag(ModeOpts, 36, zap_mode_flags_1.flags.auto_soft_wrap);
+  set_flag(ModeOpts, 52, zap_mode_flags_1.flags.strong_soft_wrap);
+  set_flag(ModeOpts, 47, zap_mode_flags_1.flags.infinite_window_wrap);
+
+  set_flag(ModeOpts, 43, zap_mode_flags_1.flags.cursor_smart);
+  set_flag(ModeOpts, 41, zap_mode_flags_1.flags.cursor_confine_v);
+  set_flag(ModeOpts, 42, zap_mode_flags_1.flags.cursor_confine_right);
+  set_flag(ModeOpts, 40, zap_mode_flags_1.flags.cursor_free_click);
+  set_flag(ModeOpts, 44, zap_mode_flags_1.flags.line_selection);
+
+  icon_print(ModeOpts,58,"%i",zap_mode_flags_2.flags.keymap);
+}
+
+void modeoptsclick()
+{
+  if(result->mouse.button.data.menu==1) return;
+  switch(result->mouse.icon)
+  {
+    case 59 : /* Drop-through */
+    case 60 :
+      number_cycle(ModeOpts, 58, result->mouse.icon - 59, 0, 255);
+      break;
+    case 5  : zap_mode_flags.flags.auto_width ^= 1; break;
+    case 11 : zap_mode_flags.flags.lines_base ^= 1; break;
+    case 16 : zap_mode_flags.flags.line_or_stream_edit ^= 1; break;
+    case 17 : zap_mode_flags.flags.non_standard_edit ^= 1; break;
+    case 18 : zap_mode_flags.flags.auto_indent ^= 1; break;
+    case 19 : zap_mode_flags.flags.overwrite ^= 1; break;
+    case 20 : zap_mode_flags.flags.hex_entry ^= 1; break;
+    case 24 : zap_mode_flags.flags.tabs_as_spaces ^= 1; break;
+    case 15 : zap_mode_flags.flags.strip_spaces ^= 1; break;
+    case 10 : linenosmenu(); break;
+    case 14 : tabdisplaymenu(); break;
+    case 21 : tabeditmenu(); break;
+    case 31 : modesmenu(2); break;
+    case 32 : zap_mode_flags_1.flags.line_number_colon ^= 1; break;
+    case 35 : zap_mode_flags_1.flags.window_wrap ^= 1; break;
+    case 36 : zap_mode_flags_1.flags.auto_soft_wrap ^= 1; break;
+    case 37 : // Softwrap and linewrap are exclusive
+      zap_mode_flags_1.flags.soft_wrap ^= 1;
+      if (zap_mode_flags_1.flags.soft_wrap)
+      {
+        zap_mode_flags_1.flags.linewrap=0;
+        Icon_Deselect(ModeOpts,50);
+      }
+      break;
+    case 40 : zap_mode_flags_1.flags.cursor_free_click ^= 1; break;
+    case 41 : zap_mode_flags_1.flags.cursor_confine_v ^= 1; break;
+    case 42 : zap_mode_flags_1.flags.cursor_confine_right ^= 1; break;
+    case 43 : zap_mode_flags_1.flags.cursor_smart ^= 1; break;
+    case 44 : zap_mode_flags_1.flags.line_selection ^= 1; break;
+    case 47 : zap_mode_flags_1.flags.infinite_window_wrap ^= 1; break;
+    case 48 : zap_mode_flags_1.flags.spell_as_you_type ^= 1; break;
+    case 55 : zap_mode_flags_1.flags.block_edit ^= 1; break;
+    case 49 : // Wordwrap and linewrap are exclusive
+      zap_mode_flags_1.flags.wordwrap ^= 1;
+      if (zap_mode_flags_1.flags.wordwrap)
+      {
+        zap_mode_flags_1.flags.linewrap=0;
+        Icon_Deselect(ModeOpts,50);
+      }
+      break;
+    case 50 : // Wordwrap/softwrap and linewrap are exclusive
+      zap_mode_flags_1.flags.linewrap ^= 1;
+      if (zap_mode_flags_1.flags.linewrap)
+      {
+        zap_mode_flags_1.flags.wordwrap=0;
+        Icon_Deselect(ModeOpts,49);
+        zap_mode_flags_1.flags.soft_wrap=0;
+        Icon_Deselect(ModeOpts,37);
+      }
+      break;
+    case 53 : // Delete options for this mode
+      if (strcmp(mode_name,"Text")==0)
+      {
+        // Not allowed to delete Text mode's settings
+        // (temporary hack)
+        makeerror(FALSE, "ETextModeVital");
+      }
+      else
+      {
+        // Delete this mode's options
+        _save_modeopts(FALSE); // doesn't write this mode
+        open_modeopts(textmode_index()); // always there
+      }
+      break;
+    case 54 : // Sanitise options for this mode
+      zap_mode_flags.flags.width = update_number(ModeOpts, 7);
+      zap_mode_flags_1.flags.line_no_width = update_number(ModeOpts, 10) - 1;
+      zap_mode_flags_2.flags.keymap = update_number(ModeOpts, 58);
+      sanitise_modeopts(); // Check on sanity
+      update_modeopts(); // Reflect in window
+      break;
+  }
+}
+
+void sanitise_modeopts()
+{
+  /* Mode word 0 */
+  if (zap_mode_flags.flags.width==0)
+    zap_mode_flags.flags.width=80;
+
+  /* Mode word 1 */
+  if (zap_mode_flags_1.flags._unused_disable_font_substyles==1)
+    zap_mode_flags_1.flags._unused_disable_font_substyles=0;
+
+//  if (zap_mode_flags_1.flags.reserved_10!=0)
+//    zap_mode_flags_1.flags.reserved_10=0;
+  if (zap_mode_flags_1.flags.reserved_11!=0)
+    zap_mode_flags_1.flags.reserved_11=0;
+  if (zap_mode_flags_1.flags.reserved_14!=0)
+    zap_mode_flags_1.flags.reserved_14=0;
+  if (zap_mode_flags_1.flags.reserved_30!=0)
+    zap_mode_flags_1.flags.reserved_30=0;
+
+  if (zap_mode_flags_1.flags.wordwrap==1 || zap_mode_flags_1.flags.soft_wrap==1)
+    if (zap_mode_flags_1.flags.linewrap==1)
+      zap_mode_flags_1.flags.linewrap=0;
+}
+
+/*
+// writeout dictates whether we should write the current
+// mode's entry.
+*/
+
+void _save_modeopts(BOOL writeout)
+{
+  FILE *fh,*fh2;
+  BOOL written=FALSE;
+  int i, j, k, *words;
+  char *temp;
+  /* mode_name points to the name we're looking for */
+  fh=fopen("<ZapConfig$Dir>.TempParsed.config_o","rb");
+  fh2=fopen("<ZapConfig$Dir>.TempParsed.config_o2","wb");
+  if(fh==NULL || fh2==NULL)
+  {
+    fclose(fh);
+    fclose(fh2);
+//    lookup_message(MessageBlock,"EBadInternals",output,256);
+//    reporterror(0,output,6,"ZapConfig");
+//    return;
+    makeerror(TRUE,"EBadInternals");
+  }
+
+  do
+  {
+    if(fread(output,4,2,fh)==2 && !feof(fh))
+    {
+      i=*((int *)(output+4))-8;
+      if(fread(output+8, 1, i, fh)==i && !feof(fh))
+      {
+        if(!stricmp(mode_name, output+8))
+        {
+          /* our mode */
+          if (writeout) /* write */
+          {
+            words=(int *)output;
+            words[0]=2; /* 'mode opts' */
+            words[1]= 8 /* header */ +
+  //          	    strlen(mode_name)+1 /*may have to add something */ +
+            	    4 /* length of Zap-handled segment */ +
+            	    4 /* zap_mode_flags_0 */ +
+            	    4 /* zap_mode_flags_1 */ +
+            	    4 /* zap_mode_flags_2 */ +
+            	    zap_mode_length +
+            	    4 /* -1 word */ +
+            	    zap_mode_number_colours*4 +
+            	    4 /* length of mode-handled segment */ +
+            	    mode_mode_length;
+            k=strlen(mode_name)+1;
+  //          if(k % 4)
+  //          {
+  //            i=4 - (words[1] % 4);
+  //            words[1] += i; /* word align name */
+  //          }
+            /* output+8 already contains name padded correctly */
+  //          words=(int *)(output+8+strlen(output+8)+1+i); /* after name */
+            k=(k+3) & ~3; // round to next whole word
+            words[1]+=k;
+            words=(int *)(output+8+k); /* after name */
+            words[0]=12 /* flags_0, _1 and _2 */ + zap_mode_length + 4 /* -1 */ + 4*zap_mode_number_colours;
+            words[1]=zap_mode_flags.size;
+            words[2]=zap_mode_flags_1.size;
+            words[3]=zap_mode_flags_2.size;
+            i=0;
+            temp=(char *)(words+4 /* !!! Change on more mode opt words */);
+            if(zap_mode_length>0)
+            {
+              for(i=0;i<zap_mode_length;i++)
+                temp[i]=zap_mode_extra_flags[i];
+            }
+            i/=4;
+            words[4 /* !!! Change on more mode opt words */ +i]=-1;
+            i+=5 /* !!! Change on more mode opt words */;
+            /* i is now where we store the colours */
+            for(j=0; j<zap_mode_number_colours; j++)
+              words[i+j]=zap_mode_colours[j].size;
+            i+=j; /* i is now where we store mode opts */
+            words[i++]=mode_mode_length;
+            temp=(char *)(words+i);
+            if(mode_mode_length>0)
+            {
+              for(j=0;j<mode_mode_length;j++)
+                temp[j]=mode_mode_flags[j];
+            }
+            words=(int *)output;
+            fwrite(output,1,words[1],fh2);
+          }
+          written=TRUE;
+        }
+        else
+          fwrite(output,1,i+8,fh2); /* write entry */
+      }
+    }
+  } while(!feof(fh));
+  fclose(fh);
+
+  if(!written && writeout)
+  {
+    /* write */
+    words=(int *)output;
+    words[0]=2; /* 'mode opts' */
+    words[1]= 8 /* header */ +
+//    	    strlen(mode_name)+1 /*may have to add something */ +
+    	    4 /* length of Zap-handled segment */ +
+    	    4 /* zap_mode_flags_0 */ +
+    	    4 /* zap_mode_flags_1 */ +
+    	    4 /* zap_mode_flags_2 */ +
+    	    zap_mode_length +
+    	    4 /* -1 word */ +
+    	    zap_mode_number_colours*4 +
+    	    4 /* length of mode-handled segment */ +
+    	    mode_mode_length;
+//    if(words[1] % 4)
+//    {
+//      i=4 - (words[1] % 4);
+//      words[1] += i; /* word align name */
+//    }
+    for(j=0; j<strlen(output+8)+4; j++) output[8+j]=0; /* zero padding */
+    strcpy(output+8,mode_name);
+    k=strlen(mode_name)+1;
+    k=(k+3) & ~3; // round to next whole word
+    words[1]+=k;
+    words=(int *)(output+8+k); /* after name */
+//    words=(int *)(output+8+strlen(output+8)+1+i); /* after name */
+    words[0]=12 /* flags_0, _1 and _2 */ + zap_mode_length + 4 /* -1 */ + 4*zap_mode_number_colours;
+    words[1]=zap_mode_flags.size;
+    words[2]=zap_mode_flags_1.size;
+    words[3]=zap_mode_flags_2.size;
+    i=0;
+    temp=(char *)(words+4 /* !!! Change on more mode opt words */);
+    if(zap_mode_length>0)
+    {
+      for(i=0;i<zap_mode_length;i++)
+        temp[i]=zap_mode_extra_flags[i];
+    }
+    i/=4;
+    words[4 /* !!! Change on more mode opt words */ +i]=-1;
+    i+=5 /* !!! Change on more mode opt words */;
+    /* i is now where we store the colours */
+    for(j=0; j<zap_mode_number_colours; j++)
+      words[i+j]=zap_mode_colours[j].size;
+    i+=j; /* i is now where we store mode opts */
+    words[i++]=mode_mode_length;
+    temp=(char *)(words+i);
+    if(mode_mode_length>0)
+    {
+      for(j=0;j<mode_mode_length;j++)
+        temp[j]=mode_mode_flags[j];
+    }
+    words=(int *)output;
+    fwrite(output,1,words[1],fh2);
+  }
+  fclose(fh2);
+
+  sprintf(output,"Copy <ZapConfig$Dir>.TempParsed.config_o2 <ZapConfig$Dir>.TempParsed.config_o %s",Copy_Flags);
+  OS_CLI(output);
+}
+
+int load_modeopts()
+{
+  FILE *fh;
+  BOOL breakout=FALSE;
+  int i,i2,i3,j;
+  char *temp;
+  int *words, *words2;
+  /* mode_name points to the name we're looking for */
+  sprintf(output, "Deleting mode_mode_flags = %p", mode_mode_flags);
+  BP(output);
+  if(mode_mode_flags!=NULL) memfree(mode_mode_flags);
+  mode_mode_flags=NULL;
+  mode_mode_length=0;
+  sprintf(output, "Deleting zap_mode_extra_flags = %p", zap_mode_extra_flags);
+  BP(output);
+  if(zap_mode_extra_flags!=NULL) memfree(zap_mode_extra_flags);
+  zap_mode_extra_flags=NULL;
+  zap_mode_length=0;
+  fh=fopen("<ZapConfig$Dir>.TempParsed.config_o","rb");
+  if(fh==NULL)
+  {
+//    lookup_message(MessageBlock,"EBadInternals",output,256);
+//    reporterror(0,output,6,"ZapConfig");
+    makeerror(TRUE,"EBadInternals");
+//    return;
+  }
+
+  do
+  {
+    if(fread(output,4,2,fh)==2 && !feof(fh))
+    {
+      j=*((int *)(output+4))-8;
+      if(fread(output, 1, j, fh)==j && !feof(fh))
+      {
+        if(!stricmp(mode_name, output))
+        {
+          /* ### If the config stuff doesn't work, this is the bit to blame */
+          int splodge;
+          /* our mode! */
+          temp = output+strlen(output)+1;
+          if(((int)(temp-output) % 4)>0)
+            temp += 4 - ((int)(temp-output) % 4);
+          words=(int *)temp;
+          zap_mode_flags.size=words[1];
+          splodge=2;
+          if(words[splodge]!=-1)
+          {
+            BP("Second mode word loaded.");
+            zap_mode_flags_1.size=words[splodge];
+            splodge++;
+            if (words[splodge]!=-1)
+            {
+              BP("Third mode word loaded.");
+              zap_mode_flags_2.size=words[splodge];
+              splodge++;
+            }
+            else
+              zap_mode_flags_2.size=0; /* Default keymap = 0 */
+          }
+          else
+          {
+            zap_mode_flags_1.size=1; /* vaguely sensible, with line number width = 1 */
+            zap_mode_flags_2.size=0; /* Default keymap = 0 */
+          }
+
+          if(words[splodge]!=-1)
+          {
+            BP("Zap extra flags loaded.");
+            /* more recent !Config format */
+            i=splodge+1;
+            while(words[i]!=-1) i++;
+            i-=splodge; /* i is now number of unknown words present */
+            zap_mode_extra_flags=memalloc(i*4);
+            zap_mode_length=i*4;
+            i2=i+1; /* last word not -1 */
+            words2=(int *)zap_mode_extra_flags;
+            while(i2>1)
+            {
+              words2[i2-2]=words[i2];
+              i2--;
+            } /* copy into zap_mode_extra_flags */
+            i+=splodge+1; /* skip over -1 word */
+          }
+          else
+            i=splodge+1;
+          i2=words[0]/4;
+          /* we now know how many colours there are (i2-i+1) */
+          zap_mode_number_colours=i2-i+1;
+          for(i3=0;i3<i2-i+1;i3++)
+            zap_mode_colours[i3].size=words[i3+i];
+          i2++; /* start of mode data */
+          if(words[i2]>0)
+          {
+            BP("Mode flags loaded.");
+            /* mode handled data */
+            mode_mode_flags=memalloc(words[i2]);
+            mode_mode_length=words[i2];
+            i3=i2+1;
+            i2=words[i2]/4;
+            words2=(int *)mode_mode_flags;
+            for(i=0;i<i2;i++)
+              words2[i]=words[i+i3];
+          }
+          breakout=TRUE;
+        }
+      }
+    }
+  } while(!breakout && !feof(fh));
+  fclose(fh);
+
+  return breakout; // FALSE => This mode doesn't exist in the Config file
+//  if(!breakout)
+//  {
+//    /* note that these are all WRONG, since if there isn't an option
+//    // block for a certain mode, Zap asks the mode itself to set up sensible
+//    // defaults.
+//    // Probably what I'll do is suppress editing in this case.
+//    // (###)
+//    */
+//    zap_mode_number_colours=9; /* standard */
+//    zap_mode_colours[0].size=0x10;
+//    zap_mode_colours[1].size=0x10;
+//    zap_mode_colours[2].size=0xffffff10;
+//    zap_mode_colours[3].size=0xffffff10;
+//    zap_mode_colours[4].size=0x10;
+//    zap_mode_colours[5].size=0xffffff10;
+//    zap_mode_colours[6].size=0x10;
+//    zap_mode_colours[7].size=0x00eeee10;
+//    zap_mode_colours[8].size=0x0000dd10;
+//    zap_mode_flags.flags.width=ZapGlobalOptions.wordwrap_width;
+//    zap_mode_flags.flags.auto_indent=0; /* on average */
+//    zap_mode_flags.flags.auto_width=ZapGlobalOptions.opt_flags.flags.auto_width;
+//    zap_mode_flags.flags.strip_spaces=ZapGlobalOptions.opt_format.flags.strip_spaces;
+//    zap_mode_flags.flags.tab_entry_mode=ZapGlobalOptions.opt_flags.flags.tab_mode;
+//    zap_mode_flags.flags.tabs_as_spaces=ZapGlobalOptions.opt_flags.flags.insert_tabs_as_spaces;
+//    zap_mode_flags.flags.hex_entry=ZapGlobalOptions.opt_flags.flags.hex_entry;
+//    zap_mode_flags.flags.overwrite=ZapGlobalOptions.opt_flags.flags.insert_mode;
+//    zap_mode_flags.flags.show_line_numbers=ZapGlobalOptions.opt_format.flags.show_line_numbers;
+//    zap_mode_flags.flags.lines_are_lines=ZapGlobalOptions.opt_format.flags.lines_are_lines;
+//    zap_mode_flags.flags.lines_base=ZapGlobalOptions.opt_format.flags.lines_base;
+//    zap_mode_flags.flags.lines_physical=ZapGlobalOptions.opt_format.flags.lines_physical;
+//    zap_mode_flags.flags.tab_display_format=ZapGlobalOptions.opt_format.flags.tab_display_format;
+//    zap_mode_flags.flags.line_or_stream_edit=
+//      ZapGlobalOptions.opt_format.flags.line_or_stream_edit;
+//    zap_mode_flags.flags.non_standard_edit=ZapGlobalOptions.opt_format.flags.non_standard_edit;
+//    zap_mode_flags_1.size=1; /* Same comment as before */
+//  }
+}

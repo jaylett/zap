@@ -1,0 +1,149 @@
+/*	upgrade.c
+	© James Aylett	*/
+
+#include "upgrade.h"
+
+void close_upgrade()
+{
+  UpgradeOpen=FALSE;
+  close_child(Upgrade);
+
+/*  save_external(TRUE);*/
+  free_keys();
+}
+
+void open_upgrade()
+{
+/*  load_external();*/
+
+  scan_modules();
+
+  KeyCode=0;
+
+  if(KeysFile[KeyCode]!=NULL)
+    set_indtext(windows[Upgrade].openblock.window,2,KeysFile[KeyCode]+1);
+  else
+  {
+    set_indtext(windows[Upgrade].openblock.window,2,"-- None --");
+    KeyCode=-1;
+  }
+
+  set_flag(Upgrade, 9, ZapGlobalOptions.switches.flags.autoload_lineeditor);
+  set_flag(Upgrade, 10, ZapGlobalOptions.switches.flags.autoload_disassembler);
+  set_flag(Upgrade, 11, ZapGlobalOptions.switches.flags.autoload_hidepointer);
+  set_flag(Upgrade, 12, ZapGlobalOptions.switches.flags.autoload_assembler);
+  set_flag(Upgrade, 14, ZapGlobalOptions.switches.flags.autoload_iclear);
+  set_flag(Upgrade, 15, ZapGlobalOptions.switches.flags.autoload_flashcar);
+  set_flag(Upgrade, 13, ZapGlobalOptions.switches.flags.autoload_keyboardextend);
+
+  open_child(Upgrade, -1);
+  UpgradeOpen=TRUE;
+}
+
+void upgradeclick()
+{
+  int temp;
+  char temp2[256];
+
+  if(result->mouse.button.data.menu==1) return;
+  switch(result->mouse.icon)
+  {
+    case 3:case 4:
+      temp=KeyCode+ (2*result->mouse.icon - 7);
+      if(temp<0) temp=0;
+      if(temp>=MaxModules) temp=MaxModules-1;
+      if(KeysFile[temp]!=NULL)
+      {
+        KeyCode=temp;
+;        sprintf(temp2,"%i", temp);
+        set_indtext(windows[Upgrade].openblock.window,2,KeysFile[KeyCode]+1);
+      }
+      break;
+    case 5: /* remove */
+      /* If !Zap.Unused isn't a file ... so we don't back up images ... */
+      if (!File_Exists("<Zap$Dir>.Unused"))
+      {
+        /* If it doesn't exist then create */
+        if (!fisdirectory("<Zap$Dir>.Unused"))
+          system("CDir <Zap$Dir>.Unused");
+
+	/* Delete old backup */
+        sprintf(temp2, "<Zap$Dir>.Unused.%s", KeysFile[KeyCode]);
+        if (fisdirectory(temp2))
+        {
+          sprintf(temp2, "Wipe %s ~CFR~V", temp2);
+          system(temp2);
+        }
+
+        /* Make backup */
+        sprintf(temp2, "Copy <Zap$Dir>.Modules.%s <Zap$Dir>.Unused.%s ~C~DF~NQR~V",
+        	      KeysFile[KeyCode], KeysFile[KeyCode]);
+        system(temp2);
+      }
+
+      /* Delete */
+      sprintf(temp2, "Wipe <Zap$Dir>.Modules.%s ~CFR~V", KeysFile[KeyCode]);
+      system(temp2);
+
+      /* Remove modes which it supplied */
+      remove_module(KeysFile[KeyCode]);
+
+      /* Remove from internal list */
+      if(KeysFile[KeyCode]!=NULL) memfree(KeysFile[KeyCode]);
+      for(temp=KeyCode; temp<=MaxModules; temp++)
+        KeysFile[temp]=KeysFile[temp+1];
+      KeysFile[MaxModules-1]=NULL;
+      if (KeyCode==MaxModules-1) KeyCode--;
+      MaxModules--;
+
+      /* Update window */
+      if(KeysFile[KeyCode]!=NULL)
+        set_indtext(windows[Upgrade].openblock.window,2,KeysFile[KeyCode]+1);
+      else
+      {
+        set_indtext(windows[Upgrade].openblock.window,2,"-- None --");
+        KeyCode=-1;
+      }
+
+      break;
+    case 9  : ZapGlobalOptions.switches.flags.autoload_lineeditor ^= 1; break;
+    case 10 : ZapGlobalOptions.switches.flags.autoload_disassembler ^= 1; break;
+    case 11 : ZapGlobalOptions.switches.flags.autoload_hidepointer ^= 1; break;
+    case 12 : ZapGlobalOptions.switches.flags.autoload_assembler ^= 1; break;
+    case 13 : ZapGlobalOptions.switches.flags.autoload_keyboardextend ^= 1; break;
+    case 14 : ZapGlobalOptions.switches.flags.autoload_iclear ^= 1; break;
+    case 15 : ZapGlobalOptions.switches.flags.autoload_flashcar ^= 1; break;
+  }
+}
+
+void scan_modules()
+{
+  /* Scan <Zap$Dir>.Modules for directories */
+  int t,modules_found=0;
+  filing_dirdata f_dirdata;
+  filing_readdirtype f_readdirtype=readdirtype_DIRENTRY;
+  filing_direntry *f_direntry;
+  char dir[]="<Zap$Dir>.Modules";
+
+  for(t=0; t<0x1101; t++)
+  {
+    if (KeysFile[t]!=NULL) memfree(KeysFile[t]); /* just to make sure */
+    KeysFile[t]=NULL;
+  }
+
+  Filing_OpenDir(dir, &f_dirdata, 256, f_readdirtype);
+  while((f_direntry=(filing_direntry *)Filing_ReadDir(&f_dirdata))!=NULL && modules_found<0x1100 /* imposed by KeysFile[] */)
+  {
+    if((f_direntry->objtype==filing_DIRECTORY ||
+        f_direntry->objtype==filing_IMAGEFILE) &&
+        f_direntry->name[0]=='!')
+    {
+      /* Add this! */
+      KeysFile[modules_found]=memalloc(strlen(f_direntry->name)+1);
+      strcpy(KeysFile[modules_found], f_direntry->name);
+      modules_found++;
+    }
+  }
+  Filing_CloseDir(&f_dirdata);
+  MaxModules=modules_found;
+}

@@ -1,0 +1,2490 @@
+; ZapRedraw
+;
+; (C) D.H.Symes 1993/1994
+
+ GET h.ZapRedHdr
+
+ EXPORT div_mod
+ EXPORT find_character
+ EXPORT skip_control_char
+ EXPORT move_bytes
+ EXPORT strcopy
+ EXPORT strcpy
+
+ IMPORT redraw_area_vdu
+ IMPORT sprite_size
+ IMPORT sprite_create
+ IMPORT sprite_output
+ IMPORT font_findfont
+ IMPORT sprite_set_cols
+
+ IMPORT redraw_area_dsa
+ IMPORT redraw_raster
+ IMPORT convert_bitmap
+ IMPORT convert_bitmap_char
+ IMPORT cached_char_size
+ IMPORT plotrect
+
+; module header
+
+ GBLS version
+version SETS "0.37 "
+
+ AREA |!!!Module_Header_Area|,CODE,READONLY
+
+ ENTRY
+
+Module_header
+Start_code		DCD 0
+Initialisation_code	DCD 0
+Finalisation_code	DCD 0
+Service_call_handler	DCD 0
+Title_string		DCD title_string
+Help_string		DCD help_string
+Command_keyword_tab	DCD 0
+
+ [ |zap$|="Zap"
+
+SWI_chunk_number	DCD &48480		; actual SWI number
+
+ |
+
+SWI_chunk_number	DCD &48440		; text X SWI number
+
+ ]
+
+SWI_handler_code	DCD swi_code
+SWI_decoding_table	DCD swi_table
+SWI_decoding_code	DCD 0
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; TITLES AND COMMAND TABLES				       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+help_string = |zap$|,"Redraw",9
+	    = version," (00 Jan 0000)"
+	    = " © Dominic Symes",0
+
+title_string = |zap$|:CC:"Redraw",0
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Swi table						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+swi_table
+ = |zap$|,"Redraw",0
+ = "RedrawArea",0		; 0
+ = "GetPaletteEntry",0		; 1
+ = "RedrawRaster",0		; 2
+ = "ConvertBitmap",0		; 3
+ = "PrepareDataLine",0		; 4
+ = "AddCursor",0		; 5
+ = "FindCharacter",0		; 6
+ = "MoveBytes",0		; 7
+ = "CachedCharSize",0		; 8
+ = "ConvBitmapChar",0		; 9
+ = "CreatePalette",0		; 10
+ = "InsertChar",0		; 11
+ = "ReadSystemChars",0		; 12
+ = "ReverseBitmaps",0		; 13
+ = "ReadVduVars",0		; 14
+ = "GetRectangle",0		; 15
+ = "AddVduBitmaps",0		; 16
+ = "CacheFontChars",0		; 17
+ = "SpriteSize",0		; 18
+ = "RedrawWindow",0		; 19
+ = "Divide",0			; 20
+ = "PlotRectangle",0		; 21
+ = 0
+ ALIGN
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; SWI code						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+; SWI handler code entry point
+; should I MOVS on returning incase user mode? X form
+
+swi_code
+ CMP R11,#(end$l-start$l)/4
+ ADDCC PC,PC,R11,LSL#2
+ B unknown$l
+start$l
+ B redraw_area			; 0
+ B get_palette_entry
+ B redraw_raster
+ B convert_bitmap
+ B prepare_data_line
+ B add_cursor			; 5
+ B find_character
+ B move_bytes
+ B cached_char_size		; 8
+ B convert_bitmap_char
+ B create_palette		; 10
+ B insert_char
+ B read_system_chars
+ B reverse_bitmaps
+ B read_vdu_vars
+ B get_rectangle		; 15
+ B add_vdu_bitmaps		; 16
+ B cache_font_chars
+ B sprite_size
+ B redraw_window
+ B div_mod
+ B plotrect
+end$l
+unknown$l ERR "Unknown ZapRedraw SWI"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Get palette entry SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=colour number (0->2^R1-1)
+;  R1=r_bpp
+;X R0=colour number duplicated to fill out word
+
+get_palette_entry
+ CMP R1,#6
+ ADDCC PC,PC,R1,LSL#2		; jump table
+ MOV PC,R14
+ ORR R0,R0,R0,LSL#1		; 1bbp
+ ORR R0,R0,R0,LSL#2		; 2bpp
+ ORR R0,R0,R0,LSL#4		; 4bpp
+ ORR R0,R0,R0,LSL#8		; 8bpp
+ ORR R0,R0,R0,LSL#16		; 16bpp
+ MOV PC,R14			; 32bpp
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Redraw area SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=redraw block R2=extension sub R3=private word
+
+redraw_area
+ ;SWI &107
+ LDR R0,[R1,#r_flags]
+ TST R0,#1
+ BEQ redraw_area_dsa		; direct screen access
+ B redraw_area_vdu		; vdu mode
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Division/Modulo - optimised routine written by Darren Salt ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=numerator	  R1=denominator
+;X R0=R0 DIV R1	  R2=R0 MOD R1	  R1 corrupted R3 corrupted if r1 > 39 |
+
+;div_mod
+; MOV R2,#0			; clear remainder
+; RSB R1,R1,#0			; negate denom
+; MOV R3,#32
+; TST R0,#&FF000000		; dispose of zero bytes
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8
+; TST R0,#&FF000000
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8
+; TST R0,#&FF000000
+; MOVEQ R0,R0,LSL #8
+; SUBEQ R3,R3,#8
+; ADDS R0,R0,R0			; double numerator
+div_mod	CMP	R1,#33
+	ADDLO	PC,PC,R1,LSL #2
+	B	divbyn
+	B	divby0
+	B	divby1
+	B	divby2
+	B	divby3
+	B	divby4
+	B	divby5
+	B	divby6
+	B	divby7
+	B	divby8
+	B	divby9
+	B	divby10
+	B	divby11
+	B	divby12
+	B	divby13
+	B	divby14
+	B	divby15
+	B	divby16
+	B	divby17
+	B	divby18
+	B	divby19
+	B	divby20
+	B	divby21
+	B	divby22
+	B	divby23
+	B	divby24
+	B	divby25
+	B	divby26
+	B	divby27
+	B	divby28
+	B	divby29
+	B	divby30
+	B	divby31
+	B	divby32
+;	B	divby33
+;	B	divby34
+;	B	divby35
+;	B	divby36
+;	B	divby37
+;	B	divby38
+;	B	divby39
+divby0	MOV	R2,#0
+	MVN	R0,#1<<31	; error!
+	MOVS	PC,R14
+divby1	MOV	R2,#0
+	MOVS	PC,R14
+divby2	AND	R2,R0,#1
+	MOV	R0,R0,LSR #1
+	MOVS	PC,R14
+divby3	ADD	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #2
+	RSB	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#3
+	CMP	R2,#3
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#3
+	MOV	R0,R1
+	MOVS	PC,R14
+divby4	AND	R2,R0,#3
+	MOV	R0,R0,LSR #2
+	MOVS	PC,R14
+divby5	SUB	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #2
+	ADD	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#5
+	CMP	R2,#5
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#5
+	MOV	R0,R1
+	MOVS	PC,R14
+divby6	ADD	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #3
+	RSB	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#6
+	CMP	R2,#6
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#6
+	MOV	R0,R1
+	MOVS	PC,R14
+divby7	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #3
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #2
+	RSB	R2,R1,R1,LSL #3
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#7
+	CMP	R2,#7
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#7
+	MOV	R0,R1
+	MOVS	PC,R14
+divby8	AND	R2,R0,#7
+	MOV	R0,R0,LSR #3
+	MOVS	PC,R14
+divby9	SUB	R1,R0,R0,LSR #3
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #3
+	ADD	R2,R1,R1,LSL #3
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#9
+	CMP	R2,#9
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#9
+	MOV	R0,R1
+	MOVS	PC,R14
+divby10	SUB	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #3
+	ADD	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0A
+	CMP	R2,#&0A
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0A
+	MOV	R0,R1
+	MOVS	PC,R14
+divby11	SUB	R1,R0,R0,LSR #2
+	SUB	R1,R1,R0,LSR #5
+	ADD	R1,R1,R0,LSR #7
+	ADD	R1,R1,R1,LSR #10
+	ADD	R1,R1,R1,LSR #20
+	MOV	R1,R1,LSR #3
+	RSB	R2,R1,R1,LSL #2
+	RSB	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0B
+	CMP	R2,#&0B
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0B
+	MOV	R0,R1
+	MOVS	PC,R14
+divby12	ADD	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2,LSL #2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0C
+	CMP	R2,#&0C
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0C
+	MOV	R0,R1
+	MOVS	PC,R14
+divby13	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R0,LSR #3
+	SUB	R1,R1,R0,LSR #7
+	SUB	R1,R1,R0,LSR #9
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #3
+	RSB	R2,R1,R1,LSL #2
+	ADD	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0D
+	CMP	R2,#&0D
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0D
+	MOV	R0,R1
+	MOVS	PC,R14
+divby14	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #3
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #3
+	RSB	R2,R1,R1,LSL #3
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0E
+	CMP	R2,#&0E
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0E
+	MOV	R0,R1
+	MOVS	PC,R14
+divby15	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #3
+	RSB	R2,R1,R1,LSL #4
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&0F
+	CMP	R2,#&0F
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&0F
+	MOV	R0,R1
+	MOVS	PC,R14
+divby16	AND	R2,R0,#15
+	MOV	R0,R0,LSR #4
+	MOVS	PC,R14
+divby17	SUB	R1,R0,R0,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #4
+	ADD	R2,R1,R1,LSL #4
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&11
+	CMP	R2,#&11
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&11
+	MOV	R0,R1
+	MOVS	PC,R14
+divby18	SUB	R1,R0,R0,LSR #3
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #4
+	ADD	R2,R1,R1,LSL #3
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&12
+	CMP	R2,#&12
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&12
+	MOV	R0,R1
+	MOVS	PC,R14
+divby19	SUB	R1,R0,R0,LSR #3
+	SUB	R1,R1,R0,LSR #5
+	SUB	R1,R1,R0,LSR #9
+	ADD	R1,R1,R0,LSR #12
+	ADD	R1,R1,R0,LSR #14
+	ADD	R1,R1,R1,LSR #18
+	MOV	R1,R1,LSR #4
+	ADD	R2,R1,R1,LSL #2
+	RSB	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&13
+	CMP	R2,#&13
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&13
+	MOV	R0,R1
+	MOVS	PC,R14
+divby20	SUB	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #4
+	ADD	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2,LSL #2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&14
+	CMP	R2,#&14
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&14
+	MOV	R0,R1
+	MOVS	PC,R14
+divby21	SUB	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #4
+	ADD	R2,R1,R1,LSL #2
+	ADD	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&15
+	CMP	R2,#&15
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&15
+	MOV	R0,R1
+	MOVS	PC,R14
+divby22	SUB	R1,R0,R0,LSR #2
+	SUB	R1,R1,R0,LSR #5
+	ADD	R1,R1,R0,LSR #7
+	ADD	R1,R1,R1,LSR #10
+	ADD	R1,R1,R1,LSR #20
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #2
+	RSB	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&16
+	CMP	R2,#&16
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&16
+	MOV	R0,R1
+	MOVS	PC,R14
+divby23	SUB	R1,R0,R0,LSR #2
+	SUB	R1,R1,R0,LSR #4
+	ADD	R1,R1,R0,LSR #7
+	ADD	R1,R1,R1,LSR #11
+	ADD	R1,R1,R1,LSR #22
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #2
+	RSB	R2,R1,R2,LSL #3
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&17
+	CMP	R2,#&17
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&17
+	MOV	R0,R1
+	MOVS	PC,R14
+divby24	ADD	R1,R0,R0,LSR #2
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #5
+	RSB	R2,R1,R1,LSL #2
+	SUBS	R2,R0,R2,LSL #3
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&18
+	CMP	R2,#&18
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&18
+	MOV	R0,R1
+	MOVS	PC,R14
+divby25	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R0,LSR #3
+	ADD	R1,R1,R0,LSR #6
+	SUB	R1,R1,R0,LSR #11
+	SUB	R1,R1,R0,LSR #13
+	SUB	R1,R1,R0,LSR #16
+	ADD	R1,R1,R1,LSR #20
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #2
+	ADD	R2,R1,R2,LSL #3
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&19
+	CMP	R2,#&19
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&19
+	MOV	R0,R1
+	MOVS	PC,R14
+divby26	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R0,LSR #3
+	SUB	R1,R1,R0,LSR #7
+	SUB	R1,R1,R0,LSR #9
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #2
+	ADD	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1A
+	CMP	R2,#&1A
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1A
+	MOV	R0,R1
+	MOVS	PC,R14
+divby27	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R0,LSR #3
+	SUB	R1,R1,R0,LSR #5
+	SUB	R1,R1,R0,LSR #10
+	SUB	R1,R1,R0,LSR #12
+	ADD	R1,R1,R0,LSR #14
+	ADD	R1,R1,R1,LSR #18
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #3
+	RSB	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1B
+	CMP	R2,#&1B
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1B
+	MOV	R0,R1
+	MOVS	PC,R14
+divby28	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #3
+	ADD	R1,R1,R1,LSR #6
+	ADD	R1,R1,R1,LSR #12
+	ADD	R1,R1,R1,LSR #24
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #3
+	SUBS	R2,R0,R2,LSL #2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1C
+	CMP	R2,#&1C
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1C
+	MOV	R0,R1
+	MOVS	PC,R14
+divby29	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R0,LSR #4
+	SUB	R1,R1,R0,LSR #6
+	ADD	R1,R1,R0,LSR #8
+	ADD	R1,R1,R0,LSR #10
+	SUB	R1,R1,R0,LSR #15
+	SUB	R1,R1,R0,LSR #18
+	ADD	R1,R1,R0,LSR #20
+	SUB	R1,R1,R0,LSR #22
+	SUB	R1,R1,R0,LSR #24
+	ADD	R1,R1,R1,LSR #28
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #3
+	ADD	R2,R1,R2,LSL #2
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1D
+	CMP	R2,#&1D
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1D
+	MOV	R0,R1
+	MOVS	PC,R14
+divby30	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #4
+	ADD	R1,R1,R1,LSR #8
+	ADD	R1,R1,R1,LSR #16
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #4
+	SUBS	R2,R0,R2,LSL #1
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1E
+	CMP	R2,#&1E
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1E
+	MOV	R0,R1
+	MOVS	PC,R14
+divby31	MOV	R1,R0,LSR #1
+	ADD	R1,R1,R1,LSR #5
+	ADD	R1,R1,R1,LSR #10
+	ADD	R1,R1,R1,LSR #20
+	MOV	R1,R1,LSR #4
+	RSB	R2,R1,R1,LSL #5
+	SUBS	R2,R0,R2
+	SUBMI	R1,R1,#1
+	ADDMI	R2,R2,#&1F
+	CMP	R2,#&1F
+	ADDGE	R1,R1,#1
+	SUBGE	R2,R2,#&1F
+	MOV	R0,R1
+	MOVS	PC,R14
+divby32	AND	R2,R0,#31
+	MOV	R0,R0,LSR #5
+	MOVS	PC,R14
+;divby33	SUB	R1,R0,R0,LSR #5
+;	ADD	R1,R1,R1,LSR #10
+;	ADD	R1,R1,R1,LSR #20
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #5
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&21
+;	CMP	R2,#&21
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&21
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby34	SUB	R1,R0,R0,LSR #4
+;	ADD	R1,R1,R1,LSR #8
+;	ADD	R1,R1,R1,LSR #16
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #4
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&22
+;	CMP	R2,#&22
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&22
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby35	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R0,LSR #5
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&23
+;	CMP	R2,#&23
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&23
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby36	SUB	R1,R0,R0,LSR #3
+;	ADD	R1,R1,R1,LSR #6
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	SUBS	R2,R0,R2,LSL #2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&24
+;	CMP	R2,#&24
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&24
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby37	SUB	R1,R0,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #7
+;	SUB	R1,R1,R0,LSR #9
+;	SUB	R1,R1,R0,LSR #11
+;	ADD	R1,R1,R0,LSR #13
+;	SUB	R1,R1,R0,LSR #18
+;	ADD	R1,R1,R0,LSR #21
+;	ADD	R1,R1,R0,LSR #25
+;	ADD	R1,R1,R0,LSR #27
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #3
+;	ADD	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&25
+;	CMP	R2,#&25
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&25
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby38	SUB	R1,R0,R0,LSR #3
+;	SUB	R1,R1,R0,LSR #5
+;	SUB	R1,R1,R0,LSR #9
+;	ADD	R1,R1,R0,LSR #12
+;	ADD	R1,R1,R0,LSR #14
+;	ADD	R1,R1,R1,LSR #18
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #2
+;	SUBS	R2,R0,R2,LSL #1
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&26
+;	CMP	R2,#&26
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&26
+;	MOV	R0,R1
+;	MOVS	PC,R14
+;divby39	SUB	R1,R0,R0,LSR #2
+;	ADD	R1,R1,R0,LSR #4
+;	ADD	R1,R1,R0,LSR #7
+;	ADD	R1,R1,R1,LSR #12
+;	ADD	R1,R1,R1,LSR #24
+;	MOV	R1,R1,LSR #5
+;	ADD	R2,R1,R1,LSL #2
+;	RSB	R2,R1,R2,LSL #3
+;	SUBS	R2,R0,R2
+;	SUBMI	R1,R1,#1
+;	ADDMI	R2,R2,#&27
+;	CMP	R2,#&27
+;	ADDGE	R1,R1,#1
+;	SUBGE	R2,R2,#&27
+;	MOV	R0,R1
+;	MOVS	PC,R14
+divbyn
+ MOV R2,#0			; clear remainder
+ RSB R1,R1,#0			; negate denom
+ MOV R3,#32
+ TST R0,#&FF000000		; dispose of zero bytes
+ MOVEQ R0,R0,LSL #8
+ SUBEQ R3,R3,#8
+ TST R0,#&FF000000		; dispose of zero bytes
+ MOVEQ R0,R0,LSL #8
+ SUBEQ R3,R3,#8
+ TST R0,#&FF000000		; dispose of zero bytes
+ MOVEQ R0,R0,LSL #8
+ SUBEQ R3,R3,#8
+ ADDS R0,R0,R0			; double numerator
+div_mod_1
+ ADCS R2,R1,R2,LSL#1
+ SUBCC R2,R2,R1
+ ADCS R0,R0,R0
+ ADCS R2,R1,R2,LSL#1
+ SUBCC R2,R2,R1
+ ADCS R0,R0,R0
+ ADCS R2,R1,R2,LSL#1
+ SUBCC R2,R2,R1
+ ADCS R0,R0,R0
+ ADCS R2,R1,R2,LSL#1
+ SUBCC R2,R2,R1
+ ADCS R0,R0,R0
+ SUB R3,R3,#4
+ TEQ R3,#0
+ BNE div_mod_1			; DO NOT CORRUPT CARRY
+ MOVS PC,R14
+
+;old_div_mod
+; MOV R2,#0			; clear remainder
+; ADDS R0,R0,R0			; double numerator
+; RSB R1,R1,#0			; negate denom
+; MOV R3,#32
+;div_mod_1
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; ADCS R2,R1,R2,LSL#1
+; SUBCC R2,R2,R1
+; ADCS R0,R0,R0
+; SUB R3,R3,#4
+; TEQ R3,#0
+; BNE div_mod_1			; DO NOT CORRUPT CARRY
+; MOVS PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Skip one control code					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=pointer to start of control sequence R2=for R3=bac R4=font
+;X R1-R4 updated
+;  R0>0 if it was a character
+;  R0=0 if we've reached the line end
+;  R0<0 if this didn't count as a character
+
+; Note that for backwards compatability with earlier versions of
+; ZapRedraw, if no 0,9 or 0,10 characters are encountered, R4 is preserved.
+
+skip_control_char
+ LDRB R0,[R1],#1		; get next char
+ CMP R0,#(skip_ctrl_end-skip_ctrl_start)/4
+ ADDCC PC,PC,R0,LSL#2
+ MOV PC,R14			; was a char (unknown)
+skip_ctrl_start
+ B skip_ctrl_0
+ B skip_ctrl_1			; change col
+ B skip_ctrl_2			; file end
+ B skip_ctrl_3			; extend
+ B skip_ctrl_4			; merge
+ MOV PC,R14			; 5=recall stacked point
+ B skip_ctrl_6			; change for
+ B skip_ctrl_7			; change bac
+ B skip_ctrl_4			; cursor merge
+ B skip_ctrl_9			; font change
+ B skip_ctrl_10			; font and colour change
+skip_ctrl_end
+
+skip_ctrl_0
+ MOV R0,#1			; is a char
+ MOV PC,R14
+
+skip_ctrl_1
+ LDRB R2,[R1],#1		; new for
+ LDRB R3,[R1],#1		; new bac
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_2
+ SUB R1,R1,#2
+ MOV R0,#0			; reached line end
+ MOV PC,R14
+
+skip_ctrl_3
+ ADD R1,R1,#2
+ MOV PC,R14
+
+skip_ctrl_4
+ FNJSR
+ ADD R1,R1,#2			; skip the cols
+ LDRB R0,[R1],#1		; next char
+ TEQ R0,#0
+ BLEQ skip_control_char
+ LDRB R0,[R1],#1		; and mask character
+ TEQ R0,#0
+ BLEQ skip_control_char
+ FNRTS
+
+skip_ctrl_6
+ LDRB R2,[R1],#1		; new for
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_7
+ LDRB R3,[R1],#1		; new bac
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_9
+ LDRB R4,[R1],#1		; new font
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_10
+ LDRB R2,[R1],#1		; new for
+ LDRB R3,[R1],#1		; new bac
+ LDRB R4,[R1],#1		; new font
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+; space save above...?
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Perpare data line for drawing				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=colour to use for ctrl chars / -1 if none
+;  R1=redraw block giving start for/bac cols & flags to say if R7 is used
+;  R2=input string
+;  R3=foreground mask
+;  R4=background mask
+;  R5=input length + flags
+;  R6=dest buffer (size 6*R5+16)
+;  R7=font mask... (not supplied if b3 of r_flags is zero)
+;X R0=highest char code used
+;  R5=length of output string
+
+local_max_out
+ & 0
+local_ctrl_colour
+ & 0
+
+prepare_data_line
+ FNJSR "R1-R4,R6-R12"
+ MOV R10,R7			; font data pointer...
+ LDR R7,[R1,#r_for]		; current foreground
+ AND R7,R7,#&FF
+ LDR R8,[R1,#r_bac]		; current background
+ LDR R1,[R1,#r_flags]		; current flags
+ TST R1,#&8
+ BEQ ordinary_prepare_data_line
+; STR R0,[R13,#-28] 		; ctrl chars col (R1 not needed)
+ STR R0,local_ctrl_colour
+ MOV R9,R6			; save start of output
+ MOV R14,#&20			; highest used code (space always)
+ STR R14,local_max_out
+ MOV R1,#-1			; dummy fonts flag (never match...!)
+pdl_loop
+ CMP R5,#0
+ BLE pdl_end
+ LDRB R0,[R2],#1		; next byte
+ LDRB R11,[R3],#1		; next foreground col
+ LDRB R12,[R10],#1		; next font colour...
+ LDR R14,local_max_out
+ CMP R0,R14
+ STRCS R0,local_max_out
+ CMP R12,R1			; R1 = Current font...
+ BNE pdl_new_font
+ LDRB R12,[R4],#1		; next background col
+ CMP R0,#&20
+ BLCC pdl_new_ctrl_char		; control character
+ TEQ   R7,R11
+ TEQEQ R8,R12
+ BLNE pdl_change_colour		; colours changed
+endofthepossibilities
+ TEQ R0,#0
+ STREQB R0,[R6],#1		; hmmm?
+ STRB R0,[R6],#1		; save the char
+ SUBS R5,R5,#1			; dec counter
+ B pdl_loop
+pdl_end
+ SUB R5,R6,R9			; current length
+ CMP R5,#0
+ BLE pdl_end_end
+ LDRB R0,[R6,#-1]
+ TEQ R0,#&20
+ SUBEQ R6,R6,#1
+ BEQ pdl_end			; strip spaces (no colour change)
+pdl_end_end
+ MOV R0,#0
+ STRB R0,[R6],#1
+ MOV R0,#2
+ STRB R0,[R6],#1		; add terminator
+ ADD R5,R5,#2
+ LDR R0,local_max_out
+ FNRTS
+
+pdl_change_colour
+ MOV R7,#0
+ STRB R7,[R6],#1
+ MOV R7,#1
+ STRB R7,[R6],#1
+ TST R1,#8			; old font
+ MOV R7,R11
+ MOV R8,R12			; new for/bac
+ STREQB R7,[R6],#1
+ STREQB R8,[R6],#1		; change colour
+ STRNEB R8,[R6],#1
+ STRNEB R7,[R6],#1		; change colour
+ MOV PC,R14
+
+pdl_new_font
+ CMP R0,#&20
+ BLCC pdl_new_ctrl_char		; control character
+ TST R12,#8			; new font
+ TSTEQ R1,#8			; old font
+ LDRB R1,[R4],#1		; next background col
+ TEQEQ R7,R11
+ TEQEQ R8,R1
+ BEQ pdl_just_change_font ; pdl_change_colour_and_font	; colours changed
+
+pdl_change_colour_and_font
+ MOV R7,#0
+ STRB R7,[R6],#1
+ MOV R7,#10			; chg colour and font
+ STRB R7,[R6],#1
+ TST R12,#8			; INVERT?
+ MOV R7,R11
+ MOV R8,R1			; new for/bac
+; MOVNE R8,R11
+; MOVNE R7,R1			; new bac/for
+ STREQB R7,[R6],#1
+ STREQB R8,[R6],#1		; change colour
+ STRNEB R8,[R6],#1
+ STRNEB R7,[R6],#1		; change colour
+ MOV R1,R12			; store new font...
+ STRB R12,[R6],#1		; font colour...
+ B endofthepossibilities
+
+;pdl_a_simple_font_change
+; MOV R1,R12			; store new font...
+; STRB R12,[R6,#2]		; font colour...
+; MOV R12,#0
+; STRB R12,[R6],#1
+; MOV R12,#9
+; STRB R12,[R6],#2
+; B endofthepossibilities
+
+pdl_just_change_font
+ MOV R1,R12			; store new font...
+ STRB R12,[R6,#2]		; font colour...
+ MOV R12,#0
+ STRB R12,[R6],#1
+ MOV R12,#9
+ STRB R12,[R6],#2
+ B endofthepossibilities
+
+;local_controlcolourtmp
+; DCD 0
+;
+;huc_redraw			; lowest character needed...?
+; DCD 0
+
+;E R0=colour to use for ctrl chars / -1 if none
+;  R1=redraw block giving start for/bac cols
+;  R2=input string
+;  R3=foreground mask R4=background mask
+;  R5=input length
+;  R6=dest buffer (size 6*R5+16)
+;X R0=highest char code used
+;  R5=length of output string
+
+ordinary_prepare_data_line
+ MOV R1,R0			; ctrl chars col (R1 not needed)
+ MOV R9,R6			; save start of output
+ MOV R10,#&20			; highest used code (space always)
+; !!!!!!!!!!!!!!!!!!!!!
+; MOV R0,#0
+; STRB R0,[R6],#1
+; STRB R0,[R6,#1]
+; MOV R0,#9
+; STRB R0,[R6],#2
+; !!!!!!!!!!!!!!!!!!!!! doesn't work...!!!
+pdl_loop2
+ CMP R5,#0
+ BLE pdl_end2
+ LDRB R0,[R2],#1		; next byte
+ LDRB R11,[R3],#1		; next foreground col
+ LDRB R12,[R4],#1		; next background col
+ CMP R0,R10
+ MOVCS R10,R0			; highest char code used
+ CMP R0,#&20
+ BLCC pdl_ctrl_char		; control character
+ TEQ   R7,R11
+ TEQEQ R8,R12
+ BLNE pdl_ordinary_change_colour; colours changed
+ TEQ R0,#0
+ STREQB R0,[R6],#1
+ STRB R0,[R6],#1		; save the char
+ SUBS R5,R5,#1			; dec counter
+ B pdl_loop2
+pdl_end2
+ SUB R5,R6,R9			; current length
+ CMP R5,#0
+ BLE pdl_end_end2
+ LDRB R0,[R6,#-1]
+ TEQ R0,#&20
+ SUBEQ R6,R6,#1
+ BEQ pdl_end2			; strip spaces (no colour change)
+pdl_end_end2
+ MOV R0,#0
+ STRB R0,[R6],#1
+ MOV R0,#2
+ STRB R0,[R6],#1		; add terminator
+ ADD R5,R5,#2
+ MOV R0,R10			; highest used character
+ FNRTS
+
+pdl_new_ctrl_char
+ FNJSR
+; LDR R14,[R13,#-24]		; local_controlcolourtmp
+ LDR R14,local_ctrl_colour
+ CMP R14,#0
+ MOVPL R11,R14			; foreground colour for ctrl chars
+ FNRTS
+
+pdl_ctrl_char
+ CMP R1,#0
+ MOVPL R11,R1			; foreground colour for ctrl chars
+ MOV PC,R14
+
+pdl_ordinary_change_colour
+ MOV R7,#0
+ STRB R7,[R6],#1
+ MOV R7,#1
+ STRB R7,[R6],#1
+ MOV R7,R11
+ MOV R8,R12			; new for/bac
+ STRB R7,[R6],#1
+ STRB R8,[R6],#1		; change colour
+ MOV PC,R14
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Add cursor SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=dest string
+;  R1=redraw block giving inital r_for and r_bac
+;  R2=offset in source string
+;  R3=cursor len
+;  R4=cursor string (low bytes)
+;  R5=source string 0,2 terminated
+;  R6=foreground colour to swap cursor for/bac cols on / -1
+;  R7=b0-b7  = high bytes of cursor chars
+;     b8-b15 = control code to use 4/8 (4 default)
+;     b16-b23= cursor for
+;     b24-b31= cursor bac
+;X R0=new dest string end (after 0,2)
+;  Input string lengthened if off the end
+;  (length grows by at most R2+9*R3) #
+
+add_cursor
+ FNJSR "R1-R10"
+ MOV R10,R7			; save the cursor colours
+ MOV R9,R6			; save swap colour
+ MOV R6,R0			; dest string
+ MOV R7,R3			; save cursor len count
+ MOV R0,R2			; num chars to skip
+ LDR R2,[R1,#r_for]
+ ; AND R2,R2,#&FF
+ LDR R3,[R1,#r_bac]		; set up initial colours
+ac_0
+ MOV R1,R5			; start of string
+ PUSH "R4"
+ BL find_character
+ PULL "R4"
+ FNRTS VS
+ SUB R8,R0,R1			; length of this char/-ve
+ PUSH "R2-R3"
+ SUB R3,R1,R5			; num to move
+ MOV R1,R5
+ MOV R2,R6
+ ADD R5,R5,R3
+ ADD R6,R6,R3
+ BL move_bytes			; copy in first bit of string
+ PULL "R2-R3"
+ CMP R8,#0
+ BLE ac_2			; we've run out of data
+ BL ac_write_cur
+ PUSH "R2-R3"
+ MOV R1,R5
+ MOV R2,R6
+ MOV R3,R8
+ BL move_bytes			; copy in the old character
+ PULL "R2-R3"
+ ADD R5,R5,R8
+ ADD R1,R6,R8
+ LDRB R0,[R4],#1		; next cursor char
+ AND R14,R10,#&FF		; high byte
+ ORR R0,R0,R14,LSL#8
+ BL insert_char			; insert mask character
+ MOV R6,R1
+ MOV R0,#0			; num of chars to skip now 0
+ SUBS R7,R7,#1
+ BGT ac_0			; do another
+ MVN R0,#0
+ MOV R1,R5
+ PUSH "R4"
+ BL find_character		; get to end
+ PULL "R4"
+ FNRTS VS
+ SUB R8,R1,R5			; length of rest of string
+ MOV R1,R5
+ MOV R2,R6
+ ADD R3,R8,#2			; copy 0,2 as well
+ ADD R6,R6,R3			; new end
+ BL move_bytes
+ MOV R0,R6
+ FNRTS
+ac_2
+ RSBS R8,R8,#0			; num of chars left to skip
+ BLE ac_3
+ MOV R0,#&20			; add extra spaces
+ac_4
+ STRB R0,[R6],#1
+ SUBS R8,R8,#1
+ BGT ac_4
+ac_3
+ BL ac_write_cur
+ MOV R0,#&20
+ STRB R0,[R6],#1		; base character
+ MOV R1,R6
+ LDRB R0,[R4],#1
+ AND R14,R10,#&FF
+ ORR R0,R0,R14,LSL#8
+ BL insert_char			; insert mask character
+ MOV R6,R1
+ SUBS R7,R7,#1			; next byte of cursor
+ BGT ac_3
+ MOV R0,#0
+ STRB R0,[R6],#1
+ MOV R0,#2
+ STRB R0,[R6],#1
+ MOV R0,R6
+ FNRTS
+
+;E R2/R3=for and bac R6=buffer pointer R9=swapcol R10=cols
+;X 0,<code>,f,b written to the buffer, R6 updated.
+
+ac_write_cur
+ MOV R0,#0
+ STRB R0,[R6],#1
+ MOV R0,R10,LSR#8
+ AND R0,R0,#&FF			; control code number
+ TEQ R0,#8
+ MOVNE R0,#4			; default
+ STRB R0,[R6],#1
+ TEQ R9,R2			; do we match the swap colour?
+ MOVNE R0,R10,LSR#16		; foreground
+ MOVEQ R0,R10,LSR#24
+ STRB R0,[R6],#1
+ MOVNE R0,R10,LSR#24
+ MOVEQ R0,R10,LSR#16
+ STRB R0,[R6],#1
+ MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Move bytes SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R1=source address
+;  R2=destination address
+;  R3=number of bytes
+;X bytes moved FAST from R1 to R2 with data always preserved R0-R3 corrupt |
+;  it is careful not to look beyond the start/end of the data
+
+;move_bytes
+; TEQ R3,#0
+; MOVEQS PC,R14			; nothing to do
+; CMP R2,R1
+; BHI up$l			; move up starting from end of data
+; BCC down$l			; move down starting from start of data
+; MOVS PC,R14			; data not being moved
+;up$l				; MOVE BYTES UP (from end)
+; ADD R1,R1,R3			; end of source
+; ADD R2,R2,R3			; end of dest
+; TST R2,#3
+; BNE ualign$l
+;ualigned$l			; destination (R2) now word aligned
+; TST R1,#3
+; BNE uslow$l			; source not word align so need to shift
+; SUBS R3,R3,#8*4
+; BLT uf32$l			; up fast less than 32 bytes
+; STMFD R13!,{R4-R11}
+;a$l
+; LDMDB R1!,{R4-R11}
+; STMDB R2!,{R4-R11}
+; SUBS R3,R3,#8*4
+; BGE a$l			; copy 32 bytes at a time
+; LDMFD R13!,{R4-R11}
+;uf32$l				; copy R3+32 bytes
+; ADDS R3,R3,#7*4
+; BLT uf4$l			; up fast less than 4 bytes
+;b$l
+; LDR R0,[R1,#-4]!
+; STR R0,[R2,#-4]!
+; SUBS R3,R3,#4
+; BGE b$l			; copy 4 bytes at a time
+;uf4$l
+; ADDS R3,R3,#4			; number of bytes remaining
+; MOVEQS PC,R14			; none
+; LDR R0,[R1,#-4]!		; load next 4 (ok as R1,R2 both aligned)
+;c$l
+; MOV R0,R0,ROR#24
+; STRB R0,[R2,#-1]!
+; SUBS R3,R3,#1
+; BGT c$l			; copy remaining bytes
+; MOVS PC,R14
+;ualign$l
+; LDRB R0,[R1,#-1]!
+; STRB R0,[R2,#-1]!
+; SUBS R3,R3,#1
+; MOVEQS PC,R14
+; TST R2,#3
+; BNE ualign$l			; copy bytes 'till dest aligned
+; B ualigned$l
+;uslow$l				; dest (R2) aligned, source (R1) not
+; STMFD R13!,{R12,R14}
+; AND R12,R1,#3			; byte offset of last read byte (1-3)
+; BIC R1,R1,#3
+; ADD R1,R1,#4			; address of last read word
+; MOV R12,R12,LSL#3		; number of bits not read in R1,#-4
+; RSB R0,R12,#32			; number of bits already read in R1,#;-4
+; LDR R14,[R1,#-4]!
+; MOV R14,R14,LSL R0		; fill input buffer (R14)
+; SUBS R3,R3,#8*4
+; BLT us32$l			; up slow less than 32 bytes
+; STMFD R13!,{R4-R11}
+;d$l
+; LDMDB R1!,{R4-R11}
+; ORR R14,R14,R11,LSR R12	; copy 32 bytes at a time shifting
+; MOV R11,R11,	 LSL R0
+; ORR R11,R11,R10,LSR R12
+; MOV R10,R10,	 LSL R0
+; ORR R10,R10,R9, LSR R12
+; MOV R9, R9,	 LSL R0
+; ORR R9, R9, R8, LSR R12
+; MOV R8, R8,	 LSL R0
+; ORR R8, R8, R7, LSR R12
+; MOV R7, R7,	 LSL R0
+; ORR R7, R7, R6, LSR R12
+; MOV R6, R6,	 LSL R0
+; ORR R6, R6, R5, LSR R12
+; MOV R5, R5,	 LSL R0
+; ORR R5, R5, R4 ,LSR R12
+; STMDB R2!,{R5-R11,R14}
+; MOV R14,R4,LSL R0
+; SUBS R3,R3,#8*4
+; BGE d$l
+; LDMFD R13!,{R4-R11}
+;us32$l				; up slow less than R3+32 bytes
+; ADDS R3,R3,#7*4
+; BLT us4$l			; up slow less than 4 bytes
+; STMFD R13!,{R4}
+;e$l
+; LDR R4,[R1,#-4]!
+; ORR R14,R14,R4,LSR R12
+; STR R14,[R2,#-4]!
+; MOV R14,R4,LSL R0
+; SUBS R3,R3,#4
+; BGE e$l			; copy one word at a time
+; LDMFD R13!,{R4}
+;us4$l
+; ADDS R3,R3,#4			; number of bytes left
+; LDMEQFD R13!,{R12,PC}^
+; ADD R1,R1,R12,LSR#3		; address of last byte used
+;f$l
+; LDRB R14,[R1,#-1]!		; get next byte (don't read too far)
+; STRB R14,[R2,#-1]!		; put next byte
+; SUBS R3,R3,#1
+; BGT f$l
+; LDMFD R13!,{R12,PC}^
+;down$l				; MOVE BYTES DOWN (from start)
+; TST R2,#3
+; BNE dalign$l			; ensure output (R2) aligned
+;daligned$l			; R2 now aligned
+; TST R1,#3
+; BNE dslow$l			; source not aligned
+; SUBS R3,R3,#8*4
+; BLT df32$l			; less than 32 to move
+; STMFD R13!,{R4-R11}
+;g$l
+; LDMIA R1!,{R4-R11}
+; STMIA R2!,{R4-R11}
+; SUBS R3,R3,#8*4
+; BGE g$l			; move 32 bytes at a time
+; LDMFD R13!,{R4-R11}
+;df32$l
+; ADDS R3,R3,#7*4
+; BLT df4$l			; less than 4 bytes to move
+;h$l
+; LDR R0,[R1],#4
+; STR R0,[R2],#4
+; SUBS R3,R3,#4
+; BGE h$l			; shift 4 bytes at a time
+;df4$l
+; ADDS R3,R3,#4			; number of bytes left
+; MOVEQS PC,R14
+; LDR R0,[R1],#4			; load next 4 (ok as both aligned)
+;i$l
+; STRB R0,[R2],#1
+; MOV R0,R0,ROR#8
+; SUBS R3,R3,#1
+; BGT i$l			; copy the remaining bytes
+; MOVS PC,R14
+;dalign$l
+; LDRB R0,[R1],#1
+; STRB R0,[R2],#1
+; SUBS R3,R3,#1
+; MOVEQS PC,R14
+; TST R2,#3
+; BNE dalign$l			; word align the destination
+; B daligned$l
+;dslow$l				; dest (R2) aligned, source (R1) not
+; STMFD R13!,{R12,R14}
+; AND R12,R1,#3			; byte offset of first unread byte (1; -3)
+; BIC R1,R1,#3			; address of first not fully read word
+; MOV R12,R12,LSL#3		; number of bits read from !R1
+; RSB R14,R12,#32		; number of bits not read from !R1
+; LDR R0,[R1],#4
+; MOV R0,R0,LSR R12		; fill the input buffer (R0)
+; SUBS R3,R3,#8*4
+; BLT ds32$l			; less than 32 bytes left
+; STMFD R13!,{R4-R11}
+;j$l
+; LDMIA R1!,{R4-R11}
+; ORR R0, R0, R4, LSL R14	; copy 32 bytes at a time with shifting
+; MOV R4, R4,	 LSR R12
+; ORR R4, R4, R5, LSL R14
+; MOV R5, R5,	 LSR R12
+; ORR R5, R5, R6, LSL R14
+; MOV R6, R6,	 LSR R12
+; ORR R6, R6, R7, LSL R14
+; MOV R7, R7,	 LSR R12
+; ORR R7, R7, R8, LSL R14
+; MOV R8, R8,	 LSR R12
+; ORR R8, R8, R9, LSL R14
+; MOV R9, R9,	 LSR R12
+; ORR R9, R9, R10,LSL R14
+; MOV R10,R10,	 LSR R12
+; ORR R10,R10,R11,LSL R14
+; STMIA R2!,{R0,R4-R10}
+; MOV R0,R11,LSR R12
+; SUBS R3,R3,#8*4
+; BGE j$l
+; LDMFD R13!,{R4-R11}
+;ds32$l				; less than 32 bytes left
+; ADDS R3,R3,#7*4
+; BLT ds4$l			; less than 4 left
+; STMFD R13!,{R11}
+;k$l
+; LDR R11,[R1],#4
+; ORR R0,R0,R11,LSL R14
+; STR R0,[R2],#4
+; MOV R0,R11,LSR R12
+; SUBS R3,R3,#4
+; BGE k$l			; copy 4 bytes at a time
+; LDMFD R13!,{R11}
+;ds4$l
+; ADDS R3,R3,#4			; number of bytes left
+; LDMEQFD R13!,{R12,PC}^
+; SUB R1,R1,R14,LSR#3		; address of first unused byte
+;l$l
+; LDRB R0,[R1],#1		; get next byte - don't read off end
+; STRB R0,[R2],#1
+; SUBS R3,R3,#1
+; BGT l$l			; copy remaining bytes
+; LDMFD R13!,{R12,PC}^
+
+; ;E R1=source address
+; ;  R2=destination address
+; ;  R3=number of bytes
+; ;X bytes moved FAST from R1 to R2 with data always preserved R0-R3 corrupt |
+; ;  it is careful not to look beyond the start/end of the data
+
+move_bytes
+ CMP R3,#0
+ CMPNE R2,R1
+ BCC down$l			; move down starting from start of data
+ MOVEQS PC,R14			; data not being moved, or no data to move
+; move up starting from end of data
+up$l				; MOVE BYTES UP (from end)
+; TEQ R3,#0
+; MOVEQS PC,R14			; nothing to do
+; CMP R2,R1
+; BHI up$l			; move up starting from end of data
+; BCC down$l			; move down starting from start of data
+; MOVS PC,R14			; data not being moved
+ ADD R1,R1,R3			; end of source
+ ADD R2,R2,R3			; end of dest
+ TST R2,#3
+ BNE ualign$l
+ualigned$l			; destination (R2) now word aligned
+ TST R1,#3
+ BNE uslow$l			; source not word align so need to shift
+ SUBS R3,R3,#8*4
+ BLT uf32$l			; up fast less than 32 bytes
+ STMFD R13!,{R4-R11}
+a$l
+ LDMDB R1!,{R4-R11}
+ STMDB R2!,{R4-R11}
+ SUBS R3,R3,#8*4
+ BGE a$l			; copy 32 bytes at a time
+ LDMFD R13!,{R4-R11}
+uf32$l				; copy R3+32 bytes
+ ADDS R3,R3,#7*4
+ BLT uf4$l			; up fast less than 4 bytes
+b$l
+ LDR R0,[R1,#-4]!
+ SUBS R3,R3,#4
+ STR R0,[R2,#-4]!
+ BGE b$l			; copy 4 bytes at a time
+uf4$l
+ ADDS R3,R3,#4			; number of bytes remaining
+ MOVEQS PC,R14			; none
+ LDR R0,[R1,#-4]!		; load next 4 (ok as R1,R2 both aligned)
+c$l
+ MOV R0,R0,ROR#24
+ STRB R0,[R2,#-1]!
+
+
+ SUBS R3,R3,#1
+ BGT c$l			; copy remaining bytes
+ MOVS PC,R14
+ualign$l
+ LDRB R0,[R1,#-1]!
+ SUBS R3,R3,#1
+ STRB R0,[R2,#-1]!
+ MOVEQS PC,R14
+ TST R2,#3
+ BNE ualign$l			; copy bytes 'till dest aligned
+ B ualigned$l
+uslow$l				; dest (R2) aligned, source (R1) not
+ STMFD R13!,{R12,R14}
+ AND R12,R1,#3			; byte offset of last read byte (1-3)
+ LDR R14,[R1,-R12]!
+ MOV R12,R12,LSL#3		; number of bits not read in [R1]
+ RSB R0,R12,#32			; number of bits already read in [R1]
+ MOV R14,R14,LSL R0		; fill input buffer (R14)
+ SUBS R3,R3,#8*4
+ BLT us32$l			; up slow less than 32 bytes
+ STMFD R13!,{R4-R11}
+ CMP R12,#16
+ BEQ d_16$l
+ BGT d_24$l
+d_8$l
+ LDMDB R1!,{R4-R11}
+ SUBS R3,R3,#8*4
+ ORR R14,R14,R11,LSR #8		; copy 32 bytes at a time shifting
+ MOV R11,R11,	 LSL #24
+ ORR R11,R11,R10,LSR #8
+ MOV R10,R10,	 LSL #24
+ ORR R10,R10,R9, LSR #8
+ MOV R9, R9,	 LSL #24
+ ORR R9, R9, R8, LSR #8
+ MOV R8, R8,	 LSL #24
+ ORR R8, R8, R7, LSR #8
+ MOV R7, R7,	 LSL #24
+ ORR R7, R7, R6, LSR #8
+ MOV R6, R6,	 LSL #24
+ ORR R6, R6, R5, LSR #8
+ MOV R5, R5,	 LSL #24
+ ORR R5, R5, R4 ,LSR #8
+ STMDB R2!,{R5-R11,R14}
+ MOV R14,R4,LSL #24
+ BGE d_8$l
+ B d_done$l
+d_16$l
+ LDMDB R1!,{R4-R11}
+ ORR R14,R14,R11,LSR #16	; copy 32 bytes at a time shifting
+ MOV R11,R11,	 LSL #16
+ ORR R11,R11,R10,LSR #16
+ MOV R10,R10,	 LSL #16
+ ORR R10,R10,R9, LSR #16
+ MOV R9, R9,	 LSL #16
+ ORR R9, R9, R8, LSR #16
+ MOV R8, R8,	 LSL #16
+ ORR R8, R8, R7, LSR #16
+ MOV R7, R7,	 LSL #16
+ ORR R7, R7, R6, LSR #16
+ MOV R6, R6,	 LSL #16
+ ORR R6, R6, R5, LSR #16
+ MOV R5, R5,	 LSL #16
+ ORR R5, R5, R4 ,LSR #16
+ STMDB R2!,{R5-R11,R14}
+ MOV R14,R4,LSL #16
+ SUBS R3,R3,#8*4
+ BGE d_16$l
+ B d_done$l
+d_24$l
+ LDMDB R1!,{R4-R11}
+ ORR R14,R14,R11,LSR #24	; copy 32 bytes at a time shifting
+ MOV R11,R11,	 LSL #8
+ ORR R11,R11,R10,LSR #24
+ MOV R10,R10,	 LSL #8
+ ORR R10,R10,R9, LSR #24
+ MOV R9, R9,	 LSL #8
+ ORR R9, R9, R8, LSR #24
+ MOV R8, R8,	 LSL #8
+ ORR R8, R8, R7, LSR #24
+ MOV R7, R7,	 LSL #8
+ ORR R7, R7, R6, LSR #24
+ MOV R6, R6,	 LSL #8
+ ORR R6, R6, R5, LSR #24
+ MOV R5, R5,	 LSL #8
+ ORR R5, R5, R4 ,LSR #24
+ STMDB R2!,{R5-R11,R14}
+ MOV R14,R4,LSL #8
+ SUBS R3,R3,#8*4
+ BGE d_24$l
+d_done$l
+ LDMFD R13!,{R4-R11}
+us32$l				; up slow less than R3+32 bytes
+ ADDS R3,R3,#7*4
+ BLT us4$l			; up slow less than 4 bytes
+ STMFD R13!,{R4}
+e$l
+ LDR R4,[R1,#-4]!
+ SUBS R3,R3,#4
+ ORR R14,R14,R4,LSR R12
+ STR R14,[R2,#-4]!
+ MOV R14,R4,LSL R0
+ BGE e$l			; copy one word at a time
+ LDMFD R13!,{R4}
+us4$l
+ ADDS R3,R3,#4			; number of bytes left
+ LDMEQFD R13!,{R12,PC}^
+ ADD R1,R1,R12,LSR#3		; address of last byte used
+f$l
+ LDRB R14,[R1,#-1]!		; get next byte (don't read too far)
+ SUBS R3,R3,#1
+ STRB R14,[R2,#-1]!		; put next byte
+ BGT f$l
+ LDMFD R13!,{R12,PC}^
+down$l				; MOVE BYTES DOWN (from start)
+ TST R2,#3
+ BNE dalign$l			; ensure output (R2) aligned
+daligned$l			; R2 now aligned
+ TST R1,#3
+ BNE dslow$l			; source not aligned
+ SUBS R3,R3,#8*4
+ BLT df32$l			; less than 32 to move
+ STMFD R13!,{R4-R11}
+g$l
+ LDMIA R1!,{R4-R11}
+ STMIA R2!,{R4-R11}
+ SUBS R3,R3,#8*4
+ BGE g$l			; move 32 bytes at a time
+ LDMFD R13!,{R4-R11}
+df32$l
+ ADDS R3,R3,#7*4
+ BLT df4$l			; less than 4 bytes to move
+h$l
+ LDR R0,[R1],#4
+ SUBS R3,R3,#4
+ STR R0,[R2],#4
+ BGE h$l			; shift 4 bytes at a time
+df4$l
+ ADDS R3,R3,#4			; number of bytes left
+ MOVEQS PC,R14
+ LDR R0,[R1],#4			; load next 4 (ok as both aligned)
+i$l
+ STRB R0,[R2],#1
+ MOV R0,R0,ROR#8
+ SUBS R3,R3,#1
+ BGT i$l			; copy the remaining bytes
+ MOVS PC,R14
+dalign$l
+ LDRB R0,[R1],#1
+ SUBS R3,R3,#1
+ STRB R0,[R2],#1
+ MOVEQS PC,R14
+ TST R2,#3
+ BNE dalign$l			; word align the destination
+ B daligned$l
+dslow$l				; dest (R2) aligned, source (R1) not
+ STMFD R13!,{R12,R14}
+ AND R12,R1,#3			; byte offset of first unread byte (1-3)
+ BIC R1,R1,#3			; address of first not fully read word
+ MOV R12,R12,LSL#3		; number of bits read from !R1
+ RSB R14,R12,#32		; number of bits not read from !R1
+ LDR R0,[R1],#4
+ MOV R0,R0,LSR R12		; fill the input buffer (R0)
+ SUBS R3,R3,#8*4
+ BLT ds32$l			; less than 32 bytes left
+ STMFD R13!,{R4-R11}
+ CMP R14,#16
+ BEQ j_16$l
+ BGT j_24$l
+j_8$l
+ LDMIA R1!,{R4-R11}
+ ORR R0, R0, R4, LSL #8	; copy 32 bytes at a time with shifting
+ MOV R4, R4,	 LSR #24
+ ORR R4, R4, R5, LSL #8
+ MOV R5, R5,	 LSR #24
+ ORR R5, R5, R6, LSL #8
+ MOV R6, R6,	 LSR #24
+ ORR R6, R6, R7, LSL #8
+ MOV R7, R7,	 LSR #24
+ ORR R7, R7, R8, LSL #8
+ MOV R8, R8,	 LSR #24
+ ORR R8, R8, R9, LSL #8
+ MOV R9, R9,	 LSR #24
+ ORR R9, R9, R10,LSL #8
+ MOV R10,R10,	 LSR #24
+ ORR R10,R10,R11,LSL #8
+ STMIA R2!,{R0,R4-R10}
+ MOV R0,R11,LSR #24
+ SUBS R3,R3,#8*4
+ BGE j_8$l
+ B j_done$l
+j_16$l
+ LDMIA R1!,{R4-R11}
+ ORR R0, R0, R4, LSL #16	; copy 32 bytes at a time with shifting
+ MOV R4, R4,	 LSR #16
+ ORR R4, R4, R5, LSL #16
+ MOV R5, R5,	 LSR #16
+ ORR R5, R5, R6, LSL #16
+ MOV R6, R6,	 LSR #16
+ ORR R6, R6, R7, LSL #16
+ MOV R7, R7,	 LSR #16
+ ORR R7, R7, R8, LSL #16
+ MOV R8, R8,	 LSR #16
+ ORR R8, R8, R9, LSL #16
+ MOV R9, R9,	 LSR #16
+ ORR R9, R9, R10,LSL #16
+ MOV R10,R10,	 LSR #16
+ ORR R10,R10,R11,LSL #16
+ STMIA R2!,{R0,R4-R10}
+ MOV R0,R11,LSR #16
+ SUBS R3,R3,#8*4
+ BGE j_16$l
+ B j_done$l
+j_24$l
+ LDMIA R1!,{R4-R11}
+ ORR R0, R0, R4, LSL #24	; copy 32 bytes at a time with shifting
+ MOV R4, R4,	 LSR #8
+ ORR R4, R4, R5, LSL #24
+ MOV R5, R5,	 LSR #8
+ ORR R5, R5, R6, LSL #24
+ MOV R6, R6,	 LSR #8
+ ORR R6, R6, R7, LSL #24
+ MOV R7, R7,	 LSR #8
+ ORR R7, R7, R8, LSL #24
+ MOV R8, R8,	 LSR #8
+ ORR R8, R8, R9, LSL #24
+ MOV R9, R9,	 LSR #8
+ ORR R9, R9, R10,LSL #24
+ MOV R10,R10,	 LSR #8
+ ORR R10,R10,R11,LSL #24
+ STMIA R2!,{R0,R4-R10}
+ MOV R0,R11,LSR #8
+ SUBS R3,R3,#8*4
+ BGE j_24$l
+j_done$l
+ LDMFD R13!,{R4-R11}
+ds32$l				; less than 32 bytes left
+ ADDS R3,R3,#7*4
+ BLT ds4$l			; less than 4 left
+ STMFD R13!,{R11}
+k$l
+ LDR R11,[R1],#4
+ SUBS R3,R3,#4
+ ORR R0,R0,R11,LSL R14
+ STR R0,[R2],#4
+ MOV R0,R11,LSR R12
+ BGE k$l			; copy 4 bytes at a time
+ LDMFD R13!,{R11}
+ds4$l
+ ADDS R3,R3,#4			; number of bytes left
+ LDMEQFD R13!,{R12,PC}^
+ SUB R1,R1,R14,LSR#3		; address of first unused byte
+l$l
+ LDRB R0,[R1],#1		; get next byte - don't read off end
+ SUBS R3,R3,#1
+ STRB R0,[R2],#1
+ BGT l$l			; copy remaining bytes
+ LDMFD R13!,{R12,PC}^
+
+; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; ; Find character SWI					    ;
+; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; ;E R0=number of chars to skip or -1 to move to the end
+; ;  R1=string start R2=Foreground colour R3=Background colour R4=Font
+; ;X R1=next print char (or the 0,2 if reached that first)
+; ;  R0>R1  => Character was found and R0 is the end
+; ;  R0=<R1 => Reached end first. R1-R0 characters left to skip
+; ;  R2-R4 updated |
+
+find_character
+ FNJSR "R5-R6"
+ MOV R5,R0			; save num of chars to skip
+fc_1
+ MOV R6,R1			; save char start
+ LDRB R0,[R1],#1		; get next char
+ TEQ R0,#0
+ BLEQ skip_control_char
+ CMP R0,#0
+ BMI fc_1			; wasn't a character
+ BEQ fc_2			; reached line end
+ SUBS R5,R5,#1
+ BCS fc_1			; was R5>=1 - if so skip more
+ MOV R0,R1			; end of the char
+ MOV R1,R6			; start of the char
+ FNRTS
+fc_2
+ SUB R0,R1,R5			; we had R4 (>=0) left to look for
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Create palette SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=b0 set to change wimp nos to &BBGGRRXX
+;     b1 set to change &BBGGRRXX to masks
+;  R1=redraw block (r_bpp and r_workarea (&80) used)
+;  R2=source palette
+;  R3=dest for masks (may equal source)
+;  R4=number of entries
+;X Palette created #
+
+create_palette
+ FNJSR "R1-R7"
+ MOV R5,R1			; save redraw block
+ LDR R6,[R5,#r_workarea]	; wimp palette &BBGGRRXX
+ MOV R7,R0			; save reason code
+ MOV R1,R6
+ SWI XWimp_ReadPalette		; read the 20 word palette
+ FNRTS VS
+ LDR R1,[R5,#r_bpp]		; bits per pixel
+cp_loop
+ LDR R0,[R2],#4			; get next colour
+ TST R7,#1
+ BEQ cp_1			; don't convert wimp->24 bit
+ LDR R0,[R6,R0,LSL#2]		; get palette entry for it
+ LDR R14,cp_mask
+ BIC R0,R0,R14,LSR#4		; clear bottom nibbles
+ AND R14,R0,R14			; get top nibbles
+ ORR R0,R0,R14,LSR#4		; duplicate top nibbles
+cp_1
+ TST R7,#2
+ BEQ cp_2			; don't convert 24 bit->mask
+ SWI XColourTrans_ReturnColourNumber
+ FNRTS VS
+ BL get_palette_entry		; R0=mask
+ FNRTS VS
+cp_2
+ STR R0,[R3],#4
+ SUBS R4,R4,#1
+ BGT cp_loop
+ FNRTS
+cp_mask
+ DCD &F0F0F000
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Insert Char SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=char R1=string
+;X R1 updated |
+
+insert_char
+ CMP R0,#&100
+ BCS ic_0
+ TEQ R0,#0
+ STREQB R0,[R1],#1
+ STRB R0,[R1],#1
+ MOV PC,R14
+ic_0
+ STRB R0,[R1,#2]
+ MOV R0,R0,LSR#8
+ STRB R0,[R1,#3]
+ MOV R0,#0
+ STRB R0,[R1],#1
+ MOV R0,#3
+ STRB R0,[R1],#3
+ MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read System Character Definitions SWI			    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=output buffer R1=red block giving 16 byte workarea
+;X system chars &20-&FF read to the block #
+
+read_system_chars
+ FNJSR "R1-R9"
+ MOV R3,R0			; R3=output buffer
+ LDR R1,[R1,#r_workarea]	; 16 byte work area
+ ADD R1,R1,#3			; R1=work (with +1 is word aligned)
+ ADR R0,init_def_masks
+ LDMIA R0,{R4-R6}		; R4-R6=masks
+ MOV R2,#&20			; character number
+ ADD R3,R3,R2,LSL#3		; output posn
+init_defs_loop
+ STRB R2,[R1]
+ MOV R0,#10
+ SWI XOS_Word			; read the defn
+ FNRTS VS
+ LDR R8,[R1,#1]			; R1+1 is word aligned
+ BL bit_reverse
+ STR R8,[R3],#4
+ LDR R8,[R1,#5]			; R1+5 is word aligned
+ BL bit_reverse
+ STR R8,[R3],#4
+ ADD R2,R2,#1
+ CMP R2,#&100
+ BCC init_defs_loop
+ FNRTS
+init_def_masks
+ DCD &0F0F0F0F			; swap nibbles
+ DCD &33333333			; swap 2 bits
+ DCD &55555555			; swap 1 bits
+
+;E R4-R6=bit reverse masks R8=4 bytes to bit reverse
+;X bits reversed in each byte |
+
+bit_reverse
+ AND R0,R8,R4			; get bottom nibbles
+ AND R8,R4,R8,LSR#4		; get top nibbles and shift down
+ ORR R8,R8,R0,LSL#4		; flipped nibbles
+ AND R0,R8,R5
+ AND R8,R5,R8,LSR#2
+ ORR R8,R8,R0,LSL#2		; same for two bit pairs
+ AND R0,R8,R6
+ AND R8,R6,R8,LSR#1
+ ORR R8,R8,R0,LSL#1		; same for one bits.
+ MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Reverse Bitmaps SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=source R2=dest R3=num of bytes
+
+reverse_bitmaps
+ FNJSR "R1-R8"
+ ADR R0,init_def_masks
+ LDMIA R0,{R4-R6}		; R4-R6=masks
+rb_1
+ SUBS R3,R3,#4
+ FNRTS LT
+ LDR R8,[R1],#4
+ BL bit_reverse
+ STR R8,[R2],#4
+ B rb_1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read VDU vars SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=redraw block with 64 byte work area.
+;X r_bpl,r_bpp,r_magx,r_magy,r_xsize,r_ysize filled in #
+;  r_screen set to 0.
+
+read_vdu_vars
+ FNJSR "R1-R4"
+ MOV R2,R1			; save red block
+ ADR R0,rvv_d1
+ LDR R1,[R2,#r_workarea]
+ SWI XOS_ReadVduVariables
+ FNRTS VS
+ LDR R3,[R1]			; XEig (log2 of num of xos per pix)
+ LDR R0,[R1,#12]		; Log2bpp (log2 bits per pixel)
+ LDR R4,[R1,#24]		; Log2bpc (log2 bytes per char/8)
+ SUB R4,R4,R0			; diff due to double pixel modes
+ SUB R3,R3,R4			; log2 of xos per hardware pixel
+ STR R0,[R2,#r_bpp]		; save new bpp
+ STR R3,[R2,#r_magx]
+ LDR R0,[R1,#4]			; YEig (log2 of num of yos per pix)
+ STR R0,[R2,#r_magy]
+ LDR R0,[R1,#8]			; bytes per line
+ STR R0,[R2,#r_bpl]
+ LDR R0,[R1,#16]
+ ADD R0,R0,#1
+ STR R0,[R2,#r_xsize]		; screen width
+ LDR R0,[R1,#20]
+ ADD R0,R0,#1
+ STR R0,[R2,#r_ysize]		; height
+ MOV R0,#0
+ STR R0,[R2,#r_screen]
+ MOV R4,R2			; save redraw block
+ MOV R0,#135
+ SWI XOS_Byte			; read screen mode
+ FNRTS VS
+ STR R2,[R4,#r_mode]
+ FNRTS
+rvv_d1
+ DCD 4				; XEig
+ DCD 5				; YEig
+ DCD 6				; Bytes per line
+ DCD 9				; Log2BPP
+ DCD 11				; Xlimit in pixels-1
+ DCD 12				; Ylimit in pixels-1
+ DCD 10				; Log2BPC
+ DCD -1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Get rectangle SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=block as returned by Wimp_RedrawArea R1=redraw block
+;  r_magx,r_magy,r_xsize,r_ysize filled in.
+;X r_minx-maxy and r_scrollx,scrolly filled in |
+
+get_rectangle
+ FNJSR "R1-R7"
+ MOV R4,R0			; save redraw area block
+ LDR R5,[R1,#r_magx]
+ LDR R6,[R1,#r_magy]
+ LDR R7,[R1,#r_ysize]
+ LDR R2,[R4,#28]		; scn min os x
+ MOV R0,R2,ASR R5
+ STR R0,[R1,#r_minx]
+ LDR R0,[R4,#36]		; scn max os x
+ MOV R0,R0,ASR R5
+ STR R0,[R1,#r_maxx]
+ LDR R3,[R4,#40]		; scn max os y
+ MOV R0,R3,ASR R6
+ RSB R0,R0,R7
+ STR R0,[R1,#r_miny]
+ LDR R0,[R4,#32]		; scn min os y
+ MOV R0,R0,ASR R6
+ RSB R0,R0,R7
+ STR R0,[R1,#r_maxy]
+ LDR R0,[R4,#4]			; x min
+ SUB R2,R2,R0			; x os offset in vis area
+ LDR R0,[R4,#20]		; x scroll
+ ADD R2,R2,R0			; x os offset in work area
+ MOV R0,R2,ASR R5
+ STR R0,[R1,#r_scrollx]
+ LDR R0,[R4,#16]		; y max
+ SUB R3,R3,R0			; y os offset in vis area
+ LDR R0,[R4,#24]		; y scroll
+ ADD R3,R3,R0			; y os offset in work area
+ RSB R3,R3,#0			; y os downward
+ MOV R0,R3,ASR R6		; y pix signed
+ STR R0,[R1,#r_scrolly]
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Add Vdu Bitmaps SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=redraw block (r_height/r_width)
+;  r_workarea=64 bytes + room for sprite
+;  R2=first char R3=last char (inc) R4=bitmap at 1 bpp to convert
+;X Extra characters in the interval created #
+
+add_vdu_bitmaps
+ FNJSR "R1-R8"
+ MOV R5,R2			; R5=first char
+ MOV R6,R3			; R6=last char
+ LDR R7,[R1,#r_charw]		; R7=char width
+ LDR R8,[R1,#r_charh]		; R8=char height
+ MOV R2,R7
+ MOV R3,R8
+ MOV R0,#0
+ BL cached_char_size		; R2=bpl R3=bpc
+adb_0
+ CMP R5,R6
+ FNRTS GT
+ TEQ R5,#0
+ MOV R0,#&30
+ BEQ adb_copy_char		; handle 0
+ CMP R5,#&20
+ ADDCC R0,R5,#&40
+ BCC adb_copy_char		; handle 1-&1F
+ CMP R5,#&7F
+ MOVCC R5,#&7F
+ BCC adb_0			; skip &20-&7F
+ MVN R0,#0
+ BEQ adb_create_char		; create &7F
+ SUBS R0,R5,#&100
+ MOVCC R5,#&100
+ BCC adb_0			; skip &80-&FF
+adb_create_char
+ CMP R0,#(adb_end-adb_start)/4
+ MOVGE R0,#&40			; do an "@" if it goes off the end
+ BGE adb_copy_char
+ PUSH "R1-R8"
+ MLA R4,R5,R3,R4
+ BL adb_create_sub
+ PULL "R1-R8"
+ ADD R5,R5,#1
+ B adb_0
+adb_copy_char
+ PUSH "R1-R3"
+ MLA R1,R0,R3,R4		; source
+ MLA R2,R5,R3,R4		; dest
+ BL move_bytes
+ PULL "R1-R3"
+ ADD R5,R5,#1
+ B adb_0
+
+;E R0=number of char to create - &100 (or -1 for &7F)
+;  R2=bpl R3=bpc R4=char address R7=charw R8=charh
+;X Character cached R0-R8 corrupted |
+
+adb_create_sub
+ ADD PC,PC,R0,LSL#2
+ B adb_7F
+adb_start
+ B adb_100
+ B adb_101
+ B adb_102
+ B adb_103
+ B adb_104
+ B adb_105
+adb_end
+
+adb_7F
+ MOV R0,#&FF
+ STRB R0,[R4],#1
+ SUBS R3,R3,#1
+ BGT adb_7F
+ MOV PC,R14
+
+adb_100
+ FNJSR
+ BL adb_row
+ SUBS R8,R8,#2
+ FNRTS LE
+adb_100_loop
+ BL adb_clear
+ BL adb_left
+ SUBS R8,R8,#1
+ BGT adb_100_loop
+ BL adb_row
+ FNRTS
+
+adb_101
+ FNJSR
+ BL adb_row
+ SUBS R8,R8,#2
+ FNRTS LE
+adb_101_loop
+ BL adb_clear
+ SUBS R8,R8,#1
+ BGT adb_101_loop
+ BL adb_row
+ FNRTS
+
+adb_102
+ FNJSR
+ BL adb_row
+ SUBS R8,R8,#2
+ FNRTS LE
+adb_102_loop
+ BL adb_clear
+ BL adb_right
+ SUBS R8,R8,#1
+ BGT adb_102_loop
+ BL adb_row
+ FNRTS
+
+adb_103
+ FNJSR
+ BL adb_row
+ SUBS R8,R8,#2
+ FNRTS LE
+adb_103_loop
+ BL adb_clear
+ BL adb_right
+ BL adb_left
+ SUBS R8,R8,#1
+ BGT adb_103_loop
+ BL adb_row
+ FNRTS
+
+adb_104
+ FNJSR
+ SUBS R8,R8,#1
+ FNRTS LE
+adb_104_loop
+ BL adb_clear
+ SUBS R8,R8,#1
+ BGT adb_104_loop
+ BL adb_row
+ FNRTS
+
+adb_105
+ FNJSR
+adb_105_loop
+ BL adb_clear
+ BL adb_left
+ SUBS R8,R8,#1
+ BGT adb_105_loop
+ FNRTS
+
+adb_row
+ MOV R0,#&FF
+ MOV R5,R2
+adb_row_loop
+ STRB R0,[R4],#1
+ SUBS R5,R5,#1
+ BGT adb_row_loop
+ MOV PC,R14
+
+adb_clear
+ MOV R0,#0
+ MOV R5,R2
+adb_clear_loop
+ STRB R0,[R4],#1
+ SUBS R5,R5,#1
+ BGT adb_clear_loop
+ MOV PC,R14
+
+adb_left
+ LDRB R0,[R4,-R2]
+ ORR R0,R0,#1
+ STRB R0,[R4,-R2]
+ MOV PC,R14
+
+adb_right
+ SUB R5,R4,R2			; start of the row
+ SUB R6,R7,#1			; offset of last col
+ ADD R5,R5,R6,LSR#3		; byte containg last col
+ AND R6,R6,#7			; col offset in char
+ MOV R0,#1
+ MOV R0,R0,LSL R6		; mask
+ LDRB R6,[R5]
+ ORR R6,R6,R0
+ STRB R6,[R5]
+ MOV PC,R14
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Hourglass control					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0-R9=args R10=address of sub
+;X R0-R9=returned args & sub executed with long_op on
+;  errors handled #
+
+do_longop
+ FNJSR "R11"
+ MOV R11,R0
+ BL long_op_on
+ FNRTS VS
+ MOV R0,R11
+ MOV R14,PC
+ MOV PC,R10			; call the sub
+ BVS do10
+ MOV R11,R0			; save output
+ BL long_op_off
+ FNRTS VS
+ MOV R0,R11			; output
+ FNRTS
+do10
+ ADDS R11,R0,#0			; save error and clv
+ BL long_op_off			; switch off hourglass
+ MOV R0,R11
+ FNPULL
+ ORRS PC,R14,#Vbit		; return with error
+
+;X Hourglass on and escape enabled #
+
+long_op_on
+ FNJSR "R1,R2"
+ SWI XHourglass_On
+ FNRTS VS
+ MOV R0,#229
+ MOV R1,#0			; new escape state
+ MOV R2,#0
+ SWI XOS_Byte			; enable escape
+ FNRTS
+
+;X Hourglass off and escape disabled #
+
+long_op_off
+ FNJSR "R1,R2"
+ SWI XHourglass_Off
+ FNRTS VS
+ MOV R0,#229
+ MOV R1,#1
+ MOV R2,#0
+ SWI XOS_Byte			; disable escape
+ FNRTS VS
+ MOV R0,#124
+ SWI XOS_Byte			; clear escape condition
+ FNRTS
+
+;E R0=numerator R1=denominator
+;X percentage shown on hourglass #
+
+long_op_display
+ FNJSR "R1-R3"
+ MOV R2,#100
+ MUL R0,R2,R0
+ BL div_mod
+ CMP R0,#99
+ MOVCS R0,#99
+ SWI XHourglass_Percentage
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Cache font chars sub					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=1 => R1=redraw block. Setup
+
+;	   r_bpp,r_caddr,r_cbpl,r_cbpc,r_charw,r_charh
+;	   r_workarea = 64+size for spritearea
+;	   r_for,r_bac,r_palette 24 bit colours.
+;	   r_mode=mode to create sprite in
+;  R0=2 => R1=redraw block. Caches it in mode 0.
+;  R2=font name R3=size in points
+;  R4/R5 are x,y os offsets in box to plot at (from bot left)
+;  R6-R7 is range of characters to cache (inclusive).
+;X Font characters cached. Hourglass shown.
+
+cache_font_chars
+ FNJSR "R10"
+ ADR R10,cache_font_chars_sub
+ BL do_longop			; do with hourglass on
+ FNRTS
+
+cache_font_chars_sub
+ FNJSR "R1-R11"
+ MOV R10,R1			; R10=redraw block
+ LDR R11,[R10,#r_workarea]	; R11=workarea
+ MOV R8,R2			; font name
+ STR R3,[R11,#a_x1]		; font size
+ STR R4,[R11,#a_stack1]
+ STR R5,[R11,#a_stack2]		; save x,y offsets
+ MOV R5,R0			; reason code
+ CMP R6,R7
+ FNRTS GT			; already cached
+ ADD R0,R11,#&40		; sprite area
+ BL sprite_create		; create the sprite
+ FNRTS VS
+ MOV R9,R0			; save bytes per line of sprite
+ MOV R0,#&81
+ ADD R1,R11,#&40
+ BL sprite_output		; send output to sprite
+ FNRTS VS
+ BL font_cache_chars		; cache the chars
+ BVS fo23
+ MOV R0,#0
+ BL sprite_output		; restore output
+ FNRTS
+fo23
+ ADDS R5,R0,#0			; clv
+ MOV R0,#0
+ BL sprite_output		; restore output
+ MOV R0,R5
+ FNPULL
+ ORRS PC,R14,#Vbit		; restore error
+
+;E R5=cache mode
+;  R6-R7=characters to cache inclusive R6=<R7<=255
+;  R8=font name
+;  R9=bytes per sprite line
+;  R10=redraw block
+;  R11=workspace (fontsize/x off/y off/bac mask)
+;  R11+&40=sprite area
+;  Output has been redirected to the sprite
+;X Characters cached #
+
+font_cache_chars
+ FNJSR "R1-R11"
+ BL font_findfont
+ FNRTS VS
+ LDR R2,[R10,#r_for]
+ AND R2,R2,#&FF
+ LDR R1,[R10,#r_bac]
+ LDR R0,[R10,#r_palette]
+ LDR R1,[R0,R1,LSL#2]
+ LDR R2,[R0,R2,LSL#2]		; bac and for 24 bit cols
+ BL sprite_set_cols
+ BVS fo25
+fo24
+ MOV R0,#16
+ SWI XOS_WriteC			; clear graphics area
+ BVS fo25
+ ADD R1,R11,#a_temp1
+ MOV R2,#1<<4			; use os coords
+ LDR R3,[R11,#a_stack1]
+ LDR R4,[R11,#a_stack2]		; os offsets to plot at
+ MOVS R0,R6
+ MOVEQ R0,#'0'			; zero byte
+ CMP R0,#&20			; still a ctrl char?
+ ADDCC R0,R0,#&40
+ TEQ R0,#&7F
+ BEQ fo26			; skip delete
+ STR R0,[R1]			; save char
+ SWI XFont_Paint		; paint char into sprite
+ BLVC font_cache_character	; copy the character to the cache
+ MOVVC R0,R6			; num
+ MOVVC R1,#&100
+ BLVC long_op_display		; show %age
+ BVS fo25
+fo26
+ ADD R6,R6,#1			; next char
+ CMP R6,R7
+ BLE fo24
+ MOV R0,R8			; font handle
+ SWI XFont_LoseFont
+ FNRTS
+fo25
+ ADDS R1,R0,#0
+ MOV R0,R8
+ SWI XFont_LoseFont
+ MOV R0,R1
+ FNPULL
+ ORRS PC,R14,#Vbit
+
+;E R6=character to cache R9=bytes per sprite line
+;  R10=redraw block R11+&40=sprite area
+;X Character defn copied.
+
+font_cache_character
+ FNJSR "R1-R4"
+ LDR R4,[R10,#r_charh]		; number of lines to cache
+ LDR R2,[R10,#r_caddr]		; start address of cache
+ LDR R0,[R10,#r_cbpc]
+ MLA R2,R0,R6,R2		; address of this character
+ LDR R3,[R10,#r_cbpl]		; bytes per output cache line
+ ADD R1,R11,#&50		; start of the sprite
+ LDR R0,[R1,#&20]		; offset of sprite image
+ ADD R1,R1,R0			; sprite image
+fcc_loop
+ PUSH "R1-R3"
+ BL move_bytes
+ PULL "R1-R3"
+ ADD R1,R1,R9
+ ADD R2,R2,R3
+ SUBS R4,R4,#1
+ BGT fcc_loop
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Redraw window SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=redraw block as returned by wimp R1=Zap redraw block
+;X window area redrawn #
+
+redraw_window
+ FNJSR "R1-R3"
+ MOV R2,R0			; save wimp redraw block
+ MOV R3,R1			; save zap redraw block
+ MOV R1,R2			; wimp redraw block
+ SWI XWimp_RedrawWindow
+ FNRTS VS
+rw_1
+ TEQ R0,#0
+ FNRTS EQ
+ MOV R0,R2
+ MOV R1,R3
+ BL get_rectangle
+ FNRTS VS
+ BL redraw_area
+ FNRTS VS
+ MOV R1,R2
+ SWI XWimp_GetRectangle
+ FNRTS VS
+ B rw_1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Strings						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Copy strings
+
+;E R1=dest R2=source (copy till <32 and zero added)
+;X R0=0 R1=end of dest (after 0) R2=char after terminator |
+
+strcopy
+ LDRB R0,[R2],#1
+ CMP R0,#32
+ STRCSB R0,[R1],#1
+ BCS strcopy
+ MOV R0,#0
+ STRB R0,[R1],#1
+ MOVS PC,R14
+
+;E R1=dest R2=source (copy till <32 and add no zero)
+;X R0=terminatior R1=end of dest R2=char after terminator |
+
+strcpy
+ LDRB R0,[R2],#1
+ CMP R0,#32
+ STRCSB R0,[R1],#1
+ BCS strcpy
+ MOVCC PC,R14
+
+ LOCAL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; End							    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ END

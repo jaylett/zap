@@ -1,0 +1,49 @@
+;
+;		zapcall.s
+;		© James Aylett
+;
+
+		GET h.RegNames
+		GET h.SWIs
+
+		AREA	|C$$code|,CODE,READONLY
+
+;
+;		void ZapCall(int call, int args[12])
+;	Entry:	call	= entry offset
+;		args[n]	= Rn argument
+;	Exit:	args[n]	= Rn returned value
+;
+		EXPORT	ZapCall
+
+ZapCall		STMFD	sp!,{lr}			; store return
+		STMFD	sp!,{r1}			; store args[] address
+		LDR	lr,|ZapCallBase|		; base of table
+		ADD	lr,lr,r0			; find address of sub
+		STMFD	sp!,{lr}			; store sub address
+		MOV	lr,r1
+		LDMIA	lr, {r0-r11}			; set up call registers
+		MOV	lr,pc				; return
+		LDMFD	sp!,{pc}			; call sub
+		LDMFD	sp!,{lr}			; pop store
+		STMIA	lr, {r0-r11}			; store return registers
+		LDMFD	sp!,{pc}^			; return, including status register
+
+;
+;		void ZapCallInit(void)
+;
+		EXPORT ZapCall_Init
+
+ZapCall_Init	STMFD	sp!,{r4-r7, lr}			; store return
+		MOV	r0,#18
+		ADR	r1,ZAP_NAME
+		SWI	XOS_Module			; get workspace addr
+		LDR	r4,[r4]				; get base of table
+		STR	r4,|ZapCallBase|		; store base of table
+		LDMFD	sp!,{r4-r7, pc}^		; return, including status register
+
+ZAP_NAME	DCB	"Zap"
+		DCB	0
+|ZapCallBase|	DCD	0
+
+		END

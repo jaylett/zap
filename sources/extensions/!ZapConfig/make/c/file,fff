@@ -1,0 +1,501 @@
+/*	file.c -- filetype and path recognition
+	© James Aylett	*/
+
+#include "file.h"
+
+void close_fileopts()
+{
+  store_filechange();
+
+  FileOptsOpen=FALSE;
+  close_child(FileOpts);
+
+  save_fileopts();
+  if (ConfigureFiletypes)
+    save_zapuserobeys();
+  free_keys();
+}
+
+void open_fileopts()
+{
+  load_fileopts();
+
+  Filetype=-1; Pathnumber=-1;
+  /* ie we're dealing with All filetypes, but no path checks */
+  fileopts_setfiletype();
+
+  open_child(FileOpts, -1);
+  FileOptsOpen=TRUE;
+}
+
+void fileopts_setfiletype()
+{
+  int r[10];
+  char temp[20];
+  /* takes from Filetype and Pathnumber to set up the window */
+
+  switch (Filetype)
+  {
+    case -1 :
+      strcpy(Icon_GetTextPtr(windows[FileOpts].openblock.window, 0), "file_xxx");
+      set_indtext(windows[FileOpts].openblock.window, 1, "All filetypes");
+      break;
+    case 0x1000 :
+      strcpy(Icon_GetTextPtr(windows[FileOpts].openblock.window, 0), "file_xxx");
+      set_indtext(windows[FileOpts].openblock.window, 1, "Untyped");
+      break;
+    default :
+      /* and look up from File$Type_(Filetype) */
+      sprintf(output, "file_%3.3x", Filetype);
+      /* is this sprite in the Wimp pool? */
+      r[0]=0x28;
+      r[2]=(int) output;
+      if(Wimp_SpriteOp(r)!=NULL)
+        strcpy(output,"file_xxx");
+      strcpy(Icon_GetTextPtr(windows[FileOpts].openblock.window, 0), output);
+
+      sprintf(output,"File$Type_%3.3x",Filetype);
+      if(OS_ReadVarVal(output,temp,20)!=TRUE)
+        Icon_printf(windows[FileOpts].openblock.window, 1, "(%3.3x)", Filetype);
+      else
+        Icon_printf(windows[FileOpts].openblock.window, 1, "%s (%3.3x)", temp, Filetype);
+  }
+  Wimp_SetIconState(windows[FileOpts].openblock.window, 0, 0, 0); /* redraw */
+
+  /* this is hard, since the filetype for pathchecks is stored as
+   * part of the definition.
+   */
+  Pathnumber=find_pathcheck(Filetype, 0, 1); /* filetype, start path, increment */
+  if (Pathnumber==-1)
+  {
+    set_indtext(windows[FileOpts].openblock.window, 6, "");
+    set_indtext(windows[FileOpts].openblock.window, 11, "");
+    Icon_Deselect(windows[FileOpts].openblock.window, 10);
+    Icon_Deselect(windows[FileOpts].openblock.window, 19);
+  }
+  else
+  {
+    char temp[256], *temp2;
+    int i=0;
+    temp2=path_search(Pathnumber);
+    while(temp2[i]!=' ' && temp2[i]!='\t' && i<255 && temp2[i]!='\0')
+    {
+      temp[i]=temp2[i];
+      i++;
+    }
+    temp[i]='\0';
+    set_indtext(windows[FileOpts].openblock.window, 6, temp);
+    set_indtext(windows[FileOpts].openblock.window, 11, path_mode(Pathnumber));
+    Icon_SetSelect(windows[FileOpts].openblock.window, 10, path_autoload(Pathnumber));
+    Icon_SetSelect(windows[FileOpts].openblock.window, 19, path_override(Pathnumber));
+  }
+
+  if (Filetype==-1)
+  {
+    /* dealing with all filetypes - no default */
+    Icon_Shade(windows[FileOpts].openblock.window, 14);
+    Icon_Shade(windows[FileOpts].openblock.window, 15);
+    Icon_Shade(windows[FileOpts].openblock.window, 17);
+    Icon_Shade(windows[FileOpts].openblock.window, 20);
+  }
+  else
+  {
+    Icon_Unshade(windows[FileOpts].openblock.window, 14);
+    Icon_Unshade(windows[FileOpts].openblock.window, 15);
+    Icon_Unshade(windows[FileOpts].openblock.window, 17);
+    Icon_Unshade(windows[FileOpts].openblock.window, 20);
+  }
+
+  if (Filetype==-1 || Filetype==0x1000)
+  {
+    /* dealing with all filetypes / untypes files */
+    Icon_Shade(windows[FileOpts].openblock.window, 23);
+    Icon_Shade(windows[FileOpts].openblock.window, 24);
+    Icon_Shade(windows[FileOpts].openblock.window, 25);
+    Icon_Shade(windows[FileOpts].openblock.window, 28);
+    Icon_Shade(windows[FileOpts].openblock.window, 29);
+    Icon_Shade(windows[FileOpts].openblock.window, 30);
+
+    Icon_Deselect(windows[FileOpts].openblock.window, 23);
+    Icon_Deselect(windows[FileOpts].openblock.window, 24);
+    Icon_Deselect(windows[FileOpts].openblock.window, 25);
+    Icon_Deselect(windows[FileOpts].openblock.window, 28);
+    Icon_Deselect(windows[FileOpts].openblock.window, 29);
+    Icon_Deselect(windows[FileOpts].openblock.window, 30);
+  }
+  else
+  {
+    Icon_Unshade(windows[FileOpts].openblock.window, 23);
+    Icon_Unshade(windows[FileOpts].openblock.window, 24);
+    Icon_Unshade(windows[FileOpts].openblock.window, 25);
+    Icon_Unshade(windows[FileOpts].openblock.window, 28);
+    Icon_Unshade(windows[FileOpts].openblock.window, 29);
+    Icon_Unshade(windows[FileOpts].openblock.window, 30);
+
+    set_flag(FileOpts,23,typeflags[Filetype].boot_filerrun);
+    set_flag(FileOpts,24,typeflags[Filetype].boot_externaledit);
+    set_flag(FileOpts,25,typeflags[Filetype].boot_ole);
+    set_flag(FileOpts,28,typeflags[Filetype].run_filerrun);
+    set_flag(FileOpts,29,typeflags[Filetype].run_externaledit);
+    set_flag(FileOpts,30,typeflags[Filetype].run_ole);
+  }
+
+  if (Filetype==-1 || KeysFile[Filetype+0x100]==NULL)
+  {
+    set_indtext(windows[FileOpts].openblock.window, 15, "");
+    Icon_Deselect(windows[FileOpts].openblock.window, 14);
+    Icon_Deselect(windows[FileOpts].openblock.window, 20);
+  }
+  else
+  {
+    /* put something in there */
+    char *fish;
+    fish = KeysFile[Filetype+0x100];
+    if (fish[0]=='*')
+    {
+      Icon_Select(windows[FileOpts].openblock.window, 20);
+      fish++;
+    }
+    else
+      Icon_Deselect(windows[FileOpts].openblock.window, 20);
+    if (fish[0]=='+')
+    {
+      Icon_Select(windows[FileOpts].openblock.window, 14);
+      fish++;
+    }
+    else
+      Icon_Deselect(windows[FileOpts].openblock.window, 14);
+    set_indtext(windows[FileOpts].openblock.window, 15, fish);
+  }
+}
+
+int find_pathcheck(int filetype, int path, int increment)
+{
+  char *temp;
+  while(path>=0 && path<0x100)
+  {
+    if (KeysFile[path]!=NULL)
+    {
+      temp=KeysFile[path];
+      if (temp[0]=='-' && temp[1]=='1')
+      {
+        if (filetype==-1)
+          return path;
+      }
+      else
+      {
+        if (strtol((KeysFile[path] +
+                   ((KeysFile[path][0]=='*')?(2):(1)))
+                   , NULL, 16) == filetype)
+/*          if (strtol(KeysFile[path] + 1, NULL, 16) == filetype)*/
+            return path;
+      }
+    }
+    path+=increment;
+  }
+  return -1;
+}
+
+char *path_search(int path)
+{
+  char *temp;
+  if (KeysFile[path]==NULL)
+    return NULL;
+  temp=KeysFile[path];
+  while (temp[0]!=' ' && temp[0]!='\t')		/* conveniently skips * too */
+    temp++;
+  while (temp[0]==' ' || temp[0]=='\t')
+    temp++;
+  /* now points to search path */
+  return temp;
+}
+
+char *path_mode(int path)
+{
+  char *temp;
+  if (KeysFile[path]==NULL)
+    return NULL;
+  temp=KeysFile[path];
+  while (temp[0]!=' ' && temp[0]!='\t')
+    temp++;
+  while (temp[0]==' ' || temp[0]=='\t')
+    temp++;
+  /* now points to search path */
+  while (temp[0]!=' ' && temp[0]!='\t')
+    temp++;
+  while (temp[0]==' ' || temp[0]=='\t')
+    temp++;
+  /* now points to mode */
+  if (temp[0]=='+')
+    temp++;
+  return temp;
+}
+
+int path_autoload(int path)
+{
+  char *temp;
+  if (KeysFile[path]==NULL)
+    return 0;
+  temp=KeysFile[path];
+  while (temp[0]!=' ' && temp[0]!='\t')
+    temp++;
+  while (temp[0]==' ' || temp[0]=='\t')
+    temp++;
+  /* now points to search path */
+  while (temp[0]!=' ' && temp[0]!='\t')
+    temp++;
+  while (temp[0]==' ' || temp[0]=='\t')
+    temp++;
+  /* now points to mode */
+  if (temp[0]=='+')
+    return 1;
+  else
+    return 0;
+}
+
+int path_override(int path)
+{
+  if (KeysFile[path]==NULL)
+    return 0;
+  if (KeysFile[path][0]=='*')
+    return 1;
+  return 0;
+}
+
+void fileoptsclick()
+{
+  int temp;
+  if(result->mouse.button.data.menu==1) return;
+  switch(result->mouse.icon)
+  {
+    case 7:case 8:
+      /* path bumpers */
+      store_filechange();
+      temp=Pathnumber;
+      if (result->mouse.icon==7)
+        Pathnumber=find_pathcheck(Filetype, Pathnumber -1, -1);
+      else
+        Pathnumber=find_pathcheck(Filetype, Pathnumber +1, +1);
+
+      /* could make circular by doing:
+       * if (Pathnumber==-1)
+       * {
+       *   if (result->mouse.icon==7)
+       *     Pathnumber=find_pathcheck(Filetype, 0xFF, -1);
+       *   else
+       *     Pathnumber=find_pathcheck(Filetype, 0, 1);
+       * }
+       */
+
+      if (Pathnumber==-1)
+        Pathnumber=temp;
+      if (Pathnumber!=temp)
+      {
+        if (Pathnumber==-1)
+        {
+          set_indtext(windows[FileOpts].openblock.window, 6, "");
+          set_indtext(windows[FileOpts].openblock.window, 11, "");
+          Icon_Deselect(windows[FileOpts].openblock.window, 10);
+          Icon_Deselect(windows[FileOpts].openblock.window, 19);
+        }
+        else
+        {
+          char temp[256], *temp2;
+          int i=0;
+/*          Error_Report(0, "&%3.3x; %p", Pathnumber, KeysFile[Pathnumber]);*/
+          temp2=path_search(Pathnumber);
+          while(temp2[i]!=' ' && temp2[i]!='\t' && i<255 && temp2[i]!='\0')
+          {
+            int j;
+            j=temp2[i];
+            temp[i++]=j;
+          }
+          temp[i]='\0';
+          set_indtext(windows[FileOpts].openblock.window, 6, temp);
+          set_indtext(windows[FileOpts].openblock.window, 11, path_mode(Pathnumber));
+          Icon_SetSelect(windows[FileOpts].openblock.window, 10, path_autoload(Pathnumber));
+          Icon_SetSelect(windows[FileOpts].openblock.window, 19, path_override(Pathnumber));
+        }
+      }
+      break;
+    case 9:
+      /* new path check */
+      store_filechange();
+
+      /* search through for a free path check variable */
+      if (Filetype==-1)
+      {
+        /* start at the top */
+        temp=0xFF;
+        while (temp>=0)
+        {
+          if(KeysFile[temp]==NULL) break;
+          temp--;
+        }
+        if (temp<0)
+        {
+          makeerror(FALSE,"ETooManyPaths");
+//          lookup_message(MessageBlock,"ETooManyPaths",output,256);
+//          reporterror(0,output,6,"ZapConfig");
+        }
+        else
+        {
+          /* okay! */
+          set_indtext(windows[FileOpts].openblock.window, 6, "\\#\\*");
+          set_indtext(windows[FileOpts].openblock.window, 11, "Text");
+          Icon_Deselect(windows[FileOpts].openblock.window, 10);
+          Icon_Deselect(windows[FileOpts].openblock.window, 19);
+          Pathnumber=temp;
+        }
+      }
+      else
+      {
+        /* start at the bottom */
+        temp=0;
+        while (temp<0x100)
+        {
+          if(KeysFile[temp]==NULL) break;
+          temp++;
+        }
+        if (temp>=0x100)
+        {
+          makeerror(FALSE,"ETooManyPaths");
+//          lookup_message(MessageBlock,"ETooManyPaths",output,256);
+//          reporterror(0,output,6,"ZapConfig");
+        }
+        else
+        {
+          /* okay! */
+          set_indtext(windows[FileOpts].openblock.window, 6, "\\#\\*");
+          set_indtext(windows[FileOpts].openblock.window, 11, "Text");
+          Icon_Deselect(windows[FileOpts].openblock.window, 10);
+          Icon_Deselect(windows[FileOpts].openblock.window, 19);
+          Pathnumber=temp;
+        }
+      }
+      break;
+    case 16:
+      /* mode list for path check */
+      if (MenuActive!=NOMENU)
+        Wimp_CreateMenu(CloseMenu, 0, 0);
+      modesmenu(MENU_PATHCHECK);
+      break;
+    case 17:
+      /* mode list for default */
+      if (MenuActive!=NOMENU)
+        Wimp_CreateMenu(CloseMenu, 0, 0);
+      modesmenu(MENU_DEFAULT);
+      break;
+    case 18:
+      /* filetype list */
+      if (MenuActive!=NOMENU)
+        Wimp_CreateMenu(CloseMenu, 0, 0);
+      filetypemenu();
+      break;
+    case 2:case 3:
+      /* filetype bumpers */
+      store_filechange();
+      Filetype+=2*(int)(result->mouse.icon) - 5;
+      /* make circular */
+      if (Filetype<-1)
+        Filetype=0x1000;
+      if (Filetype>0x1000)
+        Filetype=-1;
+      fileopts_setfiletype();
+      break;
+    case 23: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].boot_filerrun ^= 1; break;
+    case 24: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].boot_externaledit ^= 1; break;
+    case 25: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].boot_ole ^= 1; break;
+    case 28: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].run_filerrun ^= 1; break;
+    case 29: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].run_externaledit ^= 1; break;
+    case 30: if (Filetype!=-1 && Filetype!=0x1000) typeflags[Filetype].run_ole ^= 1; break;
+  }
+}
+
+void store_filechange(void)
+{
+  int code;
+  /* 256 bytes for icon 6 + 6 for &1000\t + 2 for \t\t + 1 for '+' + 1 for '*' */
+  /* was 276 */
+  char temp[300], *temp2;
+  temp2=temp;
+  /* Store current definition(s) */
+  /* We know that Filetype is between -1 and 0x1000 */
+  if(Filetype!=-1)
+  {
+    /* default */
+    code=Filetype+0x100;
+    if(KeysFile[code]!=NULL) memfree(KeysFile[code]);
+
+    if (Icon_GetSelect(windows[FileOpts].openblock.window, 20)==TRUE)
+    {
+      temp[0]='*';
+      temp2++;
+    }
+    if (Icon_GetSelect(windows[FileOpts].openblock.window, 14)==TRUE)
+    {
+      temp2[0]='+';
+      temp2++;
+    }
+    get_indtext(windows[FileOpts].openblock.window, 15, temp2);
+
+    if(strlen(temp)>0)
+    {
+      KeysFile[code]=memalloc(strlen(temp)+1);
+      strcpy(KeysFile[code],temp);
+    }
+    else
+      KeysFile[code]=NULL;
+  }
+
+  /* Now do path check */
+  if(Pathnumber!=-1)
+  {
+    int l=0;
+    code=Pathnumber;
+    temp2=temp;
+    if(KeysFile[code]!=NULL) memfree(KeysFile[code]);
+    if (Icon_GetSelect(windows[FileOpts].openblock.window, 19)==TRUE)
+    {
+      temp[0]='*';
+      temp2++;
+      l=1;
+    }
+    switch (Filetype)
+    {
+      case -1 :
+        sprintf(temp2, "-1\t");
+        l+=3;
+        break;
+      case 0x1000 :
+        sprintf(temp2, "&1000\t");
+        l+=6;
+        break;
+      default :
+        sprintf(temp2, "&%3.3x\t", Filetype);
+        l+=5;
+    }
+    get_indtext(windows[FileOpts].openblock.window, 6, temp+l);
+    if(strlen(temp+l)>0)
+    {
+      l+=strlen(temp+l);
+      temp[l++]='\t';
+      temp[l++]='\t';
+
+      if (Icon_GetSelect(windows[FileOpts].openblock.window, 10)==TRUE)
+        temp[l++]='+';
+      temp[l]=0;
+
+      /* done like this because the ind area is 256 bytes big, as is output
+       * and DeskLib copies the entire thing for some bizarre reason.
+       */
+      get_indtext(windows[FileOpts].openblock.window, 11, output);
+
+      KeysFile[code]=memalloc(strlen(output)+l+1);
+      strcpy(KeysFile[code],temp);
+      strcpy(KeysFile[code]+l, output);
+    }
+    else
+      KeysFile[code]=NULL;
+  }
+}

@@ -1,0 +1,419 @@
+/*	external.c
+	© James Aylett	*/
+
+#include "external.h"
+
+void scan_modes()
+{
+  FILE *external;
+  filing_dirdata f_dirdata;
+  filing_readdirtype f_readdirtype=readdirtype_DIRENTRY;
+  filing_direntry *f_direntry;
+  char *dir = "ZapModules:";
+
+  init_modes();
+
+  add_mode("Text", NULL);
+  add_mode("Byte", NULL);
+  add_mode("Word", NULL);
+  add_mode("ASCII", NULL);
+  add_mode("Code", NULL);
+  add_mode("Throwback", NULL);
+
+  if (Filing_OpenDir(dir, &f_dirdata, 256, f_readdirtype)==NULL)
+  {
+    /* Scan ZapModules: for non-core modes */
+    while ((f_direntry=(filing_direntry *)Filing_ReadDir(&f_dirdata))!=NULL)
+    {
+      if (f_direntry->objtype==filing_DIRECTORY && f_direntry->name[0]=='!')
+      {
+        sprintf(output, "ZapModules:%s.%s", f_direntry->name, "External");
+        external = fopen(output, "r");
+        if (external!=NULL)
+        {
+          scan_external(external, f_direntry->name);
+          fclose(external);
+        }
+      }
+    }
+    Filing_CloseDir(&f_dirdata);
+  }
+}
+
+void scan_external(FILE *f, char *name)
+{
+  int place=0; /* 0=looking for mod, 1=modes, 2=comms, 3=numbers */
+  int chr;
+  do
+  {
+    /* Start of line */
+    chr = fgetc(f);
+    switch (chr)
+    {
+      case '|' : /* comment */
+        while (chr!='\n' && !feof(f) && !ferror(f))
+          chr = fgetc(f);
+        break;
+      case '\n' : /* end of mod */
+        place=0;
+        break;
+      case '\t' : /* something interesting */
+      case ' ' : /* less satisfactory part of mod defn */
+        while ((chr=='\t' || chr==' ') && !feof(f) && !ferror(f))
+          chr = fgetc(f); /* Skip trailer */
+        if (place==0) /* Problem: badly constructed External file */
+        {
+          /* Solution: skip this line */
+          while (chr!='\n' && !feof(f) && !ferror(f))
+            chr = fgetc(f);
+          break;
+        }
+        if (chr=='-') /* Break - change section */
+        {
+          place++;
+          /*
+          // Could check for <=3, but we might expand the number of
+          // sections in the future.
+          */
+        }
+        else /* Actual entry of some sort */
+        {
+          if (place==1) /* Mode name, so build into a buffer */
+          {
+            char *mode;
+            int used=0, max=0, page=256;
+            mode = memalloc(page);
+            max=page;
+
+            while (chr!='\n' && !feof(f) && !ferror(f))
+            {
+              if (used==max)
+              {
+                mode = memrealloc(mode, max+page);
+                max+=page;
+              }
+              mode[used++]=chr;
+              chr=fgetc(f);
+            }
+            if (used==max)
+            {
+              mode=memrealloc(mode, max+page);
+              max+=page;
+            }
+            mode[used++]=0; /* Terminate */
+
+            add_mode(mode, name); /* Mode name, module name */
+            memfree(mode); /* add_mode strdup()'s both pointers anyway */
+          }
+          else /* Not interesting; just skip line */
+          {
+            while (chr!='\n' && !feof(f) && !ferror(f))
+              chr = fgetc(f);
+          }
+        }
+        break;
+      default : /* mod line */
+        while (chr!='\n' && !feof(f) && !ferror(f))
+          chr = fgetc(f);
+        place=1;
+        break;
+    }
+  } while (!feof(f) && !ferror(f));
+}
+
+int textmode_index()
+{
+  struct modeentry *e;
+  int i;
+  e = mode_head->next;
+  i=0;
+
+  while (e!=mode_head)
+  {
+    if (e->name!=NULL && strcmp(e->name, "Text")==0)
+      return i;
+    i++;
+    e=e->next;
+  }
+  return 0;
+}
+
+void init_modes()
+{
+  if (mode_head!=NULL)
+    remove_modes();
+
+  totalmodes=0;
+  mode_head = memalloc(sizeof(struct modeentry));
+  mode_head->next=mode_head;
+  mode_head->prev=mode_head;
+  mode_head->name=NULL;
+  mode_head->module=NULL;
+}
+
+/* Inserts the new entry in the list, preserving alpha order */
+struct modeentry *add_mode(char *n, char *m)
+{
+  struct modeentry *e, *f;
+  int test;
+
+  if (n==NULL)
+    return NULL;
+
+  e = memalloc(sizeof(struct modeentry));
+
+  e->name = strdup(n);
+  if (m!=NULL)
+    e->module = strdup(m);
+  else
+    e->module = NULL;
+
+  f = mode_head;
+  test=0;
+  while (f!=mode_head || test==0)
+  {
+    int pr,ne;
+    test=1; /* So that head gets tested the first time round */
+
+    if (f->name==NULL)
+      pr=-1; /* -1 so that we should always insert after head */
+    else
+      pr = strcmp(f->name, n);
+    if (f->next->name==NULL)
+      ne=+1; /* +1 so that we should always insert before head */
+    else
+      ne = strcmp(f->next->name, n);
+
+    /* If the one we're looking at has a name earlier in the
+    // alphabet than the one we're adding, and the one after the
+    // one we're looking at has a name later in the alphabet than
+    // the one we're adding, insert after the one we're looking at.
+    */
+    if (pr <= 0 && ne > 0)
+      break;
+
+    f=f->next;
+  }
+  insert_mode(e,f);
+  return e;
+}
+
+/* Insert m after n */
+void insert_mode(struct modeentry *m, struct modeentry *n)
+{
+  m->next = n->next;
+  m->prev = n;
+  n->next = m;
+  m->next->prev = m;
+  totalmodes++;
+}
+
+void remove_module(char *m)
+{
+  struct modeentry *a;
+  a = mode_head->next;
+  while (a!=mode_head)
+  {
+    if (a->module!=NULL && strcmp(a->module,m)==0)
+      a=remove_modeS(a);
+    else
+      a=a->next;
+  }
+}
+
+void remove_modes()
+{
+  struct modeentry *n;
+  n = mode_head->next;
+  while (n!=mode_head)
+    n=remove_modeS(n);
+}
+
+struct modeentry *remove_modeS(struct modeentry *n)
+{
+  struct modeentry *m;
+  m = n->next;
+  n->prev->next = m;
+  m->prev = n->prev;
+
+  if (n->name!=NULL)
+    memfree(n->name);
+  if (n->module!=NULL)
+    memfree(n->module);
+  memfree(n);
+
+  totalmodes--;
+  return m;
+}
+
+struct modeentry *remove_mode(char *n)
+{
+  struct modeentry *m;
+  m = mode_head->next;
+  while (m!=mode_head)
+  {
+    if (m->name!=NULL && strcmp(n,m->name)==0)
+      return remove_modeS(m);
+    m=m->next;
+  }
+  return NULL;
+}
+
+/* --- Start of old build_externalmenu() --- */
+#if 0
+void build_externalmenu()
+{
+  FILE *external;
+  /* --- External file --- */
+
+  // ### Note that this should really be done by scanning ZapModules: ...
+
+  /* Next we wish to construct a menu of available modes, from the External file
+   * To do this we go through the External file counting the modes, and then go
+   * back through reading them in.
+   */
+  external=fopen("ZapGenerated:External","r");
+  if(external==NULL)
+  {
+    Hourglass_Off();
+    makeerror(TRUE,"ENoExternal");
+  }
+
+  t=0; /* number of modes */
+  k=0; /* 0=looking for mod, 1=modes, 2=comms, 3=numbers */
+  do
+  {
+    char *ptr4;
+    t2=0;
+    temp2[0]=0;
+    do
+    {
+      if(fread(temp2+t2,1,1,external)==1)
+        t2++;
+    } while(temp2[t2-1]!='\n' && t2<500 && !feof(external));
+    if(temp2[t2-1]=='\n')
+      temp2[t2-1]=0;
+    else
+      temp2[t2]=0;
+    switch (temp2[0])
+    {
+      case '|' : /* comment */
+        break;
+      case '\0' : /* end of mod */
+        k=0;
+        break;
+      case '\t' : /* something interesting */
+      case ' ' : /* less satisfactory part of mod defn */
+
+        /* convert spaces into a single tab */
+        ptr4=temp2;
+        while(ptr4[0]==' ') ptr4++;
+        if(ptr4>temp2)
+          ptr4--;
+        if (k==0)
+        {
+          /* problem */
+          fclose(external);
+          Hourglass_Off();
+          makeerror(TRUE,"EBadExternal");
+        }
+        if (ptr4[1]=='-')
+        {
+          k+=1;
+          if (k>3) k=0; /* technically not correct, but let it pass */
+        }
+        else
+        {
+          /* actual entry */
+          if (k==1) t++;
+        }
+        break;
+      default : /* mod */
+        k=1;
+        break;
+    }
+  } while(!feof(external));
+
+  t+=6; /* 6 internal modes */
+
+  if (t>32 && Strict)
+    /* not fatal */
+    makeerror(FALSE,"ETooManyModes");
+
+  fseek(external, 0, SEEK_SET); /* return to beginning */
+  /* grab space for menu */
+  if (ModesMenu!=NULL) memfree(ModesMenu);
+  ModesMenu = memalloc(sizeof(menu_block) + t*sizeof(menu_item));
+  /* ModesMenu is a struct MaxModesMenu *, so we can use the struct entries */
+  /* unfortunately this won't be alpha-sorted at the moment */
+
+  menuheader_lookup(&(ModesMenu->header),200,"ModesM");
+  menuitem(&(ModesMenu->items[0]),NOSUBMENU,0,MENUFLAGS,"Text");
+  menuitem(&(ModesMenu->items[1]),NOSUBMENU,0,MENUFLAGS,"Byte");
+  menuitem(&(ModesMenu->items[2]),NOSUBMENU,0,MENUFLAGS,"Word");
+  menuitem(&(ModesMenu->items[3]),NOSUBMENU,0,MENUFLAGS,"Ascii");
+  menuitem(&(ModesMenu->items[4]),NOSUBMENU,0,MENUFLAGS,"Code");
+  menuitem(&(ModesMenu->items[5]),NOSUBMENU,(t==6)?(WimpMenuItem_Last):(0),MENUFLAGS,"Throwback");
+  tempints[0]=t;
+
+  /* correct for internal modes again */
+  t-=6;
+
+  do
+  {
+    char *ptr4;
+    t2=0;
+    temp2[0]=0;
+    do
+    {
+      temp2[t2]=fgetc(external);
+    } while(temp2[t2]!='\n' && (t2++)<500 && !feof(external));
+    if(temp2[t2]=='\n')
+      temp2[t2]=0;
+    else
+      while (fgetc(external)!='\n' && !feof(external));
+    /* skipped to end of line - legal lines cannot be >500 */
+    switch (temp2[0])
+    {
+      case '|' : /* comment */
+        break;
+      case '\0' : /* end of mod */
+        k=0;
+        break;
+      case '\t' : /* something interesting */
+      case ' ' : /* less satisfactory part of mod defn */
+
+        /* convert spaces into a single tab */
+        ptr4=temp2;
+        while(ptr4[0]==' ') ptr4++;
+        if(ptr4>temp2)
+        {
+          if(ptr4[-1]==' ')
+            (--ptr4)[0]='\t';
+        }
+        if (ptr4[1]=='-')
+        {
+          k+=1;
+          if (k>3) k=0; /* technically not correct, but let it pass */
+        }
+        else
+        {
+          /* actual entry */
+          if (k==1)
+          {
+            /* fill in */
+            menuitem(&(ModesMenu->items[tempints[0]-t]),NOSUBMENU,(t==1)?(WimpMenuItem_Last):(0),MENUFLAGS,ptr4+1);
+            t--;
+          }
+        }
+        break;
+      default : /* mod */
+        k=1;
+        break;
+    }
+  } while(!feof(external));
+
+  fclose(external);
+}
+#endif
+/* --- End of old build_externalmenu() --- */

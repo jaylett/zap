@@ -1,0 +1,136 @@
+; Zap Text Command Extension
+; Copyright (C) 1998 Zap Developers
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program; if not, write to the Free Software
+; Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+;
+; Text commands by James Aylett
+;
+; SELECTWORD		- Selects the word at the cursor (by the mode's definition)
+; WORD[OFF]STR		- Returns the word at the cursor [plus offset]
+; REM			- Remark
+
+; Includes
+		GET	h.ZapText
+		GET	h.dsutils
+		GET	h.module
+
+; What we give to other people
+		EXPORT	sja_selectword
+		EXPORT	sja_wordstr
+		EXPORT	sja_wordoffstr
+		EXPORT	sja_rem
+		EXPORT	util_word_function
+
+; WORDSTR
+		LOCAL
+
+		&	(3:SHL:22)		; function only, no params
+
+sja_wordstr	MOV	r0,#0
+		B	sja_wordoffstr
+
+		&	(3:SHL:22)+(2:SHL:24)	; function only, word param
+
+sja_wordoffstr
+		FNJSR
+		CMP	r8,#0
+		CMPNE	r9,#0
+		CMPNE	r10,#0
+		BEQ	noway$l
+
+		MOV	r2,r0			; protect offset from util_splitbuffer
+
+		BL	util_splitbuffer	; get split point out of the way
+		FNRTS	VS
+
+		LDR	r1,[cursorptr,#c_off]
+		ADD	r0,r2,r1
+		MOV	r11,#e_returnword
+		FNcall	Zap_CallMode		; \X r0, r1
+		FNRTS	VS
+
+		CMP	r1,#0
+		BEQ	noway$l
+
+; \E r0 offset, r1 length, nothing stacked
+util_word_function
+		LDR	r2,[fileptr,#f_ptr]	; start of data
+		ADD	r2,r2,r0		; address
+		ADD	r0,r1,#1		; space for NUL
+		FNcall	Zap_Claim		; \X r0
+		FNRTS	VS
+		MOV	r4,r0			; store for later
+
+		BL	Get_Workspace
+;		STR	r0,[ws,#test2]
+;		STR	r2,[ws,#test]
+
+; \E r2 = address, r0 = buffer, r1 = length (excl NUL)
+copy$l		LDRB	r3,[r2],#1
+		STRB	r3,[r0],#1
+		SUBS	r1,r1,#1
+		BNE	copy$l
+		MOV	r3,#0
+		STRB	r3,[r0]			; terminate
+
+		MOV	r1,#3			; returning a string
+		MOV	r0,r4
+		FNRTS
+
+noway$l
+; Mistake which we'll blame squarely on Darren's documentation
+; Should return NULL, not "".
+		MOV	r0,#0
+;		ADR	r0,zero$l
+		MOV	r1,#3
+		FNRTS
+
+;zero$l		=	0
+;		ALIGN
+
+
+; SELECTWORD
+		LOCAL
+
+		&	0
+
+sja_selectword	CMP	r8,#0
+		CMPNE	r9,#0
+		CMPNE	r10,#0
+		MOVEQ	pc,lr
+
+		FNJSR	"r0-r3"
+
+		LDR	r0,[cursorptr,#c_off]
+		MOV	r11,#e_returnword
+		FNcall	Zap_CallMode
+		FNRTS	VS
+
+		ADD	r3,r1,r0
+		MOV	r2,r0
+		FNcall	Zap_Select
+		FNRTS
+
+; REM
+		LOCAL
+
+		&	(3:SHL:3)+(1:SHL:6)+(1:SHL:10)
+
+sja_rem		CMP	r0,#6			; if minibuffer opening
+		MOVEQ	r0,#1			; kill it
+		MOV	pc,lr			; otherwise do nothing
+
+; That's it
+		END

@@ -1,0 +1,588 @@
+/*	poll.c
+	© James Aylett	*/
+
+#include "poll.h"
+
+void poll()
+{
+  int i;
+  event_pollmask mask;
+  mask.value=PollMask;
+  Wimp_Poll(mask,pollblock);
+  switch (pollblock->type)
+  {
+    case event_REDRAW :
+      redraw_window();
+      break;
+    case event_OPEN :
+      open_window();
+      break;
+    case event_CLOSE :
+      i=window_to_number(result->words[0]);
+      switch (i)
+      {
+        case Colours:
+          whichcolour=0; break;
+        case Keyboard:
+          if (KeysOpen)
+          {
+            close_keys(KeyMap);
+            KeyMap=-1;
+          }
+          break;
+        case Upgrade:
+          if (UpgradeOpen)
+            close_upgrade();
+          break;
+        case Keymaps:
+          if(KeymapsOpen)
+            close_keymaps();
+          break;
+        case Display:
+          if(DisplayOpen)
+            close_display();
+          break;
+        case Misc:
+          if(MiscOpen)
+            close_misc();
+          break;
+        case Misc2:
+          if (Misc2Open)
+            close_misc2();
+          break;
+        case EditOpts:
+          if(EditOptsOpen)
+            close_edit();
+          break;
+        case DisplayOpts:
+          if(DisplayOptsOpen)
+            close_displayopts();
+          break;
+        case ModeOpts:
+          if(ModeOptsOpen)
+            close_modeopts();
+          break;
+        case ModeOpts2:
+          if(ModeOpts2Open)
+            close_modeopts2();
+          break;
+        case FileOpts:
+          if(FileOptsOpen)
+            close_fileopts();
+          break;
+        case FontOpts:
+          if(FontsOpen)
+            close_fonts();
+          break;
+        default:
+          Wimp_CloseWindow(result->words[0]);
+          if (result->words[0]==windows[QuitBox].openblock.window)
+            QuitBoxOpen=FALSE;
+          break;
+      }
+      break;
+    case event_CLICK : mouseclick();
+      break;
+    case event_KEY : key_pressed();
+      break;
+    case event_MENU : menudecode();
+      break;
+    case event_USERMESSAGE :
+    case event_USERMESSAGERECORDED : messagereceived();
+      break;
+  }
+}
+
+void redraw_window()
+{
+  window_redrawblock block;
+  BOOL more;
+  block.window=result->openblock.window;
+  Wimp_RedrawWindow(&block, &more);
+  while(more)
+  {
+    if(block.window==windows[ModePane].openblock.window)
+      redraw_modepane(&block);
+    else
+    {
+      if(block.window==windows[Colours].openblock.window)
+        redraw_colours(&block);
+    }
+    Wimp_GetRectangle(&block, &more);
+  }
+}
+
+void open_window()
+{
+  int i;
+  if(result->openblock.window==windows[ModeOpts2].openblock.window)
+  {
+    window_state state;
+    Wimp_GetWindowState(windows[ModePane].openblock.window, &state);
+    state.openblock.screenrect.min.x =	result->openblock.screenrect.min.x +
+    					windows[ModePane].openblock.screenrect.min.x -
+    					windows[ModeOpts2].openblock.screenrect.min.x;
+    state.openblock.screenrect.max.y =	result->openblock.screenrect.max.y +
+    					windows[ModePane].openblock.screenrect.max.y -
+    					windows[ModeOpts2].openblock.screenrect.max.y;
+    state.openblock.screenrect.max.x =	state.openblock.screenrect.min.x +
+    					windows[ModePane].openblock.screenrect.max.x -
+    					windows[ModePane].openblock.screenrect.min.x;
+    state.openblock.screenrect.min.y =	state.openblock.screenrect.max.y -
+    					windows[ModePane].openblock.screenrect.max.y +
+    					windows[ModePane].openblock.screenrect.min.y;
+    state.openblock.behind=result->openblock.behind;
+    result->openblock.behind=state.openblock.window;
+    Wimp_OpenWindow(&state.openblock);
+  }
+  Wimp_OpenWindow(&result->openblock);
+  // Update the position if it's main or a child ...
+  i=window_to_number(result->openblock.window);
+  if (i!=-1)
+    // A real window ...
+    Wimp_GetWindowState(windows[i].openblock.window, &windows[i]);
+}
+
+void mouseclick()
+{
+  int i;
+  if (result->mouse.window==windows[QuitBox].openblock.window)
+  {
+    switch (result->mouse.icon)
+    {
+      case 2:
+        exitflag=TRUE;
+        if (prequitSender!=-1)
+        {
+          // Restart the shutdown
+          key_block kb;
+          Wimp_GetCaretPosition((caret_block *)&kb);
+          kb.code=0x1fc;
+          Wimp_SendMessage(event_KEY, (message_block *)&kb, prequitSender, -1);
+        }
+      case 3:
+        closequitbox();
+    }
+    return;
+  }
+  else
+    closequitbox();
+
+  if(result->mouse.window==-2)
+    if(result->mouse.icon==ibhandle) { ibclick(); return; }
+  i=window_to_number(result->mouse.window);
+  switch (i)
+  {
+    case Main: mainclick(); break;
+    case Keyboard: keyclick(); break;
+    case Display: displayclick(); break;
+    case Misc: miscclick(); break;
+    case Misc2: misc2click(); break;
+    case EditOpts: editclick(); break;
+    case DisplayOpts: displayoptsclick(); break;
+    case FileOpts: fileoptsclick(); break;
+    case Upgrade: upgradeclick(); break;
+    case Keymaps: keymapsclick(); break;
+    case ModeOpts: modeoptsclick(); break;
+    case ModeOpts2: modeopts2click(); break;
+    case FontOpts: fontsclick(); break;
+  }
+}
+
+void key_pressed()
+{
+  int K=TRUE;
+  if(K) Wimp_ProcessKey(result->key.code);
+}
+
+void menudecode()
+{
+  int fish;
+  mouse_block block;
+  switch (MenuActive)
+  {
+    case IBMENU :
+      switch (result->selection[0])
+      {
+        case 1 :
+          if (Modified && !NoConfirm)
+          {
+            // Open window so user can make a decision
+            windows[QuitBox].openblock.behind=WimpWindow_Top;
+            Window_Show(windows[QuitBox].openblock.window, open_CENTERED);
+            QuitBoxOpen=TRUE;
+          }
+          else
+            exitflag=TRUE;
+          break;
+      }
+      break;
+    case FONTSTYLEMENU : fontstyle_change(); break;
+    case CURSORMENU:case CURSORMENU+1:case CURSORMENU+2:case CURSORMENU+3:
+      cursor_change(KeyCode); break;
+    case FILETYPEMENU:
+      store_filechange();
+      switch (result->selection[0])
+      {
+        case 0 : Filetype=0xfff; break;
+        case 1 : Filetype=0xffb; break;
+        case 2 : Filetype=0xfaf; break;
+        case 3 : Filetype=0xffd; break;
+        case 4 : /* find from FiletypeItem */
+          {
+            Filetype=(int)strtol(FiletypeItem, NULL, 16);
+          }
+          break;
+      }
+      fileopts_setfiletype();
+      break;
+    case MODESMENU: /* for path check */
+      if (result->selection[0]!=-1)
+        set_indtext(windows[FileOpts].openblock.window,11,ModesMenu->items[result->selection[0]].icondata.text);
+      break;
+#if 0
+    case MODESMENU+1: /* for default */
+      if (result->selection[0]!=-1)
+        set_indtext(windows[FileOpts].openblock.window,15,ModesMenu->items[result->selection[0]].icondata.text);
+      break;
+#endif
+    case MODESMENU+2: /* for mode opts */
+      if (result->selection[0]!=-1 && result->selection[0]!=mode_number)
+      {
+        /* store width */
+//        get_indtext(windows[ModeOpts].openblock.window, 7, output);
+//        zap_mode_flags.flags.width = ((int)strtol(output,NULL,10)) & 0xffff;
+        zap_mode_flags.flags.width = update_number(ModeOpts, 7);
+        zap_mode_flags_1.flags.line_no_width = update_number(ModeOpts, 10) - 1;
+        zap_mode_flags_2.flags.keymap = update_number(ModeOpts, 58);
+        save_modeopts();
+        open_modeopts(result->selection[0]);
+      }
+      break;
+    case MODESMENU+3: /* for mode opts 2 */
+      if (result->selection[0]!=-1 && result->selection[0]!=mode_number)
+      {
+        save_modeopts2();
+        open_modeopts2(result->selection[0]);
+      }
+      break;
+#if 0
+    case MODESMENU+4: /* for select create mode */
+      if (result->selection[0]!=-1)
+        set_indtext(windows[Misc].openblock.window, 9, ModesMenu->items[result->selection[0]].icondata.text);
+      break;
+    case MODESMENU+5: /* for adjust create mode */
+      if (result->selection[0]!=-1)
+        set_indtext(windows[Misc].openblock.window, 18, ModesMenu->items[result->selection[0]].icondata.text);
+      break;
+#endif
+    case TEMPLATESMENU:
+      if(result->selection[0]>-1)
+        set_templates();
+      break;
+    case LINENOSMENU:
+      switch(result->selection[0])
+      {
+        case 0 : zap_mode_flags.flags.show_line_numbers=0; break;
+        case 1 : zap_mode_flags.flags.show_line_numbers=1;
+        	 zap_mode_flags.flags.lines_are_lines=1;
+        	 zap_mode_flags.flags.lines_physical=1;    break;
+        case 2 : zap_mode_flags.flags.show_line_numbers=1;
+        	 zap_mode_flags.flags.lines_are_lines=1;
+        	 zap_mode_flags.flags.lines_physical=0;    break;
+        case 3 : zap_mode_flags.flags.show_line_numbers=1;
+        	 zap_mode_flags.flags.lines_are_lines=0;   break;
+      }
+      if(result->selection[0]>-1)
+      {
+        sprintf(output,"LineNosM%i",result->selection[0]);
+        lookup_message(MessageBlock,output,output,256);
+        set_indtext(windows[ModeOpts].openblock.window,9,output);
+      }
+      break;
+    case TABDISPLAYMENU:
+      if(result->selection[0]>-1)
+      {
+        zap_mode_flags.flags.tab_display_format=result->selection[0];
+        sprintf(output,"TabDisplayM%i",result->selection[0]);
+        lookup_message(MessageBlock,output,output,256);
+        set_indtext(windows[ModeOpts].openblock.window,13,output);
+      }
+      break;
+    case TABEDITMENU:
+      if(result->selection[0]>-1)
+      {
+        zap_mode_flags.flags.tab_entry_mode=result->selection[0];
+        sprintf(output,"TabEditM%i",result->selection[0]);
+        lookup_message(MessageBlock,output,output,256);
+        set_indtext(windows[ModeOpts].openblock.window,22,output);
+      }
+      break;
+    case ATTRIBSMENU:
+      {
+        int i;
+        if (KeysFile[0x11c]!=NULL)
+          i=(int)strtol(KeysFile[0x11c]+1,NULL,16);
+        else
+          i=0;
+        switch (result->selection[0])
+        {
+          case 0 :
+            if(i&1) i&=254; else i|=1;
+            break;
+          case 1 :
+            if(i&2) i&=253; else i|=2;
+            break;
+          case 2 :
+            if(i&16) i&=239; else i|=16;
+            break;
+          case 3 :
+            if(i&32) i&=223; else i|=32;
+            break;
+          case 4 :
+            if(i&8) i&=247; else i|=8;
+            break;
+          case 5 :
+            if((i&192)==64)
+              i=i&63;
+            else
+              i=64+(i&63);
+            break;
+          case 6 :
+            if((i&192)==192)
+              i=i&63;
+            else
+              i=192+(i&63);
+            break;
+        }
+        if (KeysFile[0x11c]!=NULL) memfree(KeysFile[0x11c]);
+        if (i!=0)
+        {
+          KeysFile[0x11c]=memalloc(4);
+          sprintf(KeysFile[0x11c],"&%2.2x",i);
+        }
+        else
+          KeysFile[0x11c]=NULL;
+
+        set_indtext(windows[Misc].openblock.window, 39, attribs_as_text(KeysFile[0x11c]+1));
+      }
+  }
+  Wimp_GetPointerInfo(&block);
+  if(block.button.data.adjust==1)
+  {
+    switch (MenuActive)
+    {
+      case IBMENU : ibmenu(); break;
+/*      case OPTIONSETMENU : optionmenu(); break;*/
+      case FONTSTYLEMENU :
+        fish=    ZapGlobalOptions.opt_flags.flags.redraw_mode_low    +
+             2 * ZapGlobalOptions.opt_flags.flags.redraw_mode_medium +
+             4 * ZapGlobalOptions.opt_flags.flags.redraw_mode_high;
+        fontstylemenu(fish);
+        break;
+      case CURSORMENU:case CURSORMENU+1:case CURSORMENU+2:case CURSORMENU+3:
+        cursormenu(KeyCode); break;
+      case FILETYPEMENU: filetypemenu(); break;
+      case MODESMENU:case MODESMENU+1:case MODESMENU+2:case MODESMENU+3:
+        modesmenu(MenuActive-MODESMENU); break;
+      case TEMPLATESMENU: templatesmenu(); break;
+      case LINENOSMENU: templatesmenu(); break;
+      case TABDISPLAYMENU: tabdisplaymenu(); break;
+      case TABEDITMENU: tabeditmenu(); break;
+      case ATTRIBSMENU: attribsmenu(); break;
+    }
+  }
+  else
+  {
+    MenuActive=NOMENU;
+  }
+}
+
+void messagereceived()
+{
+  switch (result->message.header.action)
+  {
+    case message_QUIT :
+      exitflag=TRUE;
+      break;
+    case message_PREQUIT :
+      if (Modified && !NoConfirm)
+      {
+        // Store information to restart shutdown as necessary
+        if (result->message.header.size>20 && (result->message.data.words[0] & 1))
+          prequitSender=-1;
+        else
+          prequitSender=result->message.header.sender;
+
+        // Open window so user can make a decision
+        windows[QuitBox].openblock.behind=WimpWindow_Top;
+        Window_Show(windows[QuitBox].openblock.window, open_CENTERED);
+        QuitBoxOpen=TRUE;
+
+        // And protest to get some time to deal with it
+        result->message.header.yourref=result->message.header.myref;
+        Wimp_SendMessage(event_ACK, &result->message, result->message.header.sender, -1);
+      }
+      break;
+    case message_DATALOAD :
+      if(result->message.data.dataload.window==windows[Upgrade].openblock.window)
+      {
+        if(result->message.data.dataload.filetype==0x2000 /* So is an app */)
+        {
+          char temp[256];
+          char *leaf;
+          FILE *fp;
+          /* delete old copy if any and copy new one
+           * then rescan modules
+           */
+          leaf=Str_LeafName(result->message.data.dataload.filename);
+          sprintf(temp, "<Zap$Dir>.Modules.%s", leaf);
+          if (fisdirectory(temp) || File_Exists(temp)) /* hopefully tests LR? */
+          {
+            sprintf(temp, "Wipe %s ~CFR~V", temp);
+            system(temp);
+          }
+          sprintf(temp, "Copy %s <Zap$Dir>.Modules.%s %s",
+                        result->message.data.dataload.filename,
+                        leaf,
+                        Copy_Flags);
+	  system(temp);
+
+	  /* Upgrade window must be open for this to happen, so add this module */
+	  KeysFile[MaxModules]=memalloc(strlen(leaf)+1);
+	  strcpy(KeysFile[MaxModules], leaf);
+	  set_indtext(windows[Upgrade].openblock.window,2,KeysFile[MaxModules]+1);
+	  KeyCode=MaxModules;
+	  MaxModules++;
+
+	  /* And scan the external file for new modes */
+	  sprintf(output,"ZapModules:%s.External", leaf);
+	  fp = fopen(output,"r");
+	  if (fp!=NULL)
+	  {
+	    scan_external(fp, leaf);
+	    fclose(fp);
+	  }
+        }
+      }
+      break;
+    case message_MENUSDELETED :
+      MenuActive=NOMENU;
+      break;
+  }
+}
+
+/*
+// These functions are called from the event handler routines above
+*/
+
+void ibclick()
+{
+  switch (result->mouse.button.value)
+  {
+    case button_MENU :
+      if (MenuActive!=NOMENU)
+        Wimp_CreateMenu(CloseMenu, 0, 0);
+      ibmenu();
+      break;
+    case button_ADJUST :
+    case button_SELECT :
+      set_indtext(windows[Main].openblock.window, 12, templates);
+      windows[Main].openblock.behind=-1;
+      Wimp_OpenWindow(&windows[Main].openblock);
+      break;
+  }
+}
+
+#define do_mainclick(w,x,y,z) \
+  if (!w) { closechildren(); x; y; } \
+  else open_child(z, -2); \
+  break
+
+void mainclick()
+{
+  switch (result->mouse.icon)
+  {
+    case 14 : /* change templates set menu */
+      if (MenuActive!=NOMENU)
+        Wimp_CreateMenu(CloseMenu, 0, 0);
+      templatesmenu();
+      break;
+
+    case 1 : /* key bindings */ do_mainclick(KeysOpen, KeyMap=0, open_keys(KeyMap), Keyboard);
+    case 2 : /* display */ do_mainclick(DisplayOpen, , open_display(), Display);
+    case 3 : /* miscellaneous */ do_mainclick(MiscOpen, , open_misc(), Misc);
+    case 4 : /* filetype recognition */ do_mainclick(FileOptsOpen, , open_fileopts(), FileOpts);
+    case 5 : /* edit opts */ do_mainclick(EditOptsOpen, , open_edit(), EditOpts);
+    case 6 : /* display opts */ do_mainclick(DisplayOptsOpen, , open_displayopts(), DisplayOpts);
+    case 15 : /* fonts */ do_mainclick(FontsOpen, , open_fonts(), FontOpts);
+    case 16 : /* upgrading */ do_mainclick(UpgradeOpen, , open_upgrade(), Upgrade);
+    case 10 : /* keymaps */ do_mainclick(KeymapsOpen, , open_keymaps(), Keymaps);
+    case 19 : /* more misc */ do_mainclick(Misc2Open, , open_misc2(), Misc2);
+
+    case 17 : /* save options */
+      closechildren();
+      put_optionset();
+      reconstruct_keys();
+      Modified=FALSE;
+      break;
+    case 18 : /* menus */
+      strcpy(output,"Filer_Run <Zap$Menus>");
+      OS_CLI(output);
+      ZapChild=FALSE;	/* since Zap will probably be rerun at this point */
+      break;
+
+    case 11: /* mode options */
+      if (NoCOS)
+      {
+        if (!ModeOptsOpen)
+        {
+          makemodesmenu();
+          closechildren();
+          mode_number=textmode_index();
+          open_modeopts(mode_number);
+        }
+        else
+          open_child(ModeOpts, -2);
+      }
+      else
+      {
+        if (!ModeOpts2Open)
+        {
+          makemodesmenu();
+          closechildren();
+          mode_number=textmode_index();
+          open_modeopts2(mode_number);
+        }
+        else
+          open_child(ModeOpts2, -2);
+      }
+      break;
+  }
+}
+
+void closechildren()
+{
+  if (KeysOpen)
+  {
+    close_keys(KeyMap);
+    KeyMap=-1;
+  }
+  if (UpgradeOpen) close_upgrade();
+  if (KeymapsOpen) close_keymaps();
+  if (DisplayOpen) close_display();
+  if (MiscOpen) close_misc();
+  if (Misc2Open) close_misc2();
+  if (EditOptsOpen) close_edit();
+  if (DisplayOptsOpen) close_displayopts();
+  if (ModeOptsOpen) close_modeopts();
+  if (ModeOpts2Open) close_modeopts2();
+  if (FileOptsOpen) close_fileopts();
+  if (FontsOpen) close_fonts();
+}
+
+void closequitbox()
+{
+  QuitBoxOpen=FALSE;
+  Wimp_CloseWindow(windows[QuitBox].openblock.window);
+}

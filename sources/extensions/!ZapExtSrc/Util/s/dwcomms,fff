@@ -1,0 +1,163 @@
+; Zap Util Command Extension
+; Copyright (C) 1998 Zap Developers
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program; if not, write to the Free Software
+; Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+;
+; Util commands by Daniel Wagenaar (from ZapDWExt)
+;
+; SETNAME		- Sets the filename from parameter or in-core
+; CLOSETASKWINDOWS	- The obvious
+; CLOSETHROWBACKS	- Ditto
+
+; Includes
+		GET	h.ZapUtil
+		GET	h.dsutils
+
+; What we give to other people
+		EXPORT	dw_setname
+		EXPORT	dw_discardtaskwindows
+		EXPORT	dw_discardthrowbacks
+
+		LOCAL
+; DISCARDTASKWINDOWS
+; Daniel's used AllWindow, which is completely unnecessary
+; Note that there is no CLOSE* variant because it's a real pain -
+; the command was halt on the first modified file. We could work
+; a la CLOSEALL, and just close everything unmodified, but given
+; that taskwindows (and throwbacks) aren't normal files as such it
+; doesn't really seem worth it to me.
+;
+; I've also changed the method of determining whether a file
+; is a taskwindow to make it a little safer.
+		&	7
+dw_discardtaskwindows
+		FNJSR
+		MOV	r2,#3
+		ADR	r10,discard$l
+		FNcall	Zap_AllFiles
+		FNRTSS
+
+; DISCARDTHROWBACKS
+; Similar comments to above.
+		&	7
+dw_discardthrowbacks
+		FNJSR
+		MOV	r2,#4
+		ADR	r10,discard$l
+		FNcall	Zap_AllFiles
+		FNRTSS
+
+; \E r2 required value of e_interrogate mode_type for it to be discarded
+discard$l
+		FNJSR	"r1-r11"
+		LDR	r10,[fileptr,#f_cmode]
+		CMP	r10,#-1					; no owning mode
+		FNRTSS	EQ
+		MOV	r11,#e_interrogate
+		MOV	r0,#14					; e_interrogate mode_type
+		FNcall	Zap_CallGivenMode
+		CMP	r0,r2
+		FNRTSS	NE
+		FNcall	Zap_DiscardFile
+		FNRTSS
+
+		LOCAL
+; SETNAME (completely re-coded)
+; Daniel's always set from in-core filename. It also disturbed the selection.
+; This takes a string parameter, and only uses an in-core filename if that
+; is the empty string. I've radically altered the searching for in-core
+; filename; it just finds the first instance of '>'+wsp and takes from there to
+; the EOL/first whitespace character on the line. This is also done without
+; using Zap's search system. No filename translation is performed.
+; The in-core search system will be replaced with something more sophisticated
+; once we have TMFs. (Precisely, it will allow both delimiters to be specified,
+; as well as whether we want xxx.y -> y.xxx translation or xxx.y -> xxx/y
+; translation or no filename translation.)
+		&	(3:SHL:3)+(1:SHL:6)+(1:SHL:12)+(1)
+		; string parameter, inform me of minibuffer opening
+		; multiply r1 by universal argument
+		; don't care about cursor
+dw_setname
+		TEQ	r2,#6
+		ADREQ	r0,miniprompt$l
+		BEQ	zap_setprompt
+
+		CMP	windptr,#0
+		MOVEQ	pc,lr
+
+		FNJSR
+
+		LDRB	r1,[r0]
+		CMP	r1,#0
+		BEQ	none$l
+
+		FNcall	Zap_NewFileName
+		FNcallc	Zap_NewFileTitle, VC
+		FNRTS
+
+none$l		; should find in-core filename and use that
+		BL	util_splitbuffer			; move split point to end
+		LDR	r2,[fileptr,#f_len]			; maximum test position
+		LDRB	r3,[windptr,#w_cr]			; EOL character
+		LDRB	r4,[windptr,#w_tabc]			; TAB character
+		LDR	r1,[fileptr,#f_ptr]			; buffer
+start_loop$l	LDRB	r0,[r1],#1
+		CMP	r0,#'>'
+		BEQ	found_start$l
+		SUBS	r2,r2,#1
+		BCS	start_loop$l
+		FNRTS						; no in-core name
+found_start$l	SUB	r2,r2,#1				; '>' was skipped
+skip_loop$l	LDRB	r0,[r1],#1
+		CMP	r0,#' '
+		CMPNE	r0,r4					; tab
+		SUBNE	r1,r1,#1
+		BNE	got_start$l
+		SUBS	r2,r2,#1
+		BCS	skip_loop$l
+		FNRTS						; no in-core name
+got_start$l	MOV	r5,r1					; store start of name
+stop_loop$l	LDRB	r0,[r1],#1
+		CMP	r0,r3
+		CMPNE	r0,#' '					; space
+		CMPNE	r0,r4					; tab
+		BEQ	found_stop$l
+		SUBS	r2,r2,#1
+		BCS	stop_loop$l
+found_stop$l	; r5 offset of start of name; r1 offset of end (+1)
+		SUB	r0,r1,r5				; length required including terminator
+		SUB	r1,r1,#1				; back to terminator
+		FNcall	Zap_Claim				; \X r0 block
+		FNRTS	VS
+		MOV	r4,r0					; store block
+copy_loop$l	LDRB	r2,[r5],#1
+		STRB	r2,[r0],#1
+		CMP	r5,r1
+		BLT	copy_loop$l
+		MOV	r2,#0
+		STRB	r2,[r0]
+		MOV	r0,r4					; retrieve block
+		FNcall	Zap_NewFileName
+		FNcallc	Zap_NewFileTitle, VC
+		; ignore errors, because they'll be fairly obvious
+		MOV	r0,r4					; retrieve block again (to be sure)
+		FNcall	Zap_Free
+		FNRTSS						; don't report errors from Zap_Free
+
+miniprompt$l	=	"Set name to: ", 0
+		ALIGN
+
+; That's it
+		END

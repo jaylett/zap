@@ -1,0 +1,633 @@
+/*	keys.c -- key bindings
+	© James Aylett	*/
+
+#include "keys.h"
+
+void close_keys(int keymap)
+{
+  int code;
+  /* First, store the final key definition */
+  if(KeyCode!=-1)
+  {
+    /* Save previous definition */
+    char temp[256];
+    code=key_cs_to_zapcode(KeyCode, KeyShift, KeyCtrl);
+    if(KeysFile[code]!=NULL) memfree(KeysFile[code]);
+    get_indtext(windows[Keyboard].openblock.window,5,temp);
+    if(strlen(temp)>0)
+    {
+      KeysFile[code]=memalloc(strlen(temp)+1);
+      strcpy(KeysFile[code],temp);
+    }
+    else KeysFile[code]=NULL;
+  }
+
+  _save_keys(TRUE, keymap);
+
+  KeysOpen=FALSE;
+  Wimp_CloseWindow(windows[Keyboard].openblock.window);
+  if(keymap==0)
+  {
+/*    windows[Main].openblock.behind=WimpWindow_Top;
+    Wimp_OpenWindow(&windows[Main].openblock);*/
+  }
+  else
+  {
+    /* more complicated - we have to reopen the keyn file, and rewrite the Keymap data
+     * the keymaps window itself is still fine - so just reopen the file to restore the
+     * KeysFile[] data
+     */
+    load_keyn();
+    /* Now we have new KeyHighest and KeyLowest settings, so we need to rewrite the
+     * KeysFile[Keymap] entry. Name is unchanged, however.
+     */
+    if(KeyHighest<KeyLowest)
+      KeyHighest=KeyLowest=0; /* nothing written, so blank map */
+
+    get_indtext(windows[Keymaps].openblock.window, 7, output);
+    if (KeysFile[Keymap]!=NULL) memfree(KeysFile[Keymap]);
+    if(strlen(output)==0)
+      sprintf(output,"(Alternate keymap %i)", Keymap);
+    code=10; /* "&xxx &xxx " */
+    KeysFile[Keymap]=memalloc(1+strlen(output)+code);
+    sprintf(KeysFile[Keymap],"&%3.3x\t&%3.3x %s",KeyLowest,KeyHighest,output);
+
+    /* And finally reopen the window */
+    windows[Keymaps].openblock.behind=WimpWindow_Top;
+    Wimp_OpenWindow(&windows[Keymaps].openblock);
+    return; /* blanking the KeysFile[] is the last thing we want to do! */
+  }
+
+  free_keys();
+}
+
+void open_keys(int keymap)
+{
+  _load_keys(keymap);
+
+  Icon_Deselect(windows[Keyboard].openblock.window, 2);		// shift (top)
+  Icon_Deselect(windows[Keyboard].openblock.window, 3);		// ctrl (top)
+  Icon_Deselect(windows[Keyboard].openblock.window, 102);	// shift (left)
+  Icon_Deselect(windows[Keyboard].openblock.window, 103);	// shift (right)
+  Icon_Deselect(windows[Keyboard].openblock.window, 105);	// ctrl (left)
+  Icon_Deselect(windows[Keyboard].openblock.window, 106);	// ctrl (right)
+  /* set to Escape */
+  KeyCode=-1; KeyShift=FALSE; KeyCtrl=FALSE;
+  change_key(6);
+
+  if(keymap==0)
+/*    Wimp_CloseWindow(windows[Main].openblock.window)*/;
+  else
+    Wimp_CloseWindow(windows[Keymaps].openblock.window);
+  open_child(Keyboard, 5);
+  KeysOpen=TRUE;
+}
+
+void keyclick()
+{
+  if(result->mouse.button.data.menu==1) return;
+  switch(result->mouse.icon)
+  {
+    case 0:case 1:case 4:case 5:case 100: break;
+    case 102:case 103: // Shift
+      Icon_SetSelect(windows[Keyboard].openblock.window, 2,
+                     1 - Icon_GetSelect(windows[Keyboard].openblock.window, 2));
+      change_cs();
+      break;
+    case 105:case 106: // Ctrl
+      Icon_SetSelect(windows[Keyboard].openblock.window, 3,
+                     1 - Icon_GetSelect(windows[Keyboard].openblock.window, 3));
+      change_cs();
+      break;
+    case 38: // Page Up == shift up
+      Icon_Select(windows[Keyboard].openblock.window, 2);
+      Icon_Deselect(windows[Keyboard].openblock.window, 3);
+      change_key(83); // up arrow
+      break;
+    case 41: // Page Down == shift down
+      Icon_Select(windows[Keyboard].openblock.window, 2);
+      Icon_Deselect(windows[Keyboard].openblock.window, 3);
+      change_key(81); // down arrow
+      break;
+    case 2:case 3: change_cs(); break;
+    default :
+      change_key(result->mouse.icon);
+      break;
+  }
+}
+
+void change_cs()
+{
+  int code;
+  /* Okay, we save the curret definition and load the new one */
+  if(KeyCode!=-1)
+  {
+    /* Save previous definition */
+    char temp[256];
+    code=key_cs_to_zapcode(KeyCode, KeyShift, KeyCtrl);
+    if(KeysFile[code]!=NULL) memfree(KeysFile[code]);
+    get_indtext(windows[Keyboard].openblock.window,5,temp);
+    if(strlen(temp)>0)
+    {
+      KeysFile[code]=memalloc(strlen(temp)+1);
+      strcpy(KeysFile[code],temp);
+    }
+    else
+      KeysFile[code]=NULL;
+  }
+
+  if (Icon_GetSelect(windows[Keyboard].openblock.window, 2))
+  {
+    KeyShift=TRUE;
+//    Icon_Select(windows[Keyboard].openblock.window,102);
+//    Icon_Select(windows[Keyboard].openblock.window,103);
+  }
+  else
+  {
+    KeyShift=FALSE;
+//    Icon_Deselect(windows[Keyboard].openblock.window,102);
+//    Icon_Deselect(windows[Keyboard].openblock.window,103);
+  }
+  if (Icon_GetSelect(windows[Keyboard].openblock.window, 3))
+  {
+    KeyCtrl=TRUE;
+//    Icon_Select(windows[Keyboard].openblock.window,105);
+//    Icon_Select(windows[Keyboard].openblock.window,106);
+  }
+  else
+  {
+    KeyCtrl=FALSE;
+//    Icon_Deselect(windows[Keyboard].openblock.window,105);
+//    Icon_Deselect(windows[Keyboard].openblock.window,106);
+  }
+
+  code=key_cs_to_zapcode(KeyCode, KeyShift, KeyCtrl);
+  set_indtext(windows[Keyboard].openblock.window,1,key_to_string(KeyCode));
+  if(KeysFile[code]==NULL)
+    set_indtext(windows[Keyboard].openblock.window,5,"");
+  else
+    set_indtext(windows[Keyboard].openblock.window,5,KeysFile[code]);
+}
+
+void change_key(int icon)
+{
+  int code;
+  /* Okay, we look up the key code, save the curret one and load the new one */
+  if(KeyCode!=-1)
+  {
+    /* Save previous definition */
+    char temp[256];
+    code=key_cs_to_zapcode(KeyCode, KeyShift, KeyCtrl);
+    if(KeysFile[code]!=NULL) memfree(KeysFile[code]);
+    get_indtext(windows[Keyboard].openblock.window,5,temp);
+    if(strlen(temp)>0)
+    {
+      KeysFile[code]=memalloc(strlen(temp)+1);
+      strcpy(KeysFile[code],temp);
+    }
+    else KeysFile[code]=NULL;
+  }
+
+  if (Icon_GetSelect(windows[Keyboard].openblock.window, 2))
+  {
+    KeyShift=TRUE;
+//    Icon_Select(windows[Keyboard].openblock.window,102);
+//    Icon_Select(windows[Keyboard].openblock.window,103);
+  }
+  else
+  {
+    KeyShift=FALSE;
+//    Icon_Deselect(windows[Keyboard].openblock.window,102);
+//    Icon_Deselect(windows[Keyboard].openblock.window,103);
+  }
+  if (Icon_GetSelect(windows[Keyboard].openblock.window, 3))
+  {
+    KeyCtrl=TRUE;
+//    Icon_Select(windows[Keyboard].openblock.window,105);
+//    Icon_Select(windows[Keyboard].openblock.window,106);
+  }
+  else
+  {
+    KeyCtrl=FALSE;
+//    Icon_Deselect(windows[Keyboard].openblock.window,105);
+//    Icon_Deselect(windows[Keyboard].openblock.window,106);
+  }
+
+  KeyCode=icon_to_key(icon);
+  code=key_cs_to_zapcode(KeyCode, KeyShift, KeyCtrl);
+  set_indtext(windows[Keyboard].openblock.window,1,key_to_string(KeyCode));
+  if(KeysFile[code]==NULL)
+    set_indtext(windows[Keyboard].openblock.window,5,"");
+  else
+    set_indtext(windows[Keyboard].openblock.window,5,KeysFile[code]);
+}
+
+int icon_to_key(int icon)
+{
+  switch(icon)
+  {
+    case 6:return(0x1b);
+    case 104:if(RPCKeyboard==FALSE) return('\\'); break; /* not RPC */
+    case 110:if(RPCKeyboard==FALSE) return(0x163); break; /* not RPC */
+    case 111:if(RPCKeyboard==FALSE) return('£'); break; /* not RPC */
+    case 7:case 8:case 9:case 10:case 11:case 12:case 13:case 14:case 15:
+      return(icon+0x17a); break;
+    case 16:case 17:case 18:
+      return(icon+0x1ba); break;
+    case 33: return(0x180); break;
+    case 19: return('`'); break;
+    case 20:case 21:case 22:case 23:case 24:case 25:case 26:case 27:case 28:return(icon-20+'1'); break;
+    case 29: return('0'); break;
+    case 30: return('-'); break;
+    case 31: return('='); break;
+    case 32: return(0x1c); break;
+    case 36: return(0x1cd); break;
+    case 37: return(0x1e); break;
+    case 39: return(0x7f); break;
+    case 40: return(0x18b); break;
+    case 42: return(0x18a); break;
+    case 53: return('['); break;
+    case 54: return(']'); break;
+    case 64: return(';'); break;
+    case 65: return('\''); break;
+    case 66: return('#'); break;
+    case 67: return(0x1d); break;
+    case 68: return('\\'); break;
+    case 76: return(','); break;
+    case 77: return('.'); break;
+    case 78: return('/'); break;
+    case 79: return(0x20); break;
+    case 80: return(0x18c); break;
+    case 81: return(0x18e); break;
+    case 82: return(0x18d); break;
+    case 83: return(0x18f); break;
+    case 98: return(0x1c0); break;
+    case 94: case 95: case 96: return(icon+0x1c1-94); break;
+    case 91: case 92: case 93: return(icon+0x1c4-91); break;
+    case 87: case 88: case 89: return(icon+0x1c7-87); break;
+    case 99: return(0x167); break;
+    case 84: case 85: return(icon+0x161-84); break;
+    case 86: return(0x164); break;
+    case 90: return(0x165); break;
+    case 97: return(0x166); break;
+
+    default: /* ASCII characters */
+      get_indtext(windows[Keyboard].openblock.window,icon,output);
+      return(output[0]);
+      break;
+  }
+  return(-1);
+}
+
+char *key_to_string(int code)
+{
+  output[0]=NULL;
+  switch(code)
+  {
+    case 0x166: strcpy(output,"kEnter"); break;
+    case 0x165: strcpy(output,"k+"); break;
+    case 0x164: strcpy(output,"k-"); break;
+    case 0x161: strcpy(output,"k/"); break;
+    case 0x162: strcpy(output,"k*"); break;
+    case 0x163: strcpy(output,"k#"); break; /* not RPC */
+    case 0x167: strcpy(output,"k."); break;
+    case 0x1c0:case 0x1c1:case 0x1c2:case 0x1c3:case 0x1c4:case 0x1c5:case 0x1c6:case 0x1c7:case 0x1c8:case 0x1c9:
+      output[0]='k';
+      output[1]=code-0x1c0+0x30;
+      output[2]=NULL;
+      break;
+      /* k0-9 */
+    case 0x18c:case 0x18d:case 0x18e:case 0x18f:
+      /* movement 0x88 onwards */
+      output[0]=code-0x18c+0x88;
+      output[1]=NULL;
+      break;
+    case 0x20:
+      strcpy(output,"Space");
+      break;
+    case 0x1d:
+      strcpy(output,"Return");
+      break;
+    case 0x18a:
+      strcpy(output,"Tab");
+      break;
+    case 0x18b:
+      strcpy(output,"Copy/End");
+      break;
+    case 0x7f:
+      strcpy(output,"Delete");
+      break;
+    case 0x1e:
+      strcpy(output,"Home");
+      break;
+    case 0x1cd:
+      strcpy(output,"Insert");
+      break;
+    case 0x1c:
+      strcpy(output,"Backspace");
+      break;
+    case 0x180:case 0x181:case 0x182:case 0x183:case 0x184:case 0x185:case 0x186:case 0x187:case 0x188:case 0x189:
+      /* F0/Print-F9 */
+      output[0]='F';
+      output[1]=code-0x180+0x30;
+      output[2]=NULL;
+      break;
+    case 0x1ca:case 0x1cb:case 0x1cc:
+      /* F10-F12 */
+      output[0]='F';
+      output[1]='1';
+      output[2]=code-0x1ca+0x30;
+      output[3]=NULL;
+      break;
+    case 0x1b:
+      strcpy(output,"Escape");
+      break;
+    default :
+      output[0]=code;
+      output[1]=NULL;
+      break;
+  }
+  return(output);
+}
+
+int key_cs_to_zapcode(int key, int shift, int ctrl)
+{
+  /*
+  // Arg. I'm doing this without the PRMs!
+  //
+  // Okay, let's be sensible about this.
+  // Break into two groups.
+  // 1) Alphas.
+  // 2) Other.
+  */
+
+  /* 1) Alphas. */
+  if(key>=0x41 && key<=0x5a)
+  {
+    /* These keycodes because I apparently decided that while writing icon_to_key() */
+    if(shift)
+    {
+      if(ctrl) return (0xc0 + key);
+      else return (key + 0x20);
+    }
+    else
+    {
+      if(ctrl) return (key - 0x40);
+      else return(key);
+    }
+  }
+
+  /*
+  // 2) Other.
+  */
+  switch(key)
+  {
+    case 0x161: /* k/ */
+    case 0x162: /* k* */
+    case 0x163: /* k# -- not RPC! */
+    case 0x164: /* k- */
+    case 0x165: /* k+ */
+    case 0x166: /* kEnter */
+    case 0x167: /* k. */
+      if(shift)
+      {
+        if(ctrl) return key-0x020;
+        else return key+0x010;
+      }
+      else
+      {
+        if(ctrl) return key-0x040;
+        else return key;
+      }
+    case 0x180:case 0x181:case 0x182:case 0x183:case 0x184:case 0x185:case 0x186:case 0x187:case 0x188:case 0x189:
+      /* F0/Print-F9 */
+    case 0x18a: /* Tab */
+    case 0x18b: /* Copy */
+    case 0x18c:case 0x18d:case 0x18e:case 0x18f:
+      /* movement */
+    case 0x1c0:case 0x1c1:case 0x1c2:case 0x1c3:case 0x1c4:case 0x1c5:case 0x1c6:case 0x1c7:case 0x1c8:case 0x1c9:
+      /* k0-9 */
+    case 0x1ca:case 0x1cb:case 0x1cc: /* F10-F12 */
+    case 0x1cd: /* Insert */
+      if(shift)
+      {
+        if(ctrl) return key+0x030;
+        else return key+0x010;
+      }
+      else
+      {
+        if(ctrl) return key+0x020;
+        else return key;
+      }
+    case 0x20:
+      /* space */
+      if(shift)
+      {
+        if(ctrl) return 0x100;
+        else return 0x120;
+      }
+      else
+      {
+        if(ctrl) return 0x000;
+        else return 0x20;
+      }
+    case 0x1d: /* Return */
+      if(shift)
+      {
+        if(ctrl) return 0x15d;
+        else return 0x11d;
+      }
+      else
+      {
+        if(ctrl) return 0x13d;
+        else return 0x1d;
+      }
+    case 0x7f: /* Del */
+      if(shift)
+      {
+        if(ctrl) return 0x11f;
+        else return 0x17f;
+      }
+      else
+      {
+        if(ctrl) return 0x1f;
+        else return 0x7f;
+      }
+    case 0x1e: /* Home */
+      if(shift)
+      {
+        if(ctrl) return 0x15e;
+        else return 0x11e;
+      }
+      else
+      {
+        if(ctrl) return 0x13e;
+        else return 0x1e;
+      }
+    case 0x1c: /* BSpace */
+      if(shift)
+      {
+        if(ctrl) return 0x15c;
+        else return 0x11c;
+      }
+      else
+      {
+        if(ctrl) return 0x13c;
+        else return 0x1c;
+      }
+    case 0x1b: /* Escape */
+      if(shift)
+      {
+        if(ctrl) return 0x15b;
+        else return 0x11b;
+      }
+      else
+      {
+        if(ctrl) return 0x13b;
+        else return 0x1b;
+      }
+
+    /*
+    // Control and shift-control codes following are guesses and probably not strictly legitimate ...
+    // Apart from anything else they map onto legitimate ASCII codes ...
+    // However Zap doesn't do anything about them, presumably because the Wimp doesn't either.
+    //
+    // After much thought I've replaced the control and shift-control with un-controlled versions.
+    // Still not right, but the best this program is going to get easily.
+    //
+    // Note added in Help file accordingly.
+    */
+    case ',':
+    case '.':
+    case '/':
+      if(shift)
+      {
+/*        if(ctrl) return key+0x030;
+        else*/ return key+0x010;
+      }
+      else
+      {
+/*        if(ctrl) return key+0x020;
+        else*/ return key;
+      }
+
+    case '[':
+    case '\\':
+    case ']':
+      if(shift)
+      {
+        if(ctrl) return key+0x0b0;
+        else return key+0x020;
+      }
+      else
+      {
+        if(ctrl) return key+0x0d0;
+        else return key;
+      }
+    case 0x30:case 0x31:case 0x34:case 0x35:case 0x36:case 0x37:case 0x38:case 0x39:
+      /* 0-1, 4-9 */
+      if(shift)
+      {
+        if(ctrl)
+        {
+          return key+0x150-0x30;
+        }
+        else
+        {
+          /* Which number was it? */
+          switch(key-0x30)
+          {
+            case 0: return 0x29;
+            case 1: return 0x21;
+            case 4: return 0x24;
+            case 5: return 0x25;
+            case 6: return 0x5e;
+            case 7: return 0x26;
+            case 8: return 0x2a;
+            case 9: return 0x28;
+          }
+        }
+      }
+      else
+      {
+        if(ctrl) return key+0x100;
+        else return key;
+      }
+    case '-':
+      if(shift)
+      {
+        if(ctrl) return 0x14f;
+        else return '_';
+      }
+      else
+      {
+        if(ctrl) return 0x12f;
+        else return '-';
+      }
+    case ';':
+      if(shift) return ':';
+      else return ';';
+    case '=':
+      if(shift) return '+';
+      else return '=';
+
+    /*
+    // The rest of this is dependent on the keyboard layout
+    // In theory these keys all have the same problems as the three above.
+    // However here I've just ignored ctrl all together (ie it isn't even commented out code).
+    */
+    case '#': /* RPC only */
+      if(shift) return '~';
+      else return '#';
+    case '\'':
+      if(shift)
+      {
+        if(RPCKeyboard) return '@';
+        else return '"';
+      }
+      else return '\'';
+    case '2':
+      if(shift)
+      {
+        if(ctrl) return 0x152; /* is this correct under RPC? ask Dominic */
+        else
+        {
+          if(RPCKeyboard) return '"';
+          else return '@';
+        }
+      }
+      else
+      {
+        if(ctrl) return 0x132;
+        else return '2';
+      }
+    case '3':
+      if(shift)
+      {
+        if(ctrl) return 0x153; /* is this correct under RPC? ask Dominic */
+        else
+        {
+          if(RPCKeyboard) return '£';
+          else return '#';
+        }
+      }
+      else
+      {
+        if(ctrl) return 0x133;
+        else return '3';
+      }
+    case '`':
+      if(shift)
+      {
+        if(RPCKeyboard) return '¬';
+        else return '~';
+      }
+      else return '`';
+    case '£': /* not RPC */
+      if(shift)
+        return '¤';
+      else
+        return '£';
+  }
+  return 0;
+}

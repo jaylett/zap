@@ -1,0 +1,106 @@
+/*	wimputils.c
+	© James Aylett	*/
+
+#include "wimputils.h"
+
+void update_key(int key, int window, int icon)
+{
+  get_indtext(windows[window].openblock.window, icon, output);
+  if (KeysFile[key]!=NULL) memfree(KeysFile[key]);
+  if (strlen(output)>0)
+  {
+    KeysFile[key]=memalloc(strlen(output)+1);
+    strcpy(KeysFile[key],output);
+  }
+  else KeysFile[key]=NULL;
+}
+
+/*
+int update_number(int window, int icon)
+{
+  get_indtext(windows[window].openblock.window, icon, output);
+  return atoi(output);
+}*/
+
+void key_string(int key, int window, int icon, char *deflt)
+{
+  if (KeysFile[key]!=NULL)
+    set_indtext(windows[window].openblock.window, icon, KeysFile[key]);
+  else
+    set_indtext(windows[window].openblock.window, icon, deflt);
+}
+
+void set_flag(int window, int icon, int flag)
+{
+  if (flag)
+    Icon_Select(windows[window].openblock.window, icon);
+  else
+    Icon_Deselect(windows[window].openblock.window, icon);
+}
+
+void open_child(int window, int icon)
+{
+  caret_block block;
+  windows[window].openblock.behind=WimpWindow_Top;
+  Modified=TRUE;
+  if (icon==-2)
+  {
+    Wimp_OpenWindow(&windows[window].openblock);
+    return;
+  }
+  else
+    Window_Show(windows[window].openblock.window, open_CENTERED);
+  // And get its state for re-opening
+  Wimp_GetWindowState(windows[window].openblock.window, &windows[window]);
+
+  if (icon==-1)
+    block.window=-1;
+  else
+    block.window=windows[window].openblock.window;
+  block.icon=icon;
+  block.offset.x=0;
+  block.offset.y=0;
+  block.height=-1;
+  block.index=-1;
+  Wimp_SetCaretPosition(&block);
+}
+
+void close_child(int window)
+{
+  Wimp_CloseWindow(windows[window].openblock.window);
+  windows[Main].openblock.behind=WimpWindow_Top;
+  Wimp_OpenWindow(&windows[Main].openblock);
+  closequitbox();
+}
+
+void number_cycle(int window, int icon, int direction, int min, int max)
+{
+  int i;
+
+  i = update_number(window, icon);
+  if (direction==0)
+    i--; // decrease
+  else
+    i++; // increase
+  if (i<min && min!=NO_MIN) i=min;
+  if (i>max && max!=NO_MAX) i=max;
+  icon_print(window, icon, "%d", i);
+}
+
+int window_to_number(window_handle wind)
+{
+  int i;
+  for (i=0; i<HighestChild; i++)
+    if (wind==windows[i].openblock.window)
+      return i;
+  return -1;
+}
+
+/*	Error system			*/
+void makeerror(int fatal, char *token)
+{
+  lookup_message(MessageBlock,token,output,256);
+  reporterror(0,output,6,"ZapConfig");
+  if (fatal)
+    exit(0);
+}

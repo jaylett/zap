@@ -1,0 +1,632 @@
+/*	handleopts.c
+	© James Aylett	*/
+
+#include "handleopts.h"
+
+void put_optionset()
+{
+  os_error *err;
+  save_zapuserobeys(); /* Saves internally */
+
+  sprintf(output,"Copy <ZapConfig$Dir>.TempParsed.!ZapRun ZapUser:Config.!ZapRun %s",Copy_Flags);
+  if(OS_CLI(output)!=NULL)
+    makeerror(FALSE, "EBadOutput");
+
+  if (ConfigureFiletypes)
+  {
+    sprintf(output,"Copy <ZapConfig$Dir>.TempParsed.!ZapBoot ZapUser:Config.!ZapBoot %s",Copy_Flags);
+
+    if((err=OS_CLI(output))!=NULL)
+    {
+      Error_Report(err->errnum, err->errmess);
+      makeerror(FALSE, "EBadOutput");
+    }
+  }
+}
+
+void save_zapuserobeys()
+{
+  FILE *fp, *fh_out;
+  char temp[256], *temp2; /* no lines longer than this please! */
+  BOOL written=FALSE,writtenRun=FALSE,writtenEE=FALSE,writtenOLE=FALSE;
+  int i;
+//  lookup_message(MessageBlock,"OptS0",output,256);
+
+  /* First we do !ZapRun */
+  fp=fopen("ZapUser:Config.!ZapRun","r");
+  if(fp==NULL)
+    makeerror(TRUE, "ENoRun");
+
+  fh_out=fopen("<ZapConfig$Dir>.TempParsed.!ZapRun","w");
+  if(fh_out==NULL)
+  {
+    fclose(fp);
+    makeerror(TRUE, "EBadInternals");
+  }
+
+  do
+  {
+    /* Get a line */
+    temp2=temp;
+    do
+    {
+      temp2[0]=fgetc(fp);
+      temp2++;
+    } while(temp2[-1]!='\n' && !feof(fp));
+    (--temp2)[0]=0;
+    written=FALSE;
+
+    /* templates */
+    if(!strncmp(temp,"Set Zap$Templates ",18))
+    {
+      fprintf(fh_out,"Set Zap$Templates ZapTemplates:%s\n",templates);
+      written=TRUE;
+    }
+
+    /* filetypes */
+    if (ConfigureFiletypes)
+    {
+      if(!strncmp(temp,"Set Alias$@RunType_",19))
+      {
+        if (!writtenRun)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].run_filerrun)
+              fprintf(fh_out,"Set Alias$@RunType_%3.3X Run ZapCode:ZapRunFile %%%%*0\n", i);
+          }
+          writtenRun=TRUE;
+        }
+        written=TRUE;
+      }
+      if(!strncmp(temp,"Set Alias$@EditType_",20))
+      {
+        if (!writtenEE)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].run_externaledit)
+              fprintf(fh_out,"Set Alias$@EditType_%3.3X Run <Zap$Dir>.!Run\n", i);
+          }
+          writtenEE=TRUE;
+        }
+        written=TRUE;
+      }
+      if(!strncmp(temp,"Set OLEServer$Type_",19))
+      {
+        if (!writtenOLE)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].run_ole)
+              fprintf(fh_out,"Set OLEServer$Type_%3.3X -N Zap -R /<Zap$Dir>\n", i);
+          }
+          writtenOLE=TRUE;
+        }
+        written=TRUE;
+      }
+    }
+
+    if(!written && (temp[0]!=0 || !feof(fp)))
+      fprintf(fh_out,"%s\n", temp);
+
+    /* end of do ... while loop */
+  } while(!feof(fp));
+  fclose(fp);
+  fclose(fh_out);
+
+  File_SetType("<ZapConfig$Dir>.TempParsed.!ZapRun", filetype_OBEY);
+
+  /* And now !ZapBoot */
+  if (ConfigureFiletypes)
+  {
+    writtenRun=FALSE;
+    writtenEE=FALSE;
+    writtenOLE=FALSE;
+
+    fp=fopen("ZapUser:Config.!ZapBoot","r");
+    if(fp==NULL)
+      makeerror(TRUE, "ENoBoot");
+
+    fh_out=fopen("<ZapConfig$Dir>.TempParsed.!ZapBoot","w");
+    if(fh_out==NULL)
+    {
+      fclose(fp);
+      makeerror(TRUE, "EBadInternals");
+    }
+
+    do
+    {
+      /* Get a line */
+      temp2=temp;
+      do
+      {
+        temp2[0]=fgetc(fp);
+        temp2++;
+      } while(temp2[-1]!='\n' && !feof(fp));
+      (--temp2)[0]=0;
+      written=FALSE;
+
+      /* filetypes */
+      if(!strncmp(temp,"ZapRunType ",11))
+      {
+        if (!writtenRun)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].boot_filerrun)
+              fprintf(fh_out,"ZapRunType %3.3X\n", i);
+          }
+          writtenRun=TRUE;
+        }
+        written=TRUE;
+      }
+      if(!strncmp(temp,"ZapEditType ",12))
+      {
+        if (!writtenEE)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].boot_externaledit)
+              fprintf(fh_out,"ZapEditType %3.3X\n", i);
+          }
+          writtenEE=TRUE;
+        }
+        written=TRUE;
+      }
+      if(!strncmp(temp,"ZapOLEType ",11))
+      {
+        if (!writtenOLE)
+        {
+          for (i=0; i<0x1000; i++)
+          {
+            if (typeflags[i].boot_ole)
+              fprintf(fh_out,"ZapOLEType %3.3X\n", i);
+          }
+          writtenOLE=TRUE;
+        }
+        written=TRUE;
+      }
+
+      if(!written && (temp[0]!=0 || !feof(fp)))
+        fprintf(fh_out,"%s\n", temp);
+
+      /* end of do ... while loop */
+    } while(!feof(fp));
+    fclose(fp);
+    fclose(fh_out);
+
+    File_SetType("<ZapConfig$Dir>.TempParsed.!ZapBoot", filetype_OBEY);
+  }
+}
+
+void get_optionset()
+{
+  /* This is called at the end of init(), so we are initialising the
+   * variables here possibly (if not always) for the first time.
+   */
+
+  FILE *fp;
+  char temp[256], *temp2; /* no lines longer than this please! */
+  optionset[0]=0; /* ie we haven't set this yet */
+
+  /* First we do !ZapRun */
+
+  fp=fopen("ZapUser:Config.!ZapRun","r");
+  if(fp==NULL)
+    makeerror(TRUE,"ENoRun");
+
+  /* "Set Zap$Templates" or filetype stuff */
+  do
+  {
+    temp2=temp;
+    do
+    {
+      temp2[0]=fgetc(fp);
+      temp2++;
+    } while(temp2[-1]!='\n' && !feof(fp));
+    (--temp2)[0]=0;
+
+    /* templates */
+    if(!strncmp(temp,"Set Zap$Templates ",18))
+    {
+      temp2=temp+18;
+      while(temp2[0]==' ') temp2++;
+      if(strncmp(temp2,"ZapTemplates:",13))
+      {
+        /* error! bad option set! reset our templates to Default and flag */
+        strcpy(templates,"Default");
+        makeerror(FALSE,"EBadRunTemplates");
+      }
+      else
+        strcpy(templates,temp2+13);
+    }
+
+    /* filetypes */
+    if(!strncmp(temp,"Set Alias$@RunType_",19))
+      typeflags[(int)strtol(temp+19,NULL,16)].run_filerrun=1;
+    if(!strncmp(temp,"Set Alias$@EditType_",20))
+      typeflags[(int)strtol(temp+20,NULL,16)].run_externaledit=1;
+    if(!strncmp(temp,"Set OLEServer$Type_",19))
+      typeflags[(int)strtol(temp+19,NULL,16)].run_ole=1;
+
+    /* end of do ... while loop */
+  } while(!feof(fp));
+  fclose(fp);
+
+  /* Now we do !ZapBoot */
+  fp=fopen("ZapUser:Config.!ZapBoot","r");
+  if(fp==NULL)
+    makeerror(TRUE,"ENoBoot");
+
+  do
+  {
+    temp2=temp;
+    do
+    {
+      temp2[0]=fgetc(fp);
+      temp2++;
+    } while(temp2[-1]!='\n' && !feof(fp));
+    (--temp2)[0]=0;
+
+    /* filetypes */
+    if(!strncmp(temp,"ZapRunType ",11))
+      typeflags[(int)strtol(temp+11,NULL,16)].boot_filerrun=1;
+    if(!strncmp(temp,"ZapEditType ",12))
+      typeflags[(int)strtol(temp+12,NULL,16)].boot_externaledit=1;
+    if(!strncmp(temp,"ZapOLEType ",11))
+      typeflags[(int)strtol(temp+11,NULL,16)].boot_ole=1;
+
+    /* end of do ... while loop */
+  } while(!feof(fp));
+  fclose(fp);
+
+  open_optionset();
+}
+
+void open_optionset()
+{
+  char temp[256]; /* should never get longer lines than this! */
+  char temp2[2048];
+  FILE *option, *key0, *keyn, *keym, *config_in, *config_out, *config_blah;
+  int t,t2,k, tempints[2];
+
+  /* --- Keys --- */
+
+  sprintf(output,"<Zap$Keys>");
+  option=fopen(output,"r");
+
+  if(option==NULL)
+    makeerror(TRUE,"ENoKeys");
+
+  key0=fopen("<ZapConfig$Dir>.TempParsed.key0","w");
+  keyn=fopen("<ZapConfig$Dir>.TempParsed.keyn","w");
+  keym=fopen("<ZapConfig$Dir>.TempParsed.keym","w");
+
+  if(key0==NULL || keyn==NULL || keym==NULL)
+  {
+    /*	Close all (whoops!)	*/
+    fclose(option);
+    fclose(key0); fclose(keyn); fclose(keym);
+
+    makeerror(TRUE,"EBadInternals");
+  }
+
+  Hourglass_On();
+
+  /* Temp parse file	*/
+
+  do
+  {
+    temp[0]=0; t=0; temp2[0]=0; t2=0;
+    do
+    {
+      temp[t]=fgetc(option);
+      if(t>=256) t=0; /* Just in case - tough if you lose your nice messages :-) */
+    } while(temp[t++]!='&' && !feof(option));
+
+    if(!feof(option))
+    {
+      do
+      {
+        temp2[t2]=fgetc(option);
+      } while(temp2[t2++]!='\n' && !feof(option));
+
+      k=(int)strtol(temp2, NULL, 16);
+
+      if(k>=0 && k<0x200)
+      {
+        fwrite(temp, 1, t, key0);
+        fwrite(temp2, 1, t2, key0);
+      }
+      else
+      {
+        if(k>=0x400 && k<0x500)
+        {
+          fwrite(temp, 1, t, keyn);
+          fwrite(temp2, 1, t2, keyn);
+        }
+        else
+        {
+          fwrite(temp, 1, t, keym);
+          fwrite(temp2, 1, t2, keym);
+        }
+      }
+    }
+  } while(!feof(option));
+
+  fclose(option);
+  fclose(key0); fclose(keyn); fclose(keym);
+
+  /* --- Settings --- */
+  system("Copy <Zap$Settings> <ZapConfig$Dir>.TempParsed.misc ~C~DF~N~V");
+
+  /* --- TypesHigh and TypesLow --- */
+  system("Copy ZapUser:Config.TypesHigh <ZapConfig$Dir>.TempParsed.TypesHigh ~C~DF~N~V");
+  system("Copy ZapUser:Config.TypesLow <ZapConfig$Dir>.TempParsed.TypesLow ~C~DF~N~V");
+
+  /* --- Binary config file --- */
+
+  sprintf(temp,"<Zap$Options>");
+  config_in=fopen(temp,"rb");
+
+  if (config_in==NULL)
+  {
+    int i = findconf();
+    if (i>0)
+      // Created in <ZapConfig$Dir>.TempParsed.!Config
+      config_in=fopen("<ZapConfig$Dir>.TempParsed.!Config","rb");
+  }
+
+  if(config_in==NULL)
+  {
+    Hourglass_Off();
+    makeerror(TRUE,"ENoConfig");
+  }
+
+  config_out=fopen("<ZapConfig$Dir>.TempParsed.config","wb");
+  config_blah=fopen("<ZapConfig$Dir>.TempParsed.config_o","wb");
+
+  /* Temp parse config	*/
+  fread(&t, 4, 1, config_in);	/* Discard "conf"	*/
+  do
+  {
+    fread(tempints, 4, 1, config_in);	/* Block header	*/
+    if(tempints[0]==Config_Global || tempints[0]==Config_Mode)
+      fread(tempints+1, 4, 1, config_in);
+
+    switch(tempints[0])
+    {
+      case Config_End : /* End of list */ break;
+      case Config_Global : /* Heh heh! */
+        fwrite(&tempints, 4, 2, config_out);
+        tempints[1]-=8;
+        if (tempints[1]!=sizeof(ZapGlobalOptions))
+        {
+
+          if (tempints[1]>sizeof(ZapGlobalOptions))
+          {
+            if (Strict)
+            {
+              lookup_message(MessageBlock, "ELongConfig", output, 256);
+              reporterror(0,output,1,"ZapConfig");
+            }
+
+            fread(&ZapGlobalOptions, sizeof(ZapGlobalOptions), 1, config_in);
+            tempints[1]-=sizeof(ZapGlobalOptions);
+            while(tempints[1]>0)
+            {
+              if (tempints[1]>256)
+              {
+                /* Highly unlikely! */
+                fread(&temp, 256, 1, config_in);
+                fwrite(&temp, 256, 1, config_blah);
+                tempints[1]-=256;
+              }
+              else
+              {
+                fread(&temp, tempints[1], 1, config_in);
+                fwrite(&temp, tempints[1], 1, config_blah);
+                tempints[1]=0;
+              }
+            }
+          }
+          else
+          {
+            /* This is the least reliable ... */
+            if (Strict)
+            {
+              lookup_message(MessageBlock, "EBadConfig", output, 256);
+              reporterror(0,output,1,"ZapConfig");
+            }
+
+            fread(&ZapGlobalOptions, tempints[1], 1, config_in);
+          }
+        }
+        else
+          fread(&ZapGlobalOptions, sizeof(ZapGlobalOptions), 1, config_in);
+        fwrite(&ZapGlobalOptions, sizeof(ZapGlobalOptions), 1, config_out);
+        break;
+      case Config_Mode : /* Bingo! */
+        fwrite(&tempints, 4, 2, config_blah);
+        tempints[1]-=8;
+        while(tempints[1]>0)
+        {
+          if (tempints[1]>256)
+          {
+            /* Highly unlikely! */
+            fread(&temp, 256, 1, config_in);
+            fwrite(&temp, 256, 1, config_blah);
+            tempints[1]-=256;
+          }
+          else
+          {
+            fread(&temp, tempints[1], 1, config_in);
+            fwrite(&temp, tempints[1], 1, config_blah);
+            tempints[1]=0;
+          }
+        }
+        break;
+    }
+  } while(!feof(config_in) && tempints[0]!=0);
+
+  fclose(config_in);
+  fclose(config_out); fclose(config_blah);
+
+//  build_externalmenu();
+  scan_modes();
+
+  Hourglass_Off();
+}
+
+void reconstruct_keys()
+{
+  FILE *in, *out;
+  char t, temp[256];
+  int i;
+
+  /* --- Keys --- */
+
+  out=fopen("<Zap$Keys>", "w");
+  if(out==NULL)
+  {
+    makeerror(FALSE,"EBadOutput");
+    return;
+  }
+
+  /* --- Default keymap --- */
+  in=fopen("<ZapConfig$Dir>.TempParsed.key0", "r");
+  if(in==NULL)
+  {
+    fclose(out);
+    makeerror(TRUE,"EBadInternals");
+  }
+  while(!feof(in)) { t=fgetc(in); if(!feof(in)) fputc(t, out); }
+
+  /* --- Keymap declarations --- */
+  fclose(in); in=fopen("<ZapConfig$Dir>.TempParsed.keyn", "r");
+  if(in==NULL)
+  {
+    fclose(out);
+    makeerror(TRUE,"EBadInternals");
+  }
+  while(!feof(in)) { t=fgetc(in); if(!feof(in)) fputc(t, out); }
+
+  /* --- Keymap definitions --- */
+  fclose(in); in=fopen("<ZapConfig$Dir>.TempParsed.keym", "r");
+  if(in==NULL)
+  {
+    fclose(out);
+    makeerror(TRUE,"EBadInternals");
+  }
+  while(!feof(in)) { t=fgetc(in); if(!feof(in)) fputc(t, out); }
+
+  fclose(in);
+  fclose(out);
+
+  /* --- Settings --- */
+  system("Copy <ZapConfig$Dir>.TempParsed.misc <Zap$Settings> ~C~DF~N~V");
+
+  /* --- TypesHigh and TypesLow --- */
+  system("Copy <ZapConfig$Dir>.TempParsed.TypesHigh ZapUser:Config.TypesHigh ~C~DF~N~V");
+  system("Copy <ZapConfig$Dir>.TempParsed.TypesLow ZapUser:Config.TypesLow ~C~DF~N~V");
+
+  /* --- Update TempParsed.config --- */
+  out=fopen("<ZapConfig$Dir>.TempParsed.config", "wb");
+  if(out==NULL)
+    makeerror(TRUE,"EBadInternals");
+
+  *((int *)(temp))=1;
+  *((int *)(temp+4))=sizeof(ZapGlobalOptions)+8;
+  fwrite(temp, 4, 2, out);
+  fwrite(&ZapGlobalOptions, sizeof(ZapGlobalOptions), 1, out);
+  fclose(out);
+
+  lookup_message(MessageBlock, "OptS0", output, 256);
+  out=fopen("<Zap$Options>", "wb");
+  if(out==NULL)
+  {
+    makeerror(FALSE,"EBadOutput");
+    return;
+  }
+
+  /* --- Write binary Config file --- */
+  strcpy(temp, "Conf");
+  fwrite(temp, 4, 1, out);
+
+  /* --- Zap's internal options --- */
+  in=fopen("<ZapConfig$Dir>.TempParsed.config", "rb");
+  if(in==NULL)
+    makeerror(TRUE,"EBadInternals");
+
+  fread(temp, 4, 2, in);
+  fwrite(temp, 4, 2, out);
+  i=*((int *)(temp+4)) - 8;
+  while(i>0 && !feof(in))
+  {
+    int i2;
+    if (i>256)
+    {
+      i2=fread(temp, 1, 256, in);
+      fwrite(temp, 1, i2, out);
+      i-=i2;
+    }
+    else
+    {
+      i2=fread(temp, 1, i, in);
+      fwrite(temp, 1, i2, out);
+      i-=i2;
+    }
+  }
+  fclose(in);
+
+  /* --- Mode options --- */
+  in=fopen("<ZapConfig$Dir>.TempParsed.config_o", "rb");
+  if(in==NULL)
+  {
+    fclose(out);
+    makeerror(TRUE,"BadInternals");
+  }
+
+  do
+  {
+    int i2;
+    i2=fread(temp, 4, 2, in);
+    if(i2==2)
+    {
+      fwrite(temp, 4, 2, out);
+      i=*((int *)(temp+4)) - 8;
+
+      while(i>0 && !feof(in))
+      {
+        if (i>256)
+        {
+          i2=fread(temp, 1, 256, in);
+          fwrite(temp, 1, i2, out);
+          i-=i2;
+        }
+        else
+        {
+          i2=fread(temp, 1, i, in);
+          fwrite(temp, 1, i2, out);
+          i-=i2;
+        }
+      }
+    }
+  } while(!feof(in));
+  fclose(in);
+
+  *((int *)temp)=0;
+  fwrite(temp, 4, 1, out);
+  fclose(out);
+}
+
+void free_keys()
+{
+  int code;
+  for(code=0; code<0x1101; code++)
+  {
+    if (KeysFile[code]!=NULL) memfree(KeysFile[code]);
+    KeysFile[code]=NULL;
+  }
+}

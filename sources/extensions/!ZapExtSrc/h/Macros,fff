@@ -1,0 +1,116 @@
+; Extension macros
+
+; This macro works in cooperation with the ones from the Zap
+; source (FNJSR et al). Pulls the specified regs as well as
+; any currently stacked, then RTS. You must specify $a.
+		MACRO
+$la		FNRTP	$a, $cc
+$la		[ StackedRegs=""
+		LDM$cc.FD sp!,{$a, pc}
+		|
+		LDM$cc.FD sp!,{$a, $StackedRegs, pc}
+		]
+		MEND
+
+; Again. As above, but pulls status flags too.
+		MACRO
+$la		FNRTPS	$a, $cc
+$la		[ StackedRegs=""
+		LDM$cc.FD sp!,{$a, pc}^
+		|
+		LDM$cc.FD sp!,{$a, $StackedRegs, pc}^
+		]
+		MEND
+
+; Again. This stacks two sets of registers, recording the first one.
+; Don't try using it without both params :-)
+		MACRO
+$la		FNJSP	$a, $b
+StackedRegs	SETS	"$a"
+$la		STMFD	sp!,{$StackedRegs, $b, lr}
+		MEND
+
+; Again. This one pulls all stacked regs off the stack, leaving the lr
+; there, and sets StackedRegs to "" so that FNRTS works properly.
+		MACRO
+$la		UNSTACK
+$la		[ StackedRegs<>""
+		LDMFD	sp!,{$StackedRegs}
+		]
+StackedRegs	SETS	""
+		MEND
+
+; And again. Variant of FNPULL; gets registers back to where they started
+; (so lr is prepared), plus anything else you put on the stack which is
+; still there.
+		MACRO
+$la		FNPULLP	$a
+$la		[ StackedRegs<>""
+		LDMFD	sp!,{$a, $StackedRegs, lr}
+		|
+		LDMFD	sp!,{$a, lr}
+		]
+StackedRegs	SETS	""
+		MEND
+
+; \E r0 = mode info word
+; \X r1 = information requested
+;
+; If no register is supplied, the result goes into r1
+		MACRO
+$la		MInfo	$type, $reg, $cc
+		LCLS	Type
+		LCLS	Reg
+Type		SETS	"$type"
+Reg		SETS	"$reg"
+$la		[ "$reg" = ""
+Reg		SETS	"r1"
+		]
+		[ Type = "Size"
+			AND$cc		$Reg,r0,#2_11
+			ADD$cc.S	$Reg,$Reg,#1
+		|
+		[ Type = "Binary"
+			MOV$cc		$Reg,r0,LSR #2
+			AND$cc.S	$Reg,$Reg,#2_111
+		|
+		[ Type = "Octal"
+			MOV$cc		$Reg,r0,LSR #5
+			AND$cc.S	$Reg,$Reg,#2_111
+		|
+		[ Type = "Hex"
+			MOV$cc		$Reg,r0,LSR #8
+			AND$cc.S	$Reg,$Reg,#2_111
+		|
+		[ Type = "Special"
+			MOV$cc		$Reg,r0,LSR #0xb
+			AND$cc.S	$Reg,$Reg,#2_1
+		|
+		[ Type = "NonStandard"
+			MOV$cc		$Reg,r0,LSR #0xc
+			AND$cc.S	$Reg,$Reg,#2_1
+		|
+		[ Type = "BinMode"
+			MOV$cc		$Reg,r0,LSR #0xe
+			AND$cc.S	$Reg,$Reg,#2_1
+		|
+		[ Type = "ProgSrc"
+			MOV$cc		$Reg,r0,LSR #0xf
+			AND$cc.S	$Reg,$Reg,#2_1
+		|
+		[ Type = "Blanks"
+			MOV$cc		$Reg,r0,LSR #0x10
+			AND$cc.S	$Reg,$Reg,#2_1
+		]
+		]
+		]
+		]
+		]
+		]
+		]
+		]
+		]
+		MEND
+
+; That's it
+		END

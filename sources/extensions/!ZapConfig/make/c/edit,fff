@@ -1,0 +1,134 @@
+/*	edit.c
+	© James Aylett	*/
+
+#include "edit.h"
+
+void close_edit()
+{
+  char temp[256];
+  EditOptsOpen=FALSE;
+  close_child(EditOpts);
+
+  /* store current */
+  get_indtext(windows[EditOpts].openblock.window, 18, temp);
+  get_indtext(windows[EditOpts].openblock.window, 19, output);
+  if (KeysFile[KeyCode-1]!=NULL) memfree(KeysFile[KeyCode-1]);
+  if(strlen(temp)>0 && strlen(output)>0)
+  {
+    KeysFile[KeyCode-1]=memalloc(2+strlen(temp)+strlen(output));
+    sprintf(KeysFile[KeyCode-1], "%s\t%s", temp, output);
+  }
+  else KeysFile[KeyCode-1]=NULL;
+
+  ZapGlobalOptions.wordwrap_width = update_number(EditOpts, 4);
+  ZapGlobalOptions.column_tab_width = update_number(EditOpts, 11);
+
+  save_misc();
+  free_keys();
+}
+
+void open_edit()
+{
+  char temp[256], *temp2;
+  load_misc();
+
+//  set_flag(EditOpts, 2, ZapGlobalOptions.opt_flags.flags.linewrap);
+//  set_flag(EditOpts, 3, ZapGlobalOptions.opt_flags.flags.wordwrap);
+  set_flag(EditOpts, 8, ZapGlobalOptions.opt_flags.flags.undo_supported);
+  set_flag(EditOpts, 10, ZapGlobalOptions.opt_flags.flags.selections_vanish);
+  set_flag(EditOpts, 9, ZapGlobalOptions.switches.flags.confine_cursor);
+
+  set_flag(EditOpts, 20, ZapGlobalOptions.opt_flags.flags.no_search_macros);
+  set_flag(EditOpts, 21, ZapGlobalOptions.opt_flags.flags.search_case_sensitive);
+  set_flag(EditOpts, 22, ZapGlobalOptions.switches.flags.clear_search_window);
+  set_flag(EditOpts, 23, ZapGlobalOptions.switches.flags.search_use_commands);
+  set_flag(EditOpts, 24, ZapGlobalOptions.switches.flags.search_global_replace);
+  set_flag(EditOpts, 29, ZapGlobalOptions.switches.flags.search_raw_search);
+
+  Icon_Deselect(windows[EditOpts].openblock.window, 25);
+  Icon_Deselect(windows[EditOpts].openblock.window, 26);
+  Icon_Deselect(windows[EditOpts].openblock.window, 27);
+  Icon_Deselect(windows[EditOpts].openblock.window, 28);
+  Icon_Select(windows[EditOpts].openblock.window, 25+ZapGlobalOptions.switches.flags.search_direction_and_extent);
+
+
+  icon_print(EditOpts, 4, "%d", ZapGlobalOptions.wordwrap_width);
+  icon_print(EditOpts, 11, "%d", ZapGlobalOptions.column_tab_width);
+
+  set_indtext(windows[EditOpts].openblock.window, 15, "Macro 1");
+  if(KeysFile[0x000]==NULL)
+  {
+    set_indtext(windows[EditOpts].openblock.window, 18, "");
+    set_indtext(windows[EditOpts].openblock.window, 19, "");
+  }
+  else
+  {
+    sscanf(KeysFile[0x000], "%s", temp); /* Gets macro string */
+    set_indtext(windows[EditOpts].openblock.window, 18, temp);
+    temp2=KeysFile[0x000] + strlen(temp);
+    while(temp2[0]==' ' || temp2[0]==9) temp2++; /* Gets macro substitution */
+    set_indtext(windows[EditOpts].openblock.window, 19, temp2);
+  }
+  KeyCode=1; /* Might as well use this again */
+
+  open_child(EditOpts, 4);
+  EditOptsOpen=TRUE;
+}
+
+void editclick()
+{
+  char temp[256], *temp2;
+  if(result->mouse.button.data.menu==1) return;
+  switch(result->mouse.icon)
+  {
+//    case 2 : ZapGlobalOptions.opt_flags.flags.linewrap ^= 1; break;
+//    case 3 : ZapGlobalOptions.opt_flags.flags.wordwrap ^= 1; break;
+    case 8 : ZapGlobalOptions.opt_flags.flags.undo_supported ^= 1; break;
+    case 10 : ZapGlobalOptions.opt_flags.flags.selections_vanish ^= 1; break;
+    case 9 : ZapGlobalOptions.switches.flags.confine_cursor ^= 1; break;
+    case 20 : ZapGlobalOptions.opt_flags.flags.no_search_macros ^= 1; break;
+    case 21 : ZapGlobalOptions.opt_flags.flags.search_case_sensitive ^= 1; break;
+    case 22 : ZapGlobalOptions.switches.flags.clear_search_window ^= 1; break;
+    case 23 : ZapGlobalOptions.switches.flags.search_use_commands ^= 1; break;
+    case 24 : ZapGlobalOptions.switches.flags.search_global_replace ^= 1; break;
+    case 25:case 26:case 27:case 28:
+      ZapGlobalOptions.switches.flags.search_direction_and_extent = result->mouse.icon - 25;
+      Icon_Select(windows[EditOpts].openblock.window, result->mouse.icon);
+      break;
+    case 29 : ZapGlobalOptions.switches.flags.search_raw_search ^= 1; break;
+    case 16:case 17:
+      /* store current */
+      get_indtext(windows[EditOpts].openblock.window, 18, temp);
+      get_indtext(windows[EditOpts].openblock.window, 19, output);
+      if (KeysFile[KeyCode-1]!=NULL) memfree(KeysFile[KeyCode-1]);
+      if(temp[0]!=NULL && output[0]!=NULL)
+      {
+        KeysFile[KeyCode-1]=memalloc(2+strlen(temp)+strlen(output));
+        sprintf(KeysFile[KeyCode-1], "%s\t%s", temp, output);
+      }
+      else KeysFile[KeyCode-1]=NULL;
+
+      /* shift */
+      KeyCode+=(result->mouse.icon)*2 - 33;
+
+      if(KeyCode<=0) KeyCode=1;
+      if(KeyCode>=0x10) KeyCode=0xf;
+
+      icon_print(EditOpts, 15, "Macro %x", KeyCode);
+      if(KeysFile[KeyCode-1]==NULL)
+      {
+        set_indtext(windows[EditOpts].openblock.window, 18, "");
+        set_indtext(windows[EditOpts].openblock.window, 19, "");
+      }
+      else
+      {
+        sscanf(KeysFile[KeyCode-1], "%s", temp); /* Gets macro string */
+        set_indtext(windows[EditOpts].openblock.window, 18, temp);
+        temp2=KeysFile[KeyCode-1] + strlen(temp);
+        while(temp2[0]==' ' || temp2[0]==9) temp2++; /* Gets macro substitution */
+        set_indtext(windows[EditOpts].openblock.window, 19, temp2);
+      }
+
+      break;
+  }
+}

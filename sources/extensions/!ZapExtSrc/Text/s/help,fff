@@ -1,0 +1,599 @@
+; Zap Text Command Extension
+; Copyright (C) 1998 Zap Developers
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program; if not, write to the Free Software
+; Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+;
+; StrongHelp interface commands
+;
+; Original code by Martin Ebourne
+; Rewrite by James Aylett
+; Additional code and suggestions by Justin Fletcher
+;
+; Worries: error trapping. The vast majority of this code won't
+; report errors when they happen. This is deliberate, but may not
+; be the best method. On the other hand, reporting errors in, for
+; instance, reply handling code (which is where my main concern
+; is) is not a particularly good idea. Far better to suffer in
+; silence.
+;
+; ### There may be some memory leaks if help_request returns VS.
+; ### Quoting system may cause buffer overflows. Ought to pass a
+; limit to strcpy_quoted and use that.
+
+; Includes
+		GET	h.ZapText
+		GET	h.dsutils
+		GET	h.coreutils
+		GET	h.module
+
+; What we give to other people
+		EXPORT	help_helptopic
+		EXPORT	help_helpcontext
+		EXPORT	help_searchtopic
+		EXPORT	help_searchcontext
+
+; Temporary functions
+		EXPORT	help_fnhelp
+		EXPORT	help_fnsearch
+
+		LOCAL
+; FNHELP
+; Returns 0 if e_help fails, or "" if it succeeds.
+; Called as a command, it just calls help_helpcontext.
+		&	(3:SHL:3) + (2:SHL:22)
+		; Callable as function or command, returns
+		; a pointer to a zero-termed string
+		; Command takes a string argument.
+
+help_fnhelp	CMP	r2,#23
+		BNE	help_helpcontext
+		; Note that FNHELP will behave a little strangely if called
+		; without a parameter - the minibuffer will open, but nothing
+		; useful can be entered there. As I say, this is a temporary system
+		; until optional parameters are sorted out.
+
+dofunction$l
+		CMP	cursorptr,#0
+		MOVEQ	r0,#0				; failure
+		MOVEQ	r1,#3
+		MOVEQ	pc,lr
+
+		LDR	r0,[cursorptr,#c_off]
+		MOV	r11,#e_help
+		FNcall	Zap_CallMode
+		MOVVS	r0,#0				; failure
+		MOVVS	r1,#3
+		FNRTS	VS
+
+		CMP	r0,#0
+		MOVEQ	r1,#3
+		FNRTS	EQ				; no entries; r0 already correct
+
+		; r1 => block of (r0) possibilities
+		; All heap blocks must be freed.
+		BL	free_helpblock
+
+		ADR	r0,emptystring$l		; "" => success
+		MOV	r1,#3
+		FNRTS
+
+; FNHELPSEARCH
+; As above, but calls help_searchcontext as a command.
+		&	(3:SHL:3) + (2:SHL:22)
+
+help_fnsearch	CMP	r2,#23
+		BNE	help_searchcontext
+		B	dofunction$l
+
+emptystring$l	=	"", 0
+		ALIGN
+
+		LOCAL
+; HELPCONTEXT
+; Gives help on the word at the cursor (using e_help).
+; Gets search path from Zap$HelpPath_<mode name>
+		&	0
+
+help_helpcontext
+		CMP	cursorptr,#0
+		MOVEQ	pc,lr
+
+		FNJSR	"windptr"
+		LDR	r0,[cursorptr,#c_off]
+		MOV	r11,#e_help
+		FNcall	Zap_CallMode			; \X r0 = # possibilities, r1=>block
+		FNRTS	VS
+		CMP	r0,#0
+		FNRTS	EQ
+
+		BL	Get_Workspace
+		STR	r1,[ws,#helpehelp]
+		STR	r0,[ws,#helpehelplimit]
+		MOV	r2,#0
+		STR	r2,[ws,#helpnexthelp]
+		LDR	r1,[r1]				; first possibility
+		ADRL	r0,help_shtext
+;		MOV	r5,#1
+		BL	help_request			; build it and send it off
+		FNRTS
+
+		&	0
+help_searchcontext
+		CMP	cursorptr,#0
+		MOVEQ	pc,lr
+
+		FNJSR	"windptr"
+		LDR	r0,[cursorptr,#c_off]
+		MOV	r11,#e_help
+		FNcall	Zap_CallMode
+		FNRTS	VS
+		CMP	r0,#0
+		FNRTS	EQ
+
+		BL	Get_Workspace
+		STR	r1,[ws,#helpehelp]
+		STR	r0,[ws,#helpehelplimit]
+		MOV	r2,#0
+		STR	r2,[ws,#helpnexthelp]
+		LDR	r1,[r1]
+		ADRL	r0,help_shsearch
+;		MOV	r5,#0
+		BL	help_request
+		FNRTS
+
+		LOCAL
+; HELPTOPIC
+; Gives help on the selection, or given word
+; Gets search path from Zap$HelpPath_<mode name>
+prompt$l	=	"Lookup help on: ",0
+s_prompt$l	=	"Search for help on: ",0
+		ALIGN
+
+		&	(3:SHL:3)+(1:SHL:6)+(1:SHL:10)
+help_searchtopic
+		ADR	r6,s_prompt$l
+		B	help_topic$l
+
+		&	(3:SHL:3)+(1:SHL:6)+(1:SHL:10)
+help_helptopic	ADR	r6,prompt$l			; variant to use
+help_topic$l
+		FNJSR	"windptr"
+		BL	Get_Workspace			; \X ws
+		CMP	r2,#1
+		BLS	givenstring$l
+		TEQ	r2,#6
+		FNRTS	NE
+		FNcall	Zap_GetSel			; \X r1 offset, r2 length, r8/r9
+		BCC	selected$l
+badselection$l	;ADR	r0,prompt$l			; selection is invalid; prompt
+		MOV	r0,r6
+		BL	zap_setprompt
+		MOV	r0,#0
+		FNRTS
+selected$l	PULLS	"r0"				; doesn't update sp
+		TEQ	r0,windptr			; selection must be in same window that we are
+		BNE	badselection$l
+		CMP	r2,#(255-20-?help_shsearch)	; "Help_Search " is longest variant
+		BHS	badselection$l			; selection too long
+		FNcall	Zap_ReadSel			; \X r3 ptr, r2 length
+
+		MOV	r0,r3
+		ADD	r1,r2,#1			; get space plus byte for NUL
+		FNcall	Zap_Extend
+		FNRTS	VS
+		MOV	r1,#0				; NUL
+		STRB	r1,[r0,r2]			; store it
+		MOV	r3,r0				; new pointer
+
+		STR	r3,[ws,#helpblock]
+		FNcall	Zap_GetWindOff
+		STR	r0,[ws,#helpwind]
+		MOV	r0,r3				; call command with selection as parameter
+		FNRTS
+
+givenstring$l	MOV	r1,r0				; parameter was supplied
+		LDR	r0,[ws,#helpblock]
+		TEQ	r0,#0
+		BEQ	start$l				; from minibuffer / as argument
+		LDR	r0,[ws,#helpwind]		; else from selection, so get the actual
+		FNcall	Zap_ConvWindOff			; windptr to use
+start$l		MOV	r7,#-1
+		STR	r7,[ws,#helpehelp]		; no e_help block for HELPTOPIC
+
+		ADR	r0,prompt$l			; and test it
+		CMP	r0,r6
+		ADREQL	r0,help_shtext			; "Help_Word "
+;		MOVEQ	r5,#1
+		ADRNEL	r0,help_shsearch		; "Help_Search "
+;		MOVNE	r5,#0
+		BL	help_request
+		FNRTS
+
+; Do the help request
+; \E r0 init text, r1 text, r8/r9 for help path
+;    r5=1 => quote text
+help_request
+		FNJSR
+		BL	help_setupblock			; \X r0 termination
+		FNRTS	VS
+		; r0 => termination, r3 => start of buffer, r1 => text
+		MOV	r2,r0				; store
+		MOV	r0,r1				; find length of text
+		BL	strlen				; \X r0 length
+		SUB	r4,r2,r3			; length used
+		RSB	r4,r4,#255			; length left
+		CMP	r0,r4
+		BHS	cleanup$l			; no space!
+		MOV	r0,r2				; return termination
+		STR	r0,[ws,#helpwimptext]		; store where to add word (for e_help usage)
+		BL	help_writeword			; add it
+
+cleanup$l	LDR	r0,[ws,#helpblock]
+		TEQ	r0,#0
+		FNcallc	Zap_Free,NE			; free storage for selection block
+		MOV	r0,#0				; if we used it, and set pointer to
+		STR	r0,[ws,#helpblock]		; zero to reset command state
+		FNRTS
+
+		LOCAL
+; Put the word in
+; \E r0 place to store, r1 text, r3 wimp block start, r5 = 1 => quote
+help_writeword
+		FNJSR
+;		CMP	r5,#1
+;		BEQ	do_quoted$l
+
+;		MOV	r5,#'"'
+;		STRB	r5,[r0],#1			; first quote mark
+;		BLNE	strcpy				; no escaping
+;		STRB	r5,[r0],#1			; skip over terminator, altering to '"'
+;		MOV	r5,#0
+;		STRB	r5,[r0],#1			; and write new terminator
+;		BL	help_finishblock
+;		FNRTS
+
+;do_quoted$l
+		BL	strcpy_quoted			; does StrongHelp escaping
+		ADD	r0,r0,#1			; skip over terminator
+		BL	help_finishblock
+		FNRTS
+
+; \E r0 = init text variant ("Help_Word " or "Help_Search ")
+;    r1 = text, windptr = window for help path
+; \X r0 => terminator, r3 => start of buffer, r1 preserved
+help_setupblock
+		FNJSR	"r1"
+		MOV	r1,r0
+		MOV	r0,#256
+		FNcall	Zap_Claim			; get block
+		FNRTS	VS
+		STR	r0,[ws,#helpwimpblk]		; store into ws
+		MOV	r3,r0				; and save
+		ADD	r0,r3,#20
+;		ADRL	r1,help_shtext			; "Help_Word "
+		BL	strcpy	       			; r0 points to termination
+		CMP	windptr,#0
+		BLNE	help_path
+		FNRTS
+
+		LOCAL
+; \E r0 termination, r3 initial block
+; \X r0 updated, r1, r3 preserved
+help_path
+;		FNJSP	"r1,r3,r5", "r0"		; push r0 as well
+		FNJSP	"r1,r3", "r0"			; push r0 as well
+
+		LDRB	r0,[windptr,#w_format]		; mode number
+		FNcall	Zap_ReadMode
+		CMP	r1,#0
+		FNRTP	"r0", LE			; no such mode
+		LDR	r0,[r1,#2*e_title]		; mode title
+		MOV	r3,r0				; store
+
+		BL	strlen				; r0 = length
+		ADD	r0,r0,#(?help_zhpath + 1)	; including terminator
+		FNcall	Zap_Claim
+		FNRTP	"r0",VS
+		MOV	r5,r0				; store
+		ADRL	r1,help_zhpath
+		BL	strcpy				; r0 updated
+		MOV	r1,r3				; mode name
+		BL	strcpy				; r0 updated
+
+		MOV	r0,#(255-30-?help_shsearch)	; a vague limit
+		MOV	r2,r0				; store the buffer length
+		FNcall	Zap_Claim
+		BVS	fail$l
+		MOV	r1,r0				; buffer
+		MOV	r0,r5				; variable name
+		MOV	r3,#0
+		MOV	r4,#0				; string (GS Trans it)
+		SWI	XOS_ReadVarVal
+		BVS	stop$l				; something went wrong
+		CMP	r2,#0
+		BLE	stop$l				; no such variable, or no text
+
+		MOV	r0,#0
+		STRB	r0,[r1,r2]			; terminate properly
+
+		PULL	"r0"				; r1 preserved
+
+		PUSH	"r1"				; value of variable buffer
+		BL	strcpy				; r0 updated
+		PULL	"r1"
+		MOV	r3,#32				; space
+		STRB	r3,[r0],#1			; update r0
+		MOV	r3,r0				; store new r0
+		B	end$l				; clear up
+
+fail$l		MOV	r0,r5
+		FNcall	Zap_Free
+		FNRTPS	"r0"
+
+stop$l		PULL	"r3"				; something went wrong ...
+end$l		MOV	r0,r5
+		FNcall	Zap_Free
+		MOV	r0,r1
+		FNcall	Zap_Free
+		MOV	r0,r3				; restore r0
+		FNRTSS					; no error to be returned
+
+help_shmess	EQU	&43B00
+help_shnohelp	EQU	&43B01
+help_shtext	=	"Help_Word ",0
+help_shsearch	=	"Help_Search ",0
+help_stronghelp	=	"StrongHelp",0
+help_zhpath	=	"Zap$HelpPath_",0
+		ALIGN
+
+; Finish off the help request block, and send it
+; \E r3 => wimp block, r0 => end (after terminator)
+help_finishblock
+		FNJSR
+
+		MOV	r1,r3				; message block
+
+		FNcall	Zap_GetWindOff			; \X r0
+		MOV	r6,r0				; private word (so can find window to do messages etc.)
+
+		LDR	r0,=(help_shmess + 1:SHL:28 + 1:SHL:29 + 3:SHL:30)
+							; help request, call us on
+							; replies and bounces
+							; deletions
+		MOV	r2,#0				; broadcast
+		MOV	r3,#20				; offset of terminating string
+		ORR	r3,r3,#(1:SHL:31)		; NOT address (as I keep forgetting)
+		ADR	r5,help_messagecode
+		FNcall	Zap_SendMessage
+		FNRTS
+
+; Called if the message bounced or was replied to or is being deleted
+;
+; Bounced: StrongHelp not loaded (load it and try again)
+; Replied to: recent SH's indicate "No help available" (ack and try again / report and clear up)
+; Deleted: clear up blocks if is hasn't already been done (on success, or old StrongHelp)
+help_messagecode
+		CMP	r0,#19
+		BEQ	help_bounced
+		CMP	r0,#0
+		BEQ	help_deleted
+
+		CMP	r0,#17
+		MOVNE	pc,lr
+
+		LDR	r0,=help_shnohelp
+		CMP	r2,r0
+		MOVNE	pc,lr
+
+		; else drop through to the message handler
+
+		LOCAL
+; The help message was returned: no help available. Keep trying again until we
+; run out of possibilities, and then give up and display a suitable message.
+;
+; Note that this tail-calls to cleanup, so get stacking right.
+
+help_message
+		FNJSR	"r1,r2,r11"
+
+		ORR	r0,r0,#(1:SHL:30)		; acknowledge message
+		FNcall	Zap_Reply
+		BVS	cleanup
+
+		MOV	r6,r11				; for reply code stuff
+		BL	Get_Workspace			; \X r11
+		LDR	r0,[ws,#helpehelp]
+		CMP	r0,#-1
+		BEQ	report$l			; HELPTOPIC => no e_help block
+		LDR	r1,[ws,#helpnexthelp]
+		LDR	r2,[ws,#helpehelplimit]		; max entries
+		ADD	r1,r1,#1			; increment
+		STR	r1,[ws,#helpnexthelp]
+		CMP	r1,r2				; have we done all?
+		BGE	report$l
+		MOV	r1,r1,LSL #2			; * 4 (offset into entry table)
+		LDR	r1,[r0,r1]			; get string to copy in
+		LDR	r0,[ws,#helpwimptext]		; where to put the string
+		BL	strcpy_quoted			; copy over
+		LDR	r1,[ws,#helpwimpblk]
+		MOV	r3,#20				; offset of terminating string
+		ORR	r3,r3,#(1:SHL:31)		; Zap will count it for us
+		LDR	r0,=(help_shmess + 1:SHL:28 + 1:SHL:29 + 2:SHL:30)
+							; call me on reply and deletion
+		MOV	r2,#0				; broadcast again
+		ADR	r5,help_messagecode		; r6 already set up
+		FNcall	Zap_SendMessage
+		FNRTS
+
+report$l	MOV	r0,r6				; window offset
+		FNcall	Zap_ConvWindOff			; \X r8/r9
+		ADR	r0,help_nohelp			; text
+		MOV	r1,#0				; default time
+		FNcall	Zap_Warning			; popup window
+		B	cleanup
+
+help_nohelp	=	"Help not available on that topic",0
+		ALIGN
+
+; The help request bounced, so load up StrongHelp and try again
+help_bounced
+		FNJSR	"r1,r2,r11"
+		ADR	r0,help_shdir
+		MOV	r2,#-1
+		MOV	r3,#0
+		SWI	XOS_ReadVarVal
+		TEQ	r2,#0
+		BLE	cleanup
+		ADR	r0,help_shcommand
+		SWI	XWimp_StartTask
+		BVS	cleanup
+
+		; and send again
+		MOV	r6,r11				; private word again
+		BL	Get_Workspace
+		LDR	r1,[ws,#helpwimpblk]
+		LDR	r0,=(help_shmess + 1:SHL:28 + 1:SHL:29 + 2:SHL:30)
+							; call me on reply and deletion
+		LDR	r3,[r1,#0]			; length
+		MOV	r2,#0
+		ADR	r5,help_messagecode
+		FNcall	Zap_SendMessage
+		FNRTS
+
+help_shcommand	=	"/<StrongHelp$Dir>",0
+help_shdir	=	"StrongHelp$Dir",0
+		ALIGN
+
+; Message is being deleted, so clear up blocks
+; On cleanup, store #0 in helpehelp to indicate that we've done, to avoid
+; doing it multiple times.
+; For HELPTOPIC, we stored #-1 in helpehelp to avoid silliness.
+; This will be called for all messages, so it's important to get it right,
+; whatever version of StrongHelp is running.
+		LOCAL
+help_deleted
+		FNJSR	"r1,r2,r11"
+cleanup
+		BL	Get_Workspace			; \X ws
+		LDR	r1,[ws,#helpehelp]
+		CMP	r1,#0
+		FNRTS	EQ
+		CMP	r1,#-1
+		BEQ	not_ehelp$l
+		LDR	r0,[ws,#helpehelplimit]		; number of entries
+
+		BL	free_helpblock
+
+not_ehelp$l	LDR	r0,[ws,#helpwimpblk]
+		FNcall	Zap_Free			; get rid of wimp block
+		MOV	r0,#0
+		STR	r0,[ws,#helpehelp]
+		FNRTSS					; don't return an error
+
+; \E r1 e_help block, r0 number of entries
+; \X all blocks correctly freed
+
+free_helpblock
+		STMFD	sp!,{r1,lr}			; r1 is the e_help block
+		MOV	r2,r1
+loop$l		LDR	r1,[r2],#4			; get the next pointer
+		FNcall	Zap_Free			; free it
+		SUBS	r0,r0,#1
+		BCC	loop$l				; more to do
+
+		LDMIA	sp!,{r0}			; get the e_help block back again
+		FNcall	Zap_Free			; and free the e_help block itself
+
+		LDMIA	sp!,{pc}
+
+;  strcpy (Martin Ebourne)
+;  Copies string
+;  Entry: r1 from, r0 to, termination <32
+;  Exit : r0 points to termination (0); r1 & r2 undefined
+;  char *strcpy(char *to,const char *from);
+
+		EXPORT	strcpy
+strcpy		LDRB	r2,[r1],#1
+		CMP	r2,#' '
+		MOVLO	r2,#0
+		STRB	r2,[r0],#1
+		BHS	strcpy
+		SUB	r0,r0,#1
+		MOVS	pc,lr
+
+;  strcpy_quoted (Martin Ebourne, mods by SJA)
+;  Copies string, quoting as necessary
+;  Entry: r1 from, r0 to, termination <32
+;  Exit: r0 points to termination (0); r1 & r2 undefined
+
+		LOCAL
+
+strcpy_quoted	LDRB	r2,[r1],#1
+		CMP	r2,#0
+		BEQ	write$l
+		CMP	r2,#' '
+; Old method: control characters go to NUL.
+;		MOVLO	r2,#0
+;		BLO	write$l
+; New method: quote control characters.
+; Altered after reading Guttorm's new technical reference manual.
+		BLO	quote$l
+
+		CMP	r2,#'!'
+		CMPNE	r2,#'['
+		CMPNE	r2,#']'
+		CMPNE	r2,#'\'
+		CMPNE	r2,#'<'
+		CMPNE	r2,#'>'
+		CMPNE	r2,#'.'
+		CMPNE	r2,#'$'
+		CMPNE	r2,#'%'
+		CMPNE	r2,#'&'
+		CMPNE	r2,#'?'
+		CMPNE	r2,#'#'
+		CMPNE	r2,#':'				; was ' by mistake - oops
+		CMPNE	r2,#' '
+		BNE	write$l
+
+quote$l		; else quote it
+		PUSH	"r2"
+		MOV	r2,#'!'
+		STRB	r2,[r0],#1
+		MOV	r2,#'x'
+		STRB	r2,[r0],#1
+
+		PULLS	"r2"
+		MOV	r2,r2,LSR #4			; high nibble
+		ADD	r2,r2,#'0'
+		CMP	r2,#'9'
+		ADDHI	r2,r2,#'A'-':'			; ':' is one beyond '9'
+		STRB	r2,[r0],#1
+		PULL	"r2"
+		AND	r2,r2,#&F			; low nibble
+		ADD	r2,r2,#'0'
+		CMP	r2,#'9'
+		ADDHI	r2,r2,#'A'-':'
+		STRB	r2,[r0],#1
+		B	strcpy_quoted
+
+write$l		STRB	r2,[r0],#1
+;		BHS	strcpy_quoted
+		CMP	r2,#0
+		BNE	strcpy_quoted
+		SUB	r0,r0,#1
+		MOVS	pc,lr
+
+; That's it
+		END
