@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.7 2002/11/13 22:43:59 christian Exp $
+; $Id: ModuleBits,fff,v 2.8 2002/11/13 22:52:33 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -93,12 +93,6 @@ command_table
  DCD zcsy
  DCD zchp
 
- FNS (|zap$|:CC:"_AddMode")
- DCD Zap_AddAMode
- DCD &010101
- DCD addsy
- DCD addhp
-
  FNS (|zap$|:CC:"_Desktop")
  DCD Zap_Desktop
  DCD &02FF00
@@ -109,10 +103,6 @@ command_table
 
 zchp  = "*",27,0," executes a colon-separated string of Zap commands.",13
 zcsy  = 27,30,"*]<string>",0
-
-addhp = "*",27,0," adds a new text processing mode with entry point table "
-      = "at",27,2,"given address.",13
-addsy = 27,14,"table address in hex>",0
 
 deshp = "*",27,0," runs",27,2,"Zap module",27,16,"(optionally) loads in",27,2
       = "given file on startup. Zap",27,")initialised as a WIMP task.",13
@@ -197,16 +187,6 @@ Zap_Desktop
  SWIEQ XOS_Module			; enter the module
  FNRTS
 
-Zap_AddAMode
- FNJSR
- LDR R12,[R12]
- MOV R1,R0			; string
- MOV R0,#16
- SWI XOS_ReadUnsigned
- MOVVC R0,R2
- BLVC add_new_mode
- FNRTS
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SERVICE CALL HANDLER					       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -220,7 +200,6 @@ service_call
  TEQNE R1,#&27	; PostReset
  ;TEQNE R1,#&87	; FilterManagerInstalled
  ;TEQNE R1,#&88	; FilterManagerDying
- TEQNE R1,#&53	; Wimp_Closedown
  TEQNE R1,#&7F	; PDriverChanged
  MOVNE pc,r14
 service_call_accepted
@@ -235,8 +214,6 @@ service_call_accepted
  ;TEQNE R1,#&87
  ;TEQNE R1,#&88
  BEQ service_reset
- TEQ R1,#&53
- BEQ service_taskdying
  MOV PC,R14
 
 service_table
@@ -247,7 +224,6 @@ service_table
  DCD &27 ; reset
  DCD &49 ; start wimp
  DCD &4A ; started wimp
- DCD &53 ; wimp closedown
  DCD &7F ; printer driver changed
 ; DCD &88 ; filter manager installed
 ; DCD &89 ; filter manager dying
@@ -284,23 +260,6 @@ service_startwimp
  FNRTS
 
 start_string	    FNS (|zap$|:CC:"_Desktop")
-
-service_taskdying
- CMP R0,#0
- MOVNE PC,R14
- FNJSR
- FNLDR R14,wimp_task		; task pseudo - dead
- CMP R2,R14
- FNRTS NE
- SYSLOG "Zap service_taskdying", LOG_STATUS
- ADR R3,title_string
- MOV R0,R3
- SWI XOS_ExitAndDie
-; MOV R14,#0
-; FNSTR R14,wimp_task		; task pseudo - dead
-; MOV R14,#0
-; FNSTR R14,file_num		; and no files (zap not active)
-; FNRTS
 
 service_startedwimp
  FNJSR
