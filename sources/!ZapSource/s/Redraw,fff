@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.2 2001/05/30 09:51:28 james Exp $
+; $Id: Redraw,fff,v 2.3 2001/06/01 21:46:55 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -198,7 +198,7 @@ redraw_area_1to2
  FNRTS
 
 redraw_area_fontfast
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R0,#1
  BL font_ensure			; ensure set up for fast redraw
  BLVC font_cachefont		; ensure relevant characters cached
@@ -219,7 +219,7 @@ redraw_area_fontfast
  ADRVC R2,fastfont_extension
  MOVVC R3,R12
  SWIVC XZapRedraw_RedrawArea
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 local_aliasing_defeat
  DCD 0
@@ -446,7 +446,7 @@ swapinverse$l
 ;;;;;;;;;;;;; end of fast font extension ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 redraw_area_vdu
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  MOV R0,#1+(1<<4)		; vdu redraw + fast rectangles :-)
  FNSTR R0,red_flags
  MOV R0,#0			; system font
@@ -461,10 +461,10 @@ redraw_area_vdu
  FNSTR R0,red_palette
  ADD R1,R12,#red_flags
  SWI XZapRedraw_RedrawArea
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 redraw_area_fontvdu
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R14,[R8,#w_info]		; for enable ss bit
  TST R14,#bit_nosubstyles
  FNLDR R14,red_flags
@@ -484,7 +484,7 @@ redraw_area_fontvdu
  FNSTR R0,red_palette
  ADD R1,R12,#red_flags
  SWI XZapRedraw_RedrawArea
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; CHAR DEFS						      ;
@@ -650,7 +650,7 @@ font_cachefont
 ;  R2=fontname R3=fontsize R4/R5=font os offsets
 
 cachefont_setup
- STMFD R13!,{R8,R14}
+ FNJSR "R8"
  MOV R8,#0			; use default option colours
  MOV R5,R0			; save type of call
  TEQ R5,#1
@@ -693,7 +693,7 @@ cachefont_setup
  FNLDR R3,font_size,VC
  FNLDR R4,font_xoff,VC
  FNLDR R5,font_yoff,VC
- LDMFD R13!,{R8,PC}
+ FNRTS
 
 ;;;;;;;;;;; keep blank line buffer updated ;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -701,15 +701,15 @@ cachefont_setup
 ;X red_blkbuf buffer enlarged to this size with spaces #
 
 ensure_redblk
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  ADD R1,R0,#3			; size required
  BIC R1,R1,#3			; rounded up to word boundry
  FNLDR R2,red_blklen		; current size
  FNLDR R0,red_blkbuf		; start of buffer
  CMP R2,R1
- LDMCSFD R13!,{R1-R2,PC}	; buffer large enough
+ FNRTS CS	; buffer large enough
  BL heap_ensure			; ensure new size
- LDMVSFD R13!,{R1-R2,PC}
+ FNRTS VS
  FNSTR R1,red_blklen		; save new length
  FNSTR R0,red_blkbuf		; save new ptr
  ADD R2,R0,R2			; start of unblanked area (word al)
@@ -721,7 +721,7 @@ en1
  STR R14,[R2],#4
  CMP R2,R1
  BCC en1			; clear extra buffer space
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; E N D	  O F	R E D R A W   R E C T A N G L E	  S U B S	  ;
@@ -755,11 +755,11 @@ redraw_window
 ;  Note red_for/red_bac are constant and should already be filled
 
 redraw_to_red
- STMFD R13!,{R4-R6,R14}
+ FNJSR "R4-R6"
  MOV R0,R1			; wimp redraw block
  ADD R1,R12,#red_flags
  SWI XZapRedraw_GetRectangle
- LDMVSFD R13!,{R4-R6,PC}
+ FNRTS VS
  FNLDR R3,red_scrolly		; y scroll from file top
  MOV R5,R3			; save first line
  BL ccd_ypix_ypair		; R3=line R6=raster off
@@ -785,7 +785,7 @@ redraw_to_red
  FNSTR R0,red_linesp
  LDR R0,[R8,#w_rw]
  FNSTR R0,red_charw		; char horizontal size in pixs
- LDMFD R13!,{R4-R6,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SCREEN COORDS CONVERSION TO WORK AREA COORDS SUBS		  ;
@@ -827,12 +827,12 @@ ccd_ypix_yline
  TEQ R0,#8
  MOVEQ R3,R3,LSR#3
  MOVEQ PC,R14			; special case
- STMFD R13!,{R1,R2,R14}
+ FNJSR "R1,R2"
  MOV R1,R0			; denominator
  MOV R0,R3			; numerator
  SWI XZapRedraw_Divide ; BL div_mod	; divide
  MOV R3,R0			; DIV answer
- LDMFD R13!,{R1,R2,PC}
+ FNRTS
 
 ;E R2=xpix R8
 ;X R2=xcol |
@@ -842,12 +842,12 @@ ccd_xpix_xline
  TEQ R0,#8
  MOVEQ R2,R2,LSR#3
  MOVEQ PC,R14			; special case
- STMFD R13!,{R1,R3,R14}
+ FNJSR "R1,R3"
  MOV R1,R0			; denominator
  MOV R0,R2			; numerator
  SWI XZapRedraw_Divide ; BL div_mod	; divide
  MOV R2,R0			; DIV answer
- LDMFD R13!,{R1,R3,PC}
+ FNRTS
 
 ;E R3=yos R8
 ;X R3=yline |
@@ -884,13 +884,13 @@ ccd_ypix_ypair
  ANDEQ R6,R3,#7
  MOVEQ R3,R3,LSR#3
  MOVEQ PC,R14
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R1,R0			; denominator
  MOV R0,R3			; numerator
  SWI XZapRedraw_Divide ; BL div_mod
  MOV R3,R0			; DIV (line)
  MOV R6,R2			; MOD (pix off)
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;E R3=xpix R8
 ;X R3=xcol R6=xoff |
@@ -901,13 +901,13 @@ ccd_xpix_xpair
  ANDEQ R6,R3,#7
  MOVEQ R3,R3,LSR#3
  MOVEQ PC,R14
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R1,R0			; denominator
  MOV R0,R3			; numerator
  SWI XZapRedraw_Divide ; BL div_mod
  MOV R3,R0			; DIV (line)
  MOV R6,R2			; MOD (pix off)
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;E R2/R3=xycol R8
 ;X R2/R3=xyos |
@@ -1183,20 +1183,20 @@ ccd_blk_xrow_vis_margin
 ;X R1=new first unused offset #
 
 invert_carets
- STMFD R13!,{R4,R10,R14}
+ FNJSR "R4,R10"
  FNLDR R10,car_mode
  FNLDR R4,opt_cursor
  ADD R10,R10,#2
  CMP R10,#8
  ADDCC PC,PC,R10,LSL#2
- LDMFD R13!,{R4,R10,PC}		; out of range
- LDMFD R13!,{R4,R10,PC}		; mode -2 don't draw any
+ FNRTS				; out of range
+ FNRTS				; mode -2 don't draw any
  B inv_car_point		; mode -1 draw point only
  B inv_car_point		; mode 0 draw point only
  B inv_car_1			; mode 1
  B inv_car_2			; mode 2
- LDMFD R13!,{R4,R10,PC}		; mode 3
- LDMFD R13!,{R4,R10,PC}		; mode 4
+ FNRTS				; mode 3
+ FNRTS				; mode 4
  B inv_car_5			; mode 5
 
 inv_car_1
@@ -1204,33 +1204,33 @@ inv_car_1
  BL test_cblk
  BNE inv_car_point
  BL invert_caret
- LDMFD R13!,{R4,R10,PC}
+ FNRTS
 
 inv_car_2
  MOV R4,R4,ROR#16		; get split 2 type
  FNLDR R10,car_cursor
  BL test_cblk
  BLEQ test_then_invert_caret	; draw if in window
- LDMVSFD R13!,{R4,R10,PC}
+ FNRTS VS
  MOV R4,R4,ROR#16		; restore
  FNLDR R10,car_input
  BL test_cblk
  BNE inv_car_point		; input not in this window
  MOV R4,R4,LSR#8
  BL invert_caret		; split 1 caret
- LDMFD R13!,{R4,R10,PC}
+ FNRTS
 
 inv_car_5
  FNLDR R10,car_input
  BL test_cblk
  BLEQ invert_caret
- LDMFD R13!,{R4,R10,PC}
+ FNRTS
 
 inv_car_point
  MOV R4,R4,LSR#24		; get left type
  ADD R10,R8,#w_pwind
  BL invert_caret
- LDMFD R13!,{R4,R10,PC}
+ FNRTS
 
 test_then_invert_caret
  FNJSR
@@ -1259,7 +1259,7 @@ invert_caret
  MOVGE PC,R14			; off screen top
  SUBS R0,R0,R2			; offset from first line
  MOVMI PC,R14			; off screen bottom
- STMFD R13!,{R2-R11,R14}
+ FNJSR "R2-R11"
  FNLDR R11,red_data
  FNLDR R7,red_datasize
  ADD R6,R11,R1			; set up buffer pointers
@@ -1271,7 +1271,7 @@ invert_caret
  PUSH "R4"
  SWI XZapRedraw_FindCharacter	; corrupts R2/R3 (...and R4...?)
  PULL "R4"
- LDMVSFD R13!,{R2-R11,PC}
+ FNRTS VS
  SUB R0,R1,R9			; length of the line + 0,2 term
  LDR R3,[R10,#c_width]
  ADD R0,R0,R3,LSL#4		; amount we need spare
@@ -1281,10 +1281,10 @@ invert_caret
  MOVHI	R2,R14			; \/\/ display clipping
  ADD R0,R0,R2			; and incase line blank
  BL ensure_red_data
- LDMVSFD R13!,{R2-R11,PC}
+ FNRTS VS
  ADD R5,R11,R5			; source string
  BL get_caret_string		; set up R3/R4/R7
- LDMVSFD R13!,{R2-R11,PC}
+ FNRTS VS
  MOV R0,R6			; current pointer
  ADD R1,R12,#red_flags
 
@@ -1297,9 +1297,9 @@ invert_caret
  ORR R6,R6,#(syscol_SelBg :SHL: 8)
  ORR R6,R6,#(1:SHL:31):OR:(1:SHL:30)
  SWI XZapRedraw_AddCursorSmart
- LDMVSFD R13!,{R2-R11,PC}
+ FNRTS VS
  SUB R1,R0,R11			; new last used offset
- LDMFD R13!,{R2-R11,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Get the cursor string (dependent on length)		    ;
@@ -1317,10 +1317,10 @@ invert_caret
 ; the r_data line.
 
 get_caret_string
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R0,R3
  BL ensure_workarea
- LDMVSFD R13!,{R1-R2,PC}
+ FNRTS VS
  MOV R2,R3			; copy length
  AND R0,R4,#&FF			; get type
  FNLDR R4,red_workarea
@@ -1330,7 +1330,7 @@ get_caret_string
  ORR R7,R7,#(8:SHL:8)		; use 'merge cursors' in ZapRedraw_AddCursor (not 'merge characters')
  CMP R0,#(gc_end-gc_start)/4
  ADDCC PC,PC,R0,LSL#2
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 gc_start
  B get_caret_0			; block
  B get_caret_1			; square
@@ -1345,21 +1345,21 @@ get_caret_00
  STRB R0,[R1],#1
  SUBS R2,R2,#1
  BGT get_caret_00
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 get_caret_1
  ORR R7,R7,#1
  SUBS R2,R2,#2			; length - ends
  MOVMI R0,#3
  STRMIB R0,[R1]
- LDMMIFD R13!,{R1-R2,PC}
+ FNRTS MI
  MOV R0,#0
  STRB R0,[R1],#1		; left end
  MOV R0,#2
  STRB R0,[R1,R2]		; right end
  MOV R0,#1
  BGT get_caret_00
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 get_caret_2
  ORR R7,R7,#1
@@ -1371,11 +1371,11 @@ get_caret_3
  MOV R0,#5
  STRB R0,[R1]
  MOV R3,#1
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 get_caret_4
  MOV R3,#1			; not there
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create redraw data in new format			    ;
@@ -1389,7 +1389,7 @@ get_caret_4
 ;  R0=largest character used
 
 create_redraw_data
- STMFD R13!,{R2-R11,R14}
+ FNJSR "R2-R11"
  SUB R10,R3,R2			; number of lines to do
  ADD R10,R10,#1			; add terminating offset
  MOV R2,R0			; data to start with
@@ -1414,7 +1414,7 @@ cr17
  ADD R0,R3,#16			; need 6*R5+16 bytes free
  BL ensure_red_data		; make sure enough room free
  BVS error$l
- STMFD R13!,{R3-R5,R7}
+ PUSH "R3-R5,R7"
  MOV R0,#syscol_Ctrls		; colour for ctrl chars
  ADD R3,R2,R5
  ADD R4,R3,R5
@@ -1435,7 +1435,7 @@ cr17
  CMP R0,R9
  MOVCS R9,R0			; new largest character
  ADD R6,R6,R5			; new buffer position
- LDMFD R13!,{R3-R5,R7}
+ PULL "R3-R5,R7"
  BVS error$l
  ADD R2,R2,R3,LSR#1		; all 3*R5 to get to next line
  ADD R4,R4,#1			; increment line number
@@ -1446,7 +1446,7 @@ cr18
  STR R0,[R11,R4,LSL#2]		; add terminating 0
  SUB R1,R6,R11			; first free offset
  MOV R0,R9			; largest character
- LDMFD R13!,{R2-R11,PC}
+ FNRTS
 
 error$l
  MOV R7,R0
@@ -1467,18 +1467,18 @@ ensure_red_data
  SUB R0,R0,R11			; new length
  CMP R0,R7
  MOVLE PC,R14			; already claimed
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  MOV R1,R0			; amount to claim
  SUB R7,R6,R11			; save offset in block
  MOV R0,R11
  BL heap_ensure
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  FNSTR R0,red_data		; new block pointer
  FNSTR R1,red_datasize		; new length
  MOV R11,R0
  ADD R6,R11,R7
  MOV R7,R1
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; UPDATE CACHE							;
@@ -1492,7 +1492,7 @@ ensure_red_data
 ;  R1-R7 & R10-R11 corrupted #
 
 update_cache
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  LDR R11,[R8,#w_height]		; number of lines in file
  LDR R4,[R8,#w_cline]		; line num of first cached line
  LDR R5,[R8,#w_txtn]		; number of lines cached
@@ -1504,12 +1504,12 @@ update_cache
  MUL R1,R0,R10			; size cache needs to be
  LDR R0,[R8,#w_txt]
  BL heap_ensure			; ensure cache big enough
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  STR R0,[R8,#w_txt]		; note need NOT mark cache invalid as heap
  STR R10,[R8,#w_txth]		; manager copies data
 update_c0
  TEQ R2,R3
- LDMEQFD R13!,{R1-R11,PC}
+ FNRTS EQ
  CMP R2,R11			; is first line off end of file
  BCS update_c6			; 'error'
  ADD R5,R4,R5			; line number of last cached line (+1)
@@ -1527,7 +1527,7 @@ update_c0
  LDR R1,[R8,#w_txt]
  LDR R2,[R8,#w_txtlen]
  MLA R0,R2,R0,R1
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 update_c1
  SUB R10,R5,R2
  SUB R6,R2,R4
@@ -1537,10 +1537,10 @@ update_c1
  MOV R7,R5
  SUB R6,R5,R2
  BL red_cache_lines
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOV R0,R2
  BL cln_phy
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  B update_c5
 update_c2
  CMP R5,R3
@@ -1553,12 +1553,12 @@ update_c2
  MOV R7,R5
  SUB R6,R5,R2
  BL red_cache_lines
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  SUB R10,R4,R2
  MOV R7,R2
  MOV R6,#0
  BL red_cache_lines
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  B update_c5
 update_c3
  SUB R10,R3,R4
@@ -1569,14 +1569,14 @@ update_c3
  MOV R7,R2
  MOV R6,#0
  BL red_cache_lines
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  B update_c5
 update_c4
  SUB R10,R3,R2
  MOV R7,R2
  MOV R6,#0
  BL red_cache_lines
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 update_c5
  LDR R14,[R9,#f_len]
  CMP R0,R14
@@ -1587,15 +1587,15 @@ update_c5
  STR R0,[R8,#w_txtn]
  STR R2,[R8,#w_cline]		; line number of first cached line
  LDR R0,[R8,#w_txt]
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 update_c6
  MOV R0,#0			; first line off end
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 update_c7
  MOV R0,#0
  STR R0,[R8,#w_txtn]		; preserve old cached point
  LDR R0,[R8,#w_txt]
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R6=source cache line R7=dest cache line R8/R9 R10=num of lines to move
 ;X R2-R5 & R8-R9 saved and cache lines moved
@@ -1650,7 +1650,7 @@ red_cache_lines
  FNRTS EQ			; return if no lines to draw
  ADD R4,R7,R10			; phy ln of final line
  MOV R10,R7			; phy ln of first line
- STMFD R13!,{R3,R5}		; save off/log of first line
+ PUSH "R3,R5"		; save off/log of first line
  MOV R1,#einit_RedrawStart
  MOV R2,R7
  MOV R3,R4
@@ -1700,7 +1700,7 @@ red_cl_12
  LDR R0,local_ss_info_word
  BL setup_fontmc_with_extras	; slow and maybe not even needed :-)
  STRVS R0,[R13]
- LDMFD R13!,{R0,R1}
+ PULL "R0,R1"
  FNRTS
 red_cl_11
  STR R0,[R13,#4]!
@@ -1883,10 +1883,10 @@ re1
  FNRTS
 
 sw_redrawline
- STMFD R13!,{R1-R11}
+ PUSH "R1-R11"
  MOVS R14,PC
  LDR PC,[R0,#2*e_redrawline]	; call the redraw line sub
- LDMFD R13!,{R1-R11}
+ PULL "R1-R11"
  BL modesw_redrawline
  SUBVC R7,R7,R5			; file offset
  FNRTS
@@ -2138,7 +2138,7 @@ ov1
 ;X Selection coloured #
 
 redraw_cache_selection
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  FNLDR R1,car_selection
  LDR R2,[R1,#c_line]
  LDR R3,[R1,#c_oline]
@@ -2168,7 +2168,7 @@ rs11
  CMP R10,R3
  MOVLT R5,R1			; end col if not last line
  SUBS R5,R5,R4			; num of chars to write
- LDMLEFD R13!,{R1-R5,PC}
+ FNRTS LE
  ADD R4,R6,R4			; first col
  ADD R2,R4,R1			; foreground mask
  ADD R3,R2,R1			; background mask
@@ -2181,7 +2181,7 @@ rs12
  STRB R1,[R3],#1		; bg colour blatted
  SUBS R5,R5,#1
  BGT rs12
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; REDRAW LINE SUBS (PRINT HEX NUMBERS ETC)		    ;
@@ -2231,38 +2231,38 @@ update_area
 ;X window area updated using Wimp_UpdateWindow #
 
 update_window
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  SWI XWimp_UpdateWindow		; update the window
  TEQ R0,#0
- LDMEQFD R13!,{R1,PC}		; return if no more
+ FNRTS EQ		; return if no more
 up1
  BLVC redraw_window		; redraw the rectangle
  SWIVC XWimp_GetRectangle		; get next rectangle
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  TEQ R0,#0
  BNE up1			; loop if more to do
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;X All windows redrawn (eg palette/char set change)
 
 redraw_all
- STMFD R13!,{R10,R14}
+ FNJSR "R10"
  ADR R10,update_whole_window
  MOV R0,#0
  BL do_allwindow		; update windows
- LDMFD R13!,{R10,PC}
+ FNRTS
 
 ;E R8/R9=window to update
 ;X whole work area redrawn and title updated & redrawn CB #
 
 update_whole_window
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  BL update_whole_window_bar_title
  BLVC new_title			; redraw title
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 update_whole_window_bar_title
- STMFD R13!,{R14}
+ FNJSR
  FNLDR R1,car_block
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
@@ -2275,7 +2275,7 @@ update_whole_window_bar_title
  STR R2,[R1,#w_maxx]
  STR R3,[R1,#w_miny]
  BL update_window		; redraw whole window
- LDMFD R13!,{PC}
+ FNRTS
 
  LOCAL
 
@@ -2329,7 +2329,7 @@ create_dsa_palette
 update_between_offsets
  TEQ R0,R1
  MOVEQ PC,R14			; nothing to update
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  MOV R5,R1			; save end
  BL offset_line_column		; R2/R3=start
  MOVVC R0,R5			; end
@@ -2339,7 +2339,7 @@ update_between_offsets
  BLVC correct_region		; doesn't matter which way
  ADDVC R5,R5,#1			; last line.  Hmmm.  Pity.
  BLVC update_region
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Font subs						   ;
@@ -2350,19 +2350,19 @@ update_between_offsets
 ;X font manager 2.42 and some cache / VS
 
 check_font_manager
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  SWI XFont_CacheAddr
  BLVS err$l
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  CMP R0,#242			; version number
  BLLT err$l
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 err$l ERR "zap_e_needFM242"
 
 ;X R0=font handle of font_name scaled font_size #
 
 font_findfont
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  FNLDR R1,font_name
  FNLDR R14,font_size		; font size in points
  MOV R2,R14,LSL #16
@@ -2379,7 +2379,7 @@ font_findfont
  MOV R4,#0
  MOV R5,#0
  SWI XFont_FindFont
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;E R0=font handle
 ;X bounding box info read to font_charw etc
@@ -2470,28 +2470,28 @@ a$l
 ;X ensures font_cache At Least in this state (-1<cache) #
 
 font_ensure
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  MOV R1,R0			; save type
  BL check_font_manager
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  FNLDR R0,font_cache
  CMP R0,#0			; already cached?
- LDMGTFD R13!,{R1,PC}
+ FNRTS GT
  CMP R1,#0			; requires caching?
  BGT fo20
  CMP R0,#0			; already set up for vdu?
- LDMMIFD R13!,{R1,PC}
+ FNRTS MI
 fo20
  CMP R1,#0
  BLE fo21			; don't need a cache
  MOV R0,#0
  BL heap_claim
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  MOV R1,R0			; claimed cache
 fo21
  FNSTR R1,font_cache		; new cache type
  BL read_font_info		; set up
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Printout subs							   ;
@@ -2502,7 +2502,7 @@ fo21
 ;X page size set up in wimp_print / error if no printer driver #
 
 pnt_get_pagesize
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  SWI &A0143			; XPDriver_PageSize
  FNLDR R0,wimp_print		; buffer
  MOVVS R3,#0
@@ -2513,7 +2513,7 @@ pnt_get_pagesize
  SUB R6,R6,R4
  STMIA R0,{R3-R6}		; x, y, width, height of printable area
  SUBS R0,R0,#0			; CLV? Unnecessary?
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 default_width$l  & 595275 ; 21cm
 default_height$l & 841889 ; 29.7cm
 
@@ -2521,11 +2521,11 @@ default_height$l & 841889 ; 29.7cm
 ;X lines per page/x scale/y scale filled in wimp_print #
 
 pnt_fit_pages
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R6,R0			; save width in chars
  MVN R0,#0
  BL font_ensure
- LDMVSFD R13!,{R1-R11,PC}	; set up font values
+ FNRTS VS	; set up font values
  FNLDR R10,wimp_print
  FNLDR R11,opt_flags
  TST R11,#1<<15			; sideways print
@@ -2568,7 +2568,7 @@ pnt_fit_pages
  TST R11,#1<<16
  SUBEQ R3,R3,#3			; subtract room for title
  STR R3,[R10,#print_lines_per_column]
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R0=use colour R8/R9=file
 ;X pages printed using wimp_print #
@@ -2728,7 +2728,7 @@ pn2
 ;X column sent to printer #
 
 pnt_send_column
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R7,R0			; save col offset
  MOV R6,R1			; page number
  FNLDR R11,opt_flags
@@ -2754,16 +2754,16 @@ pnt_send_column
  LDR R0,[R10,#print_columns_per_page]
  MLA R0,R6,R0,R7		; total column offset as ID
  SWI &A014B			; PDriver_GiveRectange
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R10=wimp_print
 ;X title rectangle sent to printer driver if necessary #
 
 pnt_send_title
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  FNLDR R11,opt_flags
  TST R11,#flags_FancyPrintNoTitle
- LDMNEFD R13!,{R1-R11,PC}	; no need to add title
+ FNRTS NE	; no need to add title
  ADD R1,R10,#print_title_rectangle
  ADD R2,R10,#print_title_matrix
  ADD R3,R10,#print_plot_position
@@ -2794,7 +2794,7 @@ pnt_send_title
  MVN R4,#&FF			; colour &FFFFFF00
  MVN R0,#0			; -1 as ID
  SWI &A014B			; PDriver_GiveRectange
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 add_fudge_factors
  FNJSR
@@ -2865,10 +2865,10 @@ pn14
  MOV R0,#0
  STR R0,[R11,#w_scrollx]
  STR R0,[R11,#w_scrolly]	; no scrolls
- STMFD R13!,{R10-R11}
+ PUSH "R10-R11"
  MOV R1,R11
  BL redraw_to_red
- LDMFD R13!,{R10-R11}
+ PULL "R10-R11"
  MOV R0,#100
  FNSTR R0,red_linesp		; make sure don't get onto second line
  FNLDR R0,wimp_data
@@ -3014,7 +3014,7 @@ quick_print
  FNRTS
 
 quick_print_sub
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  SWI XOS_WriteC + &102
  FNLDR R11,opt_flags
  FNLDR R10,wimp_print
@@ -3031,7 +3031,7 @@ quick_print_sub
  BLVC printer_string		; output title
  BLVC printer_newline		; and blank line
  BLVC printer_startoffile
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 pr3
  LDR R1,[R10,#print_start_line]
  LDR R2,[R10,#print_stop_line]
@@ -3042,7 +3042,7 @@ pr4
  CMP R1,R2
  BGE printeofstring
  BL printer_cache_line		; CORRUPTS LOTS
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  ADD R1,R1,#1
  B pr4
 
@@ -3051,13 +3051,13 @@ printeofstring
 
  SWI XOS_WriteC + &103
 
- LDMFD R13!,{R1-R11,PC}		; finished
+ FNRTS		; finished
 
 ;E R1=line R8/R9
 ;X line cached and printed, R1-R2,R8-R9 only saved #
 
 printer_cache_line
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  MOV R2,R1
  ADD R3,R1,#1
  BL update_cache		; saves R8/R9 R0=cached data
@@ -3067,18 +3067,18 @@ printer_cache_line
  BLVC tidy_cache_line		; to buffer
  MOVVC R0,R1
  BLVC printer_string
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;E R0=page num/-1 for none R1=cache line width R8/R9
 ;X wimp_data filled with cache line for heading WB KB WD #
 
 create_heading
- STMFD R13!,{R1-R4,R10-R11,R14}
+ FNJSR "R1-R4,R10-R11"
  MOV R10,R0			; save page number
  MOV R4,R1			; save cache width
  FNLDR R0,wimp_data
  BL heap_ensure			; ensure wimp_data big enough
- LDMVSFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS VS
  FNSTR R0,wimp_data
  MOV R11,R0			; cache data buffer
  MOV R0,#&20
@@ -3092,7 +3092,7 @@ create_heading
  MOV R0,R10
  MOV R2,#12
  SWI XOS_ConvertCardinal4
- LDMVSFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS VS
  MOV R0,#&20
  STRB R0,[R1]			; remove null
  ADD R11,R11,#12		; move onto next column
@@ -3108,7 +3108,7 @@ cr13
  BL cr_sc
  FNLDR R0,wimp_dateformat
  BL read_date
- LDMVSFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS VS
  FNLDR R2,wimp_kbdbuf
  BL strcpy
  ADD R11,R11,#32
@@ -3116,10 +3116,10 @@ cr13
  BL cr_sc
  FNLDR R0,wimp_timeformat
  BL read_date
- LDMVSFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS VS
  FNLDR R2,wimp_kbdbuf
  BL strcpy			; no terminating 0 for cache lines
- LDMFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS
 cr_sc
  MOV R2,R14
  BL lookup_token_R0
@@ -3137,30 +3137,30 @@ cr_s3 = "zap_P_time",0
 ;X string output to printer (inc 0A) #
 
 printer_string
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  MOV R1,R0
 pr1
  LDRB R0,[R1],#1
  TEQ R0,#&0A
  BEQ pr2
  SWI XOS_PrintChar		; output character
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  B pr1
 pr2
  BL printer_newline
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;X newline sent to printer #
 
 printer_newline
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  FNLDR R0,wimp_eolstring	; end of line GS string
  MOV R2,#0
  SWI XOS_GSInit
 pr10
  SWIVC XOS_GSRead
- LDMVSFD R13!,{R1-R3,PC}
- LDMCSFD R13!,{R1-R3,PC}	; reached end
+ FNRTS VS
+ FNRTS CS	; reached end
  MOV R3,R0			; save R0
  MOV R0,R1			; character
  SWI XOS_PrintChar
@@ -3170,14 +3170,14 @@ pr10
 ;X sof string sent to printer #
 
 printer_startoffile
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  FNLDR R0,wimp_sofstring	; end of line GS string
  MOV R2,#0
  SWI XOS_GSInit
 prsoflp$l
  SWIVC XOS_GSRead
- LDMVSFD R13!,{R1-R3,PC}
- LDMCSFD R13!,{R1-R3,PC}	; reached end
+ FNRTS VS
+ FNRTS CS	; reached end
  MOV R3,R0			; save R0
  MOV R0,R1			; character
  SWI XOS_PrintChar
@@ -3187,14 +3187,14 @@ prsoflp$l
 ;X eof string sent to printer #
 
 printer_endoffile
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  FNLDR R0,wimp_eofstring	; end of line GS string
  MOV R2,#0
  SWI XOS_GSInit
 preoflp$l
  SWIVC XOS_GSRead
- LDMVSFD R13!,{R1-R3,PC}
- LDMCSFD R13!,{R1-R3,PC}	; reached end
+ FNRTS VS
+ FNRTS CS	; reached end
  MOV R3,R0			; save R0
  MOV R0,R1			; character
  SWI XOS_PrintChar
@@ -3209,7 +3209,7 @@ preoflp$l
 ;  ctrl/end spaces gone 0A added #
 
 tidy_cache_line
- STMFD R13!,{R3-R4,R14}
+ FNJSR "R3-R4"
  MOV R4,R0			; save the flags
  BL get_cache_line
  MOV R3,R1			; source
@@ -3217,7 +3217,7 @@ tidy_cache_line
  FNLDR R0,wimp_cacheline
  ADD R1,R2,#4
  BL heap_ensure
- LDMVSFD R13!,{R3-R4,PC}
+ FNRTS VS
  FNSTR R0,wimp_cacheline
  MOV R1,R0			; destination
 ge11
@@ -3250,7 +3250,7 @@ ge12
  MOV R2,R1
  FNLDR R1,wimp_cacheline
  SUB R2,R2,R1			; length
- LDMFD R13!,{R3-R4,PC}
+ FNRTS
 
 ;E R1=address of cache line R2=length of cache lines
 ;X R0=actual length with end spaces removed |
@@ -3274,14 +3274,14 @@ ge10
 ;  Cache blatted as now selection stored there
 
 update_region
- STMFD R13!,{R1-R4,R10-R11,R14}
+ FNJSR "R1-R4,R10-R11"
  FNLDR R1,car_block		; workspace
  MOV R11,R4			; save last col
  LDR R10,[R8,#w_width]		; window width
  ADD R10,R10,#1			; last column
 up2
  SUBS R0,R5,R3			; number of lines to do
- LDMLEFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS LE
  TEQ R0,#1
  MOVEQ R4,R11			; on last line so correct last col
  BEQ up3
@@ -3302,28 +3302,28 @@ up3
  MOV R0,#0
  STR R0,[R8,#w_txtn]
  BL update_area			; update the rectangle
- LDMVSFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS VS
  MOV R2,#0			; new start column
  CMP R3,R5
  BCC up2			; more lines to do
- LDMFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS
 
  LOCAL
 
 deprecated_update_area
-	STMFD	R13!,{R0,R1,R14}
+	FNJSR	"R0,R1"
 	ADR	R0,msg_update_area
 	MOV	R1,#warn_DontBeep
 	BL	warn_user
-	LDMFD	R13!,{R0,R1,R14}
+	FNPULL
 	B	update_area
 
 deprecated_update_window
-	STMFD	R13!,{R0,R1,R14}
+	FNJSR	"R0,R1"
 	ADR	R0,msg_update_window
 	MOV	R1,#warn_DontBeep
 	BL	warn_user
-	LDMFD	R13!,{R0,R1,R14}
+	FNPULL
 	B	update_window
 
 msg_update_area   = "deprecated: Zap_UpdateArea",0

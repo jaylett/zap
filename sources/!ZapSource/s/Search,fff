@@ -1,5 +1,5 @@
 ; Contains Zap search/replace code and throwback generation
-; $Id: Search,fff,v 2.2 2000/10/05 00:13:14 ds Exp $
+; $Id: Search,fff,v 2.3 2001/06/01 21:46:55 ds Exp $
 ; -*- armasm -*-
 
 	GET	h.ZapHeader
@@ -947,11 +947,11 @@ wildcard_tree
 ;X R1-R6 saved R7 updated R8-R9 corrupt R10,R11 updated #
 
 wild_tree_sub
- STMFD R13!,{R1-R2,R6,R14}
+ FNJSR "R1-R2,R6"
 wt0
  MOV R0,#32
  BL wild_tree_free		; make sure 8 words free
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  MOV R1,R8			; start of string
 wt1
  CMP R1,R9
@@ -971,7 +971,7 @@ wt1
  MOV R2,R9
  SUB R9,R1,#4			; text end of first string
  BL wild_tree_sub		; draw its tree
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  ADD R6,R6,#4
  STR R7,[R10,R6]		; pointer to second string
  MOV R8,R1
@@ -980,13 +980,13 @@ wt1
 wt2
  SUB R1,R1,#4			; get pointer to bracket
  BL wild_tree_brackets		; NB always a bracket by above so R1<R9
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  MOV R1,R2			; skipped
  B wt1				; carry on
 wt3
  MOV R1,R8
  BL wild_tree_brackets		; get bracket status
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  CMP R1,R9
  BCS wt8			; no brackets found
  TEQ R1,R8
@@ -1030,7 +1030,7 @@ wt7
  MOV R2,R9
  MOV R9,R1
  BL wild_tree_sub		; do first pointer
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  ADD R6,R6,#4
  STR R7,[R10,R6]
  MOV R8,R1
@@ -1061,15 +1061,15 @@ wt10
  STR R2,[R10,R7]
  ADD R7,R7,#4
  BL wild_tree_free
- LDMVSFD R13!,{R1-R2,R6,PC}
- STMFD R13!,{R3}
+ FNRTS VS
+ PUSH "R3"
  MOV R1,R8
  ADD R2,R10,R7
  SUB R3,R9,R8
  ADD R7,R7,R3
  BL move_bytes
- LDMFD R13!,{R3}		; copy data
- LDMFD R13!,{R1-R2,R6,PC}	; finished
+ PULL "R3"		; copy data
+ FNRTS	; finished
 wt11
  MOV R0,#4
  STR R0,[R10,R7]		; save block type
@@ -1112,14 +1112,14 @@ wt14
  ORR R1,R0,R1,LSL#8		; range
  MOV R0,#8
  BL wild_tree_free
- LDMVSFD R13!,{R1-R2,R6,PC}
+ FNRTS VS
  STR R1,[R10,R7]
  ADD R7,R7,#4
  ADD R2,R2,#1			; increment count
  B wt12				; next char in range
 wt15
  STR R2,[R10,R6]		; save count
- LDMFD R13!,{R1-R2,R6,PC}
+ FNRTS
 wt16
  MOV R0,#5
  STR R0,[R10,R7]
@@ -1198,8 +1198,8 @@ wild_tree_free
  FNJSR
  SUB R14,R11,R7			; current amount free
  CMP R14,R0
- LDMGEFD R13!,{PC}		; got enough free
- STMFD R13!,{R1}
+ FNRTS GE		; got enough free
+ PUSH "R1"
  ADD R11,R11,R0			; need R0 more free
  ADD R11,R11,#&40
  MOV R0,R10
@@ -1328,7 +1328,7 @@ a$l
 ;  returned.
 
 wildcard_match
- STMFD R13!,{R1,R8,R14}
+ FNJSR "R1,R8"
  ADD R8,R0,R4			; address of node
  LDR R0,[R8],#4			; type
  CMN R1,#1
@@ -1354,7 +1354,7 @@ reset$l
  B wild_reset_6
 
 wildcard_0
- STMFD R13!,{R2-R5}
+ PUSH "R2-R5"
  LDR R5,[R8]			; number of chars
  TST R5,#1<<31
  BNE fail$l			; already matched
@@ -1384,13 +1384,13 @@ case$l				; R0,R14 in correct cases to be compared
  TEQ R0,R14
  BEQ match$l			; matched
 fail$l
- LDMFD R13!,{R2-R5}
+ PULL "R2-R5"
  MOV R0,#-1
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 matched$l
- LDMFD R13!,{R2-R5}
+ PULL "R2-R5"
  SUB R0,R1,R9			; offset of next char
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 special$l			; code >= &100
  TEQ R0,#'+'<<8
  BEQ caseon$l			; case sensitive on
@@ -1443,14 +1443,14 @@ wd2
  LDR R0,[R8]
  BL wildcard_match
  CMP R0,#0
- LDMMIFD R13!,{R1,R8,PC}	; no more first matches
+ FNRTS MI	; no more first matches
  STR R0,[R8,#8]			; offset after first match
 wd3
  MOV R1,R0
  LDR R0,[R8,#4]
  BL wildcard_match		; try second match
  CMP R0,#0
- LDMPLFD R13!,{R1,R8,PC}	; match found
+ FNRTS PL	; match found
  MVN R1,#0
  LDR R0,[R8,#4]
  BL wildcard_match		; reset second match
@@ -1464,13 +1464,13 @@ wildcard_2
  LDR R0,[R8]
  BL wildcard_match		; next first match
  CMP R0,#0
- LDMPLFD R13!,{R1,R8,PC}	; match found
+ FNRTS PL	; match found
  MOV R0,#0
  STR R0,[R8,#8]			; mark second
 wd4
  LDR R0,[R8,#4]
  BL wildcard_match		; next second match
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wildcard_3
  LDR R0,[R8,#4]
@@ -1483,13 +1483,13 @@ wildcard_3
  LDR R1,[R8,#4]
  BL wildcard_match		; look for first match
  CMP R0,#0
- LDMMIFD R13!,{R1,R8,PC}	; none found
+ FNRTS MI	; none found
  STR R0,[R8,#4]			; now pointer is after this first match
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 wd9
  MOV R0,R1			; at start return current pointer
  STR R0,[R8,#4]			; (a 0*string match)
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wildcard_6
  LDR R0,[R8,#4]
@@ -1497,11 +1497,11 @@ wildcard_6
  BPL wd22			; second time around
  STR R1,[R8,#4]			; save the start offset
 wd23
- STMFD R13!,{R1}		; save the offset
+ PUSH "R1"		; save the offset
  MVN R1,#0
  LDR R0,[R8]
  BL wildcard_match		; reset the node
- LDMFD R13!,{R1}		; restore the offset
+ PULL "R1"		; restore the offset
  LDR R0,[R8]
  BL wildcard_match		; find a match
  CMP R0,#0
@@ -1514,10 +1514,10 @@ wd24
  CMP R1,R0
  MVNLE R0,#0			; haven't moved on so no match
  MOVGT R0,R1			; end of match now here
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 wd22
  MVN R0,#0			; can't match (done most)
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wildcard_4
  CMP R1,R2
@@ -1544,28 +1544,28 @@ wd7
  EORNE R0,R0,#&FF		; NOT ^ operator
  TST R0,#&FF
  BEQ wd8			; no match
- LDMFD R13!,{R1,R8,R14}
+ FNPULL
  ADD R0,R1,#1			; new file offset
  MOV PC,R14
 wd8
  MVN R0,#0			; no match
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wildcard_5
  LDR R0,[R8]
  BL wildcard_match		; next match
  CMP R0,#0
- LDMLEFD R13!,{R1,R8,PC}	; no match
+ FNRTS LE	; no match
  STR R1,[R8,#4]			; save start offset of match
  STR R0,[R8,#8]			; save end offset of match
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wild_reset_0
 wild_reset_4
  LDR R0,[R8]
  BIC R0,R0,#1<<31
  STR R0,[R8]
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wild_reset_1
 wild_reset_2
@@ -1574,17 +1574,17 @@ wild_reset_2
  BL wildcard_match
  LDR R0,[R8,#4]
  BL wildcard_match
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wild_reset_3
 wild_reset_6
  STR R1,[R8,#4]
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 wild_reset_5
  LDR R0,[R8]
  BL wildcard_match		; pass on
- LDMFD R13!,{R1,R8,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Search through a line string					;
@@ -2531,7 +2531,7 @@ sumlen_long_op_display
 	LDREQ	R1,[R9,#f_len]
 	BEQ	long_op_display
 	MOV	R1,#0
-	STMFD	R13!,{R2-R6}
+	PUSH	"R2-R6"
 	FNLDR	R2,wind_list
 	FNLDR	R3,wind_num
 	FNLDR	R4,file_list
@@ -2547,7 +2547,7 @@ loop$l	SUBS	R3,R3,#1
 	CMP	R8,R2
 	ADDGE	R0,R0,R5
 	B	loop$l
-done$l	LDMFD	R13!,{R2-R6}
+done$l	PULL	"R2-R6"
 	B	long_op_display
 
  END

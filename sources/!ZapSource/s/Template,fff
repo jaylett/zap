@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.2 2001/01/13 18:13:11 james Exp $
+; $Id: Template,fff,v 2.3 2001/06/01 21:46:55 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -130,7 +130,7 @@ make_window_mode_0 ; dud
 ;X Produce buffer containing list of authors. WB #
 
 show_authors
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R0,#0			; len
  ADR R1,au_s1
  MVN R2,#0
@@ -146,7 +146,7 @@ show_authors
  MOVVC R0,R2
  ADRVS R0,au_s0
  BL insert_string
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  FNADD R7,R12,mode_store
  MOV R6,#-1			; current mode
 au10
@@ -163,7 +163,7 @@ au10
  MOV R1,R4
  MOV R2,#&80
  SWI XOS_ConvertCardinal1
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOV R0,#&20
  MOV R2,#&80
  BL strstr			; clear buffer to spaces
@@ -205,7 +205,7 @@ au11
 ; BL Cdown			; doesn't work :(
  LDR R0,[R9,#f_len]
  BL put_caret
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 au_s0
  FNS ("zap_m_authors")
@@ -220,13 +220,13 @@ au_s1
 ;X wimp_sizelist set up #
 
 tem_read_sizes
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  ADD R3,R11,#16			; skip header
  SUB R3,R3,#24
 te10
  LDR R0,[R3,#24]!
  CMP R0,#0
- LDMLEFD R13!,{R1-R3,PC}
+ FNRTS LE
  LDR R0,[R3,#12]		; identifier first word
  LDR R1,te_d0
  TEQ R0,R1
@@ -242,7 +242,7 @@ te10
  BCS te10
  BL tem_add_size
  BVC te10
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 te_d0
  = "Mode"
 
@@ -250,7 +250,7 @@ te_d0
 ;X size added to wimp_sizelist #
 
 tem_add_size
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  LDR R0,[R3]
  ADD R3,R11,R0			; window definition
  FNLDR R0,wimp_sizelist
@@ -262,7 +262,7 @@ te19
  BPL te19			; loop 'till last entry
  ADD R1,R4,#40
  BL heap_ensure
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  FNSTR R0,wimp_sizelist
  ADD R4,R0,R4			; new entry
  MVN R0,#0
@@ -286,17 +286,17 @@ te19
  BL read_word
  MOV R0,R0,LSL#6		; was 6 like above...?
  STR R0,[R4,#w_maxy]
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 
 ;E R0=x coord
 ;X R0=proportion of 1280 @ bit 16 |
 
 tem_get_x
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R0,R0,LSL#8		; divide by 256 @ bit 16
  MOV R1,#5
  SWI XZapRedraw_Divide ; BL div_mod
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialise templates (claim buffers etc)	    ;
@@ -402,13 +402,13 @@ free_templates
 ;X R0=num of templates in list |
 
 tem_count_list
- STMFD R13!,{R10-R11,R14}
+ FNJSR "R10-R11"
  MOV R11,#0			; count
 te11
  LDR R0,[R10]
  TEQ R0,#0
  MOVEQ R0,R11
- LDMEQFD R13!,{R10-R11,PC}
+ FNRTS EQ
  BL tem_next
  ADD R11,R11,#1
  B te11
@@ -429,15 +429,15 @@ tem_next
 ;X R0=number of bytes needed in total #
 
 tem_count_winds
- STMFD R13!,{R1-R7,R10,R14}
+ FNJSR "R1-R7,R10"
  MOV R4,#0			; zero count
 te12
  LDR R0,[R10]
  TEQ R0,#0			; end of list?
  MOVEQ R0,R4
- LDMEQFD R13!,{R1-R7,R10,PC}
+ FNRTS EQ
  BL tem_find			; get hold of this template
- LDMVSFD R13!,{R1-R7,R10,PC}
+ FNRTS VS
  BL tem_count_defn		; find number of bytes needed for this
  BL tem_next
  B te12
@@ -465,13 +465,13 @@ te15
 ;X R7=index entry R6=wind defn / VS if not found #
 
 tem_find
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  ADD R7,R11,#16			; skip header
 te13
  LDR R0,[R7]
  TEQ R0,#0
  BLEQ err$l			; template not found
- LDMVSFD R13!,{R1-R2,PC}
+ FNRTS VS
  ADD R1,R7,#12			; identifier
  MOV R2,R10			; template name
  BL strcmp
@@ -479,7 +479,7 @@ te13
  BNE te13			; no match so try next one
  LDR R0,[R7]			; file offset of window defn
  ADD R6,R11,R0
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 err$l ERR "zap_e_templatemissing"
 
 ;E R4=current count R6=window defn (may not be word aligned)
@@ -674,7 +674,7 @@ loopa$l
  LDRB R0,[R14,R8]		; already found...
  FNRTS
 readit$l
- LDMFD R13!,{R1-R11,R14}
+ FNPULL
  SWI XFont_FindFont
  MOV PC,R14
 ; FNRTS
@@ -829,7 +829,7 @@ conv_index_offs
 ;X Window (re)created and contents updated. R0=window handle #
 
 create_leaf_window
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R0,[R7,#8]			; window handle
  CMN R0,#1
  BEQ cr3			; already dead
@@ -838,7 +838,7 @@ create_leaf_window
  STR R0,[R7,#4]
  ADD R1,R7,#8
  SWI XWimp_DeleteWindow
- LDMVSFD R13!,{R1,PC}		; delete the window
+ FNRTS VS		; delete the window
 cr3
  MVN R0,#0
  STR R0,[R7,#8]			; mark deleted
@@ -855,7 +855,7 @@ cr3
  MOVNE R0,R0,LSR#f_shift
  STR R0,[R7,#16]		; save related file offset
  BL leaf_create
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
 
  LDR R1,[R7]			; window data
 
@@ -866,9 +866,9 @@ cr3
  STR R0,[R1,#64]
 
  SWI XWimp_CreateWindow
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  STR R0,[R7,#8]			; window handle
- LDMFD R13!,{R1,R14}
+ FNPULL
  LDR R0,[R7,#4]
  TEQ R1,#0
  BICEQ R0,R0,#1
@@ -983,19 +983,19 @@ cw_indtxt
 ;X cardinal number inserted in icons indirected buffer #
 
 cw_buffernum
- STMFD R13!,{R1-R2,R6,R14}
+ FNJSR "R1-R2,R6"
  ADD R6,R6,#88
  ADD R6,R6,R1,LSL#5		; icon address
  LDR R1,[R6,#20]
  LDR R2,[R6,#28]
  SWI XOS_ConvertInteger4
- LDMFD R13!,{R1-R2,R6,PC}
+ FNRTS
 
 ;E R0=number R1=icon R6=window defn
 ;X hex number inserted in icons indirected buffer with & #
 
 cw_bufferhex
- STMFD R13!,{R1-R2,R6,R14}
+ FNJSR "R1-R2,R6"
  ADD R6,R6,#88
  ADD R6,R6,R1,LSL#5		; icon address
  LDR R1,[R6,#20]
@@ -1004,23 +1004,23 @@ cw_bufferhex
  STRB R14,[R1],#1
  SUBS R2,R2,#1
  SWI XOS_ConvertHex8
- LDMFD R13!,{R1-R2,R6,PC}
+ FNRTS
 
 ;E R0=string pointer/0 R1=icon R6=window defn
 ;X string copied into the buffer or buffer cleared if R0=0 |
 
 cw_bufferstr
- STMFD R13!,{R1-R4,R6,R14}
+ FNJSR "R1-R4,R6"
  ADD R6,R6,#88
  ADD R6,R6,R1,LSL#5		; icon address
  LDR R1,[R6,#20]		; buffer address
  MOVS R2,R0			; source string
  STREQB R0,[R1]			; end string if R0=0
- LDMEQFD R13!,{R1-R4,R6,PC}
+ FNRTS EQ
  LDR R3,[R6,#28]		; buffer length
  MOV R4,#&1F			; max terminating char
  BL strmove
- LDMFD R13!,{R1-R4,R6,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; PROCESS LEAF KEY SUBS						     ;
@@ -1196,7 +1196,7 @@ local_click_flg_type
 ;  otherwise input focus gained generally #
 
 leaf_next_icon
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  LDR R4,[R6,#84]		; number of icons
  ADD R6,R6,#88			; start of icons
  MOV R3,R0			; direction
@@ -1227,7 +1227,7 @@ lk1
  MOV R3,#0
  MVN R4,#0			; writeable icon (?)
  SWI XWimp_SetCaretPosition
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 lk10
  ADD R0,R6,R5,LSL#5		; address of this icon
  LDR R14,[R0,#16]		; icon flags
@@ -1236,7 +1236,7 @@ lk10
 ; LDMCSFD R13!,{R1-R6,PC}	; yes so already set ; ?? TT
  LDRCC R0,[R7,#8]		; window handle
  BLCC gain_focus_bg
- LDMFD R13!,{R1-R6,PC}
+ FNRTS
 
 gain_focus_bg
  FNJSR "R1-R5"
@@ -1322,7 +1322,7 @@ leaf_click
 ;X update icons of this ESG R0=first selected icon ESG / -1 if none WB #
 
 lc_radioon
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  MOV R4,R0			; ESG to match
  LDR R2,[R6,#84]		; number of icons
  ADD R6,R6,#88			; start of icons
@@ -1335,7 +1335,7 @@ lc1
  SUB R6,R6,#32
  SUBS R2,R2,#1
  MOVMI R0,R5
- LDMMIFD R13!,{R1-R6,PC}
+ FNRTS MI
  LDR R0,[R6,#16]		; icon flags
  MOV R0,R0,LSR#16
  AND R0,R0,#&1F
@@ -1343,7 +1343,7 @@ lc1
  BNE lc1			; incorrect ESG
  STR R2,[R1,#4]			; save icon handle
  SWI XWimp_GetIconState
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  LDR R0,[R1,#24]		; get icon flags
  STR R0,[R6,#16]		; save updated state
  TST R0,#1<<21
@@ -1354,30 +1354,30 @@ lc1
 ;X R0=icon flags read from wimp and WB contains defn(+8) WB #
 
 lc_read
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  FNLDR R1,wimp_block
  LDR R0,[R7,#8]			; window handle
  STMIA R1,{R0,R5}		; store it + icon handle
  SWI XWimp_GetIconState
  LDRVC R0,[R1,#24]		; read flags
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R5=icon num R6=wind data R7=wind index
 ;X R0=Eval of the indirected string / VS if not valid #
 
 lc_buffernum
- STMFD R13!,{R1-R2,R14}
+ FNJSR "R1-R2"
  ADD R0,R6,#88
  ADD R0,R0,R5,LSL#5		; icon addr
  LDR R0,[R0,#20]		; addr of string
  FNLDR R1,wimp_block		; buffer
  MOV R2,#0			; buf len
  SWI XOS_EvaluateExpression
- LDMVSFD R13!,{R1-R2,PC}
+ FNRTS VS
  MOV R0,R2			; result
  TEQ R1,#0			; check integer returned
  BLNE err3
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Icon specific								;
@@ -1749,18 +1749,18 @@ icon_set
 ;X if caret in this window then set to end of string WB #
 
 leaf_correct_caret
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  FNLDR R1,wimp_block
  SWI XWimp_GetCaretPosition
- LDMVSFD R13!,{R1-R5,PC}
+ FNRTS VS
  LDR R0,[R1]
  LDR R2,[R7,#8]
  TEQ R0,R2
- LDMNEFD R13!,{R1-R5,PC}	; window handles don't match
+ FNRTS NE	; window handles don't match
  LDR R6,[R7]
  LDR R5,[R1,#4]			; icon handle
  CMP R5,#0
- LDMMIFD R13!,{R1-R5,PC}	; no icon selected
+ FNRTS MI	; no icon selected
  BL icon_getind
  BL str_len
  MOV R5,R0			; new caret offset
@@ -1770,7 +1770,7 @@ leaf_correct_caret
  LDMNEIA R1,{R0-R1}
  MVNNE R4,#0
  SWINE XWimp_SetCaretPosition
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Disc Read/Write					    ;
@@ -1784,7 +1784,7 @@ leaf_correct_caret
 
 call_filecore
  FNJSR
- STMFD R13!,{R0-R2,R11}
+ PUSH "R0-R2,R11"
  FNLDR R11,wimp_block		; wimp block
  MOV R1,R11
  FNLDR R2,wimp_dzap
@@ -1828,12 +1828,12 @@ call_filecore_s5    FNS ("_DescribeDisc")
 ;X R0=-1 not valid / R0=off R1=sect R2=head R3=track |
 
 conv_addr_sht
- STMFD R13!,{R4-R5,R10,R14}
+ FNJSR "R4-R5,R10"
  FNLDR R10,wimp_dzap
  LDR R1,[R10,#&28]
  TEQ R1,#0
  MVNEQ R0,#0
- LDMEQFD R13!,{R4-R5,R10,PC}
+ FNRTS EQ
  LDR R1,[R10,#&28]
  TEQ R1,#2
  MOVEQ R1,#0
@@ -1849,18 +1849,18 @@ conv_addr_sht
  MOV R3,R0			; track
  MOV R1,R5			; sector
  MOV R0,R4			; offset
- LDMFD R13!,{R4-R5,R10,PC}
+ FNRTS
 
 ;E R0=off R1=sect R2=head R3=track
 ;X R0=-1 not valid / R0=disc address |
 
 conv_sht_addr
- STMFD R13!,{R3,R10,R14}
+ FNJSR "R3,R10"
  FNLDR R10,wimp_dzap
  LDR R14,[R10,#&28]
  TEQ R14,#0
  MVNEQ R0,#0
- LDMEQFD R13!,{R3,R10,PC}
+ FNRTS EQ
  LDRB R14,[R10,#&42]		; num heads
  MLA R3,R14,R3,R2
  LDRB R14,[R10,#&41]		; sects per trk
@@ -1870,7 +1870,7 @@ conv_sht_addr
  MOVEQ R0,R3
  LDRNEB R14,[R10,#&40]		; log2 sect size
  ADDNE R0,R0,R3,LSL R14		; disc address
- LDMFD R13!,{R3,R10,PC}
+ FNRTS
 
  LOCAL
 
@@ -1878,7 +1878,7 @@ conv_sht_addr
 ;X wimp_block contains sht string #
 
 conv_addr_str
- STMFD R13!,{R0-R5,R14}
+ FNJSR "R0-R5"
  BL conv_addr_sht		; R0-R3=osht
  MOV R4,R1
  MOV R5,R2
@@ -1896,13 +1896,12 @@ conv_addr_str
  STRVCB R0,[R1],#1
  MOVVC R0,R4			; sector
  SWIVC XOS_ConvertInteger4
- ADDVS R13,R13,#4
- LDMVSFD R13!,{R1-R5,PC}
+ BVS error$l
  MOV R0,#' '
  STRB R0,[R1],#1
  MOV R0,#'&'
  STRB R0,[R1],#1
- LDMFD R13!,{R0}		; address
+ PULL "R0"		; address
  FNLDR R4,wimp_dzap
  LDR R5,[R4,#&28]
  TEQ R5,#2
@@ -1912,21 +1911,23 @@ conv_addr_str
  RSB R5,R5,#32
  MOV R0,R0,LSR R5
  SWI XOS_ConvertHex8
- LDMVSFD R13!,{R1-R5,PC}
+ BVS error$l
  MOV R0,R4
 notbigdisk$l
  SWI XOS_ConvertHex8
- LDMFD R13!,{R1-R5,PC}
+error$l
+ STR R0,[R13]
+ FNRTS
 
 ;E R0=buffer address R1=disc address R2=length
 ;X data read to buffer if disc record valid #
 
 read_disc
- STMFD R13!,{R1-R4,R10-R11,R14}
+ FNJSR "R1-R4,R10-R11"
  FNLDR R11,wimp_dzap
  LDR R14,[R11,#&28]
  TEQ R14,#0			; is disc record valid
- LDMEQFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS EQ
  MOV R4,R2			; length
  MOV R3,R0			; buffer
  MOV R2,R1			; disc address
@@ -1949,7 +1950,7 @@ read_disc
  MOVEQ R10,#&40			; _SectorDiscOp
  MOVNE R10,#0			; _DiscOp
  BL call_filecore
- LDMFD R13!,{R1-R4,R10-R11,PC}
+ FNRTS
 
  LOCAL
 
@@ -1959,24 +1960,24 @@ read_disc
 ;X new sector read if file dzap and unaltered #
 
 new_read_disc
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MUL R5,R1,R0			; save sector change
  MUL R6,R2,R0			; save head change
  MUL R7,R3,R0			; save track change
  LDR R0,[R9,#f_cmode]
  TEQ R0,#1			; is it a dzap created file?
- LDMNEFD R13!,{R1-R11,PC}
+ FNRTS NE
  LDR R0,[R9,#f_flags]
  TST R0,#1<<3			; is the file altered
- LDMNEFD R13!,{R1-R11,PC}
+ FNRTS NE
  LDR R0,[R9,#f_len]
  MOV R1,#0
  BL split_buffer		; coagulate
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  LDR R0,[R9,#f_source]		; current disc address
  BL conv_addr_sht
  CMN R0,#1			; is block valid
- LDMEQFD R13!,{R1-R11,PC}
+ FNRTS EQ
  ADD R1,R1,R5
  ADD R2,R2,R6
  ADD R3,R3,R7
@@ -1988,7 +1989,7 @@ new_read_disc
  LDR R2,[R9,#f_len]		; buffer length
  ADD R0,R1,R2
  CMP R0,R3
- LDMGTFD R13!,{R1-R11,PC}	; reading too many bytes
+ FNRTS GT	; reading too many bytes
  ADR R10,sub$l
  BL do_eachwindow		; save windows on file
  LDRVC R0,[R9,#f_ptr]		; buffer address
@@ -2001,7 +2002,7 @@ new_read_disc
  BLVC new_file_name
  ADRVC R10,new_read_disc_sub
  BLVC do_eachwindow		; update window and title
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 sub$l B save_window_status
 
 new_read_disc_sub
@@ -2021,7 +2022,7 @@ new_read_disc_sub
 ; E R0 - start, R1 - end, R2 - task handle **R0<R1**
 ; X CS if range invlaid.
 validateaddress
-	STMFD	R13!,{R0-R2,R14}
+	FNJSR	"R0-R2"
 	CMP	R0,#&3800000		; ROM?
 	RSBHSS	R14,R1,#&4000000
 	BHS	isROM$l
@@ -2047,14 +2048,14 @@ app$l	TEQ	R0,#0
 	ADD	R2,R2,#&8000
 	ADD	R2,R2,#1
 	CMP	R1,R2
-	LDMFD	R13!,{R0-R2,PC}
+	FNRTS
 notapp$l
 	ADD	R13,R13,#16
 	LDMIA	R13,{R0,R1}
 	SWI	XOS_ValidateAddress
-	LDMFD	R13!,{R0-R2,PC}
+	FNRTS
 isROM$l	CMP	R0,R1
-	LDMFD	R13!,{R0-R2,PC}
+	FNRTS
 
  LOCAL
 
@@ -2066,13 +2067,13 @@ read_memory
  FNJSR "R1-R4"
  CMP R2,R1
  BLS invalid$l			; negative interval
- STMFD R13!,{R0-R2}
+ PUSH "R0-R2"
  MOV R0,R1
  MOV R1,R2
  FNLDR R2,wimp_mzap
  LDR R2,[R2]
  BL validateaddress
- LDMFD R13!,{R0-R2}
+ PULL "R0-R2"
  BCS invalid$l
  CMP R1,#&04000000		; 64M
  BCS logical$l			; dynamic areas and other logical areas
@@ -2114,7 +2115,7 @@ read$l				; R0=buffer R1=start addres R2=end address
  MOV R4,PC			; save processor mode
  SWI XOS_EnterOS		; supervisor mode...!
  BL move_bytes			; copy the data in SVC mode
- TEQP R4,#0			; restore flags and processor mode
+ TEQP R4,#0			; restore flags and processor mode	; !!! ARM32 FIXME
  MOV R0,R0			; NOP
  FNRTS
 err$l ERR "zap_e_badmemrange"
@@ -2154,11 +2155,11 @@ initiate_drag
  ADD R6,R1,#28			; start of icon data
  LDRNE R6,[R6]			; indirected
  MOV R0,#161
- STMFD R13!,{R1-R2}
+ PUSH "R1-R2"
  MOV R1,#28
  SWI XOS_Byte			; read CMOS location 28
  MOVVC R0,R2
- LDMFD R13!,{R1-R2}
+ PULL "R1-R2"
  FNRTS VS
  TST R0,#2
  MOVEQ R6,#0			; don't use drag a sprite
@@ -2253,11 +2254,11 @@ initiate_sprite_drag
  ; ADD R6,R1,#28		; start of icon data
  ; LDRNE R6,[R6]		; indirected
  MOV R0,#161
- STMFD R13!,{R1-R2}
+ PUSH "R1-R2"
  MOV R1,#28
  SWI XOS_Byte			; read CMOS location 28
  MOVVC R0,R2
- LDMFD R13!,{R1-R2}
+ PULL "R1-R2"
  FNRTS VS
  TST R0,#2
  MOVEQ R6,#0			; don't use drag a sprite
@@ -2495,13 +2496,13 @@ delete_old_leafs
  FNRTS
 
 delete_old_leafs_sub
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R0,[R7,#8]			; is window still existing?
  CMN R0,#1
- LDMEQFD R13!,{R1,PC}
+ FNRTS EQ
  LDR R0,[R7,#4]			; flags
  TST R0,#1<<5			; should we delete this?
- LDMEQFD R13!,{R1,PC}
+ FNRTS EQ
  BIC R0,R0,#1<<5
  STR R0,[R7,#4]			; deleted
  ADD R1,R7,#8			; window handle
@@ -2509,34 +2510,34 @@ delete_old_leafs_sub
  MVN R1,#0
  STR R1,[R7,#8]			; deleted
  ;SWI &107			; - debug...
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R7=window index R8/R9
 ;X Leaf window created & opened & got input focus #
 
 create_open_leaf
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  MOV R1,#1			; not created by menu
  BL create_leaf_window
  BLVC open_leaf_window
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  LDR R6,[R7]
  LDR R5,[R6,#84]		; number of icons
  SUBS R5,R5,#1			; last icon
- LDMLTFD R13!,{R1-R7,PC}	; return if no icons at all...!?
+ FNRTS LT	; return if no icons at all...!?
  LDR R14,[R7,#4]		; (window flags)
  TST R14,#&200
- LDMNEFD R13!,{R1-R7,PC}
+ FNRTS NE
  TST R14,#&100
  BNE putinbg$l
  LDR R6,[R7]			; set up R6 for leaf_next_iconm (window data)
  MOV R0,#1			; increase
  BL leaf_next_icon
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 putinbg$l
  LDR R0,[R7,#8]			; window handle...
  BL gain_focus_bg
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ; BL
 ; MOV R1,#-1
@@ -2575,10 +2576,10 @@ delete_swap_window
  LDR R0,[R7,#4]			; flags
  TST R0,#1<<4
  MOVEQ PC,R14			; don't bother
- STMFD R13!,{R8-R10,R14}
+ FNJSR "R8-R10"
  BL get_input_caret
  BLCC swap_window
- LDMFD R13!,{R8-R10,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Other subs							;
@@ -2682,7 +2683,7 @@ lastthing$l
 ;X leaf window opened at inset from window WB #
 
 open_leaf_window
- STMFD R13!,{R1-R9,R14}
+ FNJSR "R1-R9"
  LDR R6,[R7]			; window data
  BL conv_index_offs
  FNLDR R1,wimp_block
@@ -2722,7 +2723,7 @@ open_leaf_window
  LDR R1,[R7,#4]			; flags
  ORR R1,R1,#1<<15		; window is open
  STR R1,[R7,#4]
- LDMFD R13!,{R1-R9,PC}
+ FNRTS
 
 ofstmtlat$l
  DCD tmt_offsets

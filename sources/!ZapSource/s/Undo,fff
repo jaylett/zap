@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.1 2000/10/11 15:29:07 james Exp $
+; $Id: Undo,fff,v 2.2 2001/06/01 21:46:55 ds Exp $
 
 ; *** Important notes on symbolisation ***
 ;
@@ -164,12 +164,12 @@ pre_undo
 ;X this number of characters undone #
 
 undo_command
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R2,R0
  MOV R10,R1
  BL pre_undo			; check text ready for input
- LDMVSFD R13!,{R1-R11,PC}
- LDMCSFD R13!,{R1-R11,PC}	; no undo supported
+ FNRTS VS
+ FNRTS CS	; no undo supported
  LDR R7,[R9,#f_uptr]
  LDR R6,[R9,#f_undo]
  LDR R8,[R9,#f_undop]
@@ -209,10 +209,10 @@ un7
  BIC R6,R14,#&FE000000		; new undo ; FC000
  BL buffer_command		; buffer fast redo pointer
  BVC un7
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 un8
  BL undo_invert_command		; find inverse command
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOV R10,R0			; save command
  PUSH "R1-R5"
  BL do_command
@@ -225,7 +225,7 @@ un9
  STRVC R8,[R9,#f_undop]		; save vals
 un9a
 un9b
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 un22
  BL undo_start_operation	; start a multiop
  MOV R0,#undo_Type_startop
@@ -260,7 +260,7 @@ un24
  BLVC buffer_command		; add marker at the end
  MOVVC R8,#0			; finished this command
  BVC un9			; save new pointers
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;E R0=suggested number of chars to redo R9=file
 ;X last undo redone #
@@ -351,12 +351,12 @@ un27
 ;   R0=instruction number &17, R10/R11 updaded by fast redos
 
 redo_back
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
 un11
  MOV R0,R6
  BL un_backward
  MOVCS R6,#0
- LDMCSFD R13!,{R1,PC}		; reached start of buffer !
+ FNRTS CS		; reached start of buffer !
  MOV R6,R0
  ADD R0,R7,R6			; address of previous instr
  LDR R14,[R0]			; previous instruction
@@ -364,7 +364,7 @@ un11
  ANDS R0,R1,#undo_Type_mask
  BEQ un11			; a fast undo (shouldnt be there!!)
  TEQ R0,#undo_Type_fastredo
- LDMNEFD R13!,{R1,PC}		; found a proper instruction
+ FNRTS NE		; found a proper instruction
  BIC R10,R14,#&FE000000		; a fast redo to this point
  MOV R11,#0
  B un11
@@ -403,7 +403,7 @@ possiblystorecolumn
 ;X R6=new yank_off /-ve if none. One yank command pasted. #
 
 yank_paste_command
- STMFD R13!,{R1-R5,R7,R14}
+ FNJSR "R1-R5,R7"
  FNLDR R7,yank_ptr		; start of yank buffer
  BL start_operation		; may be multiple (eg ctrl K's)
  LDR R4,[R10,#c_off]		; paste offset
@@ -418,10 +418,10 @@ un17
  LDR R2,[R1,#4]			; paramter (off/len)
  TST R5,#1<<31
  BNE un28			; actual block
- STMFD R13!,{R9}
+ PUSH "R9"
  BL conv_file_off
  LDR R3,[R9,#f_uptr]
- LDMFD R13!,{R9}		; get R3=start of undo
+ PULL "R9"		; get R3=start of undo
  ADD R3,R3,R2			; entry address
  LDR R2,[R3,#undo_Length]
  LDR R3,[R3,#8]			; data address
@@ -438,27 +438,27 @@ un29
  BNE un17			; more to do (eg ctrl K's)
 un30
  BL stop_operation
- LDMFD R13!,{R1-R5,R7,PC}
+ FNRTS
 
 ;X any current yank cancelled and old text deleted #
 
 yank_cancel
- STMFD R13!,{R1,R9,R14}
+ FNJSR "R1,R9"
  FNLDR R1,yank_off
  FNLDR R0,yank_len
  CMP R1,R0			; any yank to cancel?
- LDMCSFD R13!,{R1,R9,PC}
+ FNRTS CS
  FNLDR R0,yank_file		; last yanked file
  MOV R1,R9
  BL conv_file_off		; get R9
  CMP R1,R9			; in this file?
- LDMNEFD R13!,{R1,R9,PC}	; no: don't redo.
+ FNRTS NE	; no: don't redo.
  MOV R0,#0
  STR R0,[R9,#f_undo]
  STR R0,[R9,#f_undop]		; pretend yank was an undo
  MOV R0,#1
  BL redo_command		; redo last command
- LDMVSFD R13!,{R1,R9,PC}
+ FNRTS VS
  LDR R0,[R9,#f_ulen]		; new buffer length
  STR R0,[R9,#f_undo]
  MOV R14,#0			; and reset undo pointers
@@ -469,17 +469,17 @@ yank_cancel
  LDR R0,local_yank_temp_col
  STR R0,[R10,#c_col]
  BL plot_caret
- LDMFD R13!,{R1,R9,PC}
+ FNRTS
 
 ;E R8-R10 input caret to paste at
 ;X last deleted block pasted #
 
 paste_command
- STMFD R13!,{R6,R14}
+ FNJSR "R6"
  FNLDR R6,yank_len
  FNSTR R6,yank_off		; start at end
  BL yank_paste_command		; insert the block
- LDMFD R13!,{R6,PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Global Clipboard support - SJA			   ;
@@ -650,7 +650,7 @@ gc_claimclip
 ;X Length added to yank_ptr buffer #
 
 add_yank_region
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  MOV R2,R0			; data pos start
  BICS R0,R2,#addyank_In_KillSequence
  BNE ad17			; actual block
@@ -660,8 +660,8 @@ add_yank_region
  LDRVC R0,[R9,#f_ulen]		; last entry
 ad18
  BLVC un_backward
- LDMCSFD R13!,{R1-R7,PC}
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS CS
+ FNRTS VS
  LDR R1,[R7,R0]			; first word
  MOV R1,R1,LSR #undo_Type_shift
  AND R1,R1,#command_mask
@@ -688,25 +688,25 @@ ad19
  BLVC get_file_off
  FNSTR R0,yank_file,VC		; last yanked file
  BLVC gc_claimclip		; inform everyone that we've got the gc
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;E R0=off R7=undo buf R9
 ;X CC R0=next entry off / CS R0=end off |
 
 un_forward
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  LDR R1,[R9,#f_ulen]
  CMP R0,R1
- LDMCSFD R13!,{R1,PC}
+ FNRTS CS
 un1
  ADD R0,R0,#4
  CMP R0,R1
- LDMCSFD R13!,{R1,PC}
+ FNRTS CS
  LDR R14,[R7,R0]
  TST R14,#1<<31
  BEQ un1
  ADDS R0,R0,#0			; clc
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R0=off R7=undo buf R9
 ;X CC R0=prvious entry / CS R0=0 |
@@ -715,7 +715,7 @@ un_backward
  FNJSR
 un2
  CMP R0,#0
- LDMLEFD R13!,{PC}		; return with CS
+ FNRTS LE		; return with CS
  SUB R0,R0,#4
  LDR R14,[R7,R0]
  TST R14,#1<<31
@@ -727,7 +727,7 @@ un2
 ;X R7 upd and command buffered with new buffers claimed if b3=0 in R0 #
 
 buffer_command
- STMFD R13!,{R1-R3,R6,R8-R11,R14}
+ FNJSR "R1-R3,R6,R8-R11"
  MOV R10,R0
  MOV R11,R1
  MOV R8,R2			; (LENGTH TT)
@@ -739,7 +739,7 @@ buffer_command
  MOV R0,R7
  ADD R1,R6,#ubuf_size		; increment size
  BL heap_ensure
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  MOV R7,R0
  STR R7,[R9,#f_uptr]
  ADD R0,R6,#ubuf_size
@@ -776,7 +776,7 @@ un3
 buf_new_command
  CMP R6,#0			; otherwise address exceptions!?
  CMPPL R7,#0
- LDMMIFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS MI
 
  ORR R14,R11,R10,LSL#undo_Type_shift
  ORR R14,R14,#(undo_Block_Start:SHL:undo_Type_shift) ; start of undo block - 1<<31
@@ -804,14 +804,14 @@ buf_new_command
  MOVVC R2,R0
  MOVVC R3,R8			; (LENGTH TT)
  BLVC move_bytes		; copy data
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  AND R14,R10,#command_mask
  TEQ R14,#command_Replace
  TEQNE R14,#command_ReplaceBackwards
  BNE buf_new_end		; finished
  MOV R0,R8			; (LENGTH TT)
  BL heap_claim
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  STR R0,[R6],#4
  MOV R1,R4
  MOV R2,R0
@@ -826,7 +826,7 @@ buf_no_claim
 buf_new_end
  SUB R6,R6,R7			; new end offset
  STR R6,[R9,#f_ulen]
- LDMFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS
 
 buf_concat_top
  ADD R0,R7,R0			; previous command
@@ -845,13 +845,13 @@ buf_concat_top
  BIC R1,R1,#udata		; goto next word boundry
  LDR R0,[R6,#8]			; address of data block
  BL heap_ensure			; make block big enough
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  STR R0,[R6,#8]			; new block
  TEQ R10,#3
  BNE un20			; not a replace
  LDR R0,[R6,#12]
  BL heap_ensure			; ensure size of second block
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  STR R0,[R6,#12]
 un20
  LDR R0,[R6,#8]			; address
@@ -869,7 +869,7 @@ un20
 un4
  ADD R0,R11,R8
  STR R0,[R6,#undo_Length]
- LDMFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS
 buf_concat_top_no_claim
  LDR R1,[R0,#8]			; address of data in previous command
  ADD R1,R1,R14			; address for ok concat
@@ -877,7 +877,7 @@ buf_concat_top_no_claim
  BNE buf_new_command		; no
  ADD R1,R8,R14			; new length of command
  STR R1,[R0,#undo_Length]
- LDMFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS
 
 buf_concat_bottom
  ADD R0,R7,R0			; previous command
@@ -895,21 +895,21 @@ buf_concat_bottom
  BIC R1,R1,#udata
  LDR R0,[R6,#8]
  BL heap_ensure
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  STR R0,[R6,#8]			; enlarge first block
  TEQ R10,#command_ReplaceBackwards
  BNE un21			; not a replace
  LDR R0,[R6,#12]
  BL heap_ensure
- LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS VS
  STR R0,[R6,#12]		; enlarge second block
 un21
- STMFD R13!,{R3}		; save data
+ PUSH "R3"		; save data
  LDR R1,[R6,#8]
  ADD R2,R1,R8
  MOV R3,R11
  BL move_bytes			; move up data in first block
- LDMFD R13!,{R1}		; get back data
+ PULL "R1"		; get back data
  LDR R2,[R6,#8]
  MOV R3,R8
  BL move_bytes			; copy in new data
@@ -929,7 +929,7 @@ un19
  LDR R0,[R6]
  SUB R0,R0,R8
  STR R0,[R6]			; new file offset
- LDMFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS
 buf_concat_bottom_no_claim
  LDR R1,[R0,#8]			; old address
  SUB R1,R1,R8
@@ -945,7 +945,7 @@ buf_concat_bottom_no_claim
  AND R14,R10,#command_mask
  CMP R14,#command_Replace
  STRCS R4,[R0,#12]		; new second block for replace
- LDMFD R13!,{R1-R3,R6,R8-R11,PC}
+ FNRTS
 
 ;E R2=suggested num of chars to undo R6=undo R7=uptr R8=undop>0 <=
 ;X R0-R5=(bufferable) command required to undo R2 chars
@@ -953,7 +953,7 @@ buf_concat_bottom_no_claim
 ;  R0=command number (5-bit) if out of range command 1-4
 
 undo_invert_command
- STMFD R13!,{R6,R10-R11,R14}
+ FNJSR "R6,R10-R11"
  ADD R6,R7,R6			; address of command to undo
  LDR R0,[R6]			; command
  TST R0,#undo_SelectRegion
@@ -963,7 +963,7 @@ undo_invert_command
  AND R0,R0,#&5F			; 6 bit command (?)
  ANDS R10,R0,#command_mask
  CMPNE R10,#command_Illegal
- LDMEQFD R13!,{R6,R10-R11,PC}	; out of range
+ FNRTS EQ	; out of range
  ANDS R0,R0,#(command_Atomic :OR: command_SelectRegion)	; save/test
  MOVNE R2,R8			; undo whole command if top bit set
  CMP R2,R8
@@ -986,29 +986,29 @@ undo_invert_command
  EOREQ R10,R10,#7		; opposite replace
  ORR R0,R0,R10			; complete command number
  ORR R0,R0,#undo_Block_DontFreeData
- LDMFD R13!,{R6,R10-R11,PC}
+ FNRTS
 
 ;E R2=num of bytes to remove R6=buf off of command R7=uptr
 ;X command reduced by this number of bytes (and buffers freed)
 ;  note it only works for bit3 set commands and errors otherwise #
 
 unbuffer_command
- STMFD R13!,{R1-R3,R6,R14}
+ FNJSR "R1-R3,R6"
  ADD R6,R7,R6			; address of the command
  LDR R0,[R6]
  MOV R3,R0,LSR #undo_Type_shift
  ANDS R1,R3,#command_mask
  CMPNE R1,#command_Illegal
- LDMEQFD R13!,{R1-R3,R6,PC}
+ FNRTS EQ
  TST R3,#undo_Block_DontFreeData
  LDR R0,[R6,#undo_Length]
  SUBS R0,R0,R2			; number of bytes left
- LDMLEFD R13!,{R1-R3,R6,PC}	; none left
+ FNRTS LE	; none left
  STR R0,[R6,#undo_Length]
  TEQ R1,#command_Delete
  TEQNE R1,#command_ReplaceBackwards
  TEQNE R1,#command_Delete_MaintainCursor
- LDMNEFD R13!,{R1-R3,R6,PC}	; this is all for a concat top
+ FNRTS NE	; this is all for a concat top
  LDR R0,[R6]
  ADD R0,R0,R2
  STR R0,[R6]			; increase file offset
@@ -1016,19 +1016,19 @@ unbuffer_command
  ADD R0,R0,R2
  STR R0,[R6,#8]			; increment position of first buf
  TEQ R1,#4
- LDMNEFD R13!,{R1-R3,R6,PC}	; not a replace
+ FNRTS NE	; not a replace
  LDR R0,[R6,#12]
  ADD R0,R0,R2
  STR R0,[R6,#12]		; increment orig buf
- LDMFD R13!,{R1-R3,R6,PC}
+ FNRTS
 
 ;E R9=file
 ;X all undo buffer data freed and undo pointers zeroed #
 
 free_undo
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  BL free_yank			; free yank links to undo data
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
  LDR R7,[R9,#f_uptr]
  LDR R6,[R9,#f_ulen]		; move backwards to help heap manager
  ADD R6,R7,R6
@@ -1050,7 +1050,7 @@ fr2
  LDR R0,[R6,#8]
  STR R1,[R6,#8]
  BL heap_free
- LDMVSFD R13!,{R1-R7,PC}
+ FNRTS VS
 
  TEQ R5,#command_Replace
  TEQNE R5,#command_ReplaceBackwards
@@ -1060,19 +1060,19 @@ fr2
  STR R1,[R6,#12]
  BL heap_free			; free second block
  BVC fr2
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 fr10
  MOV R0,#0
  STR R0,[R9,#f_ulen]
  STR R0,[R9,#f_undo]
  STR R0,[R9,#f_undop]
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;E R9=file that has just has it's undo turned off/been killed
 ;X yank buffer has references to this file freed.
 
 free_yank
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  BL get_file_off		; R0=file off
  FNLDR R1,yank_ptr
  FNLDR R2,yank_len
@@ -1080,7 +1080,7 @@ free_yank
  ADD R2,R1,R2
 fr11
  CMP R1,R2
- LDMCSFD R13!,{R1-R3,PC}
+ FNRTS CS
  LDR R14,[R1],#8
  BIC R14,R14,#1<<30		; clear multi flag
  TEQ R14,R0

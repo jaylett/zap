@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.5 2001/05/25 08:48:58 james Exp $
+; $Id: StartCode,fff,v 2.6 2001/06/01 21:46:55 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -1419,12 +1419,12 @@ z$l
  LDREQ R3,[R2,#-12]
  TEQEQ R3,R6
  BNE z$l
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R1,R11
  LDMDB R2,{R2,R3,R11}		; msg no, addr to call, private word
  MOVS R14,PC
  MOV PC,R3			; call (corrupts all)
- LDMFD R13!,{R1-R11,R14}
+ FNPULL
  BVS x$l
  TEQ R0,#0
  BEQ z$l
@@ -1823,10 +1823,10 @@ sub$l				; reply to ram fetch
 ;X Block freed with error status presered.
 
 abort_transfer
- STMFD R13!,{R0,R14}
+ FNJSR "R0"
  MOV R0,R11
  BL heap_free
- LDMFD R13!,{R0,PC}^
+ FNRTSS
 
  LOCAL
 
@@ -2214,11 +2214,11 @@ ok$l
  ; called under this situation, so I have to set it by hand.
  BL find_window			; \X R8/R9
  ADD R1,R11,#60			; filename
- STMFD R13!,{R2-R5}		; preserve output regs from SWI
+ PUSH "R2-R5"		; preserve output regs from SWI
  MOV R0,#17
  SWI XOS_File
  MOV R0,R2			; load address
- LDMFD R13!,{R2-R5}
+ PULL "R2-R5"
  BL find_file_mode		; \E R0=load addr, R1=>filename, \X R10=mode
  MOV R0,R10
  BL new_mode			; \E R0,R8/R9
@@ -2509,12 +2509,12 @@ d$l DCD &45D81+(9<<28)	; Edit ack + want reply
 ;  LDMFD R13!,{R1-R11,PC}
 
 ee_create_window_block$l
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
 ; SWI &107
  MOV R0,R11
  BL conv_file_off
  TEQ R9,#0
- LDMEQFD R13!,{R1-R11,PC}
+ FNRTS EQ
  BL create_window_block		; returns R8...
  MOVVC R0,#0
  BLVC put_caret		; put the caret at the file start
@@ -2523,7 +2523,7 @@ ee_create_window_block$l
  STRVC R0,[R10,#ee_windoffset]	; offset of associated window
  MOVVC R0,#0
  BLVC put_caret			; put the caret at the file start
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
  LOCAL
 
@@ -2582,7 +2582,7 @@ Edit_Cursor
  FNLDR	R10,car_cursor
  BL	test_cblk
  LDREQ	R4,[R10,#c_off]
- STMFD	R13!,{R8-R9}
+ PUSH	"R8-R9"
  BL	get_selection
  MOV	R3,R8
  LDMFD	R13!,{R8-R9}
@@ -2647,16 +2647,16 @@ edit_cur_off
 ;X Message acknowledged preserving my_ref (reason code 19)
 
 message_ack
- STMFD	R13!,{R1-R4,R14}
+ FNJSR	"R1-R4"
  LDMIB	R1,{R2,R4}		; task handle of sender, my_ref
  STR	R4,[R1,#12]		; copy
  MOV	R0,#19
  MOV	R3,#0
- STMFD	R13!,{R2}
+ PUSH	"R2"
  SWI	XWimp_SendMessage
- LDMFD	R13!,{R2}
+ PULL	"R2"
  STMIB	R1,{R2,R4}		; restore refs
- LDMFD	R13!,{R1-R4,PC}
+ FNRTS
 
 ;E R0=message action number (as for message_send)
 ;  R1=message block (with ref etc)
@@ -2713,13 +2713,13 @@ message_send
  FNJSR	"R1-R3,R5"
  TST	R3,#1<<31
  BEQ	a$l
- STMFD	R13!,{R0}
+ PUSH	"R0"
  BIC	R3,R3,#1<<31		; offset of string
  ADD	R0,R1,R3			; address of string
  BL	str_len			; R0=length of string
  ADD	R3,R3,R0
  ADD	R3,R3,#1			; and terminator
- LDMFD	R13!,{R0}
+ PULL	"R0"
 a$l				; R3=length of the message
  ADD	R3,R3,#3
  BIC	R3,R3,#3			; word align length
