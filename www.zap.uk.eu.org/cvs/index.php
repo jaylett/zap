@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.4 2002/11/06 12:42:05 james Exp $
+  // $Id: index.php,v 1.5 2003/06/21 18:18:20 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('cvs/index');
   zap_header ("Zap - CVS access", 'up:../', 'previous:../mirrors:mirrors');
@@ -12,31 +12,31 @@
 
 <p>The files in the CVS tree are stored using Acorn's method for storing filetypes under NFS, namely as <samp>&lt;filename&gt;,&lt;filetype&gt;</samp> where the filetype is a three digit hex number with lower case letters. The <a href="http://www.cvs.riscos.org.uk/">RISC OS CVS port</a> will handle this translation automatically, as will RISC OS NFS clients (allowing the files to reside on a UNIX machine).</p>
 
-<p>Alternatively, <a href="/ftp/pub/beta/snapshots/">daily snapshots</a> of development work are generated automatically, both in source and binary form.</p>
+<p>Alternatively, <a href="/ftp/pub/alpha/snapshots/">daily snapshots</a> of development work are generated automatically, both in source and binary form.</p>
 
 <h2><a name="pserver">pserver</a></h2>
 
 <p>People with the ability to run CVS can access the Zap tree through CVS's remote access system, called 'pserver'. The details are:</p>
 
 <ul>
- <LI>host: <kbd>cvs.zap.uk.eu.org</kbd></li>
+ <LI>host: <kbd>cvs.tartarus.org</kbd></li>
  <LI>user: <kbd>cvsuser</kbd></li>
  <LI>CVS path: <kbd>/home/cvs</kbd></li>
  <LI>password: <kbd>anonymous</kbd></li>
- <li>Entire CVS root (suitable for passing to cvs's -d option): <kbd>:pserver:cvsuser@cvs.zap.uk.eu.org:/home/cvs</kbd></li>
+ <li>Entire CVS root (suitable for passing to cvs's -d option): <kbd>:pserver:cvsuser@cvs.tartarus.org:/home/cvs</kbd></li>
 </ul>
 
 <p>Quick guide to using CVS and pserver:</p>
 
 <dl>
- <dt><kbd>cvs -d :pserver:cvsuser@cvs.zap.uk.eu.org:/home/cvs login</kbd></dt>
+ <dt><kbd>cvs -d :pserver:cvsuser@cvs.tartarus.org:/home/cvs login</kbd></dt>
   <dd><p>Prompts you for the password (<kbd>anonymous</kbd>). You only need to do this once on most systems, because CVS will remember your password.</p></dd>
- <dt><kbd>cvs -z6 -d :pserver:cvsuser@cvs.zap.uk.eu.org:/home/cvs checkout zap</kbd></dt>
+ <dt><kbd>cvs -z6 -d :pserver:cvsuser@cvs.tartarus.org:/home/cvs checkout zap</kbd></dt>
   <dd>
    <p>Checks out a complete copy of Zap. From then on, within the directory structure that it creates, you don't need to specify the -d option - it will remember the CVS root you are using. Note that the entire tree is quite big - it includes various extensions as well as Zap itself. If you just want part of it, a <a href="#modules">list of modules</a> is available below.</p>
    <p>Note that this will always give you the <em>unstable</em> (development) release of Zap.</p>
   </dd>
- <dt><kbd>cvs -z6 -d :pserver:cvsuser@cvs.zap.uk.eu.org:/home/cvs checkout -r
+ <dt><kbd>cvs -z6 -d :pserver:cvsuser@cvs.tartarus.org:/home/cvs checkout -r
 <em>TAG</em> zap/!ZapSource</kbd></dt>
   <dd><p>As above, but checks out a copy of Zap with tag TAG. See below for more information - a tag will be created for each stable release, for bugfixes.</p></dd>
   <dt><kbd>cvs -z6 update</kbd></dt>
@@ -117,5 +117,5 @@ bottom of the [System] section.)</p>
 <p>The command to run, from within the !Zap directory, is <kbd>make -f data/unix/Makefile</kbd>. This gives the default build name; you can use <kbd>make -f data/unix/Makefile BUILD=foo</kbd> and <kbd>make -f data/unix/Makefile BUILD=foo-42</kbd> as above.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/11/06 12:42:05 $');
+  zap_body_end ('$Date: 2003/06/21 18:18:20 $');
 ?>
