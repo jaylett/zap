@@ -12,15 +12,18 @@
 # Passing the input and output files through sdiff is recommended.
 
 
-$version = '$Id: macrofy.pl,v 1.2 2001/04/26 01:02:52 ds Exp $';
+$version = '$Id: macrofy.pl,v 1.3 2001/05/28 17:32:05 ds Exp $';
 
 $version =~ /^.*?,v (.*?) (.*?) .*$/;
 $version = $1.', '.$2;
 
 use Getopt::Long;
 
-$STM1 = qr/STMFD[ \t]+(?:r13|sp) ?!, ?\{(?:r14|lr)\}/i;
-$STMM = qr/STMFD([ \t]+)(?:r13|sp) ?!, ?\{(.*), ?(?:r14|lr)\}/i;
+BEGIN {
+  $STM1 = qr/\bSTMFD[ \t]+(?:r13|sp) ?!, ?\{(?:r14|lr)\}/i;
+  $STMM = qr/\bSTMFD([ \t]+)(?:r13|sp) ?!, ?\{([^\}]*), ?(?:r14|lr)\}/i;
+  $FNP  = qr/\bFNJS[PR](?:([ \t]+)"(.*)")?/i;
+}
 
 sub find_stm (;$)
 {
@@ -28,7 +31,8 @@ sub find_stm (;$)
   $l = -1 unless defined $l;
   local $m = $#asm;
   while (++$l <= $m) {
-    return $l if $asm[$l] =~ $STM1 || $asm[$l] =~ $STMM;
+    next if $asm[$l] =~ /^\|?[A-Za-z0-9_\$]*\|?[ \t]*;/io; # ignore comments
+    return $l if $asm[$l] =~ $STM1 || $asm[$l] =~ $STMM || $asm[$l] =~ $FNP;
   }
   return undef;
 }
@@ -77,53 +81,55 @@ while (defined $stmline) {
   print STDERR ' < ',$asm[$stmline]
     if $opt_verbose > 1;
   $asm[$stmline] =~ s/$STM1/FNJSR/io
-    unless $asm[$stmline] =~ s/$STMM/FNJSR$1"$2"/io;
+    unless $asm[$stmline] =~ $FNP ||
+	   $asm[$stmline] =~ s/$STMM/FNJSR$1"$2"/io;
   $reglist = defined $2 ? $2 : '';
   print STDERR "\n > ",$asm[$stmline],"\n"
     if $opt_verbose > 1;
 
   foreach $i (@asm[$stmline+1 .. $endline]) {
     $a = $i;
+    next if $i =~ /^\|?[A-Za-z0-9_\$]*\|?[ \t]*;/io; # ignore comments
     if	  ($i =~ /LDM.*^/io) {
       # LDM..{..PC}^
-      $i =~ s/LDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{.*, ?(?:r15|pc)\}^/FNRTSS$2$1/io
-      unless $i =~ s/LDMFD[ \t]+(?:r13|sp) ?!, ?\{.*(?:r15|pc)\}^/FNRTSS/io;
+      $i =~ s/\bLDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{[^\}]*, ?(?:r15|pc)\}^/FNRTSS$2$1/io
+      unless $i =~ s/\bLDMFD[ \t]+(?:r13|sp) ?!, ?\{[^\}]*(?:r15|pc)\}^/FNRTSS/io;
     }
     elsif ($i =~ /LDM/io) {
       $i =~ /\{()(?:r1[45]|lr|pc)\}/io
-      unless $i =~ /\{(.*), ?(?:r1[45]|lr|pc)\}/io;
-      if (defined $1 && $reglist eq $1) {
+	unless $i =~ /\{([^\}]*), ?(?:r1[45]|lr|pc)\}/io;
+      if ($reglist eq (defined $1 ? $1 : '')) {
 	if ($i =~ /(?:r15|pc)\} ?\^/io) {
 	  # LDM..{..PC}
-	  $i =~ s/LDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{.*(?:r15|pc)\} ?\^/FNRTSS$2$1/io
-	  unless $i =~ s/LDMFD[ \t]+(?:r13|sp) ?!, ?\{.*(?:r15|pc)\} ?\^/FNRTSS/io;
+	  $i =~ s/\bLDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{[^\}]*(?:r15|pc)\} ?\^/FNRTSS$2$1/io
+	  unless $i =~ s/\bLDMFD[ \t]+(?:r13|sp) ?!, ?\{[^\}]*(?:r15|pc)\} ?\^/FNRTSS/io;
 	} elsif ($i =~ /(?:r15|pc)\}/io) {
 	  # LDM..{..PC}
-	  $i =~ s/LDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{.*(?:r15|pc)\}/FNRTS$2$1/io
-	  unless $i =~ s/LDMFD[ \t]+(?:r13|sp) ?!, ?\{.*(?:r15|pc)\}/FNRTS/io;
+	  $i =~ s/\bLDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{[^\}]*(?:r15|pc)\}/FNRTS$2$1/io
+	  unless $i =~ s/\bLDMFD[ \t]+(?:r13|sp) ?!, ?\{[^\}]*(?:r15|pc)\}/FNRTS/io;
 	} else {
 	  # LDM..{..LR}
-	  $i =~ s/LDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{.*(?:r14|lr)\}/FNPULL$2$1/io
-	  unless $i =~ s/LDMFD[ \t]+(?:r13|sp) ?!, ?\{.*(?:r14|lr)\}/FNPULL/io;
+	  $i =~ s/\bLDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{[^\}]*(?:r14|lr)\}/FNPULL$2$1/io
+	  unless $i =~ s/\bLDMFD[ \t]+(?:r13|sp) ?!, ?\{[^\}]*(?:r14|lr)\}/FNPULL/io;
 	}
       } else {
         $i =~ s/$/\t; !!! Unmatched return LDM/o
           if $i =~ /(?:r1[45]|lr|pc)\}/io;
 	# LDM..{..}
-	$i =~ s/LDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{(.*)\}/PULL$2"$3",$1/io
-	unless $i =~ s/LDMFD([ \t]+)(?:r13|sp) ?!, ?\{(.*)\}/PULL$1"$2"/io;
+	$i =~ s/\bLDM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{([^\}]*)\}/PULL$2"$3",$1/io
+	unless $i =~ s/\bLDMFD([ \t]+)(?:r13|sp) ?!, ?\{([^\}]*)\}/PULL$1"$2"/io;
       }
     }
     elsif ($i =~ /STM/io) {
       # STM..{..} not PC
-      $i =~ s/STM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{(.*)(?<!pc)(?<!r15)\}/PUSH$2"$3",$1/io
-      unless $i =~ s/STMFD([ \t]+)(?:r13|sp) ?!, ?\{(.*)(?<!pc)(?<!r15)\}/PUSH$1"$2"/io;
+      $i =~ s/\bSTM(..)FD([ \t]+)(?:r13|sp) ?!, ?\{([^\}]*)(?<!pc)(?<!r15)\}/PUSH$2"$3",$1/io
+      unless $i =~ s/\bSTMFD([ \t]+)(?:r13|sp) ?!, ?\{([^\}]*)(?<!pc)(?<!r15)\}/PUSH$1"$2"/io;
     }
-    elsif ($i =~ /(TEQ|TST|CM[NP])(..)?P/io) {
+    elsif ($i =~ /\b(TEQ|TST|CM[NP])(..)?P/io) {
       # TEQP, TSTP, CMPP, CMNP
       $i =~ s/$/\t; !!! ARM32 FIXME/o;
     }
-    elsif ($i =~ /[A-Za-z]{3}(..)?S[ \t]+(pc|r15)/io) {
+    elsif ($i =~ /\b[A-Za-z]{3}(..)?S[ \t]+(pc|r15)/io) {
       # Anything writing to PC+flags
       $i =~ s/$/\t; !!! ARM32 FIXME/o;
     }
