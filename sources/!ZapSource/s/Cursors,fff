@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.12 1999/04/24 01:24:07 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.13 1999/07/17 23:06:59 ds Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -607,6 +607,11 @@ noactmsg$l
 ;X perform default action as mode didn't take any notice #
 
 default_click
+	FNJSR	"R1"
+	BL	test_shiftctrl
+	BIC	R4,R4,#3<<30
+	ORR	R4,R4,R1,LSL #30
+	FNPULL
 	TEQ R1,#1
 	BEQ mc_place_cursor
 	TEQ R1,#0
@@ -632,8 +637,7 @@ mc_start_drag
 	;BL test_forkey
 	;BCS specialescapeselectdrag
 	;FNRTS CC
-	BL test_shiftctrl
-	TST R1,#1
+	TST R4,#1<<30
 	BNE specialshiftselectdrag
 notinsideselection
 	; this all needs moving.
@@ -645,7 +649,6 @@ notinsideselection
 	MOV R0,#4			; start drag
 	BL set_caret_mode		; start new drag selection
 	BLVC get_wind_off		; from current cursor posn
-	BLVC get_wind_off
 	FNSTR R0,wimp_drag,VC		; set drag window
 	BLVC drag_point2
 	FNRTS
@@ -746,8 +749,7 @@ mc_drag_adjust
 	FNLDR R0,car_mode
 	CMP R0,#3			; already in a drag?
 	FNRTS GE
-	BL test_shiftctrl
-	TST R1,#2
+	TST R4,#1<<31
 	BLEQ returnneiftwctrlemul
 	BNE rare_adjust_control_drag
 	; TST R1,#1
@@ -810,8 +812,7 @@ mc_place_cursor
  BNE mc_place_adjust
  FNJSR "R1-R11"
  MOV R11,R2
- BL test_shiftctrl
- TST R1,#1
+ TST R4,#1<<30
  BNE specialshiftselect
 notinsideselforclick
 
@@ -876,14 +877,14 @@ notinsideselforclick
 ;
 ;se5
 ; ; end of new from ZB
- BL test_shiftctrl
- TST R1,#2			; ctrl key?
+ TST R4,#1<<31			; ctrl key?
  BNE dontcheck$l		; was BNE ?????????????????
  BL returnneiftwctrlemul
  BNE eeektwsortout$l
 dontcheck$l
- MOV R5,R1			; STORE IT...
- TST R5,#2
+ MOV R5,#0
+ FNSTR R5,key_lastcom		; "no" previous command
+ TST R4,#1<<31
  FNLDR R10,car_cursor,EQ	; control not pressed
  FNLDR R10,car_input,NE		; control pressed
 ; MOV R2,R6
@@ -903,7 +904,7 @@ dontcheck$l
  BLNE wiggleabit
 
 ; BL test_shiftctrl
- TST R5,#2
+ TST R4,#1<<31
 ; BLEQ returnneiftwctrlemul
  FNRTS EQ			; don't start drag
 ; FNRTS				; don't start drag
@@ -1113,11 +1114,9 @@ nosel$l
  FNRTS VS
  MOV R0,R3
 move$l				; R0=new offset
- MOV R4,R0			; new offset
- BL test_shiftctrl
- TST R1,#2
+ TST R4,#1<<31
+ MOV R5,R0			; new offset
  BLEQ returnneiftwctrlemul
- MOV R5,R1			; control status
  BEQ noctrl$l
  BL ctrladjdrag_savecurs
  MOV R0,#5
@@ -1127,7 +1126,7 @@ move$l				; R0=new offset
  FNSTR R0,wimp_drag		; wimp drag window
 noctrl$l
  FNLDR R10,car_cursor		; control not pressed
- MOV R0,R4
+ MOV R0,R5
  BL goto_offset			; goto this offset
  FNRTS VS
  LDR R2,columntemp		; from the last find_offset...
@@ -1137,7 +1136,7 @@ noctrl$l
  ;CMP R11,#0
  BLNE wiggleabit
 ; BL storenewcolumn
- TST R5,#2
+ TST R4,#1<<31
  FNRTS EQ			; don't start drag
  BL clear_caret_always		; remove caret image
  BLVC drag_point		; start the drag
@@ -1192,6 +1191,11 @@ escapedragflag
 process_drag
  FNJSR "R1-R11"
  MOV R2,R0			; save drag state
+ FNLDR R0,car_mode
+ CMP R0,#1			; bug workaround
+ MOVEQ R0,#4			; - if in 'normal' mode, start drag
+ BLEQ set_caret_mode
+ FNRTS VS
  FNLDR R11,wimp_buffer		; use main buffer
  MOV R1,R11
  SWI XWimp_GetPointerInfo	; find mouse position
