@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.19 2004/11/14 22:33:21 christian Exp $
+; $Id: DSARedraw,fff,v 1.20 2004/11/21 14:24:40 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1019,6 +1019,7 @@ control_start
 	B	control_code_9		; change substyle
 	B	control_code_10		; change for, bac, substyle
 	B	control_code_11		; change chunk
+	B	control_code_12		; change chunk
 control_end
 
 control_code_1
@@ -1258,6 +1259,42 @@ nohandle$l
 	LDR	R0,[R1,#r_flags]
 	TST	R0,#rf_extroutine
 	MOVNE	R0,#11
+	BNE	call_extension_plus
+	LDRB	R0,[R3],#1		; get next char
+	TEQ	R0,#0
+	BEQ	redraw_control_code	; new control code
+	MOV	PC,R14			; do this char
+
+	LOCAL
+
+control_code_12
+	LDR	R0,[R1,#r_caddr]
+	CMP	R0,#&8000
+	BHS	nohandle$l
+
+	CMP	R4,#0
+	BEQ	nohandle$l
+
+	FNJSR
+	LDRB	R0,[R3]
+	LDRB	R14,[R3,#1]
+	ORR	R0,R0,R14,LSL #8
+	MOV	R0,R0,LSL #8
+	LDR	R14,[R1,#r_workarea]
+	STR	R0,[R14,#a_chunk]	; poke in the chunk number
+	LDR	R0,[R1,#r_caddr]
+	BL	handle_to_caddr		; update caddr
+	MOVS	R4,R0
+	LDRNE	R14,[R1,#r_workarea]
+	LDRNE	R14,[R14,#a_loff]	; current cache offset
+	ADDNE	R4,R0,R14		; new cache address
+	MOVEQ	R4,#1			; not in line spacing
+	FNPULL
+nohandle$l
+	ADD	R3,R3,#2
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#12
 	BNE	call_extension_plus
 	LDRB	R0,[R3],#1		; get next char
 	TEQ	R0,#0

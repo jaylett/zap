@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.29 2004/11/21 13:51:03 christian Exp $
+; $Id: ZapRedraw,fff,v 1.30 2004/11/21 14:24:40 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -1086,6 +1086,7 @@ skip_ctrl_start
  B skip_ctrl_9			; font change
  B skip_ctrl_10			; font and colour change
  B skip_ctrl_11			; chunk change
+ B skip_ctrl_12			; large chunk change
 skip_ctrl_end
 
 skip_ctrl_0
@@ -1149,6 +1150,13 @@ skip_ctrl_10
 skip_ctrl_11
  LDRB R5,[R1],#1		; new chunk
  MOV R5,R5,LSL #8		;
+ MVN R0,#0			; not a char
+ MOV PC,R14
+
+skip_ctrl_12
+ LDRB R5,[R1],#1		; new chunk low
+ LDRB R0,[R1],#1		; new chunk high
+ ORR R5,R5,R0,LSL #8		;
  MVN R0,#0			; not a char
  MOV PC,R14
 
@@ -1257,20 +1265,26 @@ loop$l		MOV	R14,PC				; get input character
 		LDR	R0,[R12,#pdlws_enc]		; perform the encoding translation
 		TEQ	R0,#0				;
 		LDRNE	R1,[R0,R1,LSL #2]		;
-		BIC	R1,R1,#1<<31			; make +ve for ctl code colour stuff
+		CMP	R1,#-1				; -1 -> FFFF (never a valid character, but
+		MOVEQ	R1,R1,LSR #16			;   still in the BMP and thus can use 0,11)
 
 chunk$l		LDR	R0,[R12,#pdlws_chunk]		; see if we've changed chunk
 		EOR	R14,R0,R1			;
 		BICS	R14,R14,#&FF			;
+		BEQ	gotchar$l
 
-		STRNE	R1,[R12,#pdlws_chunk]		; make the change
-		MOVNE	R0,#0				;
-		STRNEB	R0,[R6],#1			; 0,11,<new chunk>
-		MOVNE	R0,#11				;
-		STRNEB	R0,[R6],#1			;
-		MOVNE	R14,R1,LSR #8			;
-		STRNEB	R14,[R6],#1			;
-		STRNE	R6,[R12,#pdlws_last_ctl]	;
+		CMP	R1,#&10000			;
+		STR	R1,[R12,#pdlws_chunk]		; make the change
+		MOV	R0,#0				;
+		STRB	R0,[R6],#1			; 0,11,<new chunk> or
+		MOVLO	R0,#11				; 0,12,l,h
+		MOVHS	R0,#12				;
+		STRB	R0,[R6],#1			;
+		MOV	R14,R1,LSR #8			;
+		STRB	R14,[R6],#1			;
+		MOVHS	R14,R14,LSR #8			;
+		STRHSB	R14,[R6],#1			;
+		STR	R6,[R12,#pdlws_last_ctl]	;
 
 gotchar$l	CMP	R1,#&20
 		BHS	nocc$l
