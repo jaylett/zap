@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.6 2000/09/24 22:01:32 ds Exp $
+; $Id: Menus,fff,v 2.7 2000/10/27 18:41:31 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -295,16 +295,22 @@ Fontlist
 	MOV	R1,#0
 	TEQ	R0,#0
 	FNSTR	R1,font_outlinelist,NE
+	SUBNE	R0,R0,#16
 	BLNE	heap_free
 	MOV	R1,#0
 	MOV	R4,#0
 	BL	getlist$l
 	ADDVC	R0,R3,R5
+	ADDVC	R0,R0,#16
 	BLVC	heap_claim
 	FNRTS	VS
-	MOV	R1,R0
-	ADD	R4,R0,R3
+	MOV	R1,#0
+	MOV	R4,#0
+	STMIA	R0!,{R1,R4}
+	STMIA	R0!,{R1,R4}
 	FNSTR	R0,font_outlinelist
+	MOV	R1,R0
+	ADD	R4,R1,R3
 	BL	getlist$l
 	FNRTS	VS
 	FNLDR	R0,font_outlinelist
@@ -1822,13 +1828,16 @@ Basemaplist
 	FNADR	R3,cmd$l	; new type command
 	ORR	R3,R3,#1<<31:OR:2<<27 ; it's a command execute type
 	MOV	R4,#14
+	MOV	R5,#0
 	FNLDR	R11,key_maplist	; count
-	BL	build_menu
+	BL	build_menu_with_help
 	MOVVC	R1,R0		; save menu pointer
 	BLVC	sort_menu
 	MOVVC	R0,R1
 	FNRTS
-name$l	FNS	("zap_m_basemap")
+name$l	=	"zap_m_basemap",0
+maph$l	=	27,"zap_h_basemap",0
+	ALIGN
 cmd$l	DCD	Basemap
 build$l
 	FNJSR	"R1-R4"
@@ -1849,6 +1858,7 @@ build$l
 	MOV	R0,#48		; buffer len
 	BL	strbuf		; copy name
 	MOV	R0,R3
+	ADR	R1,maph$l
 	FNRTS
 mapn$l	MOV	R1,#'M'
 	STRB	R1,[R0],#1
@@ -1863,6 +1873,7 @@ mapn$l	MOV	R1,#'M'
 	MOV	R2,#4
 	SWI	XOS_ConvertCardinal1
 	MOVVC	R0,R3
+	ADRVC	R1,maph$l
 	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -3159,10 +3170,12 @@ a$l
 
 build_menu_with_help
  FNJSR "R1-R11"
+ PUSH "R5"			; save help ptr
  MOV R5,R0			; save name
  FNLDR R0,menu_help
  MOV R1,#4
  BL heap_ensure
+ ADDVS R13,R13,#4
  FNRTS VS
  FNSTR R0,menu_help
  MOV R1,#-1
@@ -3171,6 +3184,8 @@ build_menu_with_help
 
 build_menu
  FNJSR "R1-R11"
+ MOV R5,#0
+ PUSH "R5"			; save null help ptr
  MOV R5,R0			; save name
  FNLDR R0,menu_help
  TEQ R0,#0
@@ -3181,10 +3196,11 @@ jump_in$l
  FNLDR R6,menu_struct		; menu structure pointer
  FNLDR R7,menu_entries		; menu entries pointer
  BL build_menu_ensure
+ PULL "R14"
  FNRTS VS
  LDR R1,[R13]
+ STR R14,[R6],#4			; save help text
  MOV R0,#0
- STR R0,[R6],#4			; save help text
  STR R0,[R6],#4			; save max len
  STMIA R6!,{R0,R2}		; save count & creation address
  TST R1,#1			; menu name is a token?
@@ -3711,6 +3727,7 @@ token$l	FNLDR	R2,wimp_kbdbuf
 	MOV	R7,#0
 	BL	lookup_token		; expand token
 	FNLDR	R0,wimp_kbdbuf,VC
+	LDRB	R1,[R0]
 	FNRTS
 outline$l =	"zap_h_outline",0
 	ALIGN

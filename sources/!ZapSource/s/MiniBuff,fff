@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help
-; $Id: MiniBuff,fff,v 2.5 2000/10/05 00:13:14 ds Exp $
+; $Id: MiniBuff,fff,v 2.6 2000/10/27 18:41:31 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -15,6 +15,7 @@
  GET h.Boxes
  GET h.KeyBits
  GET h.LineEditor
+ GET h.ModeBits
 
  IMPORT call_back
  IMPORT convert_key
@@ -1628,7 +1629,7 @@ menu$l				; menu stuff R1=menu tree
  FNRTS VS
  CMP R0,#0
  FNRTS LE
- MOV R3,#0 ; temporary
+ MOV R3,#1<<24 ; don't process special characters [maybe include args info?]
  BL find_command_help
  FNLDR R0,wimp_data,VC
 gotmenu$l
@@ -1643,6 +1644,9 @@ gotmenu$l
 ;  R1=command argument (if R2 valid)
 ;  R2=command flags (or 0 if no argument given,-1 if not a command)
 ;  R3=parameter type (only valid if command takes a parameter)
+;     b24 = don't process special characters
+;     b30 = c-var
+;     b31 = is a function
 ;X wimp_data contains the help text for the command
 ;  R0=length of help data / 0 if no help data found
 
@@ -1652,8 +1656,7 @@ find_command_help
  MOV R7,#0			; current buffer offset
  MOV R5,R1			; save command argument
  MOV R4,R2			; save command flags
- AND R11,R0,#3<<30
- ORR R11,R11,R3
+ MOV R11,R3
  MOV R10,R0			; keep comand name
  BL find_help
  FNRTS VS
@@ -1769,19 +1772,45 @@ str$l				; insert zero terminates string in R0
  BL insert$l
  FNRTS
 insert$l			; insert text between R2 and R3
- FNJSR "R1-R3"
+ FNJSR "R1-R4"
  SUB R3,R3,R2			; text length
  MOV R0,R6
  ADD R1,R7,R3
  ADD R1,R1,#16			; ensure an extra 16 chars for byte$l etc
  BL heap_ensure
- FNSTR R0,wimp_data,VC
- MOVVC R6,R0
- MOVVC R1,R2
- ADDVC R2,R6,R7
- ADDVC R7,R7,R3
- SWIVC XZapRedraw_MoveBytes ; BL move_bytes
- FNRTS
+ FNRTS VS
+ FNSTR R0,wimp_data
+ MOV R6,R0
+ ADD R1,R6,R7
+ ADD R7,R7,R3
+ MOV R14,#0
+ MOV R4,#1			; 0=ignore
+insertloop$l
+ SUBS R3,R3,#1
+ FNRTS MI
+ LDRB R0,[R2],#1
+ TST R11,#1<<24			; process special chars?
+ BNE store$l			; ... no
+ TEQ R0,#1			; ^A, ^Z: output following text
+ TEQNE R0,#26
+ MOVEQ R4,#1
+ SUBEQ R7,R7,#1
+ BEQ insertloop$l
+ TEQ R0,#8			; ^H: don't output following text
+ MOVEQ R4,#0
+ SUBEQ R7,R7,#1
+ BEQ insertloop$l
+ TEQ R0,#13			; CR => LF if preceded by an LF
+ TEQEQ R14,#10
+ MOVEQ R0,#10
+ TEQ R0,#13			; CR => space otherwise
+ MOVEQ R0,#32
+store$l
+ TEQ R4,#0
+ STRNEB R0,[R1],#1		; only store if not ignoring :-)
+ MOVNE R14,R0			; previous character
+ SUBEQ R7,R7,#1
+ B insertloop$l
 key$l
 	TST	R11,#3<<30		; return early if not a command
 	MOVNES	PC,R14
@@ -1874,13 +1903,18 @@ display_help
  BL create_file_block		; set up R9
  FNRTS VS
  LDR R0,[R9,#f_flags]
- ORR R0,R0,#1<<8		; read only
+ ORR R0,R0,#flags_ReadOnly
  STR R0,[R9,#f_flags]
  FNLDR R1,wimp_data
  LDR R2,[R9,#f_ptr]
  MOV R3,R5
  SWI XZapRedraw_MoveBytes ; BL move_bytes
  BLVC create_window_block
+	MOVVC R0,#0
+	BLVC new_mode		; HACK: Tim's modes don't like softwrap?
+ LDRVC R14,[R8,#w_format]
+ ORRVC R14,R14,#format_SoftWrap
+ STRVC R14,[R8,#w_format]
  FNRTS
 help$l = "Help",0
 nohelpmsg$l = "zap_NoHelpText",0
@@ -1955,54 +1989,81 @@ c$l
 ;E R0=pointer to text paragraph to send
 ;  R11=HelpRequest message to reply to
 ;X Text copied into the message block from #20 and message replied to.
-;  Only first 4 lines copied.
+;  Only copies up to the first |Z or until the buffer is full.
 
 send_help
- FNJSR "R1-R3"
+ FNJSR "R1-R4"
  MOV R1,R0			; start of text
- MOV R2,#4			; number of lines left to do
+ MOV R2,#0			; 'previous' character
  MOV R3,#20			; current offset in help message
-line$l				; do a line
- LDRB R0,[R1]
- CMP R0,#&20
- BCC end$l			; reached end of para
+ MOV R4,#1			; no ignore
 char$l
- CMP R3,#&FC
- BGE end$l			; run out of room
  LDRB R0,[R1],#1
- CMP R0,#&0A
- BLT end$l
- BEQ lineend$l
- TEQ R0,#'<'
+ TEQ R0,#10
+ TEQEQ R2,#10			; end marker: \n\n
+ SUBEQ R3,R3,#2
+ TEQNE R0,#0			; end marker: ^@
+ BEQ end$l
+ TEQ R0,#1			; ^A or ^H: stop ignoring
+ TEQNE R0,#8
+ MOVEQ R4,#1
+ BEQ char$l
+ TEQ R0,#26			; ^Z: ignore until end, ^A or ^H
+ MOVEQ R4,#0
+ TEQNE R4,#0			; short-circuit if in ignore mode
+ BEQ char$l
+ TEQ R0,#32
+ TEQEQ R2,#32			; reduce multiple spaces
+ BEQ char$l
+ MOV R14,R0
+ TEQ R0,#13			; translate CR to LF (then back again later)
+ MOVEQ R0,#10
+ TEQEQ R2,#10			; but ignore it if it's preceded by an LF
+ MOV R2,R14			; remember (untranslated) for next time
+ BEQ char$l
+ TEQ R0,#10
+ BLEQ trail$l			; remove trailing spaces & convert to CR
+ CMP R0,#31
+ ORRLO R0,R0,#64		; handle ctrl chars
+ BLLO pipe$l
+ TEQ R0,#'<'			; handle other 'special' chars
+ TEQNE R0,#'|'
  BLEQ pipe$l
  STRB R0,[R11,R3]
  ADD R3,R3,#1
- B char$l			; not reached end of line yet
-lineend$l
- SUBS R2,R2,#1
- BEQ end$l			; finished (done 4 lines)
- BL pipe$l
- MOV R0,#'M'
- STRB R0,[R11,R3]
- ADD R3,R3,#1
- B char$l
+ TEQ R3,#255			; run out of room?
+ BNE char$l			; ... no
 end$l
  MOV R0,#0
  STRB R0,[R11,R3]		; end of text
- ADD R3,R3,#4
- BIC R3,R3,#3
+ ADD R3,R3,#1
+ TST R3,#3
+ BNE end$l
  STR R3,[R11]			; new message length
  LDR R0,reply$l
  MOV R1,R11
  BL message_reply
  FNRTS
 pipe$l
+ CMP R3,#254
+ BHS end$l			; run out of room
  FNJSR
  MOV R14,#'|'
  STRB R14,[R11,R3]
  ADD R3,R3,#1
  FNRTS
 reply$l DCD &503		; HelpReply
+trail$l				; strip trailing spaces
+	TEQ	R3,#20
+	MOVEQ	R0,#13
+	MOVEQ	PC,R14
+	SUB	R3,R3,#1
+	LDRB	R0,[R11,R3]
+	TEQ	R0,#32
+	BEQ	trail$l
+	ADD	R3,R3,#1
+	MOV	R0,#13
+	MOV	PC,R14
 
  LOCAL
 
