@@ -1,5 +1,5 @@
 /*
- * $Id: cshow,fff,v 1.4 1999/06/30 17:11:36 james Exp $
+ * $Id: cshow,fff,v 1.5 1999/07/02 08:48:26 james Exp $
  * cshow.c
  * (c) Zap Developers 1999
  *
@@ -69,7 +69,7 @@ main(int argc, char const * const * argv)
     { 'p', COOPT_NO_PARAM, "pruneunknown" },
     { 'h', COOPT_NO_PARAM, "help" },
     { 'V', COOPT_NO_PARAM, "version" },
-    { 'O', COOPT_NO_PARAM, "stderr-output" }
+    { 'O', COOPT_REQUIRED_PARAM, "text-output" }
   };
 
   struct coopt_state state;
@@ -88,6 +88,7 @@ main(int argc, char const * const * argv)
 
   char const * infile=NULL;
   char const * outfile=NULL;
+  char const * displayfile=NULL;
   char const ** deletemodelist = NULL;
 
   program_name = argv[0];
@@ -113,6 +114,11 @@ main(int argc, char const * const * argv)
               do_error("you can't specify more than one output file");
             outfile = ret.param;
             break;
+	  case 'O':
+	    if (displayfile!=NULL)
+	      do_error("you can't specify more than one display file");
+	    displayfile = ret.param;
+	    break;
           case 'l':
             usagemode = usage_listmodes;
             break;
@@ -139,9 +145,6 @@ main(int argc, char const * const * argv)
           case 'V':
             printf ("%s %s\n", program_name, VERSION_STRING);
             exit(0);
-	  case 'O':
-	    display=stderr;
-	    break;
           case 'h':
             help();
             break;
@@ -171,7 +174,7 @@ main(int argc, char const * const * argv)
     if (strcmp(outfile, "-")==0)
     {
       out=stdout;
-      if (usagemode != usage_default && display==stdout)
+      if (usagemode != usage_default && displayfile==NULL)
       {
         fprintf (stderr, "%s: warning: output file is stdout, cannot %s to stdout; try with -O\n",
                  program_name, use_dumpfile ? "dump" : "list");
@@ -181,6 +184,9 @@ main(int argc, char const * const * argv)
     else
       out=fopen(outfile, "wb");
   }
+  
+  if (displayfile!=NULL)
+    display=fopen(displayfile, "wb");
 
   if (in==NULL)
   {
@@ -195,10 +201,22 @@ main(int argc, char const * const * argv)
     {
       if (in!=stdin)
         fclose(in);
+      if (display!=stdout)
+	fclose(display);
       do_error("couldn't open output file; REQUIRED for --deletemode");
     }
     else
       writing=-1; /* so the ++ and -- don't bring it up to 1, at which point we'd write */
+  }
+  
+  /* they've specified a display file, but we couldn't open it. This is bad. */
+  if (display==NULL)
+  {
+    if (in!=stdin)
+      fclose(in);
+    if (out!=stdout && out!=NULL)
+      fclose(out);
+    do_error("couldn't open display file");
   }
 
   fill_word(&type, in);
