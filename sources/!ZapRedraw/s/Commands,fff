@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.5 2003/08/04 11:11:08 christian Exp $
+; $Id: Commands,fff,v 1.6 2003/08/26 00:26:55 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -45,6 +45,15 @@ command_table	=	|zap$|:CC:"FontTidy",0
 		DCD	hlp_debug
 		]
 
+		[ Profile
+		=	|zap$|:CC:"FontProfile",0
+		ALIGN
+		DCD	com_profile
+		DCD	&00010000
+		DCD	syn_profile
+		DCD	hlp_profile
+		]
+
 		DCD	0
 
 
@@ -62,6 +71,12 @@ syn_die		=	27,1,0
 hlp_debug	=	"*",27,0," prints the value of the variable 'debug'",13
 syn_debug	=	27,1,0
 
+		ALIGN
+		]
+
+		[ Profile
+hlp_profile	=	"*",27,0," Displays profiling information for internal functions",13
+syn_profile	=	27,1," [<filename>]",0
 		ALIGN
 		]
 
@@ -772,6 +787,26 @@ com_debug	FNJSR
 		MOV	R0,#-1
 		STR	R0,[R12,#debug]
 		FNRTS
+
+		]
+
+		LOCAL
+
+		[ Profile
+
+com_profile	LDR	R12,[R12]
+		TEQ	R1,#1				; filename given?
+		MOVNE	R0,#0				; no
+		BNE	profile_dump
+
+		MOV	R2,R0
+loop$l		LDRB	R1,[R2],#1
+		CMP	R1,#' '
+		BHS	loop$l
+
+		MOV	R1,#0				; terminate string
+		STRB	R1,[R2,#-1]
+		B	profile_dump
 
 		]
 

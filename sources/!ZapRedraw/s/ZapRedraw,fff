@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.18 2003/06/09 23:15:28 christian Exp $
+; $Id: ZapRedraw,fff,v 1.19 2003/08/26 00:26:55 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -28,6 +28,11 @@
  EXPORT cache_font_chars
 
  EXPORT get_r12
+
+ EXPORT profile_start
+ EXPORT profile_end
+ EXPORT profile_dump
+
 
 ; module header
 
@@ -161,6 +166,10 @@ loop$l		STR	R0,[R2],#4
 		SUBS	R1,R1,#4
 		BNE	loop$l
 
+		[ Profile
+		BL	profile_init
+		]
+
 	; Check for ViewFinder.
 		SUB	R13,R13,#12
 		ADR	R0,viewfinder_1_29
@@ -254,6 +263,11 @@ final_code	TEQ	R10,#0
 		TEQ	R1,#0
 		FNPULL	EQ
 		BEQ	error_cantdie			; in s.Cache
+
+		[ Profile
+		BL	profile_kill
+		]
+
 		BL	messages_kill			; close messages file
 		BLVC	kill_cache			; kill cache if empty
 		MOVVC	R0,#7				; free workspace
@@ -1196,7 +1210,7 @@ loop$l		LDRB	R1,[R2],#1			; get input character
 		MOVNE	R10,R0
 		BNE	new_style$l
 
-storechar$l	TEQ	R1,#0                           ; 0 -> 0,0
+storechar$l	TEQ	R1,#0				; 0 -> 0,0
 		STREQB	R1,[R6],#1
 		STRB	R1,[R6],#1
 		LDR	R11,[R12,#pdlws_max]		; update highest char
@@ -2640,6 +2654,242 @@ loop$l
  FNRTS
 
  LOCAL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Function profiling					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		[ Profile
+
+
+; initialise the profiling system
+; E
+; X
+profile_init	FNJSR
+		MOV	R0,#6				; allocate space for 256 functons
+		MOV	R3,#256*4
+		SWI	XOS_Module
+		FNRTS	VS
+
+		FNSTR	R2,profile_list
+		MOV	R0,#0
+		MOV	R1,#256*4
+clear$l		STR	R0,[R2],#4			; clear it
+		SUBS	R1,R1,#4
+		BNE	clear$l
+
+		MOV	R0,#&07				; enable and reset cycle counter, /64
+		MCR	p14,0,R0,c0,c0,0
+		FNRTS
+
+
+; finalise the profiling system
+; E
+; X
+profile_kill	FNJSR
+		MOV	R0,#7				; free the function list
+		FNLDR	R2,profile_list
+		SWI	XOS_Module
+		MOVVC	R0,#0
+		FNSTR	R0,profile_list,VC
+
+		MOV	R0,#0				; disable performance monitor
+		MCR	p14,0,R0,c0,c0,0
+		FNRTS
+
+
+; start profiling a function
+; E R14 -> function + 8
+; X all preserved
+profile_start	FNJSR	"R0-R3,R12"
+		MRS	R3,CPSR
+		SUB	R1,R14,#8			; -> function
+
+		BL	get_r12
+		FNLDR	R2,profile_list
+
+find$l		LDR	R0,[R2],#4			; add to the list of profiled functions
+		TEQ	R0,R1
+		BEQ	found$l
+		TEQ	R0,#0
+		BNE	find$l
+
+		STR	R1,[R2,#-4]
+
+found$l		LDR	R0,[R1,#-12]			; inc call count
+		ADD	R0,R0,#1
+		STR	R0,[R1,#-12]
+
+		MRC	p14,0,R0,c1,c0,0		; read cycle counter
+		STR	R0,[R1,#-8]			; store start time
+
+		MSR	CPSR_f,R3
+		FNRTS
+
+
+; stop profiling a function
+; E R14 -> function + 20
+; X all preserved
+profile_end	FNJSR	"R0-R2"
+		MRS	R0,CPSR
+		MRC	p14,0,R1,c1,c0,0		; read cycle counter
+		LDR	R2,[R14,#-8-20]
+
+		SUBS	R1,R1,R2			; get |now - start|
+		RSBMI	R1,R1,#0
+
+		LDR	R2,[R14,#-4-20]			; add on
+		ADD	R2,R2,R1
+		STR	R2,[R14,#-4-20]
+		MSR	CPSR_f,R0
+		FNRTS
+
+
+; dump profile information
+; E r0 -> filename / NULL for tty
+; X
+profile_dump	FNJSR	"R7-R11"
+		MOVS	R7,R0
+		MOVNE	R1,R0
+		MOVNE	R0,#&83				; create new file with read/write access
+		SWINE	XOS_Find
+		FNRTS	VS
+
+		MOV	R10,R0				; keep file handle
+
+		ADR	R0,head$l
+		BL	write$l
+		BVS	done$l
+
+		FNLDR	R9,profile_list
+loop$l		LDR	R8,[R9],#4
+		TEQ	R8,#0
+		BEQ	done$l
+
+		LDR	R1,[R8,#-16]			; get the function name
+		SUB	R0,R8,R1
+		MOV	R1,#24
+		BL	writeto$l
+		BVS	done$l
+
+		LDR	R4,[R8,#-12]
+		LDR	R5,[R8,#-4]
+
+		MOV	R0,R4				; number of times called
+		MOV	R1,#16
+		BL	writenum$l
+
+		MOV	R0,R5				; total accumulated time
+		MOV	R1,#16
+		BL	writenum$l
+
+		MOV	R0,R5				; average time
+		MOV	R1,R4
+		BL	div_mod
+		MOV	R1,#1
+		BL	writenum$l
+
+		MOV	R0,#10				; LF
+		BL	writec$l
+
+		MOV	R0,#0				; clear the values
+		STR	R0,[R8,#-12]
+		STR	R0,[R8,#-4]
+		B	loop$l
+
+done$l		MOVVC	R11,#0
+		ADDVSS	R11,R0,#0
+
+		MOV	R0,#0				; done - close file and return
+		MOVS	R1,R10
+		SWINE	XOS_Find
+                FNRTS	VS
+
+		MOV	R0,#18				; set type
+		MOV	R1,R7
+		MOV	R2,#&FF
+		ORR	R2,R2,#&F00
+		SWI	XOS_File
+		FNRTS	VS
+
+		MOVS	R0,R11
+		FNRTS	EQ
+		FNRTV
+
+; write a string
+write$l		FNJSR	"R1"
+		MOV	R1,R0
+a$l		LDRB	R0,[R1],#1
+		TEQ	R0,#0
+		FNRTS	EQ
+		BL	writec$l
+		FNRTS	VS
+		B	a$l
+
+; write a string and pad
+writeto$l	FNJSR	"R1,R2"
+		MOV	R2,R0
+b$l		LDRB	R0,[R2],#1
+		TEQ	R0,#0
+		BEQ	pad$l
+
+		BL	writec$l
+		FNRTS	VS
+		SUB	R1,R1,#1
+		B	b$l
+
+pad$l		MOV	R0,#' '
+		BL	writec$l
+		FNRTS	VS
+		SUBS	R1,R1,#1
+		FNRTS	MI				; avoid looping infinitely
+		FNRTS	EQ
+		B	pad$l
+
+; write a number and pad
+writenum$l	FNJSR	"R1,R2"
+		SUB	R13,R13,#16
+		MOV	R1,R13
+		MOV	R2,#16
+		SWI	XOS_ConvertCardinal4
+		LDRVC	R1,[R13,#16]
+		BLVC	writeto$l
+		ADD	R13,R13,#16
+		FNRTS
+
+; write a character
+writec$l	FNJSR	"R1"
+		TEQ	R10,#0
+		BEQ	std$l
+
+		MOV	R1,R10
+		SWI	XOS_BPut
+		FNRTS
+
+std$l		TEQ	R0,#10
+		BEQ	nl$l
+		SWI	XOS_WriteC
+		FNRTS
+
+nl$l		SWI	XOS_NewLine
+		FNRTS
+
+head$l		=	"Profile information:",10
+		=	10
+		=	"Function                Count           Total time      Average time",10,0
+		ALIGN
+
+		|
+
+profile_start	; we have to define these since stoh will have caused the other files
+profile_end	; to import them
+profile_dump
+
+		]
+
+
+		LOCAL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

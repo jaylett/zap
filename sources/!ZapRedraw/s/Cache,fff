@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.11 2003/08/04 11:08:57 christian Exp $
+; $Id: Cache,fff,v 1.12 2003/08/26 00:26:55 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1313,11 +1313,12 @@ err$l		PUSH	"R0"
 ; install a DSA font
 ; E r0 = handle (DSA mode)
 ;   r0 b0 set for manybpp dsavdu font (DSAVDU mode)
+;   r1 -> redraw block
 ;   r2 -> font block
 ; X r0 -> cached data for this substyle
-install_font	FNJSR	"R1,R4-R6,R10,R11"
-		LDR	R1,[R2,#fb_flags]
-		TST	R1,#ff_vdu			; VDU font in DSA mode
+install_font	FNJSR	"R1,R4-R7,R10,R11"
+		LDR	R4,[R2,#fb_flags]
+		TST	R4,#ff_vdu			; VDU font in DSA mode
 		BNE	dsavdu$l
 
 		MOV	R1,R2
@@ -1361,8 +1362,11 @@ loop$l		LDR	R3,[R1,R2,LSL #2]
 dsavdu$l	MOV	R11,R2
 		AND	R10,R0,#1			; keep 1bpp flag
 
-		LDR	R0,[R12,#r_bpp]			; setup fb_bpp
-		STR	R0,[R1,#fb_bpp]
+		LDR	R7,[R12,#r_bpp]			; keep global bpp
+
+		LDR	R0,[R1,#r_bpp]			; setup fb_bpp
+		STR	R0,[R2,#fb_bpp]
+		STR	R0,[R12,#r_bpp]
 
 		LDR	R0,[R2,#fb_1bcache]
 		MOVS	R0,R0
@@ -1375,13 +1379,11 @@ dsavdu$l	MOV	R11,R2
 		MOVVC	R5,#0				; first and last chars already cached
 		MOVVC	R6,#255				;
 		BLVC	check_font_range		; add cursors
-		LDRVC	R2,[R12,#r_bpp]
+		LDR	R2,[R1,#r_bpp]			; setup fb_bpp
 		ORRVC	R2,R2,#1<<31
 		STRVC	R2,[R12,#r_bpp]
 		BLVC	do_convert_font			; convert to current bpp
-		LDRVC	R3,[R12,#r_bpp]
-		BICVC	R3,R3,#1<<31
-		STRVC	R3,[R12,#r_bpp]
+		STR	R7,[R12,#r_bpp]			; restore global bpp
 		STRVC	R2,[R11,#fb_1bcache]
 		FNRTS	VS
 
@@ -1389,7 +1391,8 @@ dsavdu$l	MOV	R11,R2
 		BL	cache_free			; free the 1bpp source
 
 		MOV	R0,R11
-have1bpp$l	TST	R10,#1
+have1bpp$l	STR	R7,[R12,#r_bpp]			; restore global bpp
+		TST	R10,#1
 		FNRTS	EQ				; we wanted 1bpp bitmaps
 
 		MOV	R0,#1
@@ -1909,7 +1912,7 @@ check_pointer	FNJSR	"R0"
 
 ; convert a 16 bit font handle into a cache address (intall fonts if necessary)
 ; called if we don't yet know colour masks (assumes 1bpp in dsavdu mode)
-; E r0 = handle  (no r12)
+; E r0 = handle  r1 -> redraw block  (no r12)
 ; X r0 -> cache ( = real caddr)  all others preserved
 handle_to_caddr	FNJSR	"R2-R3,R12"
 		BL	get_r12
@@ -1935,7 +1938,7 @@ handle_to_caddr	FNJSR	"R2-R3,R12"
 
 ; convert a 16 bit font handle into a cache address (intall fonts if necessary)
 ; called when we know colours, decides whether to use aa of not
-; E r0 = handle  (no r12)  r10/r11 = for/bac colour masks
+; E r0 = handle  r1 -> redraw block  (no r12)  r10/r11 = for/bac colour masks
 ; X r0 -> cache ( = real caddr)  all others preserved
 handle_to_caddr_c
 		FNJSR	"R2-R3,R12"
