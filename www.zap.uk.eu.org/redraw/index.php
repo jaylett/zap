@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.6 2002/03/01 00:13:35 ds Exp $
+  // $Id: index.php,v 1.7 2002/03/13 22:27:54 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -16,74 +16,10 @@ site:
 <ul>
  <li>Stable <strong><a href="/ftp/pub/stable/zfonts.zip">(0.39)</a></strong></li>
 <?php
-  function zapscandir ($path)
-  {
-    global $ftproot;
-    $dir = $ftproot.$path;
-    $ftpdir = '/ftp/pub/'.$path.'/';
-    $dirh = @opendir ($dir);
-    if ($dirh !== false)
-    {
-      $newest = '';
-      $newest_date = 0;
-      while (false !== ($file = readdir ($dirh)))
-      {
-	if (substr ($file, 0, 10) == 'zapredraw-')
-	{
-	  $stat = stat ($dir.'/'.$file);
-	  if ($stat[10] > $newest_date)
-	  {
-	    $newest = $file;
-	    $newest_date = $stat[10];
-	  }
-	}
-      }
-      closedir ($dirh);
-      if ($newest != '')
-	echo '<a href="', $ftpdir, $newest, '">', substr ($newest, 10, -4),
-	     '</a>';
-    }
-  }
-
-  $dirs = array ();
-  $dirh = @opendir ($ftproot);
-  if ($dirh !== false)
-  {
-    while (false !== ($dir = readdir ($dirh)))
-      if (strcmp ($dir, $stable) > 0 &&
-	  strlen ($dir) == 7 && substr ($dir, 0, 3) == 'zr-')
-	array_push ($dirs, $dir);
-    closedir ($dirh);
-  }
-  if (count ($dirs))
-  {
-    asort ($dirs);
-    $rdirs = array_reverse ($dirs);
-    // Display the files
-    $print = '<li>Beta update <strong>';
-    $strong = '</strong>';
-    foreach ($rdirs as $dir)
-    {
-      echo $print; $print = ', ';
-      zapscandir ($dir);
-      echo $strong; $strong = '';
-    }
-    if ($print == ', ')
-      echo "</li>\n";
-
-    // Display the directories
-    $print = '<li>Beta update directories <strong>';
-    $strong = '</strong>';
-    foreach ($rdirs as $dir)
-    {
-      echo $print, '<a href="/ftp/pub/', htmlspecialchars ($dir), '/">',
-	   substr ($dir, 3), '</a>', $strong;
-      $print = ', '; $strong = '';
-    }
-    if ($print == ', ')
-      echo "</li>\n";
-  }
+  include ".php/zr-versions.inc";
+  show_zr_versions (0);
 ?>
+ <li><a href="/ftp/pub/zapredraw.RELEASE.NOTES">Release notes</a></li>
 </ul>
 
 <p>Note that the beta downloads are update archives; in order to install one, you must have the stable version already installed.</p>
@@ -201,5 +137,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/03/01 00:13:35 $');
+  zap_body_end ('$Date: 2002/03/13 22:27:54 $');
 ?>

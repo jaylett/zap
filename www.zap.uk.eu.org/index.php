@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.1 2002/01/23 20:27:02 ds Exp $
+  // $Id: index.php,v 1.2 2002/03/13 22:27:54 ds Exp $
   include ".php/zap-std.inc";
   setroot ('index');
   zap_header ("Zap - a programmers' editor", 'top:');
@@ -10,8 +10,17 @@
 <p>The latest release version of Zap is 1.40. More options, and Zap extensions, are available from the <a href="download">download page</a>. You can also access the source tree via <a href="cvs/">CVS</a>.</p>
 
 <ul>
- <li><a href="/ftp/pub/stable/">Stable</a> distribution (v1.40)
- <li><a href="/ftp/pub/beta/">Beta</a> distribution (v1.44)
+<?php
+  function plink ($leaf)
+  {
+    global $ftproot;
+    $link = readlink ($ftproot.$leaf);
+    echo '<li><a href="/ftp/pub/', $leaf, '/">', ucfirst ($leaf),
+	 '</a> distribution (v', $link, ")\n";
+  }
+  plink ('stable');
+  plink ('beta');
+?>
  <li><a href="screenshots">Screenshots</a>
 </ul>
 
@@ -28,5 +37,5 @@
 <p>The zap.uk.eu.org domain is supplied by <a href="http://www.eu.org/">eu.org</a>, a source of free domain registration. Primary DNS is supplied by <a href="http://tartarus.org/">Tartarus.Org</a>, and secondary DNS arranged by <a href="http://www.metahusky.net/gavin">Gavin Kelman</a>. It is, however, being phased out due to technical problems.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:02 $');
+  zap_body_end ('$Date: 2002/03/13 22:27:54 $');
 ?>
