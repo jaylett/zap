@@ -1,5 +1,5 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.21 2003/02/07 21:23:14 christian Exp $
+; $Id: BASIC,fff,v 1.22 2003/03/05 15:45:56 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
@@ -3053,127 +3053,179 @@ bai_checkforlong
  BLE bai_foundasmstage4
  B bai_notfoundatall
 
+; in this table: (based on very quick look by cl)
+;   255   floating point op  (ACS CMFE)
+;   254   floating point op  (ADF)
+;   253   SFM / LFM
+;   188 º ALIGN
+;   178 ≤ LDM STM
+;   172 ¨ CP op (CDP STC etc)
+;   167 ß branches (these appear to have their condition added already)
+;   165 • BL (no condition)
+;   157 ù NOP, BRK
+;   156 ú LDR STR
+;   132 Ñ compares? (CMN CMP TEQ TEQPL? TST) ahh, these can have P suffix
+;   124 | Data processing op (ADD, SUB etc) - these take shifter operands
+;   123 { directive (DCB DCD etc)
+;   130 Ç Unconditional (PLD etc)
+;
 table$l DCD aa$l - table$l,bb$l - table$l,cc$l - table$l
 	DCD dd$l - table$l,ee$l - table$l
 	DCD ff$l - table$l,0,0,0,0
 	DCD 0,ll$l - table$l,mm$l - table$l,nn$l - table$l,oo$l - table$l
-	DCD pp$l - table$l,0,rr$l - table$l,ss$l - table$l,tt$l - table$l
+	DCD pp$l - table$l,qq$l - table$l,rr$l - table$l,ss$l - table$l,tt$l - table$l
 	DCD uu$l - table$l,vv$l - table$l,ww$l - table$l,0,0,zz$l - table$l
 	DCD 0,_I$l - table$l
 
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+;      A B C D E F G H I J K L  M N  O P Q R S  T  U V W X Y Z
 aa$l = 0,1,4,7,0,0,0,0,0,0,0,16,0,21,0,0,0,0,24,32,0,0,0,0,0,0
-aX$l = "S",255,0,"S",255,0,"C|D|F",254,"R|",0,"IGN",188,0,"D|",0,"N",255,"SERT{",0,"N",255
-;	B  C  D	       L    N  S       T
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-bb$l = 1,0,4,0,9,0,12,17,22,0,0,25,83,86,0,91,0,94,0,0,0,97,0,0,0,0 ; ???
-bX$l = "L",167,0,"C",167,"S",167,0,"Q",167,0,"E",167,"T",167,0,"I",167,"S",167,0,"C|",0,"AL",167,"CC",167,"CS",167,"EQ",167,"E",167,"GE",167,"GT",167,"HI",167,"HS",167,"LE",167,"LS",167,"LO",167,"LT",167,"MI",167,"NE",167,"NV",167,"O",167,"PL",167,"S",167,"T",167,165,0,"I",167,0,"E",167,"V",167,0,"L",167,0,"K",157,0,"C",167,"S",167,0
-;	A  C	E  G	H    I  L							  M  N	  P  R  V
-;	0000000001111111111222222222233333333334444444444555555555566666666667777777777888888888899999999990000000000
-;	1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
-;bX$l = "Lß",0,"CßSß",0,"Qß",0,"EßTß",0,"IßSß",0,"C|",0,"%ßALßCCßCSßEQßEßGEßGTßHIßHSßLEßLSßLOßLTßMIßNEßNVßOßPLßSßTß",0,"Iß",0,"EßVß",0,"Lß",0,"K|",0,"CßSß",0
+aX$l = "S",255,0
+     = "S",255,0
+     = "C|D|F",254,"R|",0
+     = "IGN",188,0
+     = "D|",0
+     = "N",255,"SERT{",0
+     = "N",255
+
+;      A B C D E F G  H  I  J K   L  M  N  O P  Q R  S T U V  W X   Y Z
+bb$l = 1,0,4,0,9,0,12,17,22,0,106,25,85,88,0,93,0,96,0,0,0,99,0,104,0,0
+bX$l = "L",167,0          ; A 1
+     = "C",167,"S",167,0  ; C 4
+     = "Q",167,0          ; E 9
+     = "E",167,"T",167,0  ; G 12
+     = "I",167,"S",167,0  ; H 17
+     = "C|",0             ; I 22
+     = "AL",167,"CC",167,"CS",167,"EQ",167,"E",167,"GE",167,"GT",167,"HI",167,"HS",167,"LE",167
+     =   "LS",167,"LO",167,"LT",167,"MI",167,"NE",167,"NV",167,"O",167,"PL",167,"S",167,"T",167
+     =   "X",167,165,0
+     = "I",167,0          ; M 85
+     = "E",167,"V",167,0  ; N 88
+     = "L",167,0	  ; P 93
+     = "K",157,0          ; R 96
+     = "C",167,"S",167,0  ; V 99
+     = 167,0		  ; X 104
+     = "PT",130,0	  ; K 106
+
+;      A B C D E F G H I J K L  M N  O  P Q R S T U V W X Y Z
+cc$l = 0,0,0,1,0,0,0,0,0,0,0,31,9,19,25,0,0,0,0,0,0,0,0,0,0,0
+cX$l = "O",172,"P2",172,"P",172,0	; D 1
+     = "FE|F",255,"N",132,"P",132,0	; M 9
+     = "FE|F",255,0			; N 19
+     = "ND{S",255,0			; O 25
+     = "Z|",0				; L 31
+
+;      A B C D E F G H I  J K L M N O P Q R S T U V  W X Y Z
+dd$l = 0,0,1,0,0,0,0,0,30,0,0,0,0,0,0,0,0,0,0,0,0,33,0,0,0,0
+dX$l = "B{D{FS{FD{FE{FP{F{PW{P{ZA{Z{",0
+     = "V|",0
+     = "F",254,0
+
+;      A B C D E F G H I J K L M N O P Q R S T U V W X  Y Z
+ee$l = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,0,0,0,0,0,0,50,0,0
+eX$l = "R|",0
+     = "UB{UD{UFS{UFD{UFE{UFP{UF{UPW{UP{US{UW{UZA{UZ{",0
+     = "P",255,0
+
+;      A B C D E F G H I J K L  M  N O  P Q R  S T U V W X Y Z
+ff$l = 0,0,0,1,0,0,4,0,7,0,0,28,33,0,36,0,0,39,0,0,0,0,0,0,0,0
+fX$l = "V",254,0
+     = "N",255,0
+     = "LE{LLB{LLW{LLD{LL{X",254,0
+     = "T",255,"T",255,0
+     = "L",254,0
+     = "G",255,0
+     = "D",254,0
+
+;      A B C D E F  G  H I J K L M N O  P Q R S T  U V W X Y Z
+ll$l = 0,0,0,1,0,16,21,0,0,0,0,0,0,0,24,0,0,0,0,27,0,0,0,0,0,0
+lX$l = "C2",172,"C",172,"F",255,"M",178,"RD",156,"R",156,0
+     = "M",253,"S",253,0
+     = "N",255,0
+     = "G",255,0
+     = "C",172,0
+
+;      A B C D E F G H I J K L  M N  O  P Q R  S  T U  V  W X Y Z
+mm$l = 0,0,1,0,0,0,0,0,0,0,0,10,0,13,16,0,0,19,30,0,33,38,0,0,0,0
+mX$l = "R2|RR|R|",0       ; C 1
+     = "A|",0             ; L 10
+     = "F",255,0          ; N 13
+     = "V|",0             ; O 16
+     = "RC|C2|C|S|",0     ; R 19
+     = "R|",0             ; S 30
+     = "F",254,"L|",0     ; U 33
+     = "F",255,"N|",0     ; V 38
 
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-cc$l = 0,0,0,1,0,0,0,0,1,0,0,0,6,16,22,0,0,0,0,0,0,0,0,0,0,0
-cX$l = "O",172,"P",172,0,"FE|F",255,"N",132,"P",132,0,"FE|F",255,0,"ND{S",255,0
-;	D    M	       N     O
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-dd$l = 0,0,1,0,0,0,0,0,30,0,0,0,0,0,0,0,0,0,0,0,0,33,0,0,0,0
-dX$l = "B{D{FS{FD{FE{FP{F{PW{P{ZA{Z{",0,"V|",0,"F",254,0
-;	C			     I  V
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-ee$l = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,0,0,0,0,0,0,50,0,0
-eX$l = "R|",0,"UB{UD{UFS{UFD{UFE{UFP{UF{UPW{UP{US{UW{UZA{UZ{",0,"P",255,0
-;	O  Q						 X
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-ff$l = 0,0,0,1,0,0,4,0,7,0,0,28,33,0,36,0,0,39,0,0,0,0,0,0,0,0
-fX$l = "V",254,0,"N",255,0,"LE{LLB{LLW{LLD{LL{X",254,0,"T",255,"T",255,0,"L",254,0,"G",255,0,"D",254,0
-;	D  G  I			   L	M  O  R
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-ll$l = 0,0,0,1,0,10,15,0,0,0,0,0,0,0,18,0,0,0,0,21,0,0,0,0,0,0
-lX$l = "C",172,"F",255,"M",178,"R",156,0,"M",253,"S",253,0,"N",255,0,"G",255,0,"C",172,0
-;	D	 F ?  G  O  T
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-mm$l = 0,0,1,0,0,0,0,0,0,0,0,4,0,7,12,0,0,15,20,0,23,28,0,0,0,0
-mX$l = "R|",0,"A|",0,"F",255,"F",255,0,"V|",0,"C|S|",0,"R|",0,"F",254,"L|",0,"F",255,"N|",0
-;	C  L  N	   O  R	   S  U	   V
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 nn$l = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,4,0,0,0,0,0,0,0,0
-nX$l = "P",157,0,"M",255,0
-;	O  R
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
+nX$l = "P",157,0
+     = "M",255,0
+
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 oo$l = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,0,0,0,0,0,0,0,0
-oX$l = "T{",0,"R|",0,0
-;	P  R
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
+oX$l = "T{",0
+     = "R|",0
+
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-pp$l = 0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,5,0,0,0
-pX$l = "L",254,"W",254,"{",0
-;	O   W
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+pp$l = 0,0,0,0,0,0,0,0,0,0,0,1,0,0,3,0,0,0,0,0,0,0,7,0,0,0
+pX$l = "D",130		     ; L 1
+     = "L",254,"W",254,"{",0 ; O 3  W 7
+
+;      A B C D E F G H I J K L M N O P Q R S  T U V W X Y Z
+qq$l = 1,0,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,14,0,0,0,0,0,0,0
+qX$l = "DD|",0         	; A 1
+     = "ADD|SUB|",0	; D 5
+     = "UB|",0	 	; S 14
+
+;      A B C D E F G H I J K L M N  O P  Q R S  T U V W X Y Z
 rr$l = 0,0,0,1,0,4,0,0,0,0,0,0,9,12,0,15,0,0,18,0,0,0,0,0,0,0
-rX$l = "F",255,0,"C|S|",0,"F",254,0,"D",255,0,"W",254,0,"B|C|F",254,0
-;	D  F	M  N  P  S
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
-ss$l = 0,1,0,4,0,7,0,0,12,0,0,0,15,0,0,0,26,0,0,29,38,0,43,0,0,0
-sX$l = "C|",0,"C",172,0,"M",253,"S",255,0,"N",255,0,"LA|ULL|UL|",0,"T",255,0,"C",172,"F",255,"M",178,"R",156,0,"B|F",254,0,"AP|I|PB|P|",0 ; note pb.
-;	B  D  F	   I  M		 Q  T	     U	  W
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+rX$l = "F",255,0
+     = "C|S|",0
+     = "F",254,0
+     = "D",255,0
+     = "W",254,0
+     = "B|C|F",254,0
+
+;      A B C D E F G H I  J K L M  N O P Q   R S T   U   V W   X Y Z
+ss$l = 0,1,0,4,0,7,0,0,12,0,0,0,15,0,0,0,114,0,0,117,132,0,137,0,0,0
+sX$l = "C|",0                              			; B 1
+     = "C",172,0             		        		; D 4
+     = "M",253,"S",255,0					; F 7
+     = "N",255,0						; I 12
+     = "LABB|LABT|LATB|LATT|LALBB|LALBT|LALTB|LALTT|LAWB|LAWT|LAL|LA|"
+     = "ULBB|ULBT|ULTB|ULTT|ULTB|ULWT|ULL|UL|",0		; M 15
+     = "T",255,0						; Q 114
+     = "C2",172,"C",172,"F",255,"M",178,"RD",156,"R",156,0	; T 117
+     = "B|F",254,0						; U 132
+     = "AP|I|PB|P|",0 ; note pb.                		; W 137
+
+;      A B C D E F G H I J K L M N O P Q R S  T U V W X Y Z
 tt$l = 1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0
-tX$l = "N",255,0,"QPL",132,"Q",132,0,"T",132,0
-;	A  E	  S
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+tX$l = "N",255,0
+     = "QPL",132,"Q",132,0
+     = "T",132,0
+
+;      A B C D E F G H I J K L M N O P Q R  S T U V W X Y Z
 uu$l = 0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,16,0,0,0,0,0,0,0,0
-uX$l = "LAL|LA|ULL|UL|",0,"D",255,0
-;	M	       R
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
-;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+uX$l = "LAL|LA|ULL|UL|",0
+     = "D",255,0
+
+;      A B C D E F G H I J K L M N O P Q R  S T U V W X Y Z
 vv$l = 0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,16,0,0,0,0,0,0,0,0
 vX$l = "UX{U{",0
-;	D
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
+
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 ww$l = 0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 wX$l = "C|SA{S|",0
-;	F
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
+
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 zz$l = 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 zX$l = "{",0
+
 ;      A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
 _I$l = 0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0
 _X$l = "{",0
-;	!
-;	00000000011111111112222222222333333333344444444445555555555666666666
-;	12345678901234567890123456789012345678901234567890123456789012345678
+
+
  ALIGN
 
 testforasminst
@@ -3183,7 +3235,7 @@ testforasminst
  ADRL R14,localmodeword
  LDR R14,[R14]
  TST R14,#1 << 29
- PULL "PC",NE	; !!! Unmatched return LDM
+ PULL "PC",NE
  STR R1,bas_localstored1	; B for later
  SUB R14,R1,#'A'
  MOV R14,R14,LSL #2
@@ -3245,8 +3297,10 @@ bai_foundasmstage1
  STR R14,bas_localstored1
  CMP R14,#'{'			; DCD
  BEQ bai_indirectivecheck
- CMP R14,#167			; BLS...
- BEQ fromabl_simply		; bai_foundasmstage4???
+ CMP R14,#167			; branches
+ BEQ fromabl_simply
+ TEQ R14,#130			; PLD, BX etc
+ BEQ bai_foundasmstage3
  CMP R0,#'P'			; simple but works...?
  BLEQ posspc1
  CMP R0,#'='			; DS assembler stuff...
@@ -3281,15 +3335,15 @@ loop3$l
  STR R7,bas_localstored0
  STR R10,bas_localstored4
  STR R0,bas_localstored2
- ; eq (or whatever) matches
+ ; condition code matches
 bai_foundasmstage2
  LDR R14,bas_localstored1
- CMP R14,#178			; LDM / STM (FD)
- CMPNE R14,#253			; LDR / STR (FD)
+ CMP R14,#178			; LDM / STM
+ CMPNE R14,#253			; LFM / SFM
  BEQ ba_checkforastack
- CMP R14,#156			; LDR / STR (FD)
+ CMP R14,#156			; LDR / STR
  BEQ ba_checkforanumthangy
- CMP R14,#172			; LDR / STR (FD)
+ CMP R14,#172			; CP op
  BEQ ba_checkforacoproTorL
 bai_foundasmstage3
  LDR R0,bas_localstored2
@@ -3298,24 +3352,20 @@ bai_foundasmstage3
  LDR R14,bas_localstored1
  CMP R14,#165			; BL - danger - possible BLE...?
  BEQ fromabl_simply2
- CMP R14,#250			; BL - danger - possible BLE...?
+ CMP R14,#250
  BCS floatingptsub
-; TEQ R14,#157
- TEQ R14,#157
+ TEQ R14,#157			; NOP, BRK
  BEQ checkingfornopandbrk
-; TEQ R14,#188
- TEQ R14,#188
+ TEQ R14,#188			; ALIGN
  BEQ checkingforalign
  CMP R0,#'R'			; not PC yet...
  CMPNE R0,#'@'
  MOVLT R1,#0			; set up a flag...
  BLT verypostbai_foundasmstage4
-; TEQ R14,#132
- TEQ R14,#132
+ TEQ R14,#132			; compares
  BEQ fromabl_simply3
-; CMP R14,#156			; LDR / STR (FD)
- CMP R14,#156			; LDR / STR (FD)
- CMPNE R14,#172			; LDR / STR (FD)
+ CMP R14,#156			; LDR / STR
+ CMPNE R14,#172			; CP op
  CMPEQ R0,#'B'
  BLEQ getnextasmletter		; works...?
  CMP R0,#'S'
@@ -3457,19 +3507,19 @@ bai_foundasmstage5
  LDR R14,bas_localstored1
  CMP R14,#'{'			; DIRECTIVE...
  ORREQ R2,R2,#&400000
- CMP R14,#178			; LDM / STM (FD)
+ CMP R14,#178			; LDM / STM
  ORREQ R2,R2,#&8000000
  CMP R14,#167			; BLS/BEQ/B...
  CMPNE R14,#165			; BL - Danger in basic...
  ORREQ R2,R2,#&4000000		; directive???????????
- CMP R14,#156			; LDR / STR (FD)
+ CMP R14,#156			; LDR / STR
  ORREQ R2,R2,#&10000000
 bai_notfoundatall
  FNRTS
 
 tobai_foundasmstage3
  LDR R14,bas_localstored1
- CMP R14,#178			; LDM / STM (FD)
+ CMP R14,#178			; LDM / STM
  BEQ ba_theremustbesomemore
  B bai_foundasmstage3		; as ordinary...
 
@@ -3609,7 +3659,7 @@ ba_alternativepossibilities
  B bai_notfoundatall
 
 to_bai_foundasmstage4beta
- MOV R14,#165
+ MOV R14,#165			; BL
  STR R14,bas_localstored1
  ;MOV R1,#'&'
  ;B stage4betaloop
