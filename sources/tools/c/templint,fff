@@ -1,0 +1,728 @@
+/*
+ * $Id: templint,fff,v 1.1 2001/11/05 04:15:55 christian Exp $
+ * -*- c -*-
+ *
+ * templint
+ * Validate a template file against textual description
+ *
+ * Copyright (c) Christian Ludlam 2001. <christian@zap.tartarus.org>
+ * based on templcat (c) James Aylett
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Possible additions: We could search validation strings, mainly for
+ *                     'allow' fields (eg CloneCrBox's A~ %&*.:@\| )
+ *
+ *                     Ought to do some checking on the template file itself
+ *                     ie. reserved words 0, always use new window flags etc
+ *
+ * Known bugs:         input (read_word) is /hideously/ simple, meaning that
+ *                     icon lists must not have spaces in etc (ie 1,2,3 not 1, 2, 3)
+ */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+
+#include "coopt.h"
+#include "oslib/wimp.h"
+
+#define VERSION "v0.01 (05-Nov-01) (c) Christian Ludlam"
+
+/* return value on inconsistency (but otherwise successful) */
+#define EXIT_BAD (8)
+
+/* Template file structures
+ * indirected pointers are relative to start of file
+ * font numbers are offsets within the font descriptors
+ * at the end of the file (which we ignore)
+ */
+typedef struct
+{
+    unsigned int font_offset;    /* from start of file, -1 if none */
+    unsigned int reserved[3];
+} templ_header;
+
+typedef struct
+{
+    unsigned int offset;         /* from start of file */
+    unsigned int size;
+    unsigned int type;           /* 1 => window template */
+    char         identifier[12];
+} templ_index;
+
+typedef struct
+{
+    templ_header header;
+    templ_index objects[0];
+} templ_file;
+
+typedef struct
+{
+    char *name;
+    int bit;
+} flags;
+
+/* window flag bits */
+const flags wflags[] =
+{
+    { "title-bar",        wimp_WINDOW_TITLE_ICON     },
+    { "toggle",           wimp_WINDOW_TOGGLE_ICON    },
+    { "hscroll",          wimp_WINDOW_HSCROLL        },
+    { "vscroll",          wimp_WINDOW_VSCROLL        },
+    { "close",            wimp_WINDOW_CLOSE_ICON     },
+    { "back",             wimp_WINDOW_BACK_ICON      },
+    { "adjust",           wimp_WINDOW_SIZE_ICON      },
+    { "moveable",         wimp_WINDOW_MOVEABLE       },
+    { "auto-redraw",      wimp_WINDOW_AUTO_REDRAW    },
+    { "is-pane",          wimp_WINDOW_PANE           },
+    { "grab-keys",        wimp_WINDOW_HOT_KEYS       },
+    { "keep-on-screen",   wimp_WINDOW_BOUNDED        },
+    { "allow-off-screen", wimp_WINDOW_NO_BOUNDS      },
+    { "ignore-x-extent",  wimp_WINDOW_IGNORE_XEXTENT },
+    { "ignore-y-extent",  wimp_WINDOW_IGNORE_YEXTENT },
+    { "",                 0                          }
+};
+
+/* icon flag bits */
+const flags iflags[] =
+{
+    { "indirected",    wimp_ICON_INDIRECTED   },
+    { "text",          wimp_ICON_TEXT         },
+    { "sprite",        wimp_ICON_SPRITE       },
+    { "needs-help",    wimp_ICON_NEEDS_HELP   },
+    { "selected",      wimp_ICON_SELECTED     },
+    { "shaded",        wimp_ICON_SHADED       },
+    { "deleted",       wimp_ICON_DELETED      },
+    { "outline-font",  wimp_ICON_ANTI_ALIASED },
+    { "allow-adjust",  wimp_ICON_ALLOW_ADJUST },
+    { "filled",        wimp_ICON_FILLED       },
+    { "h-centred",     wimp_ICON_HCENTRED     },
+    { "v-centred",     wimp_ICON_VCENTRED     },
+    { "right-aligned", wimp_ICON_RJUSTIFIED   },
+    { "half-size",     wimp_ICON_HALF_SIZE    },
+    { "border",        wimp_ICON_BORDER       },
+    { "",              0                      }
+};
+
+/* button types */
+const char *button[] =
+{
+    "never",
+    "always",
+    "auto-repeat",
+    "click",
+    "release",
+    "double-click",
+    "click/drag",
+    "release/drag",
+    "double/drag",
+    "menu",
+    "double/click/drag",
+    "radio",
+    "12",
+    "13",
+    "writable/drag",
+    "writable"
+};
+
+
+/* a declaration or two */
+wimp_window *find_template(char *name, templ_file *templates);
+void check_template(FILE *defs, char *tname, templ_file *tfile);
+void read_word(FILE *file, char *buffer, int len);
+int skipspaces(FILE *file);
+void *xmalloc (int size);
+void *xrealloc(void *ptr, size_t size);
+void *slurp_file(const char *file, unsigned long *used_ptr);
+void fatal_error(char *format, ...);
+void help(void);
+int my_strcmp(char *s1, char *s2);
+int check_button_type(wimp_icon_flags type, char *name);
+void check_window_flags(FILE *defs, char *tname, wimp_window_flags flags);
+void check_icon(FILE *defs, char *tname, wimp_window *template, int inumber);
+void error(char *format, ...);
+
+const char *program_name;
+
+int ok = EXIT_SUCCESS; /* set to EXIT_BAD if an inconsistency is found */
+
+
+/* off we go */
+int main(int argc, const char * const *argv)
+{
+    static const struct coopt_option option[] =
+    {
+        { 'd', COOPT_REQUIRED_PARAM, "definition" },
+        { 't', COOPT_REQUIRED_PARAM, "template"   },
+        { 'h', COOPT_NO_PARAM,       "help"       },
+        { 'V', COOPT_NO_PARAM,       "version"    }
+    };
+
+    struct coopt_state  state;
+    struct coopt_return ret;
+    templ_file *templates;
+    const char *defsfile         = NULL;
+    const char *templatefile     = NULL;
+    FILE *defs                   = NULL;
+    unsigned long templates_len  = 0;
+    wimp_window *window;
+    char buf[32];
+
+    program_name = argv[0];
+    coopt_init(&state, option, sizeof(option) / sizeof(struct coopt_option),
+               argc-1, argv+1);
+
+    do
+    {
+        ret = coopt(&state);
+        if (!coopt_is_error(ret.result))
+        {
+            if (ret.opt!=NULL)
+            {
+                switch (ret.opt->short_option)
+                {
+                case 'd':
+                    if (defsfile != NULL)
+                        fatal_error("you can't specify more than one definition file");
+                    defsfile = ret.param;
+                    break;
+
+                case 't':
+                    if (templatefile != NULL)
+                        fatal_error("you can't specify more than one template file");
+                    templatefile = ret.param;
+                    break;
+
+                case 'V':
+                    printf ("%s %s\n", program_name, VERSION);
+                    exit(0);
+
+                case 'h':
+                    help();
+                    break;
+                }
+            }
+            else if (coopt_is_okay(ret.result)) /* ie: it's a parameter */
+            {
+                if (defsfile == NULL)
+                    defsfile = ret.param;
+                else
+                {
+                    if (templatefile == NULL)
+                        templatefile = ret.param;
+                    else
+                        fatal_error("too many input files");
+                }
+            }
+        }
+    } while (coopt_is_okay(ret.result));
+
+    if (coopt_is_error(ret.result))
+    {
+        char err[255];
+        coopt_serror(err, 255, &ret, &state);
+        fatal_error("fatal error in options parsing: %s", err);
+    }
+
+    /* open files */
+    templates = slurp_file(templatefile, &templates_len);
+
+    defs = fopen(defsfile, "r");
+
+    if (defs == NULL)
+        fatal_error("couldn't open definitions file");
+
+    /* work through the definitions file, checking everthing as we go */
+    while (!feof(defs))
+    {
+        read_word(defs, buf, sizeof(buf));
+
+        if (strcmp(buf, "window") == 0)
+        {
+            read_word(defs, buf, sizeof(buf));
+            check_template(defs, buf, templates);
+        }
+        else if (*buf != '\0')
+            fatal_error("unrecognised token %s", buf);
+    }
+
+    return ok;
+}
+
+
+/* returns a malloc'd block with a window in it. Needs to, because
+   windows in template files need not be word aligned */
+wimp_window *find_template(char *name, templ_file *templates)
+{
+     int i = 0;
+     wimp_window *t;
+
+     while (templates->objects[i].offset != 0)
+     {
+         if (!my_strcmp(name, templates->objects[i].identifier))
+             break;
+
+         i++;
+     }
+
+     if (templates->objects[i].offset == 0)
+         fatal_error("template \"%s\" not found", name);
+
+     if (templates->objects[i].type != 1)
+         fatal_error("%s is an unrecognised object (type %d)", name, templates->objects[i].type);
+
+     t = xmalloc((templates->objects[i].size + 3) & ~3);
+     memcpy(t, (char *)templates + templates->objects[i].offset, templates->objects[i].size);
+
+     return t;
+}
+
+
+/* check one window definition */
+void check_template(FILE *defs, char *tname, templ_file *tfile)
+{
+    char buf[128];
+    wimp_window *template;
+
+    template = find_template(tname, tfile);
+
+    read_word(defs, buf, sizeof(buf));
+
+    if (*buf != '{')
+        fatal_error("missing {");
+
+    do
+    {
+        read_word(defs, buf, sizeof(buf));
+
+        if (!strcmp(buf, "window-flags"))
+            check_window_flags(defs, tname, template->flags);
+        else if (!strcmp(buf, "wa-button"))
+        {
+            int b;
+
+            read_word(defs, buf, sizeof(buf));
+
+            /* hmmm. On mismatch we only suggest the first button type */
+            if (check_button_type(template->work_flags, buf) == 0)
+                error("%s should have wa-button type %s\n", tname, buf);
+        }
+        else if (!strcmp(buf, "icon"))
+        {
+            char *next;
+            int i;
+            int pos;
+
+            read_word(defs, buf, sizeof(buf));
+
+            pos = ftell(defs);
+            next = buf - 1;
+
+            /* check a comma (but NOT space) separated list of icons */
+            do
+            {
+                fseek(defs, pos, SEEK_SET);
+                i = strtoul(next + 1, &next, 10);
+                check_icon(defs, tname, template, i);
+            } while (*next == ',');
+
+        }
+        else if (!strcmp(buf, "hello"))
+            printf("hello!\n");
+        else if (strcmp(buf, "}"))
+            fatal_error("unrecognised token %s", buf);
+
+    } while (!feof(defs) && *buf != '}');
+
+    free(template);
+}
+
+
+/* check a window's flags */
+void check_window_flags(FILE *defs, char *tname, wimp_window_flags flags)
+{
+    char buf[32];
+    int on;
+    int i;
+
+    read_word(defs, buf, sizeof(buf));
+
+    if (*buf != '{')
+        fatal_error("missing {");
+
+    do
+    {
+        read_word(defs, buf, sizeof(buf));
+
+        if (*buf == '}')
+            break;
+
+        for (i = 0; wflags[i].bit != 0; i++)
+        {
+            if (!strcmp(wflags[i].name, buf))
+                break;
+        }
+
+        if (wflags[i].bit == 0)
+            fatal_error("unrecognised window flag %s", buf);
+
+        read_word(defs, buf, sizeof(buf));
+
+        on = yesno(buf);
+
+        if (((flags & wflags[i].bit) ^ (on & wflags[i].bit)) != 0)
+            error("%s should have %s flag %s\n", tname, wflags[i].name,
+                   on ? "set" : "clear");
+
+    } while (!feof(defs) && *buf != '}');
+}
+
+
+/* check an icon's flags etc */
+void check_icon(FILE *defs, char *tname, wimp_window *template, int inumber)
+{
+    wimp_icon *icon = NULL;
+    char buf[32];
+    int on;
+    int i;
+
+    read_word(defs, buf, sizeof(buf));
+
+    if (*buf != '{')
+        fatal_error("missing {");
+
+    /* check icon is actually present */
+    if (template->icon_count <= inumber)
+        error("%s: icon %d is missing!\n", tname, inumber);
+    else
+        icon = &template->icons[inumber];
+
+    do
+    {
+        read_word(defs, buf, sizeof(buf));
+
+        if (*buf == '}')
+            break;
+
+        if (!strcmp(buf, "esg"))
+        {
+            read_word(defs, buf, sizeof(buf));
+
+            i = strtoul(buf, NULL, 10) << wimp_ICON_ESG_SHIFT;
+            if (icon && (icon->flags & wimp_ICON_ESG) != i)
+                error("%s: icon %d should have %s %s\n", tname, inumber, "esg", buf);
+        }
+        else if (!strcmp(buf, "indirected-size"))
+        {
+            read_word(defs, buf, sizeof(buf));
+
+            i = strtoul(buf, NULL, 10);
+            if (icon && icon->data.indirected_text.size != i)
+                error("%s: icon %d should have %s %s\n", tname, inumber, "indirected-size", buf);
+        }
+        else if (!strcmp(buf, "button"))
+        {
+            read_word(defs, buf, sizeof(buf));
+
+            /* hmmm. on mismatch we only suggest the first button type */
+            if (icon && check_button_type(icon->flags, buf) == 0)
+                error("%s: icon %d should have %s %s\n", tname, inumber, "button type", buf);
+        }
+        else
+        {
+            /* general icon flags */
+            for (i = 0; iflags[i].bit != 0; i++)
+            {
+                if (!strcmp(iflags[i].name, buf))
+                    break;
+            }
+
+            if (iflags[i].bit == 0)
+                fatal_error("unrecognised icon flag %s", buf);
+
+            read_word(defs, buf, sizeof(buf));
+
+            on = yesno(buf);
+
+            if (icon && ((icon->flags & iflags[i].bit) ^ (on & iflags[i].bit)) != 0)
+                error("%s: icon %d should have %s flag %s\n", tname, inumber, iflags[i].name,
+                      on ? "set" : "clear");
+        }
+
+    } while (!feof(defs) && *buf != '}');
+
+}
+
+
+/* return -1 for yes, 0 for no */
+int yesno(char *s)
+{
+    if (!strcmp(s, "yes") || !strcmp(s, "1"))  /* nice and simple */
+        return 0xFFFFFFFF;
+    else
+        return 0;
+}
+
+
+/* check a button type from a comma separated list of names
+   returns 0 on failure / 1 */
+int check_button_type(wimp_icon_flags type, char *name)
+{
+    char *next;
+    int i, result = 0;
+
+    type &= wimp_ICON_BUTTON_TYPE;
+
+    do
+    {
+        next = strchr(name, ',');
+
+        if (next)
+            *next++ = '\0';
+
+        i = 15;
+        while (strcmp(button[i], name) != 0)
+        {
+            i--;
+
+            if (i < 0)
+                fatal_error("unrecognised button type \"%s\"", name);
+        }
+
+        if (i << wimp_ICON_BUTTON_TYPE_SHIFT == type)
+            result++;
+
+        name = next;
+
+    } while (name != NULL);
+
+    return result;
+}
+
+
+/* compare ctl-terminated strings */
+int my_strcmp(char *s1, char *s2)
+{
+    while (*s1 > 31 && *s2 > 31 && *s1 == *s2)
+    {
+        s1++;
+        s2++;
+    }
+
+    if (*s1 < 32 && *s2 < 32)
+        return 0;
+    else
+        return (int)(*s1 - *s2);
+}
+
+
+
+/* read a word delimited by whitespace or ':'
+   ignores comments between # and EOL */
+void read_word(FILE *file, char *buffer, int len)
+{
+    char c;
+    int i = 0;
+
+    skipspaces(file);
+
+    while (!feof(file) && i <= len)
+    {
+        c = getc(file);
+
+        if (isspace(c) || c == ':')
+            break;
+
+        buffer[i++] = c;
+    }
+
+    buffer[i] = '\0';
+}
+
+
+/* skip whitespace and comments */
+int skipspaces(FILE *file)
+{
+    int c = ' ';
+
+    while (!feof(file) && (c == ' ' || c == '\t' || c == '\n' || c == ':'))
+        c = getc(file);
+
+    if (c == '#')
+    {
+        /* it's a comment */
+        while (!feof(file) && c != '\n')
+            c = getc(file);
+
+        return skipspaces(file); /* hurrah for tail-recursion */
+    }
+
+    ungetc(c, file);
+
+    return 0;
+}
+
+
+/* mismatch between definitions and templates.
+   print error and set ok to EXIT_BAD. */
+void error(char *format, ...)
+{
+    va_list ap;
+
+    va_start(ap, format);
+    vfprintf(stdout, format, ap);
+    va_end(ap);
+
+    ok = EXIT_BAD;
+}
+
+
+
+/* Some useful bits and bobs */
+
+void *xmalloc (int size)
+{
+    void *ptr = malloc(size);
+
+    if (!ptr)
+    {
+        fprintf(stderr, "%s: %salloc failed\n", "m", program_name);
+        exit (2);
+    }
+
+    return ptr;
+}
+
+
+void *xrealloc(void *ptr, size_t size)
+{
+    ptr = realloc(ptr, size);
+
+    if (!ptr)
+    {
+        fprintf(stderr, "%s: %salloc failed\n", "re", program_name);
+        exit (2);
+    }
+
+    return ptr;
+}
+
+
+void fatal_error(char *format, ...)
+{
+    va_list ap;
+
+    va_start(ap, format);
+    vfprintf(stderr, format, ap);
+    putc('\n', stderr);
+    va_end(ap);
+
+    exit(EXIT_FAILURE);
+}
+
+
+/* Slurps the file into core. *used_ptr is filled with the length of data.
+ * Immediately after the data will be a NUL. You need to free up the returned
+ * block. Read in as binary.
+ *
+ * Remember that fatal_error() calls exit(), which will close our open filehandles.
+ */
+void *slurp_file(const char *file, unsigned long *used_ptr)
+{
+    unsigned long current, used;
+    long length = 0;
+    void *block;
+    FILE *fp;
+
+    if (file == NULL || strcmp(file, "-") == 0)
+        fp = stdin;
+    else
+        fp = fopen(file, "rb");
+
+    if (fp==NULL)
+        return NULL;
+
+#ifndef NO_FSEEK
+    if (fp != stdin) /* don't even bother trying on the standard input */
+    {
+        fseek(fp, 0, SEEK_END);
+        length = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+    }
+    if (length <= 0)
+#endif
+        length = 20*1024;
+
+    /* length is a suggestion as to the page size to use */
+    block   = xmalloc((size_t)length);
+    current = (unsigned long)length;
+    used    = 0;
+
+    while (!feof(fp) && !ferror(fp))
+    {
+        size_t t;
+
+        if (used+length > current)
+        {
+            block    = xrealloc(block, (size_t)(current+(unsigned long)length));
+            current += (unsigned long)length;
+        }
+
+        t     = fread(block+used, 1, (size_t)length, fp);
+        used += t;
+    }
+
+    if (ferror(fp))
+    {
+        if (file==NULL || strcmp(file, "-") == 0)
+            fatal_error("Error while reading from stdin.");
+        else
+            fatal_error("Error while reading file %s.", file);
+    }
+
+    if (fp != stdin)
+        fclose(fp);
+
+    if (used >= current)
+    {
+        block    = xrealloc(block, (size_t)(current+1));
+        current +=(unsigned long)length;
+
+        ((char *)block)[used]=0; /* terminate with a NUL (don't increment used) */
+    }
+
+    *used_ptr = used;
+
+    return block;
+}
+
+
+/* print out the help */
+void help(void)
+{
+    printf( "usage: %s [options] [-d] DEFSFILE [-t] TEMPLATEFILE\n"
+            "\n"
+            "  -d, --definitions DEFSFILE        definitions read from DEFSFILE;\n"
+            "  -t, --templates   TEMPLATEFILE    templates read from TEMPLATEFILE;\n"
+            "                                    stdin used if not specified\n"
+            "\n"
+            "  -h, --help                        display this help message and quit\n"
+            "  -V, --version                     display version string and quit\n"
+            , program_name);
+    exit(0);
+}
