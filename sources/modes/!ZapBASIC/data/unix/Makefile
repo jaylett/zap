@@ -23,6 +23,7 @@ linkflags	= -o o/tmplink -B 0 -bin
 __BUILD		= "-DBUILD=$(BUILD)"
 __INTL		= "-DINTL=$(INTL)"
 __TMFS		= "-DTMFS=$(TMFS)"
+__HIST		= "-DHIST=$(HIST)"
 
 makehdr		= $(ZapSource_Dir)/data/unix/makehdr
 timestamp       = sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
@@ -33,7 +34,7 @@ t/%:		s/%,fff
 
 # Always rebuild when ZapBasHdr changes!
 o/%:		s/%,fff h/ZapBasHdr,fff
-		$(asm) $(__BUILD) $(__INTL) $(__TMFS) $(asmflags) $<
+		$(asm) $(__BUILD) $(__INTL) $(__TMFS) $(__HIST) $(asmflags) $<
 
 # Final target
 ZapBASIC:	objdirs tmplink
