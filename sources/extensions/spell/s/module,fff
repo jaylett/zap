@@ -1,5 +1,5 @@
 ; Spell - a Zap extension
-; $Id: module,fff,v 1.5 2004/01/12 14:17:55 christian Exp $
+; $Id: module,fff,v 1.6 2004/05/24 17:29:04 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -467,14 +467,6 @@ nosel$l		BL	Beep
 ImpSpell_File	FNJSR
 		BL	get_workspace
 
-		SUB	R13,R13,#64			; open the window where it currently is
-		MOV	R1,R13				;
-		LDR	R0,[R11,#w_spell]		;
-		STR	R0,[R1]				;
-		SWI	XWimp_GetWindowState		;
-		BL	open_spell_win			;
-		ADD	R13,R13,#64			;
-
 		MOV	R0,#OP_FILE			;
 		BL	set_id				;
 
@@ -489,6 +481,14 @@ ImpSpell_File	FNJSR
 		PUSH	"R0"				;
 		ADD	R3,R2,R1			; select the word (but don't move the cursor)
 		FNcall	Zap_AlterSel,R4			;
+
+		SUB	R13,R13,#64			; open the window where it currently is
+		MOV	R1,R13				;
+		LDR	R0,[R11,#w_spell]		;
+		STR	R0,[R1]				;
+		SWI	XWimp_GetWindowState		;
+		BL	open_spell_win			;
+		ADD	R13,R13,#64			;
 		PULL	"R0"				;
 
 		LDR	R2,[R11,#w_spell]		; copy it into the icons
@@ -1603,11 +1603,21 @@ get_word	FNJSR	"R2,R4,R5"
 
 loop$l		BL	get_char			; get the letters
 		BL	isalpha				;
-		BNE	done$l				;
-		STRB	R0,[R3,R2]			;
+		BNE	check$l				;
+ok$l		STRB	R0,[R3,R2]			;
 		ADD	R2,R2,#1			;
 		CMP	R2,R4				;
 		BLO	loop$l				;
+
+check$l		TEQ	R0,#'''				; deal with "isn't" etc
+		BNE	done$l				;
+		PUSH	"R0"				;
+		ADD	R2,R2,#1			;
+		BL	get_char			;
+		BL	isalpha				;
+		SUB	R2,R2,#1			;
+		PULL	"R0"				;
+		BEQ	ok$l				;
 
 done$l		MOV	R0,#0				; terminate the word
 		STRB	R0,[R3,R2]			;
@@ -1630,7 +1640,16 @@ loop$l		BL	get_char
 		BL	isalpha
 		ADDEQ	R2,R2,#1
 		BEQ	loop$l
-		FNPULL
+
+		TEQ	R0,#'''				; deal with "isn't" etc
+		BNE	ok$l				;
+		ADD	R2,R2,#1			;
+		BL	get_char			;
+		FNRTS	CS				;
+		BL	isalpha				;
+		ADDEQ	R2,R2,#1			;
+		BEQ	loop$l				;
+ok$l		FNPULL
 
 		; fall through
 
@@ -1672,7 +1691,16 @@ b$l		BL	get_char			; skip to the start of it
 		SUBEQ	R2,R2,#1
 		BEQ	b$l
 
-		ADDS	R2,R2,#1			; clc
+		TEQ	R0,#'''				; deal with "isn't" etc
+		BNE	ok$l				;
+		SUB	R2,R2,#1			;
+		BL	get_char			;
+		BCS	sof$l				;
+		BL	isalpha				;
+		BEQ	b$l				;
+		ADD	R2,R2,#1			;
+
+ok$l		ADDS	R2,R2,#1			; clc
 		FNRTS
 
 sof$l		;MOVS	R2,#0,2				; r2 = 0, clc
