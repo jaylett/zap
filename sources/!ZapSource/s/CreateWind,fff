@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.6 2002/11/14 19:30:30 christian Exp $
+; $Id: CreateWind,fff,v 2.7 2003/01/21 15:58:10 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -39,7 +39,6 @@
  EXPORT save_window_status
  EXPORT new_window_status_preserve
  EXPORT new_window_status_forcebpl
- ; EXPORT new_window_status_samewidth
  EXPORT new_window_status
  EXPORT alter_window
  EXPORT find_window
@@ -93,6 +92,8 @@
  EXPORT new_extent
  EXPORT Openparent
 
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Window subs							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -100,70 +101,72 @@
 ;E R8=wind to clone from / 0 R9=file
 ;X new view created for this window R8/R9=new window WB #
 ;  cursor is not put in the window.
- FNAME new_view
+	FNAME	new_view
 new_view
- FNJSR "R1-R3,R7"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- MOV R1,R0
- BL get_wind_off
- SYSLOGF "new_view on window %8x (%0d) file %9x (%1d)", LOG_WINDOW
- PULL "R0"
- ]
- TEQ R8,#0
- BNE ne2			; clone
- BL create_window_block
- BVC ne3
- FNRTS
-ne2
- FNLDR R0,wind_list
- FNLDR R1,wind_num
- MOV R2,#wind_blk
- SUB R8,R8,R0			; save current window as offset from start
- BL claim_list_block		; claim wimp block (moving wimp_list)
- FNRTS VS
- FNSTR R0,wind_list
- FNSTR R1,wind_num
- ADD R7,R0,R8			; source window
- MOV R1,R7			; source
- MOV R8,R2			; dest window
- MOV R3,#wind_blk		; number of bytes in block
- SWI XZapRedraw_MoveBytes	; BL move_bytes		; copy block
- BL claim_window_buffers
- MOVVC R0,#0                    ; we don't have a font yet -
- STRVC R0,[R8,#w_font]		; correct_wind_blk will find it.
- ADDVC R0,R7,#w_mode0
- BLVC copy_mode_buffers		; do the mode words
- LDRVC R0,[R7,#w_modedata]	; source block
- BLVC create_modedata
- STRVC R0,[R8,#w_modedata]	; block copied
- BLVC create_title		; create title
- BLVC correct_wind_blk		; correct height/width etc & null cache
- FNLDR R1,wimp_block,VC
- ADDVC R1,R1,#4
- BLVC create_window		; create window
- BLVC new_wind_params		; fill in posn/scroll offsets
- SWIVC XWimp_CreateWindow
-; FNRTS VS
- SUBVC R1,R1,#4
- STRVC R0,[R1]			; save window handle
- STRVC R0,[R8,#w_handle]
- LDRVC R0,[R7,#w_scrollx]
- STRVC R0,[R1,#w_scrollx]
- LDRVC R0,[R7,#w_scrolly]
- STRVC R0,[R1,#w_scrolly]
- BLVC reflect_window		; open window & redraw title
-; FNRTS VS
-ne3
- BLVC new_file_title		; update titles for new number of windows
- FNRTS
+	FNJSR	"R1-R3,R7"
+
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	MOV	R1,R0
+	BL	get_wind_off
+	SYSLOGF "new_view on window %8x (%0d) file %9x (%1d)", LOG_WINDOW
+	PULL	"R0"
+	]
+
+	TEQ	R8,#0
+	BNE	ne2			; clone
+	BL	create_window_block
+	BVC	ne3
+	FNRTS
+
+ne2	FNLDR	R0,wind_list
+	FNLDR	R1,wind_num
+	MOV	R2,#wind_blk
+	SUB	R8,R8,R0		; save current window as offset from start
+	BL	claim_list_block	; claim wimp block (moving wimp_list)
+	FNRTS	VS
+	FNSTR	R0,wind_list
+	FNSTR	R1,wind_num
+	ADD	R7,R0,R8		; source window
+	MOV	R1,R7			; source
+	MOV	R8,R2			; dest window
+	MOV	R3,#wind_blk		; number of bytes in block
+	SWI	XZapRedraw_MoveBytes	; BL move_bytes		; copy block
+	BL	claim_window_buffers
+	MOVVC	R0,#0			; we don't have a font yet -
+	STRVC	R0,[R8,#w_font]		; correct_wind_blk will find it.
+	ADDVC	R0,R7,#w_mode0
+	BLVC	copy_mode_buffers	; do the mode words
+	LDRVC	R0,[R7,#w_modedata]	; source block
+	BLVC	create_modedata
+	STRVC	R0,[R8,#w_modedata]	; block copied
+	BLVC	create_title		; create title
+	BLVC	correct_wind_blk	; correct height/width etc & null cache
+	FNLDR	R1,wimp_block,VC
+	ADDVC	R1,R1,#4
+	BLVC	create_window		; create window
+	BLVC	new_wind_params		; fill in posn/scroll offsets
+	SWIVC	XWimp_CreateWindow
+	SUBVC	R1,R1,#4
+	STRVC	R0,[R1]			; save window handle
+	STRVC	R0,[R8,#w_handle]
+	LDRVC	R0,[R7,#w_scrollx]
+	STRVC	R0,[R1,#w_scrollx]
+	LDRVC	R0,[R7,#w_scrolly]
+	STRVC	R0,[R1,#w_scrolly]
+	BLVC	reflect_window		; open window & redraw title
+
+ne3	BLVC	new_file_title		; update titles for new number of windows
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create window blocks					;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R9
 ;X R8=wind blk and new window list block created and opened #
@@ -171,365 +174,333 @@ ne3
 ;  Cursor is not given to the window.
 ;  NB any new blocks added to this must be handled by new_view
 ;     as well.
- FNAME create_window_block
+	FNAME	create_window_block
 create_window_block
- FNJSR "R1-R3,R7"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- SYSLOGF "create_window_block for file %9x (%1d)", LOG_WINDOW
- PULL "R0"
- ]
- BL check_scn_valid		; may be needed if zr not loaded yet...
- ;BL get_mode_0Box
- ;BL create_leaf_window
- FNLDR R0,wind_list
- FNLDR R1,wind_num
- MOV R2,#wind_blk
- BL claim_list_block		; claim wimp block
- FNRTS VS
- FNSTR R0,wind_list
- FNSTR R1,wind_num
- MOV R8,R2			; pointer to wind block
- MOV R0,#1
- STR R0,[R8,#w_handle]		; this window exists for choose mode etc
- FNLDR R0,file_list
- SUB R0,R9,R0
- MOV R0,R0,LSR#f_shift
- STR R0,[R8,#w_file]		; file offset
- MOV R0,#0
- STR R0,[R8,#w_dsafontname]	; use default fonts
- STR R0,[R8,#w_vdufontname]	;
- STR R0,[R8,#w_vdufontsize]	;
- FNLDR R0,opt_format
- LDR R14,ext2$l
- AND R0,R0,R14
- STR R0,[R8,#w_format]
- FNLDR R0,opt_info
- LDR R14,ext3$l
- AND R0,R0,R14
- ORR R0,R0,#bit_nosubstyles
- STR R0,[R8,#w_info]
- FNLDR R0,opt_tab
- STR R0,[R8,#w_tab]
- FNLDR R0,opt_linesp
- STR R0,[R8,#w_linesp]
- FNLDR R0,opt_cr
- STR R0,[R8,#w_cr]
- FNLDR R0,opt_mwidth
- STR R0,[R8,#w_mwidth]
- FNLDR R0,opt_tabchar
- STR R0,[R8,#w_tabchar]
- FNLDR R0,opt_addr
- STR R0,[R8,#w_addr]
- FNLDR R0,opt_stline
- STR R0,[R8,#w_stline]
- FNLDR R0,opt_wrapwidth
- STR R0,[R8,#w_wrapwidth]
- FNLDR R0,opt_flags
- LDR R1,ext1$l
- AND R0,R0,R1			; get bits valid for a window
-; MOV R0,#0 ;????????????????????????????????????????????????????????
- STR R0,[R8,#w_flags]
- ADD R0,R12,#opt_modebase
- BL copy_mode_buffers
- BLVC claim_window_buffers	; claim mode data block
- BVS err$l
- FNLDR R0,opt_modedata		; R0=source options
- BL create_modedata		; R0=created mode data block
- STRVC R0,[R8,#w_modedata]	; save R0 window options
- BLVC find_font			; get font handle for redraw
- BLVC choose_mode_format	; load mode and call e_init (needs opts)
- MOVVC R7,R0			; R7=wimp_modelist block returned
- BLVC create_title		; create title
- BLVC call_correct_wind_blk		; correct height/width/font etc
- BVS err$l
- FNLDR R1,wimp_block
- ADD R1,R1,#4
- BL create_window		; create window
- BLVC new_wind_params		; fill in posn/scroll offsets
- SWIVC XWimp_CreateWindow
- BVS err$l			; window exists after this point
- SUB R1,R1,#4
- STR R0,[R1]			; save winodow handle
- STR R0,[R8,#w_handle]
- BL reflect_window		; open window & redraw title
- MOVVC R0,#0
- STRVC R0,[R8,#w_poff]
- BLVC offset_line_column	; convert to x,y for point cursor
-; FNRTS VS
- STRVC R0,[R8,#w_ploff]
- STRVC R1,[R8,#w_pwidth]
- STRVC R2,[R8,#w_pcol]
- STRVC R3,[R8,#w_pline]
- MOVVC R0,#0
- BLVC insert_marker		; add marker for this window
- ;BL execute_initial_commands
- MOVVC R0,R7			; return modelist block ptr
- FNRTS
-err$l				; V flag set and R0=error
- MOV R14,#-1
- STR R14,[R8,#w_handle]		; the window no longer exists - see start
- FNRTS
-ext1$l DCD wflags_mask
-ext2$l DCD wformat_mask:OR:(1<<31)	; allow mode forcing here
-ext3$l DCD winfo_mask			; allow mode forcing here
+	FNJSR	"R1-R3,R7"
 
- ALIGN
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	SYSLOGF "create_window_block for file %9x (%1d)", LOG_WINDOW
+	PULL	"R0"
+	]
 
-;;E R8=window block being set up (eg new creation/new view)
-;;  R7 = pointer to wimp_modelistblk TT
-;
-;execute_initial_commands
-; FNRJSR
-; MOV R0,R7
-; FNcall Zap_CommandString
-; FNRTS
+	BL	check_scn_valid		; may be needed if zr not loaded yet...
+	FNLDR	R0,wind_list
+	FNLDR	R1,wind_num
+	MOV	R2,#wind_blk
+	BL	claim_list_block	; claim wimp block
+	FNRTS	VS
+	FNSTR	R0,wind_list
+	FNSTR	R1,wind_num
+	MOV	R8,R2			; pointer to wind block
+	MOV	R0,#1
+	STR	R0,[R8,#w_handle]	; this window exists for choose mode etc
+	FNLDR	R0,file_list
+	SUB	R0,R9,R0
+	MOV	R0,R0,LSR#f_shift
+	STR	R0,[R8,#w_file]		; file offset
+	MOV	R0,#0
+	STR	R0,[R8,#w_dsafontname]  ; use default fonts
+	STR	R0,[R8,#w_vdufontname]
+	STR	R0,[R8,#w_vdufontsize]
+	FNLDR	R0,opt_format
+	LDR	R14,ext2$l
+	AND	R0,R0,R14
+	STR	R0,[R8,#w_format]
+	FNLDR	R0,opt_info
+	LDR	R14,ext3$l
+	AND	R0,R0,R14
+	ORR	R0,R0,#bit_nosubstyles
+	STR	R0,[R8,#w_info]
+	FNLDR	R0,opt_tab
+	STR	R0,[R8,#w_tab]
+	FNLDR	R0,opt_linesp
+	STR	R0,[R8,#w_linesp]
+	FNLDR	R0,opt_cr
+	STR	R0,[R8,#w_cr]
+	FNLDR	R0,opt_mwidth
+	STR	R0,[R8,#w_mwidth]
+	FNLDR	R0,opt_tabchar
+	STR	R0,[R8,#w_tabchar]
+	FNLDR	R0,opt_addr
+	STR	R0,[R8,#w_addr]
+	FNLDR	R0,opt_stline
+	STR	R0,[R8,#w_stline]
+	FNLDR	R0,opt_wrapwidth
+	STR	R0,[R8,#w_wrapwidth]
+	FNLDR	R0,opt_flags
+	LDR	R1,ext1$l
+	AND	R0,R0,R1		; get bits valid for a window
+	STR	R0,[R8,#w_flags]
+	ADD	R0,R12,#opt_modebase
+	BL	copy_mode_buffers
+	BLVC	claim_window_buffers	; claim mode data block
+	BVS	err$l
+	FNLDR	R0,opt_modedata		; R0=source options
+	BL	create_modedata		; R0=created mode data block
+	STRVC	R0,[R8,#w_modedata]	; save R0 window options
+	BLVC	find_font		; get font handle for redraw
+	BLVC	choose_mode_format	; load mode and call e_init (needs opts)
+	MOVVC	R7,R0			; R7=wimp_modelist block returned
+	BLVC	create_title		; create title
+	BLVC	call_correct_wind_blk	; correct height/width/font etc
+	BVS	err$l
+	FNLDR	R1,wimp_block
+	ADD	R1,R1,#4
+	BL	create_window		; create window
+	BLVC	new_wind_params		; fill in posn/scroll offsets
+	SWIVC	XWimp_CreateWindow
+	BVS	err$l			; window exists after this point
+	SUB	R1,R1,#4
+	STR	R0,[R1]			; save winodow handle
+	STR	R0,[R8,#w_handle]
+	BL	reflect_window		; open window & redraw title
+	MOVVC	R0,#0
+	STRVC	R0,[R8,#w_poff]
+	BLVC	offset_line_column	; convert to x,y for point cursor
+	STRVC	R0,[R8,#w_ploff]
+	STRVC	R1,[R8,#w_pwidth]
+	STRVC	R2,[R8,#w_pcol]
+	STRVC	R3,[R8,#w_pline]
+	MOVVC	R0,#0
+	BLVC	insert_marker		; add marker for this window
+	MOVVC	R0,R7			; return modelist block ptr
+	FNRTS
+
+err$l	MOV	R14,#-1			; V flag set and R0=error
+	STR	R14,[R8,#w_handle]	; the window no longer exists - see start
+	FNRTS
+
+ext1$l  DCD	wflags_mask
+ext2$l  DCD	wformat_mask:OR:(1<<31) ; allow mode forcing here
+ext3$l  DCD	winfo_mask		; allow mode forcing here
+
 
 ;E R8=window block being set up (eg new creation/new view)
 ;X All buffers (eg cache/title/palette) claimed #
 ;  Window specific set up - w_pwind
- FNAME claim_window_buffers
+	FNAME	claim_window_buffers
 claim_window_buffers
- FNJSR
- BL get_wind_off
- SYSLOGF "claim_window_buffers for window %8x (%0d)", LOG_WINDOW
- STRVC R0,[R8,#w_pwind]		; window offset of point caret
- MOVVC R0,#0
- BLVC heap_claim		; claim cache
- STRVC R0,[R8,#w_txt]
- MOVVC R0,#&100
- BLVC heap_claim		; claim titlebar buffer
- STRVC R0,[R8,#w_title]
- MOVVC R0,#&100
- BLVC heap_claim		; claim reflected title buffer
- STRVC R0,[R8,#w_titbuf]
- MOVVC R0,#&40
- BLVC heap_claim		; claim palette block (default 16 cols)
- STRVC R0,[R8,#w_palette]
- FNRTS
+	FNJSR
+	BL	get_wind_off
+	SYSLOGF "claim_window_buffers for window %8x (%0d)", LOG_WINDOW
+	STRVC	R0,[R8,#w_pwind]	; window offset of point caret
+	MOVVC	R0,#0
+	BLVC	heap_claim		; claim cache
+	STRVC	R0,[R8,#w_txt]
+	MOVVC	R0,#&100
+	BLVC	heap_claim		; claim titlebar buffer
+	STRVC	R0,[R8,#w_title]
+	MOVVC	R0,#&100
+	BLVC	heap_claim		; claim reflected title buffer
+	STRVC	R0,[R8,#w_titbuf]
+	MOVVC	R0,#&40
+	BLVC	heap_claim		; claim palette block (default 16 cols)
+	STRVC	R0,[R8,#w_palette]
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=source mode word pointers (opt/w on a newview)
 ;  R8=window to copy to.
 ;X Mode word pointers copied & buffers claimed if nec.
- FNAME copy_mode_buffers
+	FNAME	copy_mode_buffers
 copy_mode_buffers
- FNJSR "R1-R2"
- MOV R1,R0			; save source
- MOV R2,#0			; current mode
-loop$l
- MOV R0,R2
- BL copy_a_mode_buffer
- FNRTS VS
- ADD R2,R2,#1
- CMP R2,#max_mode
- BCC loop$l
- FNRTS
+	FNJSR	"R1-R2"
+	MOV	R1,R0			; save source
+	MOV	R2,#0			; current mode
+loop$l	MOV	R0,R2
+	BL	copy_a_mode_buffer
+	FNRTS	VS
+	ADD	R2,R2,#1
+	CMP	R2,#max_mode
+	BCC	loop$l
+	FNRTS
+
 
 ;E R1=source mode word pointers (R12+opt_mode0 or R8+w_mode0)
 ;  R0=mode R8=window to copy to.
 ;X If mode valid then block copied #
- FNAME copy_a_mode_buffer
+	FNAME	copy_a_mode_buffer
 copy_a_mode_buffer
- FNJSR "R1-R5"
- LDR R4,[R1,R0,LSL#2]		; mode word
- ADD R5,R8,#w_mode0
- ADD R5,R5,R0,LSL#2		; destination mode word address
- BL read_mode			; R1=linked table
- CMP R1,#0
- FNRTS LE			; not valid
- LDR R0,[R1,#e_mode*2]
- TST R0,#emode_ModeWordIsBlock
- STREQ R4,[R5]
- FNRTS EQ			; finished - it was a single word
- MOV R1,R4			; source block
- LDR R0,[R1]			; block length
- MOV R3,R0			; save
- BL heap_claim
- STRVC R0,[R5]
- MOVVC R2,R0
- SWIVC XZapRedraw_MoveBytes ; BL move_bytes			; copy
- FNRTS
+	FNJSR	"R1-R5"
+	LDR	R4,[R1,R0,LSL#2]	; mode word
+	ADD	R5,R8,#w_mode0
+	ADD	R5,R5,R0,LSL#2		; destination mode word address
+	BL	read_mode		; R1=linked table
+	CMP	R1,#0
+	FNRTS	LE			; not valid
+	LDR	R0,[R1,#e_mode*2]
+	TST	R0,#emode_ModeWordIsBlock
+	STREQ	R4,[R5]
+	FNRTS	EQ			; finished - it was a single word
+	MOV	R1,R4			; source block
+	LDR	R0,[R1]			; block length
+	MOV	R3,R0			; save
+	BL	heap_claim
+	STRVC	R0,[R5]
+	MOVVC	R2,R0
+	SWIVC	XZapRedraw_MoveBytes	; BL move_bytes			; copy
+	FNRTS
+
 
 ;E R1=buffer for defn R8
 ;X window defn block created from handle infront+ #
- FNAME create_window
+	FNAME	create_window
 create_window
- FNJSR "R2-R3,R7"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- SYSLOGF "create_window for wind %8x (%0d) into buffer at %1x", LOG_WINDOW
- PULL "R0"
- ]
- BL get_mode_0Box
- LDR R3,[R7]
- ADD R3,R3,#20			; was 24
+	FNJSR	"R2-R3,R7"
 
- ;BL make_window_mode_0
- ;MVN R14,#0
- ;STR R14,[R3]
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	SYSLOGF "create_window for wind %8x (%0d) into buffer at %1x", LOG_WINDOW
+	PULL	"R0"
+	]
 
- ;LDR R3,[R7,#8]
- ;ADR R3,window_defn
- MOV R14,#-1			; at back of stack
- STR R14,[R3,#4]		; window flags
- MOV R2,#20			; was 24
+	BL	get_mode_0Box
+	LDR	R3,[R7]
+	ADD	R3,R3,#20		; was 24
+	MOV	R14,#-1			; at back of stack
+	STR	R14,[R3,#4]		; window flags
+	MOV	R2,#20			; was 24
 create_w1
- LDR R0,[R3],#4
- STR R0,[R1,R2]
- ADD R2,R2,#4
- CMP R2,#88
- BCC create_w1			; copy locs 24 -> 88 of window defn
- FNLDR R0,wimp_leftgap
- ;MOV R0,#0			; fix : TT.
- RSB R0,R0,#0
- STR R0,[R1,#40]		; min x
- BL ccd_workxy
- STR R2,[R1,#48]		; max x
- STR R3,[R1,#44]		; min y
- LDR R0,[R8,#w_titbuf]		; buffer for reflected title
- STR R0,[R1,#72]		; indirected buffer pointer
- LDR R0,[R8,#w_titlelen]
- ADD R0,R0,#1
- STR R0,[R1,#80]		; buffer length
- FNRTS
+	LDR	R0,[R3],#4
+	STR	R0,[R1,R2]
+	ADD	R2,R2,#4
+	CMP	R2,#88
+	BCC	create_w1		; copy locs 24 -> 88 of window defn
+	FNLDR	R0,wimp_leftgap
+	RSB	R0,R0,#0
+	STR	R0,[R1,#40]		; min x
+	BL	ccd_workxy
+	STR	R2,[R1,#48]		; max x
+	STR	R3,[R1,#44]		; min y
+	LDR	R0,[R8,#w_titbuf]	; buffer for reflected title
+	STR	R0,[R1,#72]		; indirected buffer pointer
+	LDR	R0,[R8,#w_titlelen]
+	ADD	R0,R0,#1
+	STR	R0,[R1,#80]		; buffer length
+	FNRTS
 
-;window_defn
-; DCD -1			; handle to open window behind
-; DCD &FF000102			; window flags
-; DCD &FF070207			; work area colours
-; DCD &000C0103			; scroll bar colours
-; DCD 0
-; DCD 0
-; DCD 0
-; DCD 0				; work area size
-; DCD &2700613D			; title bar flags
-; DCD &00006000			; button type (click/drag)
-; DCD 1				; sprite area
-; DCW 1
-; DCW 1				; min width of window
-; DCD 0				; title pointer
-; DCD 0				; title validation str
-; DCD 0				; buffer length
-; DCD 0				; number of icons
 
 ;E R8/R9
 ;X new w_ vals set from user required vals and cache nulled #
-
-
 call_correct_wind_blk
- LDR R0,local_nws_correctflags
- ORR R0,R0,#1<<3		; allow auto width to set new width
- STR R0,local_nws_correctflags
- B correct_wind_blk
+	LDR	R0,local_nws_correctflags
+	ORR	R0,R0,#1<<3		; allow auto width to set new width
+	STR	R0,local_nws_correctflags
+	B	correct_wind_blk
 
- FNAME correct_wind_blk
+
+	FNAME	correct_wind_blk
 correct_wind_blk
- FNJSR
- LDR R0,[R8,#w_format]
- TST R0,#&3000
- LDREQ R0,[R8,#w_cr]
- LDRNE R0,[R8,#w_tabchar]
- STR R0,[R8,#w_tabc]		; correct tab character
- MOV R0,#0
- STR R0,[R8,#w_txth]		; invalidate cache
- STR R0,[R8,#w_txtn]
- STR R0,[R8,#w_coff]
- STR R0,[R8,#w_cline]
- STR R0,[R8,#w_clogl]
- BL correct_font
- FNRTS VS
- LDR R14,local_nws_correctflags
- TST R14,#1
- BLEQ correct_width
- FNRTS VS
- LDR R14,local_nws_correctflags
- TST R14,#1<<3
- BLNE set_new_correct_width
- LDRVC R0,[R8,#w_width]		; get width
- ADDVC R0,R0,#1			; add for few pixs on right
- ADDVC R0,R0,#7
- BICVC R0,R0,#7			; align to next lot of 8
- STRVC R0,[R8,#w_txtw]		; find new cache line width
- ;ADD R14,R0,R0,LSL#1		; *3 for colour masks
- MOVVC R14,R0,LSL #2
- STRVC R14,[R8,#w_txtlen]	; actual line length
- BLVC find_work_height		; find new height
- STRVC R0,[R8,#w_height]	; save work height
- BLVC create_palette		; load mode palette
- FNRTS
+	FNJSR
+	LDR	R0,[R8,#w_format]
+	TST	R0,#&3000
+	LDREQ	R0,[R8,#w_cr]
+	LDRNE	R0,[R8,#w_tabchar]
+	STR	R0,[R8,#w_tabc]		; correct tab character
+	MOV	R0,#0
+	STR	R0,[R8,#w_txth]		; invalidate cache
+	STR	R0,[R8,#w_txtn]
+	STR	R0,[R8,#w_coff]
+	STR	R0,[R8,#w_cline]
+	STR	R0,[R8,#w_clogl]
+	BL	correct_font
+	FNRTS	VS
+	LDR	R14,local_nws_correctflags
+	TST	R14,#1
+	BLEQ	correct_width
+	FNRTS	VS
+	LDR	R14,local_nws_correctflags
+	TST	R14,#1<<3
+	BLNE	set_new_correct_width
+	LDRVC	R0,[R8,#w_width]	; get width
+	ADDVC	R0,R0,#1		; add for few pixs on right
+	ADDVC	R0,R0,#7
+	BICVC	R0,R0,#7		; align to next lot of 8
+	STRVC	R0,[R8,#w_txtw]		; find new cache line width
+	MOVVC	R14,R0,LSL #2
+	STRVC	R14,[R8,#w_txtlen]	; actual line length
+	BLVC	find_work_height	; find new height
+	STRVC	R0,[R8,#w_height]	; save work height
+	BLVC	create_palette		; load mode palette
+	FNRTS
+
 
 ;E R0=0,1,2 for open/reopen/reflect and R1=window blk R8
 ;  R0=3,4 to put at front/back of stack
 ;  R0=5 constrict...
 ;X Window opened
- FNAME open_a_window
+	FNAME	open_a_window
 open_a_window
- TEQ R0,#0
- BEQ open_window
- TEQ R0,#1
- BEQ reopen_window		; reopen_window
- TEQ R0,#2
- BEQ reflect_window
- TEQ R0,#5
- BEQ open_window_constrict ; open_window_constrict
- FNJSR "R1-R2"
- MOV R2,R0
- MOV R1,R8
- SWI XWimp_GetWindowState
- FNRTS VS
- TEQ R2,#3
- MVNEQ R0,#0			; -1=front ; ???????????????
- MVNNE R0,#1			; -2=back
- STR R0,[R8,#w_infront]
- MOV R1,R8
- BL open_window
- FNRTS
+	TEQ	R0,#0
+	BEQ	open_window
+	TEQ	R0,#1
+	BEQ	reopen_window		; reopen_window
+	TEQ	R0,#2
+	BEQ	reflect_window
+	TEQ	R0,#5
+	BEQ	open_window_constrict	; open_window_constrict
+	FNJSR	"R1-R2"
+	MOV	R2,R0
+	MOV	R1,R8
+	SWI	XWimp_GetWindowState
+	FNRTS	VS
+	TEQ	R2,#3
+	MVNEQ	R0,#0			; -1=front ; ???????????????
+	MVNNE	R0,#1			; -2=back
+	STR	R0,[R8,#w_infront]
+	MOV	R1,R8
+	BL	open_window
+	FNRTS
+
 
 ;E R1=open block R8
 ;X data copied to R8 (if NE) and window opened #
 ;  You should only use this call is window posn/size not changing
 ;  Use reopen_window if position/size changing
 ;  Use reflect_window if opening a new window
- FNAME open_window_constrict
+	FNAME	open_window_constrict
 open_window_constrict
- FNJSR "R11"
- BL open_window
- FNRTS VS
- FNLDR R0,opt_switches
- TST R0,#switch_ConfineCursor
- FNRTS EQ			; cursor not confined
- MOV R0,#22
- MOV R11,#e_interrogate
- BL call_mode
- CMP R0,#0
- FNRTS EQ			; it's a taskwindow, or summat...
- BL get_wind_off		; R0=current window offset
- FNLDR R14,car_cursor		; cursor caret
- LDR R14,[R14,#c_wind]		; window of cursor caret
- TEQ R0,R14
- BLEQ constrict_cursor		; put cursor in the window
- FNRTS
+	FNJSR	"R11"
+	BL	open_window
+	FNRTS	VS
+	FNLDR	R0,opt_switches
+	TST	R0,#switch_ConfineCursor
+	FNRTS	EQ			; cursor not confined
+	MOV	R0,#22
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	CMP	R0,#0
+	FNRTS	EQ			; it's a taskwindow, or summat...
+	BL	get_wind_off		; R0=current window offset
+	FNLDR	R14,car_cursor		; cursor caret
+	LDR	R14,[R14,#c_wind]	; window of cursor caret
+	TEQ	R0,R14
+	BLEQ	constrict_cursor	; put cursor in the window
+	FNRTS
 
 	LOCAL
 
+
 ;E R1=open block R8
 ;X Just calls wimp open window (copying the data) #
- FNAME open_window
+	FNAME	open_window
 open_window
- FNJSR "R1-R5"
- TEQ R1,R8			; is wind blk being used?
- LDMNEIB R1,{R0-R5,R14}	; !!! Unmatched return LDM
- STMNEIB R8,{R0-R5,R14}		; transfer open window vals
- BL hscroll_fiddle
- MOV R1,R8
- SWI XWimp_OpenWindow
- MOV R1,#6
- BL issue_service
- FNRTS
+	FNJSR	"R1-R5"
+	TEQ	R1,R8			; is wind blk being used?
+	LDMNEIB R1,{R0-R5,R14}		; !!! Unmatched return LDM
+	STMNEIB R8,{R0-R5,R14}		; transfer open window vals
+	BL	hscroll_fiddle
+	MOV	R1,R8
+	SWI	XWimp_OpenWindow
+	MOV	R1,#6
+	BL	issue_service
+	FNRTS
+
 
 	FNAME	hscroll_fiddle
 hscroll_fiddle
@@ -574,15 +545,17 @@ gotopt$l
 	BNE	leave_height$l
 	LDR	R14,[R8,#8]
 	TST	R11,#1<<30
-	ADDNE	R14,R14,#38	; hard-wired scrollbar height :-|
+	ADDNE	R14,R14,#38		; hard-wired scrollbar height :-|
 	SUBEQ	R14,R14,#38
 	STR	R14,[R8,#8]
 leave_height$l
 	LDR	R2,task$l
 	ORR	R4,R4,#1
-	FNRTS			; with R2-R4 set up
-task$l	=	"TASK"
-stdflags$l &	&FF000102	; if your Main window flags don't match, :-þ
+	FNRTS				; with R2-R4 set up
+
+task$l		=	"TASK"
+stdflags$l	&	&FF000102	; if your Main window flags don't match, :-þ
+
 oldwimp$l
 	TST	R1,#bit_hscroll
 	TSTNE	R0,#bit_windowwrap
@@ -606,7 +579,7 @@ oldwimp$l
 	BNE	leave_height_old$l
 	LDR	R4,[R8,#8]
 	TST	R3,#1<<30
-	ADDNE	R4,R4,#38	; hard-wired scrollbar height :-|
+	ADDNE	R4,R4,#38		; hard-wired scrollbar height :-|
 	SUBEQ	R4,R4,#38
 	STR	R4,[R8,#8]
 leave_height_old$l
@@ -622,589 +595,536 @@ leave_height_old$l
 
 ;E R1=open block R8
 ;X window opened at new posn and all titles etc taken care of #
- FNAME reopen_window
+	FNAME	reopen_window
 reopen_window
- FNJSR "R11"
- ;SWI &107
- BL should_the_window_wrap
-; LDR R14,[R8,#w_format]
-; ANDS R14,R14,#bit_windowwrap
- BLNE preprocesswindowwrap
- MOV R0,#0
- MOV R11,#e_openwindow
- BL call_mode
- BLVC reopen_minibuffer
- BLVC open_window_constrict
- BVC reopen_window_common
- FNRTS
+	FNJSR	"R11"
+	BL	should_the_window_wrap
+	BLNE	preprocesswindowwrap
+	MOV	R0,#0
+	MOV	R11,#e_openwindow
+	BL	call_mode
+	BLVC	reopen_minibuffer
+	BLVC	open_window_constrict
+	BVC	reopen_window_common
+	FNRTS
 
- FNAME reopen_window_noconstriction
+
+	FNAME	reopen_window_noconstriction
 reopen_window_noconstriction
- FNJSR "R11" ; *must* be same as for reopen_window
- BL should_the_window_wrap
-; LDR R14,[R8,#w_format]
-; ANDS R14,R14,#bit_windowwrap
- BLNE preprocesswindowwrap
- MOV R0,#0
- MOV R11,#e_openwindow
- BL call_mode
- BLVC reopen_minibuffer
- BLVC open_window
+	FNJSR	"R11"			; *must* be same as for reopen_window
+	BL	should_the_window_wrap
+	BLNE	preprocesswindowwrap
+	MOV	R0,#0
+	MOV	R11,#e_openwindow
+	BL	call_mode
+	BLVC	reopen_minibuffer
+	BLVC	open_window
 reopen_window_common
- BLVC update_wind_state		; read values at R8
- FNRTS VS
- BL should_the_window_wrap
-; LDR R14,[R8,#w_format]
-; ANDS R14,R14,#bit_windowwrap
- BLNE postprocesswindowwrap
- MOV R0,#1
- MOV R11,#e_openwindow
- BL call_mode
- BLVC reflect_title		; don't redraw for moves
- FNRTS VS
- LDR R0,[R8,#w_windowflags]
- TST R0,#1<<18
- BLEQ reflect_toggle		; save toggle size if need be
- FNRTS
+	BLVC	update_wind_state	; read values at R8
+	FNRTS	VS
+	BL	should_the_window_wrap
+	BLNE	postprocesswindowwrap
+	MOV	R0,#1
+	MOV	R11,#e_openwindow
+	BL	call_mode
+	BLVC	reflect_title		; don't redraw for moves
+	FNRTS	VS
+	LDR	R0,[R8,#w_windowflags]
+	TST	R0,#1<<18
+	BLEQ	reflect_toggle		; save toggle size if need be
+	FNRTS
 
- FNAME preprocesswindowwrap
+
+	FNAME	preprocesswindowwrap
 preprocesswindowwrap
- FNJSR "R0-R12"
- MOV R0,#1
- MOV R11,#e_interrogate
- BL call_mode
- CMP R0,#1
- MOVEQ R0,#0
- BLEQ ww_openwindow
- FNRTS
+	FNJSR	"R0-R12"
+	MOV	R0,#1
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	CMP	R0,#1
+	MOVEQ	R0,#0
+	BLEQ	ww_openwindow
+	FNRTS
 
- FNAME postprocesswindowwrap
+
+	FNAME	postprocesswindowwrap
 postprocesswindowwrap
- FNJSR "R0-R12"
- MOV R0,#1
- MOV R11,#e_interrogate
- BL call_mode
- CMP R0,#1
- MOVEQ R0,#1
- BLEQ ww_openwindow
- FNRTS
+	FNJSR	"R0-R12"
+	MOV	R0,#1
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	CMP	R0,#1
+	MOVEQ	R0,#1
+	BLEQ	ww_openwindow
+	FNRTS
 
-R8tmp
- DCD 0
-
-R9tmp
- DCD 0
-
-tmpr2
- DCD 0
-
-tmpr0a
- DCD 0
-
+R8tmp	DCD	0
+R9tmp	DCD	0
+tmpr2	DCD	0
+tmpr0a	DCD	0
 cmdtypeStore
- DCD 0
-
+	DCD	0
 openatbottom
- DCD 0
-
+	DCD	0
 oldwindowdata
- DCD 0
- DCD 0
- DCD 0
- DCD 0
- DCD 0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
 
 reductionattempted
- SUB	 R3,R3,#1
- STR	 R3,notreentrant
- ;SWI &107
- FNRTS
+	SUB	R3,R3,#1
+	STR	R3,notreentrant
+	FNRTS
 
 callclnoff
- FNJSR
- LDR	 R0,[R9,#f_len]
- BL	 notcustomclnoff2
- FNRTS
+	FNJSR
+	LDR	R0,[R9,#f_len]
+	BL	notcustomclnoff2
+	FNRTS
 
- FNAME getverticalposition
+
+	FNAME	getverticalposition
 getverticalposition
- FNJSR	 "R1-R9"
- MVN	 R0,#0
- MOV	 R1,#5
- SWI	 XOS_ReadModeVariable
- MOV	 R7,R2
- STR	 R7,storedyeigenf
+	FNJSR	"R1-R9"
+	MVN	R0,#0
+	MOV	R1,#5
+	SWI	XOS_ReadModeVariable
+	MOV	R7,R2
+	STR	R7,storedyeigenf
 
- LDR	 R0,[R8,#w_scrolly]
- RSB	 R0,R0,#0
- MOV	 R0,R0,ASR R7
- MOV	 R5,R0
- LDR	 R1,[R8,#w_rl]
- SWI XZapRedraw_Divide ; BL div_mod
-; DIVIDE  R1,R2,R0,R3
-
- LDR	 R2,[R8,#w_rl]
- MUL	 R1,R0,R2
-
- SUB	 R3,R5,R1
- STR	 R3,additionalpix
-
- BL	 notcustomclnphy
- STR	 R0,phyoffslinestart
-
- FNRTS
+	LDR	R0,[R8,#w_scrolly]
+	RSB	R0,R0,#0
+	MOV	R0,R0,ASR R7
+	MOV	R5,R0
+	LDR	R1,[R8,#w_rl]
+	SWI	XZapRedraw_Divide	; BL div_mod
+	LDR	R2,[R8,#w_rl]
+	MUL	R1,R0,R2
+	SUB	R3,R5,R1
+	STR	R3,additionalpix
+	BL	notcustomclnphy
+	STR	R0,phyoffslinestart
+	FNRTS
 
 notcustomclnphy
- FNJSR
- MOV	 R11,#e_clnphy
- BL	 call_mode
- FNRTS
+	FNJSR
+	MOV	R11,#e_clnphy
+	BL	call_mode
+	FNRTS
 
- FNAME setverticalposition
+
+	FNAME	setverticalposition
 setverticalposition
- FNJSR	 "R1-R9"
- LDR	 R0,phyoffslinestart
-
- BL	 notcustomclnoff2
-
- LDR	 R1,[R8,#w_rl]
- MUL	 R1,R0,R1
- LDR	 R3,additionalpix
- ADD	 R1,R1,R3
- LDR	 R7,storedyeigenf
- MOV	 R1,R1,LSL R7
-
- RSB	 R0,R1,#0
- FNRTS
+	FNJSR	"R1-R9"
+	LDR	R0,phyoffslinestart
+	BL	notcustomclnoff2
+	LDR	R1,[R8,#w_rl]
+	MUL	R1,R0,R1
+	LDR	R3,additionalpix
+	ADD	R1,R1,R3
+	LDR	R7,storedyeigenf
+	MOV	R1,R1,LSL R7
+	RSB	R0,R1,#0
+	FNRTS
 
 notcustomclnoff2
- FNJSR
- MOV	 R11,#e_clnoff
- BL	 call_mode
- FNRTS
+	FNJSR
+	MOV	R11,#e_clnoff
+	BL	call_mode
+	FNRTS
+
 
 phyoffslinestart
- DCD &0
-
+	DCD	&0
 additionalpix
- DCD &0
-
+	DCD	&0
 storedyeigenf
- DCD &0
-
+	DCD	&0
 onentryto
- DCD &0
+	DCD	&0
 
- FNAME blat_window_wrap_cache
+
+	FNAME	blat_window_wrap_cache
 blat_window_wrap_cache
- TEQ	 R8,#0
- MOVEQ	 PC,R14
- LDR	 R0,oldwindowdata + 12
- ADD	 R0,R0,#&FF00
- STR	 R0,oldwindowdata + 12
- MOV	 PC,R14
+	TEQ	R8,#0
+	MOVEQ	PC,R14
+	LDR	R0,oldwindowdata + 12
+	ADD	R0,R0,#&FF00
+	STR	R0,oldwindowdata + 12
+	MOV	PC,R14
 
- FNAME ww_openwindow
+
+	FNAME	ww_openwindow
 ww_openwindow
- ;MOV PC,R14
- FNJSR	 "R0-R12"
- STR	 R0,onentryto
- MOV	 R7,R1
+	FNJSR	"R0-R12"
+	STR	R0,onentryto
+	MOV	R7,R1
 
- LDR	 R3,notreentrant
- CMP	 R3,#0
- BNE	 reductionattempted
+	LDR	R3,notreentrant
+	CMP	R3,#0
+	BNE	reductionattempted
 
- LDR	 R2,[R8,#w_handle]
- FNLDR	 R1,wimp_block		; use this free (?!) space
- ADD	 R1,R1,#64
- ;ADRL	  R1,aqwktable
- STR	 R2,[R1]
+	LDR	R2,[R8,#w_handle]
+	FNLDR	R1,wimp_block		; use this free (?!) space
+	ADD	R1,R1,#64
+	STR	R2,[R1]
 
- SWI	 XWimp_GetWindowState	; REM problem? no 's OK...
- FNRTS VS
+	SWI	XWimp_GetWindowState	; REM problem? no 's OK...
+	FNRTS	VS
 
- MOV	 R3,#&FF
- STR	 R3,notreentrant
+	MOV	R3,#&FF
+	STR	R3,notreentrant
 
- MOV	 R11,#0
+	MOV	R11,#0
 
- LDR	 R0,[R1,#04]
- LDR	 R2,[R1,#12]
- SUB	 R0,R0,R2
- LDR	 R2,oldwindowdata + 00
- STR	 R0,oldwindowdata + 00
- CMP	 R0,R2
+	LDR	R0,[R1,#04]
+	LDR	R2,[R1,#12]
+	SUB	R0,R0,R2
+	LDR	R2,oldwindowdata + 00
+	STR	R0,oldwindowdata + 00
+	CMP	R0,R2
 
- LDR	 R0,[R1,#08]
- LDR	 R2,[R1,#16]
- SUB	 R0,R0,R2
- LDR	 R2,oldwindowdata + 04
- STR	 R0,oldwindowdata + 04
- CMP	 R0,R2
+	LDR	R0,[R1,#08]
+	LDR	R2,[R1,#16]
+	SUB	R0,R0,R2
+	LDR	R2,oldwindowdata + 04
+	STR	R0,oldwindowdata + 04
+	CMP	R0,R2
 
- LDR	 R0,[R1,#00]
- LDR	 R2,oldwindowdata + 08
- STR	 R0,oldwindowdata + 08
- CMP	 R0,R2
- ORRNE	 R11,R11,#1
+	LDR	R0,[R1,#00]
+	LDR	R2,oldwindowdata + 08
+	STR	R0,oldwindowdata + 08
+	CMP	R0,R2
+	ORRNE	R11,R11,#1
 
- LDR	 R0,[R1,#28]
- LDR	 R2,oldwindowdata + 12
- STR	 R0,oldwindowdata + 12
- CMP	 R0,R2
- ORRNE	 R11,R11,#1
+	LDR	R0,[R1,#28]
+	LDR	R2,oldwindowdata + 12
+	STR	R0,oldwindowdata + 12
+	CMP	R0,R2
+	ORRNE	R11,R11,#1
 
- PUSH	 "R11"
- LDR	 R4,[R1,#4]
- LDR	 R5,[R1,#12]
- SUB	 R4,R5,R4
- FNLDR	 R6,wimp_leftgap
- SUB	 R4,R4,R6
- FNLDR	 R6,wimp_rightgap
- SUB	 R4,R4,R6
- MVN	 R0,#0
- MOV	 R1,#4
- SWI	 XOS_ReadModeVariable
+	PUSH	"R11"
+	LDR	R4,[R1,#4]
+	LDR	R5,[R1,#12]
+	SUB	R4,R5,R4
+	FNLDR	R6,wimp_leftgap
+	SUB	R4,R4,R6
+	FNLDR	R6,wimp_rightgap
+	SUB	R4,R4,R6
+	MVN	R0,#0
+	MOV	R1,#4
+	SWI	XOS_ReadModeVariable
 
- MOV	 R4,R4,LSR R2
+	MOV	R4,R4,LSR R2
 
- LDR	 R6,[R8,#w_mwidth]
- SUB	 R0,R4,R6
+	LDR	R6,[R8,#w_mwidth]
+	SUB	R0,R4,R6
 
+	LDR	R1,[R8,#w_rw]
+	SWI	XZapRedraw_Divide	; BL div_mod
 
- LDR	 R1,[R8,#w_rw]
+	LDR	R6,[R8,#w_margin]
+	SUB	R1,R0,R6
 
- SWI XZapRedraw_Divide ; BL div_mod
+	CMP	R1,#0
+	CMPNE	R1,#&10000
+	MOVCS	R1,#1			; eeeek! put me back!
 
-; DIVIDE  R4,R6,R7,R0
+	MOV	R0,#0
+	MOV	R11,#e_interrogate
+	BL	call_mode
 
- LDR	 R6,[R8,#w_margin]
- SUB	 R1,R0,R6
+	PULL	"R11"
 
- CMP	 R1,#0
- CMPNE	 R1,#&10000
- MOVCS	 R1,#1 ; eeeek! put me back!
+	MOV	R7,R0
+	LDR	R1,oldwindowdata + 16
+	STR	R7,oldwindowdata + 16
 
- MOV	 R0,#0
- MOV	 R11,#e_interrogate
- BL	 call_mode
+	CMP	R1,R7
+	ORRNE	R11,R11,#1
+	STR	R8,tmpwindblk
 
- PULL	 "R11"
+	FNLDR	R0,wimp_leftgap		; TT fix.
+	RSB	R0,R0,#0		; TT fix.
+	STR	R0,[R8,#w_scrollx]
 
- MOV	 R7,R0
- LDR	 R1,oldwindowdata + 16
- STR	 R7,oldwindowdata + 16
+	CMP	R11,#0
+	BEQ	justthesameasever
 
- CMP	 R1,R7
- ORRNE	 R11,R11,#1
- ;ORR	  R11,R11,#1 ;;;;;;;;;;;;;;;;;;;;;;;;?
+	BL	get_wind_off
+	BL	conv_wind_off
 
- STR	 R8,tmpwindblk
+	BL	getverticalposition
 
- FNLDR	 R0,wimp_leftgap	; TT fix.
- RSB	 R0,R0,#0		; TT fix.
- STR	 R0,[R8,#w_scrollx]
+	STR	R7,[R8,#w_bpl]
 
- CMP	 R11,#0
- BEQ	 justthesameasever
- ;SWI	  &107
+	MOV	R7,#0			; blat the cache ;-(
 
- BL get_wind_off
-; FNcall  Zap_GetWindOff,R9
- BL conv_wind_off
-; FNcall  Zap_ConvWindOff,R9
+	STR	R7,[R8,#w_coff]		; REM on
+	STR	R7,[R8,#w_cline]	; REM on
+	STR	R7,[R8,#w_txth]		; invalidate cache
+	STR	R7,[R8,#w_txtn]
+	STR	R7,[R8,#w_coff]
+	STR	R7,[R8,#w_clogl]
 
- BL	 getverticalposition
+	BL	callclnoff
 
- ;PUSH	  "R0"
- ;MOV	  R0,R7
- ;BL	 update_w_bpl
- ;PULL	 "R0"
- STR	 R7,[R8,#w_bpl]
+	LDR	R8,tmpwindblk
 
- MOV	 R7,#0			; blat the cache ;-(
+	ADD	R0,R0,#1
+	STR	R0,[R8,#w_height]
 
-;  STR	   R7,[R8,#w_coff]	; REM on
-;  STR	   R7,[R8,#w_cline]	; REM on
-;  ;STR	    R7,[R8,#w_txth]		; invalidate cache
-;  ;STR	    R7,[R8,#w_txtn]
-;  ;STR	    R7,[R8,#w_coff]
-;  ;STR	    R7,[R8,#w_cline]
-;  STR	   R7,[R8,#w_clogl]
+	MOV	R0,#256
+	BL	heap_claim
+	MOV	R10,R0
+	MOV	R1,R0
 
- STR	 R7,[R8,#w_coff]	; REM on
- STR	 R7,[R8,#w_cline]	; REM on
- STR	 R7,[R8,#w_txth]		; invalidate cache
- STR	 R7,[R8,#w_txtn]
- STR	 R7,[R8,#w_coff]
- STR	 R7,[R8,#w_clogl]
- ; STR	   R7,[R8,#w_txtlen]
+	LDR	R0,[R8,#w_handle]
+	STR	R0,[R1]
 
- BL	 callclnoff
-
- LDR	 R8,tmpwindblk
-
- ADD	 R0,R0,#1
- STR	 R0,[R8,#w_height]
-
- MOV	 R0,#256
- BL heap_claim
-; FNcall  Zap_Claim,R10
- MOV	 R10,R0
- MOV	 R1,R0
-
- LDR	 R0,[R8,#w_handle]
- STR	 R0,[R1]
-
- SWI	 XWimp_GetWindowInfo
+	SWI	XWimp_GetWindowInfo
 updateandchk
- LDR	 R0,onentryto
- CMP	 R0,#1
- BLEQ	 callupdatewindow
+	LDR	R0,onentryto
+	CMP	R0,#1
+	BLEQ	callupdatewindow
 
- MVN	 R0,#0
- MOV	 R1,#12
- SWI	 XOS_ReadModeVariable
- MOV	 R6,R2
+	MVN	R0,#0
+	MOV	R1,#12
+	SWI	XOS_ReadModeVariable
+	MOV	R6,R2
 
- MVN	 R0,#0
- MOV	 R1,#5
- SWI	 XOS_ReadModeVariable
+	MVN	R0,#0
+	MOV	R1,#5
+	SWI	XOS_ReadModeVariable
 
- MOV	 R6,R6,LSL R2
+	MOV	R6,R6,LSL R2
 
- ADD	 R1,R10,#44
+	ADD	R1,R10,#44
 
- LDR	 R5,[R8,#w_height]
- FNLDR	 R14,wimp_bottomgap	; number of lines gap at bottom
- ADD	 R5,R5,R14
- LDR	 R3,[R8,#w_rl]
- MUL	 R5,R3,R5
+	LDR	R5,[R8,#w_height]
+	FNLDR	R14,wimp_bottomgap	; number of lines gap at bottom
+	ADD	R5,R5,R14
+	LDR	R3,[R8,#w_rl]
+	MUL	R5,R3,R5
 
- MOV	 R5,R5,LSL R2
+	MOV	R5,R5,LSL R2
 
- CMP	 R5,R6
- MOVCC	 R5,R6
+	CMP	R5,R6
+	MOVCC	R5,R6
 
- RSB	 R5,R5,#0
+	RSB	R5,R5,#0
 
- LDR	 R4,[R1,#4]
- SUBS	 R3,R5,R4
- RSBMI	 R3,R3,#0
- CMP	 R3,#16; REM 16
- BCC	 notresizing; REM justthesameasever
+	LDR	R4,[R1,#4]
+	SUBS	R3,R5,R4
+	RSBMI	R3,R3,#0
+	CMP	R3,#16			; REM 16
+	BCC	notresizing		; REM justthesameasever
 resizing
- STR	 R5,[R1,#4]
-
- LDR	 R0,[R8,#w_handle]
-
- SWI	 XWimp_SetExtent
-
- MOV	 R1,R10
-
- BL	 setverticalposition
- STR	 R0,[R1,#w_scrolly]
- STR	 R0,[R8,#w_scrolly]
+	STR	R5,[R1,#4]
+	LDR	R0,[R8,#w_handle]
+	SWI	XWimp_SetExtent
+	MOV	R1,R10
+	BL	setverticalposition
+	STR	R0,[R1,#w_scrolly]
+	STR	R0,[R8,#w_scrolly]
 notresizing
- LDR	R14,[R8,#w_info]
- TST	R14,#bit_infiniteww
- BLNE	possiblewidthproblems
+	LDR	R14,[R8,#w_info]
+	TST	R14,#bit_infiniteww
+	BLNE	possiblewidthproblems
+	MOV	R1,R10
+	LDR	R0,onentryto
+	CMP	R0,#1
+	SWIEQ	XWimp_OpenWindow	; REM difficulties... toggle?
+	MOV	R0,R10
+	BL	heap_free
 
- MOV	R1,R10
-
- LDR	R0,onentryto
- CMP	R0,#1
-
- SWIEQ	XWimp_OpenWindow	 ; REM difficulties... toggle?
-
- MOV	R0,R10
- BL	heap_free
-; FNcall  Zap_Free,R10
 justthesameasever
-
 justthebackdoor
- MOV	 R3,#0
- STR	 R3,notreentrant
-
- FNRTS
+	MOV	R3,#0
+	STR	R3,notreentrant
+	FNRTS
 
 notreentrant
- DCD	 0
+	DCD	0
 
 tmpwindblk
- DCD	 0
- DCD	 0
- DCD	 0
- DCD	 0
- DCD	 0
- DCD	 0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
 
 veryfirsttime
- DCD	0
+	DCD	0
 
- FNAME possiblewidthproblems
+
+	FNAME	possiblewidthproblems
 possiblewidthproblems
- LDR	R1,[R8,#w_format]
- TST	R1,#bit_windowwrap
- MOVEQ	PC,R14
- FNJSR
- LDR	R1,[R8,#w_bpl]
- LDR	R0,local_previous_w_bpl
- CMP	R0,R1
- FNRTS	EQ
- STR	R1,local_previous_w_bpl
- MOV	R0,#3
- PUSH	"R2-R11"
- MOV	R11,#e_interrogate
- BL	call_mode
- BL	setwidth_as_a_service	; confines cursor :-(
- PULL	"R2-R11"
+	LDR	R1,[R8,#w_format]
+	TST	R1,#bit_windowwrap
+	MOVEQ	PC,R14
+	FNJSR
+	LDR	R1,[R8,#w_bpl]
+	LDR	R0,local_previous_w_bpl
+	CMP	R0,R1
+	FNRTS	EQ
+	STR	R1,local_previous_w_bpl
+	MOV	R0,#3
+	PUSH	"R2-R11"
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	BL	setwidth_as_a_service	; confines cursor :-(
+	PULL	"R2-R11"
 
- ADD	R1,R10,#44
- MOV	R0,#&8000
- STR	R0,[R1,#8]
-; STR	  R0,[R8,#w_maxx]	; new maxx
+	ADD	R1,R10,#44
+	MOV	R0,#&8000
+	STR	R0,[R1,#8]
 
- LDR	R0,[R8,#w_handle]
+	LDR	R0,[R8,#w_handle]
 
- SWI	XWimp_SetExtent
- FNRTS
+	SWI	XWimp_SetExtent
+	FNRTS
 
 local_nws_correctflags
- DCD 0
+	DCD	0
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=open block R8 Use whenever the window changes posn.
 ;X window opened , title redrawn and toggle size set #
- FNAME reflect_window
+	FNAME	reflect_window
 reflect_window
- FNJSR
- BL reopen_window		; open the window
- BLVC reflect_toggle		; save toggle even if full size
- BLVC redraw_title		; redraw the title always
- FNRTS
+	FNJSR
+	BL	reopen_window		; open the window
+	BLVC	reflect_toggle		; save toggle even if full size
+	BLVC	redraw_title		; redraw the title always
+	FNRTS
+
 
 ;E R8=window block with updated window state
 ;X current size copied to toggle size
- FNAME reflect_toggle
+	FNAME	reflect_toggle
 reflect_toggle
- FNJSR
- LDR R0,[R8,#w_minx]
- STR R0,[R8,#w_togminx]
- LDR R0,[R8,#w_miny]
- STR R0,[R8,#w_togminy]
- LDR R0,[R8,#w_maxx]
- STR R0,[R8,#w_togmaxx]
- LDR R0,[R8,#w_maxy]
- STR R0,[R8,#w_togmaxy]
- FNRTS
+	FNJSR
+	LDR	R0,[R8,#w_minx]
+	STR	R0,[R8,#w_togminx]
+	LDR	R0,[R8,#w_miny]
+	STR	R0,[R8,#w_togminy]
+	LDR	R0,[R8,#w_maxx]
+	STR	R0,[R8,#w_togmaxx]
+	LDR	R0,[R8,#w_maxy]
+	STR	R0,[R8,#w_togmaxy]
+	FNRTS
 
 
 ;E R2=proposed open block (inc handle) R1=80 bytes workspace
 ;X R1=actual open block (keeping on screen etc) R1+40=currposn
 ;  R3=xmin change R4=width change R5=ymax change R6=height dif #
- FNAME calculate_open_block
+	FNAME	calculate_open_block
 calculate_open_block
- FNJSR
- PUSH "R1-R3"
- MOV R0,R1
- MOV R1,R2			; source block
- MOV R2,R0			; dest block
- MOV R3,#40
- SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy the dest block
- LDMFD R13!,{R1-R3}
- LDR R0,[R2]
- ADD R1,R1,#40			; current position block
- STR R0,[R1]			; copy handle
- SWI XWimp_GetWindowState	; find current posn
- FNRTS VS
- BL calculate_open_change
- TEQ R4,#0
- TEQEQ R6,#0
- SUBEQ R1,R1,#40
- FNRTS EQ			; no size change so allow off scn
- LDR R3,[R1,#w_minx]
- LDR R4,[R1,#w_miny]
- LDR R5,[R1,#w_maxx]
- LDR R6,[R1,#w_maxy]		; get current border
- SUB R1,R1,#40
- SWI XWimp_GetWindowOutline
- FNRTS VS
- LDR R0,[R1,#w_minx]
- SUB R3,R3,R0			; left hand edge width
- LDR R0,[R1,#w_miny]		; R3='screen' left edge
- SUB R4,R4,R0			; bottom bar width
- LDR R0,[R1,#w_maxx]		; R4='screen' bottom width
- SUB R5,R0,R5			; right bar width
- LDR R0,[R1,#w_maxy]
- SUB R6,R0,R6			; titlebar width
- FNLDR R0,scn_xos
- SUB R5,R0,R5			; R5='screen' right edge
- FNLDR R0,scn_yos
- SUB R6,R0,R6			; R6='screen' top edge
- PUSH "R1-R3"
- MOV R0,R1
- MOV R1,R2			; source block
- MOV R2,R0			; dest block
- MOV R3,#40
- SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy the open block again
- LDMFD R13!,{R1-R3}
- LDR R0,[R1,#w_minx]		; left x
- LDR R14,[R1,#w_maxx]
- CMP R14,R5
- SUB R14,R14,R0			; width
- SUBGE R0,R5,R14		; shift back if off scn edge
- ADD R14,R0,R14
- CMP R0,R3
- MOVLE R0,R3
- STR R0,[R1,#w_minx]
- STR R14,[R1,#w_maxx]		; fix the x dirs
- LDR R0,[R1,#w_maxy]
- LDR R14,[R1,#w_miny]
- CMP R14,R4
- SUB R14,R0,R14			; height
- ADDLE R0,R4,R14
- SUB R14,R0,R14
- CMP R0,R6
- MOVGE R0,R6
- STR R0,[R1,#w_maxy]
- STR R14,[R1,#w_miny]		; fix the y direction
- PUSH "R1-R2"
- MOV R2,R1
- ADD R1,R1,#40
- BL calculate_open_change
- LDMFD R13!,{R1-R2}
- FNRTS
+	FNJSR
+	PUSH	"R1-R3"
+	MOV	R0,R1
+	MOV	R1,R2			; source block
+	MOV	R2,R0			; dest block
+	MOV	R3,#40
+	SWI	XZapRedraw_MoveBytes	; copy the dest block
+	LDMFD	R13!,{R1-R3}
+	LDR	R0,[R2]
+	ADD	R1,R1,#40		; current position block
+	STR	R0,[R1]			; copy handle
+	SWI	XWimp_GetWindowState	; find current posn
+	FNRTS	VS
+	BL	calculate_open_change
+	TEQ	R4,#0
+	TEQEQ	R6,#0
+	SUBEQ	R1,R1,#40
+	FNRTS	EQ			; no size change so allow off scn
+	LDR	R3,[R1,#w_minx]
+	LDR	R4,[R1,#w_miny]
+	LDR	R5,[R1,#w_maxx]
+	LDR	R6,[R1,#w_maxy]		; get current border
+	SUB	R1,R1,#40
+	SWI	XWimp_GetWindowOutline
+	FNRTS	VS
+	LDR	R0,[R1,#w_minx]
+	SUB	R3,R3,R0		; left hand edge width
+	LDR	R0,[R1,#w_miny]		; R3='screen' left edge
+	SUB	R4,R4,R0		; bottom bar width
+	LDR	R0,[R1,#w_maxx]		; R4='screen' bottom width
+	SUB	R5,R0,R5		; right bar width
+	LDR	R0,[R1,#w_maxy]
+	SUB	R6,R0,R6		; titlebar width
+	FNLDR	R0,scn_xos
+	SUB	R5,R0,R5		; R5='screen' right edge
+	FNLDR	R0,scn_yos
+	SUB	R6,R0,R6		; R6='screen' top edge
+	PUSH	"R1-R3"
+	MOV	R0,R1
+	MOV	R1,R2			; source block
+	MOV	R2,R0			; dest block
+	MOV	R3,#40
+	SWI	XZapRedraw_MoveBytes	; copy the open block again
+	LDMFD	R13!,{R1-R3}
+	LDR	R0,[R1,#w_minx]		; left x
+	LDR	R14,[R1,#w_maxx]
+	CMP	R14,R5
+	SUB	R14,R14,R0		; width
+	SUBGE	R0,R5,R14		; shift back if off scn edge
+	ADD	R14,R0,R14
+	CMP	R0,R3
+	MOVLE	R0,R3
+	STR	R0,[R1,#w_minx]
+	STR	R14,[R1,#w_maxx]	; fix the x dirs
+	LDR	R0,[R1,#w_maxy]
+	LDR	R14,[R1,#w_miny]
+	CMP	R14,R4
+	SUB	R14,R0,R14		; height
+	ADDLE	R0,R4,R14
+	SUB	R14,R0,R14
+	CMP	R0,R6
+	MOVGE	R0,R6
+	STR	R0,[R1,#w_maxy]
+	STR	R14,[R1,#w_miny]	; fix the y direction
+	PUSH	"R1-R2"
+	MOV	R2,R1
+	ADD	R1,R1,#40
+	BL	calculate_open_change
+	LDMFD	R13!,{R1-R2}
+	FNRTS
+
 
 ;E R2=proposed open block R1=current window posn
 ;X R3=xmin change R4=width change R5=ymax change R6=height dif |
- FNAME calculate_open_change
+	FNAME	calculate_open_change
 calculate_open_change
- FNJSR
- LDR R3,[R1,#w_minx]		; current minx
- LDR R4,[R1,#w_maxx]
- SUB R4,R4,R3			; current width
- LDR R0,[R2,#w_minx]
- LDR R14,[R2,#w_maxx]
- SUB R14,R14,R0			; new width
- SUB R4,R14,R4			; change in width
- SUB R3,R0,R3			; change in minx
- LDR R5,[R1,#w_maxy]		; current maxy
- LDR R6,[R1,#w_miny]
- SUB R6,R5,R6			; current height
- LDR R0,[R2,#w_maxy]
- LDR R14,[R2,#w_miny]
- SUB R14,R0,R14			; new height
- SUB R5,R0,R5			; change in maxy
- SUB R6,R14,R6			; change in height
- FNRTS
+	FNJSR
+	LDR	R3,[R1,#w_minx]		; current minx
+	LDR	R4,[R1,#w_maxx]
+	SUB	R4,R4,R3		; current width
+	LDR	R0,[R2,#w_minx]
+	LDR	R14,[R2,#w_maxx]
+	SUB	R14,R14,R0		; new width
+	SUB	R4,R14,R4		; change in width
+	SUB	R3,R0,R3		; change in minx
+	LDR	R5,[R1,#w_maxy]		; current maxy
+	LDR	R6,[R1,#w_miny]
+	SUB	R6,R5,R6		; current height
+	LDR	R0,[R2,#w_maxy]
+	LDR	R14,[R2,#w_miny]
+	SUB	R14,R0,R14		; new height
+	SUB	R5,R0,R5		; change in maxy
+	SUB	R6,R14,R6		; change in height
+	FNRTS
 
 
 local_previous_w_bpl
- DCD	0
+	DCD	0
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1213,294 +1133,299 @@ local_previous_w_bpl
 
 ;E R8
 ;X attempt to delete window (and file if nec) / CS if aborted #
- FNAME delete_window
+	FNAME	delete_window
 delete_window
- FNJSR "R9"
- [ LOGGING = SYSLOG
- BL get_wind_off
- SYSLOGF "delete_window wind %8x (%0d)", LOG_WINDOW
- ]
- BL test_delete_file		; set up R9 and R0
- FNRTS VS
- TEQ R0,#0
- BNE de3			; delete window only
- BL delete_file			; attempt to delete the file
- FNRTS
-de3
- BL discard_window
- ADDS R0,R0,#0			; clc
- FNRTS
+	FNJSR	"R9"
+	[ LOGGING = SYSLOG
+	BL	get_wind_off
+	SYSLOGF "delete_window wind %8x (%0d)", LOG_WINDOW
+	]
+	BL	test_delete_file	; set up R9 and R0
+	FNRTS	VS
+	TEQ	R0,#0
+	BNE	de3			; delete window only
+	BL	delete_file		; attempt to delete the file
+	FNRTS
+
+de3	BL	discard_window
+	ADDS	R0,R0,#0		; clc
+	FNRTS
+
 
 ;E R8
 ;X R9=file R0=0 if should delete file instead of window
 ;  R0=1 to keep file but delete window #
- FNAME test_delete_file
+	FNAME	test_delete_file
 test_delete_file
- FNJSR "R1-R3"
- LDR R1,[R8,#w_file]		; file offset
- MOV R0,R1
- BL conv_file_off		; set up R9
- FNLDR R0,opt_flags
- TST R0,#1<<2
- MOVNE R0,#1			; no auto delete of file
- FNRTS NE
- FNLDR R3,wind_list		; start of wind list
- FNLDR R2,wind_num		; num in list
-de1
- TEQ R3,R8
- LDRNE R0,[R3,#w_handle]
- CMNNE R0,#1
- BEQ de2			; skip if same window or not in use
- LDR R0,[R3,#w_file]
- TEQ R1,R0			; is it showing same file
- MOVEQ R0,#1			; yes so needn't delete file
- FNRTS EQ
-de2
- ADD R3,R3,#wind_blk
- SUBS R2,R2,#1
- BGT de1			; next
- MOV R0,#0			; only window so delete file
- FNRTS
+	FNJSR	"R1-R3"
+	LDR	R1,[R8,#w_file]		; file offset
+	MOV	R0,R1
+	BL	conv_file_off		; set up R9
+	FNLDR	R0,opt_flags
+	TST	R0,#1<<2
+	MOVNE	R0,#1			; no auto delete of file
+	FNRTS	NE
+	FNLDR	R3,wind_list		; start of wind list
+	FNLDR	R2,wind_num		; num in list
+de1	TEQ	R3,R8
+	LDRNE	R0,[R3,#w_handle]
+	CMNNE	R0,#1
+	BEQ	de2			; skip if same window or not in use
+	LDR	R0,[R3,#w_file]
+	TEQ	R1,R0			; is it showing same file
+	MOVEQ	R0,#1			; yes so needn't delete file
+	FNRTS	EQ
+
+de2	ADD	R3,R3,#wind_blk
+	SUBS	R2,R2,#1
+	BGT	de1			; next
+	MOV	R0,#0			; only window so delete file
+	FNRTS
+
 
 ;E R8/R9
 ;X R0=0 if deletion will cause prompt / 1 if it will take place #
- FNAME test_delete_window
+	FNAME	test_delete_window
 test_delete_window
- FNJSR "R9"
- BL test_delete_file
- FNRTS VS
- TEQ R0,#1			; file not being deleted
- FNRTS EQ
- LDR R0,[R9,#f_flags]
- TST R0,#1<<3
- MOVEQ R0,#1			; unaltered
- MOVNE R0,#0			; altered
- FNRTS
+	FNJSR	"R9"
+	BL	test_delete_file
+	FNRTS	VS
+	TEQ	R0,#1			; file not being deleted
+	FNRTS	EQ
+	LDR	R0,[R9,#f_flags]
+	TST	R0,#1<<3
+	MOVEQ	R0,#1			; unaltered
+	MOVNE	R0,#0			; altered
+	FNRTS
+
 
 ;E R8/R9
 ;X window deleted regardless (and filer window opened it adjust) WB #
- FNAME discard_window
- DCD 1
+	FNAME	discard_window
+	DCD	1
 discard_window
- FNJSR "R1"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- MOV R1,R0
- BL get_wind_off
- SYSLOGF "discard_window wind %8x (%0d) file %9x (%1d)", LOG_WINDOW
- PULL "R0"
- ]
- MOV R1,#4
- BL issue_service
- BLVC delete_leafs
- BLVC delete_carets		; delete any carets in this window
- BLVC delete_marks
- FNRTS VS
- MOV R1,R8
- SWI XWimp_DeleteWindow		; delete the window defn
- MVN R0,#0			; (we don't care if this caused an error)
- STR R0,[R8,#w_handle]		; mark window deleted in list
- BL free_window			; free memory used by window buffers
- BLVC new_file_title		; update titles for one less!
- BLVC minimise_memory
- FNRTS
+	FNJSR	"R1"
+
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	MOV	R1,R0
+	BL	get_wind_off
+	SYSLOGF "discard_window wind %8x (%0d) file %9x (%1d)", LOG_WINDOW
+	PULL	"R0"
+	]
+
+	MOV	R1,#4
+	BL	issue_service
+	BLVC	delete_leafs
+	BLVC	delete_carets		; delete any carets in this window
+	BLVC	delete_marks
+	FNRTS	VS
+	MOV	R1,R8
+	SWI	XWimp_DeleteWindow	; delete the window defn
+	MVN	R0,#0			; (we don't care if this caused an error)
+	STR	R0,[R8,#w_handle]	; mark window deleted in list
+	BL	free_window		; free memory used by window buffers
+	BLVC	new_file_title		; update titles for one less!
+	BLVC	minimise_memory
+	FNRTS
+
 
 ;E R8/R9=window with close window request
 ;X R0=0 to continue closing window/1 to abort WB #
- FNAME test_open_dir
+	FNAME	test_open_dir
 test_open_dir
- FNJSR "R1"
- FNLDR R1,wimp_block
- SWI XWimp_GetPointerInfo
- FNRTS VS
- LDR R0,[R1,#8]			; button state
- TST R0,#1
- MOVEQ R0,#0			; adjust not pressed
- FNRTS EQ
- BL test_shiftctrl		; get shift status in b0 of R1
- BLVC Openparent
- ;LDR R0,[R9,#f_name]
- ;BL filer_open			; open the parent directory
- ANDVC R0,R1,#1			; shift status
- FNRTS
+	FNJSR	"R1"
+	FNLDR	R1,wimp_block
+	SWI	XWimp_GetPointerInfo
+	FNRTS	VS
+	LDR	R0,[R1,#8]		; button state
+	TST	R0,#1
+	MOVEQ	R0,#0			; adjust not pressed
+	FNRTS	EQ
+	BL	test_shiftctrl		; get shift status in b0 of R1
+	BLVC	Openparent
+	ANDVC	R0,R1,#1		; shift status
+	FNRTS
 
- FNAME Openparent
- DCD 1
+	LOCAL
+
+
+	FNAME	Openparent
+	DCD	1
 Openparent
- LDR R0,[R9,#f_name]
- ;B filer_open			; open the parent directory
- ; Explicit drop-through!
-
- LOCAL
+	LDR	R0,[R9,#f_name]
+	; fall through
 
 ;E R0=filename
 ;X filer window containing this filename opened WB #
-
 filer_open
- FNJSR "R1-R3,R10"
- MOV R10,R0			; save name
- BL find_current_directory_dde
- TEQVC R0,#0
- TEQVS R0,R0
- BNE gotname_dde$l
- MOV R0,R10
- BL find_leaf_name
- SUB R0,R0,#1			; pointer to '.'
- SUBS R3,R0,R10			; length of the main part of the name
- BGT gotname$l
- MOVS R10,R0
- FNRTS EQ
- BL str_len
- MOVS R3,R0
- FNRTS EQ
- MOV R0,R10
+	FNJSR	"R1-R3,R10"
+	MOV	R10,R0			; save name
+	BL	find_current_directory_dde
+	TEQVC	R0,#0
+	TEQVS	R0,R0
+	BNE	gotname_dde$l
+	MOV	R0,R10
+	BL	find_leaf_name
+	SUB	R0,R0,#1		; pointer to '.'
+	SUBS	R3,R0,R10		; length of the main part of the name
+	BGT	gotname$l
+	MOVS	R10,R0
+	FNRTS	EQ
+	BL	str_len
+	MOVS	R3,R0
+	FNRTS	EQ
+	MOV	R0,R10
 gotname$l
- FNLDR R1,wimp_block
- ADR R2,fo_s2
- BL strcpy			; copy in command
- MOV R2,R1
- MOV R1,R10
- ADD R10,R2,R3			; terminator
- SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy in dir name
- MOV R0,#0
- STRB R0,[R10]			; add terminator
- FNLDR R0,wimp_block
- SWI XOS_CLI
- FNRTS
+	FNLDR	R1,wimp_block
+	ADR	R2,fo_s2
+	BL	strcpy			; copy in command
+	MOV	R2,R1
+	MOV	R1,R10
+	ADD	R10,R2,R3		; terminator
+	SWI	XZapRedraw_MoveBytes	; BL move_bytes			; copy in dir name
+	MOV	R0,#0
+	STRB	R0,[R10]		; add terminator
+	FNLDR	R0,wimp_block
+	SWI	XOS_CLI
+	FNRTS
 gotname_dde$l
- MOV R10,R0
- BL str_len
- MOV R3,R0
- MOV R0,R10
- B gotname$l
+	MOV	R10,R0
+	BL	str_len
+	MOV	R3,R0
+	MOV	R0,R10
+	B	gotname$l
 
-fo_s2
- FNS ("%Filer_OpenDir ")
+fo_s2	FNS	("%Filer_OpenDir ")
+
 
 ;E R8
 ;X all heap blocks used in this window freed
- FNAME free_window
+	FNAME	free_window
 free_window
- FNJSR
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- SYSLOGF "free_window wind %8x (%0d)", LOG_WINDOW
- PULL "R0"
- ]
- BL lose_font
- BLVC free_mode_buffers
- LDRVC R0,[R8,#w_txt]
- BLVC heap_free
- LDRVC R0,[R8,#w_title]
- BLVC heap_free
- LDRVC R0,[R8,#w_titbuf]
- BLVC heap_free
- LDRVC R0,[R8,#w_palette]
- BLVC heap_free
- LDRVC R0,[R8,#w_vdufontname]
- BLVC heap_free
- LDRVC R0,[R8,#w_dsafontname]
- BLVC heap_free
- BLVC free_modedata
- FNRTS
+	FNJSR
 
- LOCAL
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	SYSLOGF "free_window wind %8x (%0d)", LOG_WINDOW
+	PULL	"R0"
+	]
+
+	BL	lose_font
+	BLVC	free_mode_buffers
+	LDRVC	R0,[R8,#w_txt]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_title]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_titbuf]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_palette]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_vdufontname]
+	BLVC	heap_free
+	LDRVC	R0,[R8,#w_dsafontname]
+	BLVC	heap_free
+	BLVC	free_modedata
+	FNRTS
+
+	LOCAL
+
 
 ;E R8
 ;X mode data heap blocks freed
- FNAME free_modedata
+	FNAME	free_modedata
 free_modedata
- FNJSR "R1-R2"
- LDR R1,[R8,#w_modedata]
- MOV R2,#max_mode
-a$l
- LDR R0,[R1],#4
- CMP R0,#0
- BLGT heap_free
- FNRTS VS
- SUBS R2,R2,#1
- BGT a$l
- LDR R0,[R8,#w_modedata]
- BL heap_free
- FNRTS
+	FNJSR	"R1-R2"
+	LDR	R1,[R8,#w_modedata]
+	MOV	R2,#max_mode
+a$l	LDR	R0,[R1],#4
+	CMP	R0,#0
+	BLGT	heap_free
+	FNRTS	VS
+	SUBS	R2,R2,#1
+	BGT	a$l
+	LDR	R0,[R8,#w_modedata]
+	BL	heap_free
+	FNRTS
+
 
 ;E R8
 ;X Heap block in mode words freed.
- FNAME free_mode_buffers
+	FNAME	free_mode_buffers
 free_mode_buffers
- FNJSR "R1-R2"
- MOV R2,#0			; current mode
-fm10
- MOV R0,R2
- BL read_mode
- CMP R1,#0
- BLE fm11			; not a valid table pointer
- LDR R1,[R1,#e_mode*2]		; flags
- TST R1,#1<<10
- BEQ fm11			; doesn't use a block
- ADD R0,R8,#w_mode0
- LDR R0,[R0,R2,LSL#2]		; pointer to block
- CMP R0,#0
- BLE fm11			; none
- BL heap_free			; free the block
- FNRTS VS
-fm11
- ADD R2,R2,#1
- CMP R2,#max_mode
- BCC fm10
- FNRTS
+	FNJSR	"R1-R2"
+	MOV	R2,#0			; current mode
+fm10	MOV	R0,R2
+	BL	read_mode
+	CMP	R1,#0
+	BLE	fm11			; not a valid table pointer
+	LDR	R1,[R1,#e_mode*2]	; flags
+	TST	R1,#1<<10
+	BEQ	fm11			; doesn't use a block
+	ADD	R0,R8,#w_mode0
+	LDR	R0,[R0,R2,LSL#2]	; pointer to block
+	CMP	R0,#0
+	BLE	fm11			; none
+	BL	heap_free		; free the block
+	FNRTS	VS
+fm11	ADD	R2,R2,#1
+	CMP	R2,#max_mode
+	BCC	fm10
+	FNRTS
+
 
 ;E R8/R9
 ;X All leaf windows on this window deleted #
- FNAME delete_leafs
+	FNAME	delete_leafs
 delete_leafs
- FNJSR "R1-R3,R10"
- BL get_wind_off
- MOV R10,R0			; save the offset
- FNLDR R0,wimp_menu		; window of last opened menu
- TEQ R0,R10
- BNE de24
- MVN R1,#0
- SWI XWimp_CreateMenu
- FNRTS VS
-de24
- MOV R0,R10			; window offset
- ADR R10,delete_leafs_sub
- BL do_eachleaf
- FNRTS
+	FNJSR	"R1-R3,R10"
+	BL	get_wind_off
+	MOV	R10,R0			; save the offset
+	FNLDR	R0,wimp_menu		; window of last opened menu
+	TEQ	R0,R10
+	BNE	de24
+	MVN	R1,#0
+	SWI	XWimp_CreateMenu
+	FNRTS	VS
+de24	MOV	R0,R10			; window offset
+	ADR	R10,delete_leafs_sub
+	BL	do_eachleaf
+	FNRTS
 
 delete_leafs_sub
- FNJSR
- LDR R14,[R7,#8]
- CMN R14,#1
- FNRTS EQ			; window not created
- LDR R14,[R7,#12]		; assosiated window offset
- TEQ R0,R14
- BLEQ close_leaf_window
- FNRTS
+	FNJSR
+	LDR	R14,[R7,#8]
+	CMN	R14,#1
+	FNRTS	EQ			; window not created
+	LDR	R14,[R7,#12]		; assosiated window offset
+	TEQ	R0,R14
+	BLEQ	close_leaf_window
+	FNRTS
+
 
 ;E R8=window to be deleted R9=file it looks on
 ;X All markers in file R9 onto R8 marked null window (-1) |
- FNAME delete_marks
+	FNAME	delete_marks
 delete_marks
- FNJSR "R1-R5"
- FNLDR R5,wind_list
- SUB R5,R8,R5
- MOV R5,R5,LSR#w_shift		; window offset
- LDR R4,[R9,#f_mptr]
- LDR R3,[R9,#f_mlen]
- ADD R2,R4,#4			; current offset
- ADD R3,R4,R3
- MVN R1,#0			; -1
-de6
- CMP R2,R3
- FNRTS CS
- LDR R0,[R2],#8			; window looking on
- TEQ R0,R5
- STREQ R1,[R2,#-8]		; mark window null
- B de6
+	FNJSR	"R1-R5"
+	FNLDR	R5,wind_list
+	SUB	R5,R8,R5
+	MOV	R5,R5,LSR#w_shift	; window offset
+	LDR	R4,[R9,#f_mptr]
+	LDR	R3,[R9,#f_mlen]
+	ADD	R2,R4,#4		; current offset
+	ADD	R3,R4,R3
+	MVN	R1,#0			; -1
+de6	CMP	R2,R3
+	FNRTS	CS
+	LDR	R0,[R2],#8		; window looking on
+	TEQ	R0,R5
+	STREQ	R1,[R2,#-8]		; mark window null
+	B	de6
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; MAKE WIDTH OF WINDOW SENSIBLE				       ;
@@ -1508,442 +1433,398 @@ de6
 
 ;E R8/R9 (uses e_width)
 ;X user format used to set up margin/width/bpl #
- FNAME correct_width
+	FNAME	correct_width
 correct_width
- FNJSR "R1,R11"
- LDR R1,[R8,#w_mwidth]		; margin width
- CMP R1,#0
- MOVLE R1,#0
- LDR R0,[R8,#w_format]		; format
- TST R0,#1<<8
- BEQ nolinenumbersatall
- LDR R14,[R8,#w_info]		; format
- ; MOV R14,#&F
- AND R0,R14,#7
- ADD R1,R1,R0			; add on space for line nos if needed
- ADD R1,R1,#2
- TST R14,#8
- ADDNE R1,R1,#2
+	FNJSR	"R1,R11"
+	LDR	R1,[R8,#w_mwidth]	; margin width
+	CMP	R1,#0
+	MOVLE	R1,#0
+	LDR	R0,[R8,#w_format]	; format
+	TST	R0,#1<<8
+	BEQ	nolinenumbersatall
+	LDR	R14,[R8,#w_info]	; format
+	AND	R0,R14,#7
+	ADD	R1,R1,R0		; add on space for line nos if needed
+	ADD	R1,R1,#2
+	TST	R14,#8
+	ADDNE	R1,R1,#2
 nolinenumbersatall
- STR R1,[R8,#w_margin]		; save margin
- MOV R11,#e_width
- BL call_mode
- ;LDMVSFD R13!,{R1,R11,PC}
- ;LDR R14,local_nws_correctflags
- ;TST R14,#2
- ;MOVNE R14,R14,LSR #16
- ;STRNE R14,[R8,#w_bpl]
- ADDVC R0,R0,R1			; total width
- STRVC R0,[R8,#w_width]
-; LDR R0,[R8,#w_bpl]		; hmm...
-; MOVVC R11,#e_setwidth
-; BLVC call_mode
- LDRVC R0,[R8,#w_width]
- FNRTS
+	STR	R1,[R8,#w_margin]	; save margin
+	MOV	R11,#e_width
+	BL	call_mode
+	ADDVC	R0,R0,R1		; total width
+	STRVC	R0,[R8,#w_width]
+	LDRVC	R0,[R8,#w_width]
+	FNRTS
 
 set_new_correct_width
- FNJSR "R1,R11"
+	FNJSR	"R1,R11"
 ; LDR R0,[R8,#w_bpl]		; hmm...
 ; MOV R11,#e_setwidth
 ; BL call_mode
 ; LDRVC R0,[R8,#w_width]	; no one cares...
- FNRTS
+	FNRTS
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; FIND NUM OF LINES IN CURRENT DISPLAY STYLE		       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
 ;E R8/R9
 ;X R0=length of window in lines #
- FNAME find_work_height
+	FNAME	find_work_height
 find_work_height
- FNJSR "R1-R2"
- LDR R0,[R9,#f_len]
- BL cln_off			; find phy last line of display in R0
-; LDMVSFD R13!,{R1-R2,PC}
- ADDVC R0,R0,#1			; number of lines
- FNRTS
+	FNJSR	"R1-R2"
+	LDR	R0,[R9,#f_len]
+	BL	cln_off			; find phy last line of display in R0
+	ADDVC	R0,R0,#1		; number of lines
+	FNRTS
+
 
 ;E R1=create window block R8/R9
 ;X initial opening dimentions and scroll offsets set up #
- FNAME new_wind_params
+	FNAME	new_wind_params
 new_wind_params
- FNJSR "R2-R3"
- BL get_mode_params
- FNLDR R3,wind_count		; get current stacking depth
- ADD R0,R3,#1
- CMP R0,#5			; depth before cycle 'round...
- MOVCS R0,#0
- FNSTR R0,wind_count		; save depth for next window
- ADD R3,R3,R3,LSL #2		; hard wired TB height :-(
- MOV R3,R3,LSL #3		; stacking offset
- LDR R0,[R1,#4]
- SUB R0,R0,R3
- STR R0,[R1,#4]
- LDR R0,[R1,#12]
- SUB R0,R0,R3
- STR R0,[R1,#12]
- LDR R0,[R1,#40]		; min x
- STR R0,[R1,#16]		; scroll x
- LDR R0,[R1,#52]		; max y
- STR R0,[R1,#20]		; scroll y (move to scn top left)
+	FNJSR	"R2-R3"
+	BL	get_mode_params
+	FNLDR	R3,wind_count		; get current stacking depth
+	ADD	R0,R3,#1
+	CMP	R0,#5			; depth before cycle 'round...
+	MOVCS	R0,#0
+	FNSTR	R0,wind_count		; save depth for next window
+	ADD	R3,R3,R3,LSL #2		; hard wired TB height :-(
+	MOV	R3,R3,LSL #3		; stacking offset
+	LDR	R0,[R1,#4]
+	SUB	R0,R0,R3
+	STR	R0,[R1,#4]
+	LDR	R0,[R1,#12]
+	SUB	R0,R0,R3
+	STR	R0,[R1,#12]
+	LDR	R0,[R1,#40]		; min x
+	STR	R0,[R1,#16]		; scroll x
+	LDR	R0,[R1,#52]		; max y
+	STR	R0,[R1,#20]		; scroll y (move to scn top left)
 
 ; "utter fudge" fix for no scroll events :-(
- LDR R2,[R1,#28]
- ORR R2,R2,#&100
- STR R2,[R1,#28]
+	LDR	R2,[R1,#28]
+	ORR	R2,R2,#&100
+	STR	R2,[R1,#28]
 
- FNRTS
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; CONVERT WINDOW HANDLE TO WINDOW OFFSET		;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R0=window handle
 ;X CC and R0=wind offset /CS R0 saved if not an edit window |
- FNAME convert_wind_handle
+	FNAME	convert_wind_handle
 convert_wind_handle
- FNJSR "R1-R3"
- FNLDR R1,wind_list
- FNLDR R2,wind_num
- MOV R3,#0
- CMP R2,#0			; do a compare to set carry
- FNRTS EQ			; return with CS if none in list
-a$l
- LDR R14,[R1],#wind_blk
- CMN R14,#1
- BEQ b$l			; not active (-1 is iconbar window handle)
- TEQ R0,R14
- BEQ c$l			; match found
-b$l
- ADD R3,R3,#1
- SUBS R2,R2,#1
- BHI a$l
- SUBS R0,R0,#0			; SEC and save wind handle
- FNRTS				; not found
-c$l
- ADDS R0,R3,#0			; MOV R0,R3 and CLC at same time
- FNRTS				; found
+	FNJSR	"R1-R3"
+	FNLDR	R1,wind_list
+	FNLDR	R2,wind_num
+	MOV	R3,#0
+	CMP	R2,#0			; do a compare to set carry
+	FNRTS	EQ			; return with CS if none in list
+a$l	LDR	R14,[R1],#wind_blk
+	CMN	R14,#1
+	BEQ	b$l			; not active (-1 is iconbar window handle)
+	TEQ	R0,R14
+	BEQ	c$l			; match found
+b$l	ADD	R3,R3,#1
+	SUBS	R2,R2,#1
+	BHI	a$l
+	SUBS	R0,R0,#0		; SEC and save wind handle
+	FNRTS				; not found
 
- LOCAL
+c$l	ADDS	R0,R3,#0		; MOV R0,R3 and CLC at same time
+	FNRTS				; found
+
+	LOCAL
+
 
 ;E R0=window handle
 ;X CC and R0=index entry /CS and R0 saved if not a leaf window |
- FNAME convert_leaf_wind_handle
+	FNAME	convert_leaf_wind_handle
 convert_leaf_wind_handle
- FNJSR "R1"
- FNLDR R1,tem_list
-a$l
- LDR R14,[R1]
- CMP R14,#0			; set C and see if end of list
- FNRTS EQ			; not found so return with CS
- LDR R14,[R1,#8]
- TEQ R14,R0
- ADDNE R1,R1,#32
- BNE a$l			; try next
- ADDS R0,R1,#0			; pointer to index entry & clc
- FNRTS				; found
+	FNJSR	"R1"
+	FNLDR	R1,tem_list
+a$l	LDR	R14,[R1]
+	CMP	R14,#0			; set C and see if end of list
+	FNRTS	EQ			; not found so return with CS
+	LDR	R14,[R1,#8]
+	TEQ	R14,R0
+	ADDNE	R1,R1,#32
+	BNE	a$l			; try next
+	ADDS	R0,R1,#0		; pointer to index entry & clc
+	FNRTS				; found
+
 
 ;E R0=job handle (in same place as window handle)
 ;X CC and R8/R9 set up/CS and R0 saved if not a job handle |
- FNAME convert_job_handle
+	FNAME	convert_job_handle
 convert_job_handle
- FNJSR "R1"
- MOV R1,R0			; save incase not ok
- MOV R0,R0,LSR#16
- SUBS R0,R0,#1			; find file off
- FNLDR R14,file_num
- CMP R0,R14			; is it in range
- BCS cj1			; no
- BL conv_file_off		; get R9
- LDR R0,[R9,#f_cmode]
- TEQ R0,#0
- BNE cj1			; not in external edit (text) mode
- LDR R0,[R9,#f_source]		; pointer to info block
-; LDR R14,[R0]			; job handle
-; TEQ R14,R1
-; BNE cj1			; job handles don't match
- ; new SJA stuff here...
- LDR R14,[R0,#ee_ee]
- CMP R14,#0
- BNE cj1			; not an EE file
- LDR R14,[R0,#ee_jobhandle]	; job handle
- LDR R0,[R0,#ee_windoffset]	; get offset of assosiated window ; ?
-; LDR R0,[R0,#12]		; get offset of assosiated window ; ?
- BL conv_wind_off		; get R8/R9
- ADDS R0,R0,#0			; clc
- FNRTS
-cj1
- SUBS R0,R1,#0			; restore R0 and sec
- FNRTS
+	FNJSR	"R1"
+	MOV	R1,R0			; save incase not ok
+	MOV	R0,R0,LSR#16
+	SUBS	R0,R0,#1		; find file off
+	FNLDR	R14,file_num
+	CMP	R0,R14			; is it in range
+	BCS	cj1			; no
+	BL	conv_file_off		; get R9
+	LDR	R0,[R9,#f_cmode]
+	TEQ	R0,#0
+	BNE	cj1			; not in external edit (text) mode
+	LDR	R0,[R9,#f_source]	; pointer to info block
+	LDR	R14,[R0,#ee_ee]
+	CMP	R14,#0
+	BNE	cj1			; not an EE file
+	LDR	R14,[R0,#ee_jobhandle]  ; job handle
+	LDR	R0,[R0,#ee_windoffset]  ; get offset of assosiated window ; ?
+	BL	conv_wind_off		; get R8/R9
+	ADDS	R0,R0,#0		; clc
+	FNRTS
+
+cj1	SUBS	R0,R1,#0		; restore R0 and sec
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Save & recreate window & alter on a mode change	       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R8/R9 (or 0)
 ;X position of window saved (in w_saved*) #
-
 cautious_save_window_status
- TEQ R8,#0
- MOVEQ PC,R14			; no window (on main menu)
- FNJSR "R1-R11"
- ;BL default_caret
- ;FNRTS VS
-;  PUSH "R6-R9"
-;  MOV R6,R8
-;  MOV R7,R9
-;  ;BL get_selection		; get new R8/R9 and selection
-;  ;BCS none$l			; no selection
-;  ;CMP R6,R8
-;  ;BLEQ clear_selection
-; ;none$l
-;  PULL "R6-R9"
-;  FNRTS VS
- ;BL update_wind_state		; read current position of window
- B save_window_late_entrant
+	TEQ	R8,#0
+	MOVEQ	PC,R14			; no window (on main menu)
+	FNJSR	"R1-R11"
+	B	save_window_late_entrant
 
 ;E R8/R9 (or 0)
 ;X position of window saved (in w_saved*) #
- FNAME save_window_status
+	FNAME	save_window_status
 save_window_status
- TEQ R8,#0
- MOVEQ PC,R14			; no window (on main menu)
- FNJSR "R1-R11"
- BL default_caret
- FNRTS VS
- PUSH "R6-R9"
- MOV R6,R8
- MOV R7,R9
- BL get_selection		; get new R8/R9 and selection
- BCS none$l			; no selection
- CMP R6,R8
- BLEQ clear_selection
-none$l
- PULL "R6-R9"
- FNRTS VS
- BLVC update_wind_state		; read current position of window
- FNRTS VS
- ;TEQ R8,#0
- ;MOVEQ PC,R14			; no window (on main menu)
- ;FNJSR "R1-R11"
- ;BL default_caret
- ;;BLVC clear_selection		; make carets ok first incase subs use WB
- ;BLVC update_wind_state		; read current position of window
- ;FNRTS VS
- ;SWI &107			; TT???
+	TEQ	R8,#0
+	MOVEQ	PC,R14			; no window (on main menu)
+	FNJSR	"R1-R11"
+	BL	default_caret
+	FNRTS	VS
+	PUSH	"R6-R9"
+	MOV	R6,R8
+	MOV	R7,R9
+	BL	get_selection		; get new R8/R9 and selection
+	BCS	none$l			; no selection
+	CMP	R6,R8
+	BLEQ	clear_selection
+none$l	PULL	"R6-R9"
+	FNRTS	VS
+	BLVC	update_wind_state	; read current position of window
+	FNRTS	VS
+
 save_window_late_entrant
- MOV R11,R8			; window block
- BL ccd_blk_xrow
- MOV R2,R3			; R2=min x col vis     R3=min y row vis
- MOV R4,R5			; R4=max x col vis     R5=max y row vis
- MOV R7,R6			; R7=x raster offset   R6=y raster offset
- BL ccd_blk_yrow
- BL find_caret_pos		; find most important caret in window / 0
- TEQ R10,#0
- BEQ nocaret$l
- LDR R0,[R10,#c_line]
- LDR R1,[R10,#c_col]
- CMP R1,R2
- BCC nocaret$l
- CMP R1,R4
- BCS nocaret$l
- CMP R0,R3
- BCC nocaret$l
- CMP R0,R5
- BCS nocaret$l
- MOV R4,R1			; x col
- MOV R5,R0			; y row
- LDR R0,[R10,#c_off]
- B end$l
-nocaret$l			; no caret visible in the window
- TEQ R6,#0
- MOVEQ R4,R2
- ADDNE R4,R2,#1			; x to save
- TEQ R7,#0
- ;MOVEQ R5,R3
- ;ADDNE R5,R3,#1		; y to save ; ?
- MOV R5,R3
- MOV R0,R5
- BL cln_phy
- FNRTS VS
- ;ADD R0,R0,#1			; ?
-end$l				; R0=saved posn offset R2,R4=x R3,R5=y
- STR R0,[R8,#w_savedo]		; saved file offset of posn
- BL ccd_ypair_ypix		; R3=y top in pix
- MOV R1,R3			; save
- MOV R3,R5
- MOV R6,#0
- BL ccd_ypair_ypix		; R3=posn y pix
- SUB R3,R3,R1			; y pixel offset
- STR R3,[R8,#w_savedl]		; saved y pixel of posn from top
- FNRTS
+	MOV	R11,R8			; window block
+	BL	ccd_blk_xrow
+	MOV	R2,R3			; R2=min x col vis	R3=min y row vis
+	MOV	R4,R5			; R4=max x col vis	R5=max y row vis
+	MOV	R7,R6			; R7=x raster offset	R6=y raster offset
+	BL	ccd_blk_yrow
+	BL	find_caret_pos		; find most important caret in window / 0
+	TEQ	R10,#0
+	BEQ	nocaret$l
+	LDR	R0,[R10,#c_line]
+	LDR	R1,[R10,#c_col]
+	CMP	R1,R2
+	BCC	nocaret$l
+	CMP	R1,R4
+	BCS	nocaret$l
+	CMP	R0,R3
+	BCC	nocaret$l
+	CMP	R0,R5
+	BCS	nocaret$l
+	MOV	R4,R1			; x col
+	MOV	R5,R0			; y row
+	LDR	R0,[R10,#c_off]
+	B	end$l
 
- LOCAL
+nocaret$l				; no caret visible in the window
+	TEQ	R6,#0
+	MOVEQ	R4,R2
+	ADDNE	R4,R2,#1		; x to save
+	TEQ	R7,#0
+	MOV	R5,R3
+	MOV	R0,R5
+	BL	cln_phy
+	FNRTS	VS
 
- FNAME new_window_status_forcebpl
+end$l					; R0=saved posn offset R2,R4=x R3,R5=y
+	STR	R0,[R8,#w_savedo]	; saved file offset of posn
+	BL	ccd_ypair_ypix		; R3=y top in pix
+	MOV	R1,R3			; save
+	MOV	R3,R5
+	MOV	R6,#0
+	BL	ccd_ypair_ypix		; R3=posn y pix
+	SUB	R3,R3,R1		; y pixel offset
+	STR	R3,[R8,#w_savedl]	; saved y pixel of posn from top
+	FNRTS
+
+	LOCAL
+
+
+	FNAME	new_window_status_forcebpl
 new_window_status_forcebpl
- FNJSR
- MOV R0,#2
- STR R0,local_nws_correctflags
- BL new_window_status
- BL Updatewindow
- MOV R0,#0
- STR R0,local_nws_correctflags
- FNRTS
+	FNJSR
+	MOV	R0,#2
+	STR	R0,local_nws_correctflags
+	BL	new_window_status
+	BL	Updatewindow
+	MOV	R0,#0
+	STR	R0,local_nws_correctflags
+	FNRTS
 
- FNAME new_window_status_samewidth
+
+	FNAME	new_window_status_samewidth
 new_window_status_samewidth
- FNJSR
- MOV R0,#1
- STR R0,local_nws_correctflags
- BL new_window_status
- MOV R0,#0
- STR R0,local_nws_correctflags
- FNRTS
+	FNJSR
+	MOV	R0,#1
+	STR	R0,local_nws_correctflags
+	BL	new_window_status
+	MOV	R0,#0
+	STR	R0,local_nws_correctflags
+	FNRTS
+
 
 ;E R8/R9 (or 0)
 ;X Window deleted/recorrected/recreated/opened using w_saved* posn WB #
- FNAME new_window_status
+	FNAME	new_window_status
 new_window_status
- TEQ R8,#0
- MOVEQ PC,R14
- FNJSR "R1-R11"
- BL correct_wind_blk		; correct width/height etc
- LDRVC R0,[R8,#w_savedo]	; get offset in file - may be off end!!!
- BLVC offset_line_column	; convert to col/line in R2/R3 (taskwinds)
- BLVC ccd_xyline_xypix
- LDRVC R0,[R8,#w_savedl]	; saved y of posn from top
- ;FNLDR R2,wimp_leftgap		; TT fix?
- ;RSB R2,R2,#0			; TT prefers left aligned x position
- MOVVC R2,#0			; TT prefers left aligned x position
- SUBVC R3,R3,R0			; y scroll offset with y pos fixed
- BLVC ccd_xypix_xyos
- STRVC R2,[R8,#w_scrollx]
- STRVC R3,[R8,#w_scrolly]
- BLVC new_extent		; call Wimp_SetExtent & modify open coords
+	TEQ	R8,#0
+	MOVEQ	PC,R14
+	FNJSR	"R1-R11"
+	BL	correct_wind_blk	; correct width/height etc
+	LDRVC	R0,[R8,#w_savedo]	; get offset in file - may be off end!!!
+	BLVC	offset_line_column	; convert to col/line in R2/R3 (taskwinds)
+	BLVC	ccd_xyline_xypix
+	LDRVC	R0,[R8,#w_savedl]	; saved y of posn from top
+	MOVVC	R2,#0			; TT prefers left aligned x position
+	SUBVC	R3,R3,R0		; y scroll offset with y pos fixed
+	BLVC	ccd_xypix_xyos
+	STRVC	R2,[R8,#w_scrollx]
+	STRVC	R3,[R8,#w_scrolly]
+	BLVC	new_extent		; call Wimp_SetExtent & modify open coords
 new_window_status_entry
- BLVC reflect_carets		; reposition caret if in this window
- MOVVC R1,R8
- BLVC reopen_window		; open window in new position
- FNRTS VS			; do first or constrict will move them
- LDR R14,local_nws_correctflags
- TST R14,#2
- FNRTS NE
- BL update_whole_window		; ?
- BLVC gain_input
- FNRTS				; needs to save R1-R7 !!
+	BLVC	reflect_carets		; reposition caret if in this window
+	MOVVC	R1,R8
+	BLVC	reopen_window		; open window in new position
+	FNRTS	VS			; do first or constrict will move them
+	LDR	R14,local_nws_correctflags
+	TST	R14,#2
+	FNRTS	NE
+	BL	update_whole_window	; ?
+	BLVC	gain_input
+	FNRTS				; needs to save R1-R7 !!
 
- FNAME adjust_vertical_extent
+
+	FNAME	adjust_vertical_extent
 adjust_vertical_extent
- FNJSR "R1-R11"
-; BL Beep
- BL correct_wind_blk		; correct width/height etc
- LDRVC R0,[R9,#f_len]		; get offset in file - may be off end!!!
- BLVC offset_line_column	; convert to col/line in R2/R3 (taskwinds)
- BLVC ccd_xyline_xypix
- MOV R0,#0
- MOVVC R2,#0			; TT prefers left aligned x position
- SUBVC R3,R3,R0			; y scroll offset with y pos fixed
- BLVC ccd_xypix_xyos
- STRVC R2,[R8,#w_scrollx]
- STRVC R3,[R8,#w_scrolly]
- BLVC new_extent		; call Wimp_SetExtent & modify open coords
- FNRTS
+	FNJSR	"R1-R11"
+	BL	correct_wind_blk	; correct width/height etc
+	LDRVC	R0,[R9,#f_len]		; get offset in file - may be off end!!!
+	BLVC	offset_line_column	; convert to col/line in R2/R3 (taskwinds)
+	BLVC	ccd_xyline_xypix
+	MOV	R0,#0
+	MOVVC	R2,#0			; TT prefers left aligned x position
+	SUBVC	R3,R3,R0		; y scroll offset with y pos fixed
+	BLVC	ccd_xypix_xyos
+	STRVC	R2,[R8,#w_scrollx]
+	STRVC	R3,[R8,#w_scrolly]
+	BLVC	new_extent		; call Wimp_SetExtent & modify open coords
+	FNRTS
 
- FNAME new_window_status_preserve
+
+	FNAME	new_window_status_preserve
 new_window_status_preserve
- TEQ R8,#0
- MOVEQ PC,R14
- FNJSR "R1-R11"
- BL correct_wind_blk		; correct width/height etc ; calls autowidth!
- LDRVC R0,[R8,#w_savedo]	; get offset in file - may be off end!!!
- BLVC offset_line_column	; convert to col/line in R2/R3 (taskwinds)
- BLVC ccd_xyline_xypix
- LDRVC R0,[R8,#w_savedl]		; saved y of posn from top
- MOVVC R2,#0			; prefered left aligned x position
- SUBVC R3,R3,R0			; y scroll offset with y pos fixed
- BLVC ccd_xypix_xyos
- STRVC R2,[R8,#w_scrollx]
- STRVC R3,[R8,#w_scrolly]
+	TEQ	R8,#0
+	MOVEQ	PC,R14
+	FNJSR	"R1-R11"
+	BL	correct_wind_blk	; correct width/height etc ; calls autowidth!
+	LDRVC	R0,[R8,#w_savedo]	; get offset in file - may be off end!!!
+	BLVC	offset_line_column	; convert to col/line in R2/R3 (taskwinds)
+	BLVC	ccd_xyline_xypix
+	LDRVC	R0,[R8,#w_savedl]	; saved y of posn from top
+	MOVVC	R2,#0			; prefered left aligned x position
+	SUBVC	R3,R3,R0		; y scroll offset with y pos fixed
+	BLVC	ccd_xypix_xyos
+	STRVC	R2,[R8,#w_scrollx]
+	STRVC	R3,[R8,#w_scrolly]
 
- BLVC reflect_carets		; reposition caret if in this window
- ; do first or constrict will move them
- MOVVC R1,R8
- BLVC reopen_window		; open window in new position
- FNRTS				; needs to save R1-R7 !!
+	BLVC	reflect_carets		; reposition caret if in this window
+					; do first or constrict will move them
+	MOVVC	R1,R8
+	BLVC	reopen_window		; open window in new position
+	FNRTS				; needs to save R1-R7 !!
 
- ;BL new_extent			; call Wimp_SetExtent & modify open coords
- ;FNRTS VS
- ;B new_window_status_entry
 
 ;E R8 (updated with open coords) R9
 ;X R8 updated for new screen mode with new coords WB #
- FNAME alter_window
+	FNAME	alter_window
 alter_window
- FNJSR "R1-R11"
-; SWI &107 ; gets here...
- LDR R0,[R8,#w_flags]
- BIC R0,R0,#1<<31
- STR R0,[R8,#w_flags]		; clear the condition flag
- BL read_font_sizes
- LDRVC R3,[R8,#w_scrollx]		; old scroll offset
- FNLDR R0,scn_magxold,VC
- MOVVC R3,R3,ASR R0		; old x pix scroll
- BLVC ccd_xpix_xpair
- MOVVC R4,R3
- MOVVC R7,R6			; x scroll posn on chars
- LDRVC R3,[R8,#w_scrolly]
- FNLDR R0,scn_magyold,VC
- RSBVC R3,R3,#0
- MOVVC R3,R3,ASR R0		; old y pix scroll
- BLVC ccd_ypix_ypair		; y scroll posn in chars
- BLVC ccd_ypair_yos
- STRVC R3,[R8,#w_scrolly]	; new y scroll offset
- MOVVC R3,R4
- MOVVC R6,R7
- BLVC ccd_xpair_xos
- STRVC R3,[R8,#w_scrollx]	; new x scroll offset
- BLVC new_extent
-; MOV R1,R8
-; BL open_window		; completely OTT?
-; BLVC Updatewindow		; gets all but the first redraw...?!?!?
-; MOVVC R1,R8
-; BLVC open_window
-; BLVC ccd_workxy		; R2,R3=max x,min y
-; MOVVC R0,R2
-; MOVVC R2,R3
-; MOVVC R3,R0
-; MOVVC R1,#0
-; MOVVC R4,#0
-; LDRVC R0,[R8,#w_handle]
-; SWIVC XWimp_ForceRedraw	; invalidate area
- FNRTS
+	FNJSR	"R1-R11"
+	LDR	R0,[R8,#w_flags]
+	BIC	R0,R0,#1<<31
+	STR	R0,[R8,#w_flags]	; clear the condition flag
+	BL	read_font_sizes
+	LDRVC	R3,[R8,#w_scrollx]	; old scroll offset
+	FNLDR	R0,scn_magxold,VC
+	MOVVC	R3,R3,ASR R0		; old x pix scroll
+	BLVC	ccd_xpix_xpair
+	MOVVC	R4,R3
+	MOVVC	R7,R6			; x scroll posn on chars
+	LDRVC	R3,[R8,#w_scrolly]
+	FNLDR	R0,scn_magyold,VC
+	RSBVC	R3,R3,#0
+	MOVVC	R3,R3,ASR R0		; old y pix scroll
+	BLVC	ccd_ypix_ypair		; y scroll posn in chars
+	BLVC	ccd_ypair_yos
+	STRVC	R3,[R8,#w_scrolly]	; new y scroll offset
+	MOVVC	R3,R4
+	MOVVC	R6,R7
+	BLVC	ccd_xpair_xos
+	STRVC	R3,[R8,#w_scrollx]	; new x scroll offset
+	BLVC	new_extent
+	FNRTS
+
 
 ;E R8=window block with new opening coords (and scroll offsets)
 ;X Window extent set to new value (using ccd_workxy) and opening block
 ;  altered so doesn't go beyond the extent. WB #
- FNAME new_extent
+	FNAME	new_extent
 new_extent
- FNJSR "R1-R3"
- FNLDR R1,wimp_block
- FNLDR R0,wimp_leftgap		; not fixed :( TT.
- RSB R0,R0,#0
- STR R0,[R1]			; minx
- MOV R0,#0
- STR R0,[R1,#12]		; maxy
- BL ccd_workxy
- STR R2,[R1,#8]			; maxx
- STR R3,[R1,#4]			; maxy
- LDR R0,[R8,#w_handle]
- SWI XWimp_SetExtent		; set new work area extent
- MOVVC R1,R8
- SWIVC XWimp_GetWindowState	; new opening coords
- FNRTS
+	FNJSR	"R1-R3"
+	FNLDR	R1,wimp_block
+	FNLDR	R0,wimp_leftgap		; not fixed :( TT.
+	RSB	R0,R0,#0
+	STR	R0,[R1]			; minx
+	MOV	R0,#0
+	STR	R0,[R1,#12]		; maxy
+	BL	ccd_workxy
+	STR	R2,[R1,#8]		; maxx
+	STR	R3,[R1,#4]		; maxy
+	LDR	R0,[R8,#w_handle]
+	SWI	XWimp_SetExtent		; set new work area extent
+	MOVVC	R1,R8
+	SWIVC	XWimp_GetWindowState	; new opening coords
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Conversion of (window) offsets			  ;
@@ -1951,53 +1832,55 @@ new_extent
 
 ;E R0=window offset/-ve
 ;X R8/R9 set up / R8=R9=0 |
- FNAME conv_wind_off
+	FNAME	conv_wind_off
 conv_wind_off
- MOVS R0,R0
- MOVMI R8,#0
- MOVMI R9,#0
- MOVMI PC,R14
- FNJSR
-; SYSLOGF "conv_wind_off, r0 = %0x", LOG_ALWAYS	; FIXME: get rid of this!
- FNLDR R8,wind_list
- ADD R8,R8,R0,LSL#w_shift
- LDR R14,[R8,#w_file]
- FNLDR R9,file_list
- ADD R9,R9,R14,LSL#f_shift
- FNRTS
+	MOVS	R0,R0
+	MOVMI	R8,#0
+	MOVMI	R9,#0
+	MOVMI	PC,R14
+	FNJSR
+	FNLDR	R8,wind_list
+	ADD	R8,R8,R0,LSL#w_shift
+	LDR	R14,[R8,#w_file]
+	FNLDR	R9,file_list
+	ADD	R9,R9,R14,LSL#f_shift
+	FNRTS
+
 
 ;E R8=window pointer
 ;X R0=window offset/-1 if pointer too low |
- FNAME get_wind_off
+	FNAME	get_wind_off
 get_wind_off
- FNLDR R0,wind_list
- SUBS R0,R8,R0
- MVNLT R0,#0			; -1
- MOVGE R0,R0,LSR#w_shift
- MOV PC,R14
+	FNLDR	R0,wind_list
+	SUBS	R0,R8,R0
+	MVNLT	R0,#0			; -1
+	MOVGE	R0,R0,LSR#w_shift
+	MOV	PC,R14
 
- LOCAL
+	LOCAL
+
 
 ;E R0=window offset (-1 to try first offset if R4 +ve)
 ;  R4=direction to go (+1/-1)
 ;X R0=next valid window offset / -1 if none (off end).
- FNAME next_wind_offset
+	FNAME	next_wind_offset
 next_wind_offset
- FNJSR "R1,R8"
- FNLDR R8,wind_list
- FNLDR R1,wind_num
-a$l
- ADDS R0,R0,R4
- BMI end$l
- CMP R0,R1
- BCS end$l
- LDR R14,[R8,R0,LSL#w_shift]
- CMP R14,#0
- BLE a$l			; window block not being used
- FNRTS
-end$l
- MOV R0,#-1
- FNRTS
+	FNJSR	"R1,R8"
+	FNLDR	R8,wind_list
+	FNLDR	R1,wind_num
+a$l	ADDS	R0,R0,R4
+	BMI	end$l
+	CMP	R0,R1
+	BCS	end$l
+	LDR	R14,[R8,R0,LSL#w_shift]
+	CMP	R14,#0
+	BLE	a$l			; window block not being used
+	FNRTS
+
+end$l	MOV	R0,#-1
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TITLEBARS						      ;
@@ -2005,283 +1888,270 @@ end$l
 
 ;E R8/R9
 ;X Title for this window updated but not redrawn #
- FNAME create_title
+	FNAME	create_title
 create_title
- FNJSR "R1"
- BL update_title
- FNRTS VS
- LDR R0,[R8,#w_title]
- BL str_len
- STR R0,[R8,#w_titlelen]
- LDR R0,[R8,#w_titbuf]
- MOV R1,#0
- STRB R1,[R0]
- STR R1,[R8,#w_titlen]
- FNRTS
+	FNJSR	"R1"
+	BL	update_title
+	FNRTS	VS
+	LDR	R0,[R8,#w_title]
+	BL	str_len
+	STR	R0,[R8,#w_titlelen]
+	LDR	R0,[R8,#w_titbuf]
+	MOV	R1,#0
+	STRB	R1,[R0]
+	STR	R1,[R8,#w_titlen]
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R8/R9
 ;X title buffer only updated |
- FNAME update_title
+	FNAME	update_title
 update_title
- FNJSR "R1-R4"
- LDR R2,[R9,#f_name]		; filename
- LDR R1,[R8,#w_title]		; buffer pointer
- BL strcpy			; copy name
- LDR R2,[R9,#f_flags]
- TST R2,#1<<3
- MOV R0,#' '
- BEQ unchanged$l
- STRB R0,[R1],#1
- LDR R3,[R9,#f_len]
- CMP R3,#CHECKSUM_MAX
- BLO smallfile$l
- LDR R4,[R9,#f_chklen]
- TEQ R3,R4
- MOVEQ R3,#'?'
+	FNJSR	"R1-R4"
+	LDR	R2,[R9,#f_name]		; filename
+	LDR	R1,[R8,#w_title]	; buffer pointer
+	BL	strcpy			; copy name
+	LDR	R2,[R9,#f_flags]
+	TST	R2,#1<<3
+	MOV	R0,#' '
+	BEQ	unchanged$l
+	STRB	R0,[R1],#1
+	LDR	R3,[R9,#f_len]
+	CMP	R3,#CHECKSUM_MAX
+	BLO	smallfile$l
+	LDR	R4,[R9,#f_chklen]
+	TEQ	R3,R4
+	MOVEQ	R3,#'?'
 smallfile$l
- MOVNE R3,#'*'
- STRB R3,[R1],#1
+	MOVNE	R3,#'*'
+	STRB	R3,[R1],#1
 unchanged$l
- STRB R0,[R1],#1
- MOV R0,#'('
- STRB R0,[R1],#1
- LDRB R0,[R8,#w_format]		; mode number
-; MOV R4,R0
- BL mode_name			; read mode name
- FNRTS VS
- BL strcpy			; insert into buffer
- MOV R0,#' '
- STRB R0,[R1],#1
- LDR R2,[R9,#f_flags]
- LDR R3,[R8,#w_flags]
- TST R2,#1<<8
- MOVEQ R0,#0
- MOVNE R0,#'r'
- TST R2,#1<<4
- MOVNE R0,#'R'
- TEQ R0,#0
- STRNEB R0,[R1],#1
- TST R2,#1<<27			; DOS text file
- MOVNE R0,#'D'
- STRNEB R0,[R1],#1
- TST R2,#1<<29
- MOVNE R0,#'S'			; Spool file
- STRNEB R0,[R1],#1
- TST R2,#1<<28			; funny attributes
- MOVNE R0,#'A'
- STRNEB R0,[R1],#1
- TST R2,#1
- MOVNE R0,#'u'
- STRNEB R0,[R1],#1
- TST R3,#1<<1
- MOVNE R0,#'o'			; overwrite
- STRNEB R0,[R1],#1
- TST R3,#1<<5
- MOVNE R0,#'h'
- STRNEB R0,[R1],#1
- TST R3,#1<<13
- MOVNE R0,#'w'			; word wrap.
- STRNEB R0,[R1],#1
- TST R3,#1<<26
- MOVNE R0,#'L'
- STRNEB R0,[R1],#1
- LDR R3,[R8,#w_format]
- TST R3,#1<<14
- MOVNE R0,#'l'
- STRNEB R0,[R1],#1
- TST R3,#1<<15
- MOVNE R0,#'n'
- STRNEB R0,[R1],#1
- TST R3,#1<<16
- MOVNE R0,#'a'
- STRNEB R0,[R1],#1
- TST R3,#1<<18
- MOVNE R0,#'p'			; strip spaces
- STRNEB R0,[R1],#1
- LDR R3,[R8,#w_format]
- TST R3,#1<<26
- MOVNE R0,#'W'			; window wrap
- STRNEB R0,[R1],#1
- LDR R3,[R8,#w_format]
- TST R3,#1<<27
- MOVNE R0,#'s'			; soft wrap
- STRNEB R0,[R1],#1
- LDR R3,[R8,#w_info]
- TST R3,#1<<10
- MOVNE R0,#'B'			; block editing
- STRNEB R0,[R1],#1
- LDRB R0,[R1,#-1]
- TEQ R0,#&20
- SUBEQ R1,R1,#1			; strip unwanted space off end
- MOV R0,#')'
- STRB R0,[R1],#1
- MOV R3,R1			; save string posn
- BL find_view_number
- MOV R4,R1			; save number of views
- MOV R1,R3			; restore string pointer
- CMP R4,#1
- BLE e$l			; only one!
- MOV R14,#&20
- STRB R14,[R1],#1
- MOV R14,#'['
- STRB R14,[R1],#1
- BL strnum			; insert view number
- MOV R0,#'/'
- STRB R0,[R1],#1
- MOV R0,R4
- BL strnum
- MOV R0,#']'
- STRB R0,[R1],#1
-e$l
- MOV R0,#0
- STRB R0,[R1],#1		; terminate string
- FNRTS
+	STRB	R0,[R1],#1
+	MOV	R0,#'('
+	STRB	R0,[R1],#1
+	LDRB	R0,[R8,#w_format]	; mode number
+	BL	mode_name		; read mode name
+	FNRTS	VS
+	BL	strcpy			; insert into buffer
+	MOV	R0,#' '
+	STRB	R0,[R1],#1
+	LDR	R2,[R9,#f_flags]
+	LDR	R3,[R8,#w_flags]
+	TST	R2,#1<<8
+	MOVEQ	R0,#0
+	MOVNE	R0,#'r'
+	TST	R2,#1<<4
+	MOVNE	R0,#'R'
+	TEQ	R0,#0
+	STRNEB  R0,[R1],#1
+	TST	R2,#1<<27		; DOS text file
+	MOVNE	R0,#'D'
+	STRNEB  R0,[R1],#1
+	TST	R2,#1<<29
+	MOVNE	R0,#'S'			; Spool file
+	STRNEB  R0,[R1],#1
+	TST	R2,#1<<28		; funny attributes
+	MOVNE	R0,#'A'
+	STRNEB  R0,[R1],#1
+	TST	R2,#1
+	MOVNE	R0,#'u'
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<1
+	MOVNE	R0,#'o'			; overwrite
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<5
+	MOVNE	R0,#'h'
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<13
+	MOVNE	R0,#'w'			; word wrap.
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<26
+	MOVNE	R0,#'L'
+	STRNEB  R0,[R1],#1
+	LDR	R3,[R8,#w_format]
+	TST	R3,#1<<14
+	MOVNE	R0,#'l'
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<15
+	MOVNE	R0,#'n'
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<16
+	MOVNE	R0,#'a'
+	STRNEB  R0,[R1],#1
+	TST	R3,#1<<18
+	MOVNE	R0,#'p'			; strip spaces
+	STRNEB  R0,[R1],#1
+	LDR	R3,[R8,#w_format]
+	TST	R3,#1<<26
+	MOVNE	R0,#'W'			; window wrap
+	STRNEB  R0,[R1],#1
+	LDR	R3,[R8,#w_format]
+	TST	R3,#1<<27
+	MOVNE	R0,#'s'			; soft wrap
+	STRNEB  R0,[R1],#1
+	LDR	R3,[R8,#w_info]
+	TST	R3,#1<<10
+	MOVNE	R0,#'B'			; block editing
+	STRNEB  R0,[R1],#1
+	LDRB	R0,[R1,#-1]
+	TEQ	R0,#&20
+	SUBEQ	R1,R1,#1		; strip unwanted space off end
+	MOV	R0,#')'
+	STRB	R0,[R1],#1
+	MOV	R3,R1			; save string posn
+	BL	find_view_number
+	MOV	R4,R1			; save number of views
+	MOV	R1,R3			; restore string pointer
+	CMP	R4,#1
+	BLE	e$l			; only one!
+	MOV	R14,#&20
+	STRB	R14,[R1],#1
+	MOV	R14,#'['
+	STRB	R14,[R1],#1
+	BL	strnum			; insert view number
+	MOV	R0,#'/'
+	STRB	R0,[R1],#1
+	MOV	R0,R4
+	BL	strnum
+	MOV	R0,#']'
+	STRB	R0,[R1],#1
+
+e$l	MOV	R0,#0
+	STRB	R0,[R1],#1		; terminate string
+	FNRTS
+
 
 ;E R8/R9
 ;X R0=view number of this window R1=number of views on this file |
- FNAME find_view_number
+	FNAME	find_view_number
 find_view_number
- FNJSR "R2-R5,R8"
- BL get_file_off
- MOV R2,R0			; file we are looking for
- MOV R3,R8			; save window
- MOV R1,#0			; zero number of views
- MOV R4,#0			; zero view number
- FNLDR R8,wind_list		; start of list
- FNLDR R5,wind_num		; number of windows
-fi26
- CMP R5,#0
- BLE fi27			; finished
- LDR R0,[R8,#w_handle]
- CMP R0,#0
- BLE fi28			; dead
- LDR R0,[R8,#w_file]
- TEQ R0,R2
- ADDEQ R1,R1,#1			; inc num of vires
- TEQ R3,R8
- MOVEQ R4,R1			; view number of the given window
-fi28
- ADD R8,R8,#wind_blk
- SUB R5,R5,#1
- B fi26
-fi27
- MOV R0,R4
- FNRTS
+	FNJSR	"R2-R5,R8"
+	BL	get_file_off
+	MOV	R2,R0			; file we are looking for
+	MOV	R3,R8			; save window
+	MOV	R1,#0			; zero number of views
+	MOV	R4,#0			; zero view number
+	FNLDR	R8,wind_list		; start of list
+	FNLDR	R5,wind_num		; number of windows
+fi26	CMP	R5,#0
+	BLE	fi27			; finished
+	LDR	R0,[R8,#w_handle]
+	CMP	R0,#0
+	BLE	fi28			; dead
+	LDR	R0,[R8,#w_file]
+	TEQ	R0,R2
+	ADDEQ	R1,R1,#1		; inc num of vires
+	TEQ	R3,R8
+	MOVEQ	R4,R1			; view number of the given window
+fi28	ADD	R8,R8,#wind_blk
+	SUB	R5,R5,#1
+	B	fi26
 
- LOCAL
+fi27	MOV	R0,R4
+	FNRTS
 
-;local_wm_version
-; DCD 0
-;getwmversion
-; FNJSR "R0-R5"
-; ADR R1,wm_named
-; MOV R0,#18
-; SWI XOS_Module
-; FNRTS VS
-; BL getmoduleversionnumber
-; STRVC R0,local_wm_version
-; FNRTS
-;wm_named
-; FNS ("WindowManager")
+	LOCAL
+
 
 ;E R8 (with open coords)
 ;X actual buffer wimp displays updated at correct len |
- FNAME reflect_title
+	FNAME	reflect_title
 reflect_title
- FNJSR "R1-R3"
-; LDR R0,local_wm_version
-; CMP R0,#0
-; BLEQ getwmversion
-; FNRTS VS
- FNLDR R0,wimp_realver
- CMP R0,#320
- LDRGE R3,[R8,#w_titlelen]
- BGE done$l			; don't need to shorten - Wimp right aligns
- FNLDR R0,scn_magx
- LDR R1,[R8,#w_maxx]
- LDR R2,[R8,#w_minx]		; x os min
- SUB R1,R1,R2			; width of window in os
- SUB R1,R1,#4*8*2		; width of title gap in os
- MOV R3,R1,LSR#4		; width in wimp chars
-done$l				; R3=length of string to show
- LDR R2,[R8,#w_titlen]		; length of reflected title
- LDR R1,[R8,#w_titlelen]	; total length of title
- CMP R3,#1
- MOVLE R3,#1
- CMP R3,R1
- MOVCS R3,R1			; length title should be
- TEQ R2,R3
- FNRTS EQ			; already correct length
- SUB R2,R1,R3			; amount to skip
- LDR R0,[R8,#w_title]
- ADD R2,R0,R2			; address of reflected title
- LDR R1,[R8,#w_titbuf]		; destination
- BL strcopy
- STR R3,[R8,#w_titlen]
- FNRTS
+	FNJSR	"R1-R3"
+	FNLDR	R0,wimp_realver
+	CMP	R0,#320
+	LDRGE	R3,[R8,#w_titlelen]
+	BGE	done$l			; don't need to shorten - Wimp right aligns
+	FNLDR	R0,scn_magx
+	LDR	R1,[R8,#w_maxx]
+	LDR	R2,[R8,#w_minx]		; x os min
+	SUB	R1,R1,R2		; width of window in os
+	SUB	R1,R1,#4*8*2		; width of title gap in os
+	MOV	R3,R1,LSR#4		; width in wimp chars
+done$l					; R3=length of string to show
+	LDR	R2,[R8,#w_titlen]	; length of reflected title
+	LDR	R1,[R8,#w_titlelen]	; total length of title
+	CMP	R3,#1
+	MOVLE	R3,#1
+	CMP	R3,R1
+	MOVCS	R3,R1			; length title should be
+	TEQ	R2,R3
+	FNRTS	EQ			; already correct length
+	SUB	R2,R1,R3		; amount to skip
+	LDR	R0,[R8,#w_title]
+	ADD	R2,R0,R2		; address of reflected title
+	LDR	R1,[R8,#w_titbuf]	; destination
+	BL	strcopy
+	STR	R3,[R8,#w_titlen]
+	FNRTS
+
 
 ;E R8
 ;X Title icon redrawn on screen WB #
- FNAME redraw_title
+	FNAME	redraw_title
 redraw_title
- FNJSR "R1-R4"
- BL update_wind_state
- FNRTS VS
- FNLDR R1,wimp_block
- FNLDR R0,wimp_realver
- CMP R0,#380
- LDR R0,[R8,#w_handle]
- BHI redraw_title_new
- STR R0,[R1]
- SWI XWimp_GetWindowOutline
- FNRTS VS
- LDR R4,[R1,#16]		; top of bar
- MVN R0,#0			; whole screen
- LDR R1,[R8,#w_minx]		; left of bar
- LDR R2,[R8,#w_maxy]		; bottom of bar
- LDR R3,[R8,#w_maxx]		; right of bar
- SWI XWimp_ForceRedraw
- FNRTS
+	FNJSR	"R1-R4"
+	BL	update_wind_state
+	FNRTS	VS
+	FNLDR	R1,wimp_block
+	FNLDR	R0,wimp_realver
+	CMP	R0,#380
+	LDR	R0,[R8,#w_handle]
+	BHI	redraw_title_new
+	STR	R0,[R1]
+	SWI	XWimp_GetWindowOutline
+	FNRTS	VS
+	LDR	R4,[R1,#16]		; top of bar
+	MVN	R0,#0			; whole screen
+	LDR	R1,[R8,#w_minx]		; left of bar
+	LDR	R2,[R8,#w_maxy]		; bottom of bar
+	LDR	R3,[R8,#w_maxx]		; right of bar
+	SWI	XWimp_ForceRedraw
+	FNRTS
+
 redraw_title_new
- LDR R1,rt_task
- MOV R2,#3
- SWI XWimp_ForceRedraw
- FNRTS
-rt_task = "TASK"
+	LDR	R1,rt_task
+	MOV	R2,#3
+	SWI	XWimp_ForceRedraw
+	FNRTS
+
+rt_task =	"TASK"
+
 
 ;E R9=file (existing file)
 ;X R8=window showing this file (opened if necessary) #
- FNAME find_window
+	FNAME	find_window
 find_window
- FNJSR "R1-R2"
- [ LOGGING = SYSLOG
- BL get_file_off
- SYSLOGF "find_window file %9x (%0d)", LOG_WINDOW
- ]
- FNLDR R0,file_list
- SUB R0,R9,R0
- MOV R0,R0,LSR#f_shift
- FNLDR R1,wind_list
- FNLDR R2,wind_num
-fi11
- CMP R2,#0
- BLE fi12
- LDR R14,[R1,#w_handle]
- CMN R14,#1			; valid window?
- BEQ fi17
- LDR R14,[R1,#w_file]
- TEQ R14,R0			; is this the correct file?
- MOVEQ R8,R1
- FNRTS EQ
-fi17
- ADD R1,R1,#wind_blk
- SUB R2,R2,#1			; next
- B fi11
-fi12
- BL create_window_block
- FNRTS
+	FNJSR	"R1-R2"
+
+	[ LOGGING = SYSLOG
+	BL	get_file_off
+	SYSLOGF "find_window file %9x (%0d)", LOG_WINDOW
+	]
+
+	FNLDR	R0,file_list
+	SUB	R0,R9,R0
+	MOV	R0,R0,LSR#f_shift
+	FNLDR	R1,wind_list
+	FNLDR	R2,wind_num
+fi11	CMP	R2,#0
+	BLE	fi12
+	LDR	R14,[R1,#w_handle]
+	CMN	R14,#1			; valid window?
+	BEQ	fi17
+	LDR	R14,[R1,#w_file]
+	TEQ	R14,R0			; is this the correct file?
+	MOVEQ	R8,R1
+	FNRTS	EQ
+fi17	ADD	R1,R1,#wind_blk
+	SUB	R2,R2,#1		; next
+	B	fi11
+
+fi12	BL	create_window_block
+	FNRTS
+
 
 ; If you don't want this, change it back. It *may* become an option in the future,
 ; but until then we'll do it this way. I may alter find_last_window to do something
@@ -2289,448 +2159,409 @@ fi12
 ; something (although that's quite painful to do).
 YES		* 1
 NO		* 0
-NEW_SWAP_WINDOW	* 1
+NEW_SWAP_WINDOW  * 1
 
- [ NEW_SWAP_WINDOW = YES
+	[ NEW_SWAP_WINDOW = YES
 ;E R8-R10=caret to move
 ;X goto last marker offset in another window #
 swap_window
- FNJSR "R8-R9"
- BL find_last_window		; find posn in last window
- FNRTS VS
- CMP R0,#0
- BLPL goto_offset
- FNRTS
- ]
+	FNJSR	"R8-R9"
+	BL	find_last_window	; find posn in last window
+	FNRTS	VS
+	CMP	R0,#0
+	BLPL	goto_offset
+	FNRTS
+	]
 
 ;E R8-R10=caret to move
 ;X goto last marker offset in another window #
- [ NEW_SWAP_WINDOW = NO
+	[ NEW_SWAP_WINDOW = NO
 swap_window
- ]
+	]
 command_swap_window
- FNJSR "R8-R9"
- BL find_next_window		; find posn in next window
- FNRTS VS
- CMP R0,#0
- BLPL goto_offset		; perform goto
- FNRTS
+	FNJSR	"R8-R9"
+	BL	find_next_window	; find posn in next window
+	FNRTS	VS
+	CMP	R0,#0
+	BLPL	goto_offset		; perform goto
+	FNRTS
 
- [ NEW_SWAP_WINDOW = YES
+	[ NEW_SWAP_WINDOW = YES
 	LOCAL
 ;E R8/R9
 ;X R8/R9=last window as if you wanted to swap to it R0=offset/-1#
 find_last_window
- FNJSR "R1,R2"
- BL get_wind_off
- MOV R1,R0			; window to avoid getting back to
-loop$l
- CMP R0,#0
- FNLDR R0,wind_num,EQ
- SUB R0,R0,#1
- CMP R1,R0
- BEQ quit$l
- BL conv_wind_off
- CMP R8,#0			; this should never happen ...
- BEQ loop$l			; keep going
- LDR R2,[R8,#w_handle]
- CMP R2,#-1			; window is unused ...
- BEQ loop$l
- LDR R0,[R8,#w_poff]		; point of cursor ...
- FNRTS				; success!
-quit$l				; failed
- MOV R0,#-1
- FNRTS
- ]
+	FNJSR	"R1,R2"
+	BL	get_wind_off
+	MOV	R1,R0			; window to avoid getting back to
+loop$l	CMP	R0,#0
+	FNLDR	R0,wind_num,EQ
+	SUB	R0,R0,#1
+	CMP	R1,R0
+	BEQ	quit$l
+	BL	conv_wind_off
+	CMP	R8,#0			; this should never happen ...
+	BEQ	loop$l			; keep going
+	LDR	R2,[R8,#w_handle]
+	CMP	R2,#-1			; window is unused ...
+	BEQ	loop$l
+	LDR	R0,[R8,#w_poff]		; point of cursor ...
+	FNRTS				; success!
+quit$l	MOV	R0,#-1			; failed
+	FNRTS
+	]
+
 
 ;E R8/R9
 ;X R8/R9=next window as if you wanted to swap to it R0=offset/-1#
- FNAME find_next_window
+	FNAME	find_next_window
 find_next_window
- FNJSR "R1-R7"
- MOV R4,R9			; save start file
- BL get_wind_off
- MOV R5,R0			; window to avoid
- FNLDR R6,file_list		; start of file list
- FNLDR R7,file_num
- ADD R7,R6,R7,LSL#f_shift	; end of file list
-sw12
- BL swap_file_window		; try and swap to a window on this file
- CMP R0,#0
- FNRTS PL	; succeeded
- ADD R9,R9,#file_blk		; move onto next file
- CMP R9,R7
- MOVCS R9,R6			; wrap around
- TEQ R9,R4
- BNE sw12			; not back to where we started
- MVN R0,#0			; back to where we started = failed
- FNRTS
+	FNJSR	"R1-R7"
+	MOV	R4,R9			; save start file
+	BL	get_wind_off
+	MOV	R5,R0			; window to avoid
+	FNLDR	R6,file_list		; start of file list
+	FNLDR	R7,file_num
+	ADD	R7,R6,R7,LSL#f_shift	; end of file list
+sw12	BL	swap_file_window	; try and swap to a window on this file
+	CMP	R0,#0
+	FNRTS	PL			; succeeded
+	ADD	R9,R9,#file_blk		; move onto next file
+	CMP	R9,R7
+	MOVCS	R9,R6			; wrap around
+	TEQ	R9,R4
+	BNE	sw12			; not back to where we started
+	MVN	R0,#0			; back to where we started = failed
+	FNRTS
+
 
 ;E R9=file pointer (may not be valid) R5=window offset to avoid
 ;X R0=-1 if no window to swap to OR
 ;  R0=offset to goto R8=window pointer |
- FNAME swap_file_window
+	FNAME	swap_file_window
 swap_file_window
- FNJSR "R1-R7"
- LDR R0,[R9,#f_ptr]
- CMP R0,#0
- MVNLE R0,#0			; not a valid file
- FNRTS LE
- BL get_file_off
- MOV R7,R0			; file offset
- FNLDR R6,wind_num		; number of windows
- MOV R4,R5			; window to start off with
- FNLDR R8,wind_list		; start of window list
-sw1
- ADD R4,R4,#1			; next window
- CMP R4,R6
- MOVCS R4,#0			; wrap around
- TEQ R4,R5			; back where we started?
- MVNEQ R0,#0
- FNRTS EQ	; run out of windows
- ADD R1,R8,R4,LSL#w_shift	; address of this window block
- LDR R0,[R1,#w_handle]
- CMN R0,#1
- BEQ sw1			; window is dead
- LDR R0,[R1,#w_file]		; associated file
- TEQ R0,R7
- BNE sw1			; doesn't match
- MOV R8,R1			; window address
- LDR R0,[R8,#w_poff]		; point position
- FNRTS
+	FNJSR	"R1-R7"
+	LDR	R0,[R9,#f_ptr]
+	CMP	R0,#0
+	MVNLE	R0,#0			; not a valid file
+	FNRTS	LE
+	BL	get_file_off
+	MOV	R7,R0			; file offset
+	FNLDR	R6,wind_num		; number of windows
+	MOV	R4,R5			; window to start off with
+	FNLDR	R8,wind_list		; start of window list
+sw1	ADD	R4,R4,#1		; next window
+	CMP	R4,R6
+	MOVCS	R4,#0			; wrap around
+	TEQ	R4,R5			; back where we started?
+	MVNEQ	R0,#0
+	FNRTS	EQ			; run out of windows
+	ADD	R1,R8,R4,LSL#w_shift	; address of this window block
+	LDR	R0,[R1,#w_handle]
+	CMN	R0,#1
+	BEQ	sw1			; window is dead
+	LDR	R0,[R1,#w_file]		; associated file
+	TEQ	R0,R7
+	BNE	sw1			; doesn't match
+	MOV	R8,R1			; window address
+	LDR	R0,[R8,#w_poff]		; point position
+	FNRTS
 
 should_the_window_wrap
- LDR R0,[R8,#w_format]
- TST R0,#bit_windowwrap		; window wrap bit
- MOV PC,R14
-; pity about this code ;-)
-; MOVNE PC,R14
-; FNJSR "R1"
-; BL test_shiftctrl		; get shift status in b0 of R1
-; TST R1,#1
-; FNRTS
+	LDR	R0,[R8,#w_format]
+	TST	R0,#bit_windowwrap	; window wrap bit
+	MOV	PC,R14
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SCROLL REQUESTS						;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=scroll request block
- FNAME scroll_request
+	FNAME	scroll_request
 scroll_request
- FNJSR
- BL conv_wind_off		; set up R8/R9
-; SWI &107
- MOV R11,R1			; window block
- LDR R2,[R1,#32]		; xscroll direction
- LDR R3,[R1,#36]		; yscroll direction
- TEQ R2,#0
- TEQEQ R3,#0
- FNRTS EQ			; no change
- RSB R3,R3,#0			; negate
- LDR R0,[R8,#w_format]
- BL should_the_window_wrap
- MOVNE R2,#0			; no X scroll if window wrap active
- TEQ R2,#0
- TEQEQ R3,#0
- FNRTS EQ			; no change
- BL shift_by			; shift the window
-; MOV R1,R11
-; BL open_window_constrict	; reopen the window
-; FNRTS
- MOVVC R1,R11
- BLVC open_window_constrict	; reopen the window
- FNRTS
+	FNJSR
+	BL	conv_wind_off		; set up R8/R9
+	MOV	R11,R1			; window block
+	LDR	R2,[R1,#32]		; xscroll direction
+	LDR	R3,[R1,#36]		; yscroll direction
+	TEQ	R2,#0
+	TEQEQ	R3,#0
+	FNRTS	EQ			; no change
+	RSB	R3,R3,#0		; negate
+	LDR	R0,[R8,#w_format]
+	BL	should_the_window_wrap
+	MOVNE	R2,#0			; no X scroll if window wrap active
+	TEQ	R2,#0
+	TEQEQ	R3,#0
+	FNRTS	EQ			; no change
+	BL	shift_by		; shift the window
+	MOVVC	R1,R11
+	BLVC	open_window_constrict	; reopen the window
+	FNRTS
+
 
 ;E R0=scroll dir -2-+2 R2=num rasts R3/R6=start R5/R7=end of area
 ;X R3/R6=new scroll offset R7 corrupt |
- FNAME alter_scroll
+	FNAME	alter_scroll
 alter_scroll
- FNJSR
- TEQ R0,#1
- BEQ al3
- CMN R0,#1
- BEQ al4
- TEQ R6,#0
- MOVEQ R7,R3
- ADDNE R7,R3,#1			; first fully visible col
- SUB R7,R5,R7			; width in cols/lines
- TEQ R0,#2
- ADDEQ R3,R3,R7			; page plus
- CMN R0,#2
- SUBEQ R3,R3,R7			; page minus
- FNRTS
-al3
- SUB R7,R2,R7			; number of pixels to next char
- ADD R6,R6,R7			; move on by this
- CMP R6,R2
- SUBCS R6,R6,R2
- ADDCS R3,R3,#1			; take mod R2
- FNRTS
-al4
- TEQ R6,#0
- MOVNE R6,#0
- SUBEQ R3,R3,#1
- FNRTS
+	FNJSR
+	TEQ	R0,#1
+	BEQ	al3
+	CMN	R0,#1
+	BEQ	al4
+	TEQ	R6,#0
+	MOVEQ	R7,R3
+	ADDNE	R7,R3,#1		; first fully visible col
+	SUB	R7,R5,R7		; width in cols/lines
+	TEQ	R0,#2
+	ADDEQ	R3,R3,R7		; page plus
+	CMN	R0,#2
+	SUBEQ	R3,R3,R7		; page minus
+	FNRTS
+
+al3	SUB	R7,R2,R7		; number of pixels to next char
+	ADD	R6,R6,R7		; move on by this
+	CMP	R6,R2
+	SUBCS	R6,R6,R2
+	ADDCS	R3,R3,#1		; take mod R2
+	FNRTS
+
+al4	TEQ	R6,#0
+	MOVNE	R6,#0
+	SUBEQ	R3,R3,#1
+	FNRTS
 
 
 ;E R8/R9
 ;X Title recreated/buffer reflected and window reopened #
- FNAME new_title
+	FNAME	new_title
 new_title
- FNJSR "R1"
- BL update_wind_state
- BLVC create_title
- MOVVC R0,#0
- STRVC R0,[R8,#w_titlen]		; force update of tit buffer
- BLVC reflect_title
- BLVC redraw_title
- FNRTS
+	FNJSR	"R1"
+	BL	update_wind_state
+	BLVC	create_title
+	MOVVC	R0,#0
+	STRVC	R0,[R8,#w_titlen]	; force update of tit buffer
+	BLVC	reflect_title
+	BLVC	redraw_title
+	FNRTS
 
 
 ;E R0-R7=args R9 R10=address of sub with # format
 ;X Sub at R10 executed with R8 set up for each window on R9. #
- FNAME do_eachwindow
+	FNAME	do_eachwindow
 do_eachwindow
- FNJSR "R8,R11"
- MOV R11,R0			; save arg R0
- FNLDR R8,wind_list
-do2
- FNLDR R14,wind_list
- SUB R14,R8,R14
- MOV R14,R14,LSR#w_shift	; number of current window
- FNLDR R0,wind_num
- CMP R14,R0
- FNRTS CS	; no more windows left
- LDR R14,[R8,#w_handle]
- CMN R14,#1
- BEQ do3			; window deleted
- LDR R0,[R8,#w_file]
- FNLDR R14,file_list
- ADD R14,R14,R0,LSL#f_shift
- TEQ R9,R14
- BNE do3			; window not on this file
- MOV R0,R11			; arg R0
- MOVS R14,PC			; return addr
- MOV PC,R10			; branch to the sub
- FNRTS VS
-do3
- ADD R8,R8,#wind_blk
- B do2				; next window
+	FNJSR	"R8,R11"
+	MOV	R11,R0			; save arg R0
+	FNLDR	R8,wind_list
+do2	FNLDR	R14,wind_list
+	SUB	R14,R8,R14
+	MOV	R14,R14,LSR#w_shift	; number of current window
+	FNLDR	R0,wind_num
+	CMP	R14,R0
+	FNRTS	CS			; no more windows left
+	LDR	R14,[R8,#w_handle]
+	CMN	R14,#1
+	BEQ	do3			; window deleted
+	LDR	R0,[R8,#w_file]
+	FNLDR	R14,file_list
+	ADD	R14,R14,R0,LSL#f_shift
+	TEQ	R9,R14
+	BNE	do3			; window not on this file
+	MOV	R0,R11			; arg R0
+	MOVS	R14,PC			; return addr
+	MOV	PC,R10			; branch to the sub
+	FNRTS	VS
+do3	ADD	R8,R8,#wind_blk
+	B	do2			; next window
 
- LOCAL
+	LOCAL
+
 
 ;E R0-R7=args R10=address of sub with # format
 ;X Sub at R10 executed with R8/R9 set up for each valid window #
- FNAME do_allwindow
+	FNAME	do_allwindow
 do_allwindow
- FNJSR "R8-R9,R11"
- MOV R11,R0			; save arg R0
- FNLDR R8,wind_list
-loop$l
- FNLDR R14,wind_list
- SUB R14,R8,R14
- MOV R14,R14,LSR#w_shift	; number of current window
- FNLDR R0,wind_num
- CMP R14,R0
- FNRTS CS			; no more windows left
- LDR R14,[R8,#w_handle]
- CMP R14,#-1
- BEQ next$l			; window deleted
- LDR R0,[R8,#w_file]
- FNLDR R9,file_list
- ADD R9,R9,R0,LSL#f_shift	; set up file pointer
- MOV R0,R11			; arg R0
- MOVS R14,PC			; return addr
- MOV PC,R10			; branch to the sub
- FNRTS VS
-next$l
- ADD R8,R8,#wind_blk		; next window
- B loop$l
+	FNJSR	"R8-R9,R11"
+	MOV	R11,R0			; save arg R0
+	FNLDR	R8,wind_list
+loop$l	FNLDR	R14,wind_list
+	SUB	R14,R8,R14
+	MOV	R14,R14,LSR#w_shift	; number of current window
+	FNLDR	R0,wind_num
+	CMP	R14,R0
+	FNRTS	CS			; no more windows left
+	LDR	R14,[R8,#w_handle]
+	CMP	R14,#-1
+	BEQ	next$l			; window deleted
+	LDR	R0,[R8,#w_file]
+	FNLDR	R9,file_list
+	ADD	R9,R9,R0,LSL#f_shift	; set up file pointer
+	MOV	R0,R11			; arg R0
+	MOVS	R14,PC			; return addr
+	MOV	PC,R10			; branch to the sub
+	FNRTS	VS
+next$l	ADD	R8,R8,#wind_blk		; next window
+	B	loop$l
 
- LOCAL
+	LOCAL
 
-;;E R0-R7=args R10=address of sub with # format
-;;X Sub at R10 executed with R8/R9 set up for each valid file #
-;
-;do_allfile
-; FNJSR "R8-R9,R11"
-; MOV R11,R0			; save arg R0
-; FNLDR R9,file_list
-;loop$l
-; FNLDR R14,file_list
-; SUB R14,R9,R14
-; MOV R14,R14,LSR#f_shift	; number of current file
-; FNLDR R0,file_num
-; CMP R14,R0
-; FNRTS CS			; no more files left
-; LDR R14,[R9,#f_ptr]
-; CMP R14,#-1
-; BEQ next$l			; file deleted
-; MOV R0,R11			; arg R0
-; MOVS R14,PC			; return addr
-; MOV PC,R10			; branch to the sub
-; FNRTS VS
-;next$l
-; ADD R9,R9,#file_blk		; next file
-; B loop$l
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Format and flag setting for menus etc				;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 testandsee$l
- FNJSR "R7,R10,R11"
- MOV R7,R0
- TEQ R8,#0
- FNLDRB R10,opt_format,EQ
- LDRNEB R10,[R8,#w_format]
- MOV R11,#e_interrogate
- BL call_given_mode
- CMP R0,R7
- FNRTS
+	FNJSR	"R7,R10,R11"
+	MOV	R7,R0
+	TEQ	R8,#0
+	FNLDRB  R10,opt_format,EQ
+	LDRNEB  R10,[R8,#w_format]
+	MOV	R11,#e_interrogate
+	BL	call_given_mode
+	CMP	R0,R7
+	FNRTS
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_info called else return tick state in R0.
 ;  Tick is set if (info BIC R0)=R1 #
- FNAME new_info_select
+	FNAME	new_info_select
 new_info_select
- TEQ R2,#15
- BNE new_info
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_info,EQ
- LDRNE R14,[R8,#w_info]
- AND R0,R14,R0			; get relevant bits
- TEQ R0,R1
- B into_new_info_set2
+	TEQ	R2,#15
+	BNE	new_info
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_info,EQ
+	LDRNE	R14,[R8,#w_info]
+	AND	R0,R14,R0		; get relevant bits
+	TEQ	R0,R1
+	B	into_new_info_set2
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_format called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
- FNAME new_format_select
+	FNAME	new_format_select
 new_format_select
- TEQ R2,#15
- BNE new_format
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_format,EQ
- LDRNE R14,[R8,#w_format]
- AND R0,R14,R0			; get relevant bits
- TEQ R0,R1
- B into_new_format_set2
- ;MOVEQ R0,#1
- ;MOVNE R0,#0
- ;TST R1,#bit_windowwrap
- ;BNE test_for_ww
- ;TST R1,#1 << 27
- ;BNE test_for_sw
- ;FNRTS
+	TEQ	R2,#15
+	BNE	new_format
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_format,EQ
+	LDRNE	R14,[R8,#w_format]
+	AND	R0,R14,R0		; get relevant bits
+	TEQ	R0,R1
+	B	into_new_format_set2
 
 test_for_ww
- PUSH "R0"
- MOV R0,#einterrogate_WindowWrap
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_WindowWrap
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_sw
- PUSH "R0"
- MOV R0,#einterrogate_SoftWrap
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_SoftWrap
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_sayt
- PUSH "R0"
- MOV R0,#einterrogate_SpellAsYouType
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_SpellAsYouType
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_linesel
- PUSH "R0"
- MOV R0,#einterrogate_LineSelect
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_LineSelect
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_be
- PUSH "R0"
- MOV R0,#einterrogate_BlockEdit
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_BlockEdit
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_ai
- PUSH "R0"
- MOV R0,#einterrogate_AutoIndent
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_AutoIndent
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_ch
- PUSH "R0"
- MOV R0,#einterrogate_ConfineH
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_ConfineH
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_cv
- PUSH "R0"
- MOV R0,#einterrogate_ConfineV
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_ConfineV
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_fc
- PUSH "R0"
- MOV R0,#einterrogate_FreeClick
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_FreeClick
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
 
 test_for_sc
- PUSH "R0"
- MOV R0,#einterrogate_SmartCursor
- BL testandsee$l
- PULL "R0"
- ORRNE R0,R0,#2
- FNRTS
+	PUSH	"R0"
+	MOV	R0,#einterrogate_SmartCursor
+	BL	testandsee$l
+	PULL	"R0"
+	ORRNE	R0,R0,#2
+	FNRTS
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_info called else return tick state in R0.
- FNAME new_info_set
+	FNAME	new_info_set
 new_info_set
- TEQ R2,#15
- BNE new_info
+	TEQ	R2,#15
+	BNE	new_info
 into_new_info_set
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_info,EQ
- LDRNE R14,[R8,#w_info]
- AND R14,R14,R1
- TEQ R14,R1			; all set?
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_info,EQ
+	LDRNE	R14,[R8,#w_info]
+	AND	R14,R14,R1
+	TEQ	R14,R1			; all set?
 into_new_info_set2
- MOVEQ R0,#1			; yes so tick
- MOVNE R0,#0
- TST R1,#info_LineSelection
- BNE test_for_linesel
- TST R1,#info_SpellAsYouType
- BNE test_for_sayt
- TST R1,#info_StrongSoftWrap
- BNE test_for_sw
- TST R1,#info_BlockEdit
- BNE test_for_be
- FNRTS
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
+	TST	R1,#info_LineSelection
+	BNE	test_for_linesel
+	TST	R1,#info_SpellAsYouType
+	BNE	test_for_sayt
+	TST	R1,#info_StrongSoftWrap
+	BNE	test_for_sw
+	TST	R1,#info_BlockEdit
+	BNE	test_for_be
+	FNRTS
+
 
 ;E R0=w_info (or opt_info) R8
 ;X R0 modified according to info returned by e_interrogate
@@ -2768,317 +2599,285 @@ check_info
 
 ;E R0=display info mask R1=display info eor R8/R9 / R8=0 for main
 ;X New info set to (old BIC R0) EOR R1 #
- FNAME new_info
+	FNAME	new_info
 new_info
- TEQ R8,#0
- BEQ new_opt_info
- FNJSR "R1"
- LDR R14,[R8,#w_info]
- BIC R14,R14,R0
- EOR R1,R14,R1
- BL save_window_status ; save_window_status_preserve
- STRVC R1,[R8,#w_info]
- BLVC new_window_status_forcebpl ; new_window_status
- ;BL callupdatewindow
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_info
+	FNJSR	"R1"
+	LDR	R14,[R8,#w_info]
+	BIC	R14,R14,R0
+	EOR	R1,R14,R1
+	BL	save_window_status	; save_window_status_preserve
+	STRVC	R1,[R8,#w_info]
+	BLVC	new_window_status_forcebpl ; new_window_status
+	FNRTS
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_format called else return tick state in R0.
- FNAME new_format_set
+	FNAME	new_format_set
 new_format_set
- TEQ R2,#15
- BNE new_format
+	TEQ	R2,#15
+	BNE	new_format
 into_new_format_set
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_format,EQ
- LDRNE R14,[R8,#w_format]
- AND R14,R14,R1
- TEQ R14,R1			; all set?
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_format,EQ
+	LDRNE	R14,[R8,#w_format]
+	AND	R14,R14,R1
+	TEQ	R14,R1			; all set?
 into_new_format_set2
- MOVEQ R0,#1			; yes so tick
- MOVNE R0,#0
- TST R1,#bit_softwrap
- BNE test_for_sw
- ;TST R1,#bit_windowwrap
- ;BNE test_for_ww
- TST R1,#format_AutoIndent
- BNE test_for_ai
- TST R1,#bit_smartcursors
- BNE test_for_sc
- TST R1,#bit_confinehorizontal
- BNE test_for_ch
- TST R1,#bit_confinevertical
- BNE test_for_cv
- TST R1,#bit_freeclick
- BNE test_for_fc
- FNRTS
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
+	TST	R1,#bit_softwrap
+	BNE	test_for_sw
+	TST	R1,#format_AutoIndent
+	BNE	test_for_ai
+	TST	R1,#bit_smartcursors
+	BNE	test_for_sc
+	TST	R1,#bit_confinehorizontal
+	BNE	test_for_ch
+	TST	R1,#bit_confinevertical
+	BNE	test_for_cv
+	TST	R1,#bit_freeclick
+	BNE	test_for_fc
+	FNRTS
+
 
 ;E R0=display format mask R1=display format eor R8/R9 / R8=0 for main
 ;X New format set to (old BIC R0) EOR R1 #
- FNAME new_format
+	FNAME	new_format
 new_format
- TEQ R8,#0
- BEQ new_opt_format
- FNJSR "R1"
- LDR R14,[R8,#w_format]
- BIC R14,R14,R0
- EOR R1,R14,R1
- BL save_window_status			; save_window_status_preserve
- FNRTS VS
- STR R1,[R8,#w_format]
- BL new_window_status_forcebpl		; new_window_status
- ;BL callupdatewindow			; needed despite above...?
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_format
+	FNJSR	"R1"
+	LDR	R14,[R8,#w_format]
+	BIC	R14,R14,R0
+	EOR	R1,R14,R1
+	BL	save_window_status	; save_window_status_preserve
+	FNRTS	VS
+	STR	R1,[R8,#w_format]
+	BL	new_window_status_forcebpl ; new_window_status
+	FNRTS
 
-; ;X word and line wrap toggled *off*
-;
-; nolinewrapplease
-;  FNJSR
-;  BL save_window_status
-;  LDR R1,[R8,#w_flags]
-;  BIC R1,R1,#1 << 26
-;  STR R1,[R8,#w_flags]
-;  BL new_window_status
-;  FNRTS
-;
-; ;X word and line wrap toggled *off*
-;
-; nolinewrap_opt_please
-;  FNJSR
-;  FNLDR R14,opt_flags
-;  BIC R14,R14,#1 << 26
-;  FNSTR R14,opt_flags
-;  FNRTS
 
 ;E R0=mask R1=eor R8=0 opt_info set and modes told about it
- FNAME new_opt_info
+	FNAME	new_opt_info
 new_opt_info
- FNJSR "R10-R11"
- FNLDR R14,opt_info
- BIC R0,R14,R0
- EOR R0,R0,R1
- BL check_info
- FNSTR R0,opt_info
- FNLDRB R10,opt_format		; mode
- MOV R11,#e_end
- BL call_given_mode		; save the new status
- FNRTS
+	FNJSR	"R10-R11"
+	FNLDR	R14,opt_info
+	BIC	R0,R14,R0
+	EOR	R0,R0,R1
+	BL	check_info
+	FNSTR	R0,opt_info
+	FNLDRB  R10,opt_format		; mode
+	MOV	R11,#e_end
+	BL	call_given_mode		; save the new status
+	FNRTS
+
 
 ;E R0=mask R1=eor R8=0 opt_format set and modes told about it
- FNAME new_opt_format
+	FNAME	new_opt_format
 new_opt_format
- FNJSR "R10-R11"
- FNLDR R14,opt_format
- BIC R14,R14,R0
- EOR R14,R14,R1
- FNSTR R14,opt_format
- AND R10,R14,#&FF		; mode
- MOV R11,#e_end
- BL call_given_mode		; save the new status
- FNRTS
+	FNJSR	"R10-R11"
+	FNLDR	R14,opt_format
+	BIC	R14,R14,R0
+	EOR	R14,R14,R1
+	FNSTR	R14,opt_format
+	AND	R10,R14,#&FF		; mode
+	MOV	R11,#e_end
+	BL	call_given_mode		; save the new status
+	FNRTS
+
 
 ;E R0=info mask R1=info eor R8/R9 / R8=0 for main
 ;X New info set and title bar updated #
- FNAME new_wind_info
+	FNAME	new_wind_info
 new_wind_info
- TEQ R8,#0
- BEQ new_opt_info
- FNJSR
- LDR R14,[R8,#w_info]
- BIC R0,R14,R0
- EOR R0,R0,R1
- BL check_info
- STR R0,[R8,#w_info]
- BL new_title
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_info
+	FNJSR
+	LDR	R14,[R8,#w_info]
+	BIC	R0,R14,R0
+	EOR	R0,R0,R1
+	BL	check_info
+	STR	R0,[R8,#w_info]
+	BL	new_title
+	FNRTS
+
 
 ;E R0=format mask R1=format eor R8/R9 / R8=0 for main
 ;X New format set and title bar updated #
- FNAME new_wind_format
+	FNAME	new_wind_format
 new_wind_format
- TEQ R8,#0
- BEQ new_opt_format
- FNJSR
- LDR R14,[R8,#w_format]
- BIC R14,R14,R0
- EOR R14,R14,R1
- STR R14,[R8,#w_format]
- BL new_title
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_format
+	FNJSR
+	LDR	R14,[R8,#w_format]
+	BIC	R14,R14,R0
+	EOR	R14,R14,R1
+	STR	R14,[R8,#w_format]
+	BL	new_title
+	FNRTS
+
 
 ;E R0=format mask R1=format eor R2=command type R8/R9=wind/0
 ;X New R8 info set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
-
 new_wind_info_set
- TEQ R2,#15
- BNE new_wind_info
- B into_new_info_set
+	TEQ	R2,#15
+	BNE	new_wind_info
+	B	into_new_info_set
+
 
 ;E R0=format mask R1=format eor R2=command type R8/R9=wind/0
 ;X New R8 format set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
-
 new_wind_format_set
- TEQ R2,#15
- BNE new_wind_format
- B into_new_format_set
+	TEQ	R2,#15
+	BNE	new_wind_format
+	B	into_new_format_set
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_flags called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
- FNAME new_flags_select
+	FNAME	new_flags_select
 new_flags_select
- TEQ R2,#15
- BNE new_flags
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_flags,EQ
- LDRNE R14,[R8,#w_flags]
- AND R0,R14,R0			; get relevant bits
- TEQ R0,R1
- MOVEQ R0,#1
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_flags
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_flags,EQ
+	LDRNE	R14,[R8,#w_flags]
+	AND	R0,R14,R0		; get relevant bits
+	TEQ	R0,R1
+	MOVEQ	R0,#1
+	MOVNE	R0,#0
+	FNRTS
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X New R8 format set, window updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
- FNAME new_flags_set
+	FNAME	new_flags_set
 new_flags_set
- TEQ R2,#15
- BNE new_flags
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_flags,EQ
- LDRNE R14,[R8,#w_flags]
- AND R14,R14,R1
- TEQ R14,R1			; all set?
- MOVEQ R0,#1			; yes so tick
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_flags
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_flags,EQ
+	LDRNE	R14,[R8,#w_flags]
+	AND	R14,R14,R1
+	TEQ	R14,R1			; all set?
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
+	FNRTS
+
 
 ;E R0=flags mask R1=flags eor R8/R9 / R8=0 for main
 ;X New flags set up and window status saved #
- FNAME new_flags
+	FNAME	new_flags
 new_flags
- TEQ R8,#0
- BEQ new_opt_flags
- FNJSR "R1"
- LDRVC R14,[R8,#w_flags]
- BICVC R14,R14,R0
- EORVC R1,R14,R1
- BLVC save_window_status ; save_window_status_preserve
-; LDMVSFD R13!,{R1,PC}
- STRVC R1,[R8,#w_flags]
-; TST R1,#1 << 26
- ;BLNE nosoftwrapplease ; bug.
- BLVC new_window_status_forcebpl ; _samewidth ; new_window_status
- ;BL callupdatewindow
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_flags
+	FNJSR	"R1"
+	LDRVC	R14,[R8,#w_flags]
+	BICVC	R14,R14,R0
+	EORVC	R1,R14,R1
+	BLVC	save_window_status	; save_window_status_preserve
+	STRVC	R1,[R8,#w_flags]
+	BLVC	new_window_status_forcebpl ; _samewidth ; new_window_status
+	FNRTS
 
-; ;X word and line wrap toggled *off*
-;
-; nosoftwrapplease
-;  LDR R1,[R8,#w_format]
-;  BIC R1,R1,#bit_windowwrap ; 1 << 26
-;  STR R1,[R8,#w_format]
-;  MOV PC,R14
-
-; ;X word and line wrap toggled *off*
-;
-; nosoftwrap_opt_please
-;  FNJSR
-;  FNLDR R14,opt_format
-;  BIC R14,R14,#bit_windowwrap ; 1 << 26
-;  FNSTR R14,opt_format
-;  FNRTS
 
 ;E R0=mask R1=eor
 ;X Options flags dealt with and modes called to save the options #
- FNAME new_opt_flags
+	FNAME	new_opt_flags
 new_opt_flags
- FNJSR "R10-R11"
- FNLDR R14,opt_flags
- BIC R14,R14,R0
- EOR R14,R14,R1
- FNSTR R14,opt_flags		; new flags
- ; TST R1,#bit_windowwrap ; 1 << 26
- ; BLNE nosoftwrap_opt_please
- FNLDRB R10,opt_format		; mode number
- MOV R11,#e_end
- BL call_given_mode
- FNRTS
+	FNJSR	"R10-R11"
+	FNLDR	R14,opt_flags
+	BIC	R14,R14,R0
+	EOR	R14,R14,R1
+	FNSTR	R14,opt_flags		; new flags
+	FNLDRB  R10,opt_format		; mode number
+	MOV	R11,#e_end
+	BL	call_given_mode
+	FNRTS
+
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_flags called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
- FNAME new_wind_flags_select
+	FNAME	new_wind_flags_select
 new_wind_flags_select
- TEQ R2,#15
- BNE new_wind_flags
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_flags,EQ
- LDRNE R14,[R8,#w_flags]
- AND R0,R14,R0			; get relevant bits
- TEQ R0,R1
- MOVEQ R0,#1
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_wind_flags
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_flags,EQ
+	LDRNE	R14,[R8,#w_flags]
+	AND	R0,R14,R0		; get relevant bits
+	TEQ	R0,R1
+	MOVEQ	R0,#1
+	MOVNE	R0,#0
+	FNRTS
+
 
 ;E R0=flags mask R1=flags eor R8/R9 / R8=0 for main
 ;X New R8 flags set and title bar updated #
- FNAME new_wind_flags
+	FNAME	new_wind_flags
 new_wind_flags
- TEQ R8,#0
- BEQ new_opt_flags
- FNJSR
- LDR R14,[R8,#w_flags]
- BIC R14,R14,R0
- EOR R14,R14,R1
- STR R14,[R8,#w_flags]
- BL new_title
- FNRTS
+	TEQ	R8,#0
+	BEQ	new_opt_flags
+	FNJSR
+	LDR	R14,[R8,#w_flags]
+	BIC	R14,R14,R0
+	EOR	R14,R14,R1
+	STR	R14,[R8,#w_flags]
+	BL	new_title
+	FNRTS
+
 
 ;E R0=flags mask R1=flags eor R2=command type R8/R9=wind/0
 ;X New R8 flags set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
- FNAME new_wind_flags_set
+	FNAME	new_wind_flags_set
 new_wind_flags_set
- TEQ R2,#15
- BNE new_wind_flags
- FNJSR
- TEQ R8,#0
- FNLDR R14,opt_flags,EQ
- LDRNE R14,[R8,#w_flags]
- AND R14,R14,R1
- TEQ R14,R1			; all set?
- MOVEQ R0,#1			; yes so tick
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_wind_flags
+	FNJSR
+	TEQ	R8,#0
+	FNLDR	R14,opt_flags,EQ
+	LDRNE	R14,[R8,#w_flags]
+	AND	R14,R14,R1
+	TEQ	R14,R1			; all set?
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
+	FNRTS
 
 new_wind_flags_clear
- FNJSR
- BL new_wind_flags_set
- EORVC R0,R0,#1
- FNRTS
+	FNJSR
+	BL	new_wind_flags_set
+	EORVC	R0,R0,#1
+	FNRTS
+
 
 ;E R0=command data for command 17 R2=command type + b31 set for hex entry
 ;  R3=block offset (w/opt) R8/R9
 ;  R4=pointer to extension menu title
 ;X If R2<>17 then saves window status/stores the number/new status #
 ;  If R2=17 then handles creation messages
- FNAME new_w_number
+	FNAME	new_w_number
 new_w_number
- FNJSR "R5"
- BICS R14,R2,#(1<<31)
- LDREQ R5,[R0]			; number to write
- BL new_w_num_checked
- FNRTS
+	FNJSR	"R5"
+	BICS	R14,R2,#(1<<31)
+	LDREQ	R5,[R0]			; number to write
+	BL	new_w_num_checked
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=command data for command 17
 ;  R2=command type + b31 set for hex entry
@@ -3087,34 +2886,34 @@ new_w_number
 ;  R5=new number to write
 ;X If R2<>17 then saves window status/stores the number/new status #
 ;  If R2=17 then handles creation messages
- FNAME new_w_num_checked
+	FNAME	new_w_num_checked
 new_w_num_checked
- FNJSR "R1-R4"
- BIC R14,R2,#(1<<31)
- TEQ R14,#17
- BEQ a$l
- BL save_window_status ; save_window_status_preserve
- FNRTS VS
- TEQ R8,#0
- STREQ R5,[R12,R3]
- STRNE R5,[R8,R3]		; new value
- BL new_window_status_forcebpl ; new_window_status
- ;BL callupdatewindow
- FNRTS
-a$l
- TEQ R0,#0
- MOVEQ R0,R4			; address of title
- BLEQ lookup_token_R0
- TEQ R0,#2
- MOVEQ R0,#10			; buffer length (may be hex)
- TEQ R0,#1
- FNRTS NE			; not fill buffer one
- TEQ R8,#0
- ADDEQ R0,R12,R3
- ADDNE R0,R8,R3			; pointer to the word
- TST R2,#1<<31
- ORRNE R0,R0,#1<<31		; put it in hex
- FNRTS
+	FNJSR	"R1-R4"
+	BIC	R14,R2,#(1<<31)
+	TEQ	R14,#17
+	BEQ	a$l
+	BL	save_window_status	; save_window_status_preserve
+	FNRTS	VS
+	TEQ	R8,#0
+	STREQ	R5,[R12,R3]
+	STRNE	R5,[R8,R3]		; new value
+	BL	new_window_status_forcebpl ; new_window_status
+	FNRTS
+
+a$l	TEQ	R0,#0
+	MOVEQ	R0,R4			; address of title
+	BLEQ	lookup_token_R0
+	TEQ	R0,#2
+	MOVEQ	R0,#10			; buffer length (may be hex)
+	TEQ	R0,#1
+	FNRTS	NE			; not fill buffer one
+	TEQ	R8,#0
+	ADDEQ	R0,R12,R3
+	ADDNE	R0,R8,R3		; pointer to the word
+	TST	R2,#1<<31
+	ORRNE	R0,R0,#1<<31		; put it in hex
+	FNRTS
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Update the window state					;
@@ -3123,29 +2922,32 @@ a$l
 ;E R8
 ;X Window state in R8 updated via Wimp_GetWindowState #
 ;  Updates position and window size
- FNAME update_wind_state
+	FNAME	update_wind_state
 update_wind_state
- FNJSR "R1"
- MOV R1,R8
- SWI XWimp_GetWindowState
- FNRTS
+	FNJSR	"R1"
+	MOV	R1,R8
+	SWI	XWimp_GetWindowState
+	FNRTS
 
- ;E R0=new width
- FNAME setwidth_as_a_service
+; E R0=new width
+	FNAME	setwidth_as_a_service
 setwidth_as_a_service
- FNJSR
- MOV R2,R0			; save new width
- BL save_window_status ; save_window_status
- FNRTS VS
- LDR R1,[R8,#w_flags]
- BIC R1,R1,#1<<6		; switch off auto-width
- STR R1,[R8,#w_flags]
- MOV R0,R2
- MOV R11,#e_setwidth
- LDR R1,[R8,#w_format]
- AND R10,R1,#&FF		; mode number
- BL call_given_mode		; write the new width
- BLVC new_window_status
- FNRTS
+	FNJSR
+	MOV	R2,R0			; save new width
+	BL	save_window_status	; save_window_status
+	FNRTS	VS
+	LDR	R1,[R8,#w_flags]
+	BIC	R1,R1,#1<<6		; switch off auto-width
+	STR	R1,[R8,#w_flags]
+	MOV	R0,R2
+	MOV	R11,#e_setwidth
+	LDR	R1,[R8,#w_format]
+	AND	R10,R1,#&FF		; mode number
+	BL	call_given_mode		; write the new width
+	BLVC	new_window_status
+	FNRTS
+
+
+
 
  END

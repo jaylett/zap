@@ -1,8 +1,8 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.10 2002/11/18 00:43:46 christian Exp $
+; $Id: CreateFile,fff,v 2.11 2003/01/21 15:58:10 christian Exp $
 
 ; OPTIONS >>>
-USE_WRITE_FILES * 0
+USE_WRITE_FILES  * 0
 ; <<< OPTIONS
 
  GET h.ZapHeader
@@ -27,7 +27,7 @@ USE_WRITE_FILES * 0
  IMPORT get_SaveCBox
  IMPORT get_SaveOBox
  IMPORT warn_user
- IMPORT	Beep
+ IMPORT Beep
 
  EXPORT Killfiles
 
@@ -75,606 +75,576 @@ USE_WRITE_FILES * 0
  EXPORT mark_changed_unchanged
  EXPORT calculate_checksum
 
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; INSTALL FILE					      ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R0=filename
 ;X R0=window offset, file installed if not already there etc.
 ;  R0=-1 if file could not be loaded immediately. WB #
- FNAME install_file
+	FNAME	install_file
 install_file
- FNJSR "R1,R7-R10"
- SYSLOGF "install_file %0s",LOG_FILE
- MOV R10,R0			; save filename
- BL find_file_look		; already loaded?
- TEQ R9,#0
- BLE load$l			; load it
-;
- BL check_date			; is this older than the file on disc
- TEQ R0,#0                      ; a BUG !???
- BNE older$l			; yes
-;
- BL test_changed		; altered?
- BNE altered$l			; yes
- BL discard_file		; remove old incarnation of file
- BVC load$l			; load new incarnation
- FNRTS
-older$l
- MOV R0,R10
- BL install_new_file		; dual load the new file
- MOVVC R10,R0			; save window offset
- BLVC conv_wind_off		; set up R8/R9 for the newly loaded file
- ADRVC R0,s$l
- MOVVC R1,#600
- BLVC warn_user_token
- MOVVC R0,R10
- FNRTS
-altered$l
- BL get_LoadBox
- MOV R8,#0
- BL create_open_leaf
- MOVVC R0,#-1			; no window for this
- FNRTS
-load$l
- MOV R0,R10
- BL install_new_file
- FNRTS
-s$l FNS ("zap_MultipleCopies")
+	FNJSR	"R1,R7-R10"
+	SYSLOGF "install_file %0s",LOG_FILE
+	MOV	R10,R0			; save filename
+	BL	find_file_look		; already loaded?
+	TEQ	R9,#0
+	BLE	load$l			; load it
+	BL	check_date		; is this older than the file on disc
+	TEQ	R0,#0			; a BUG !???
+	BNE	older$l			; yes
+	BL	test_changed		; altered?
+	BNE	altered$l		; yes
+	BL	discard_file		; remove old incarnation of file
+	BVC	load$l			; load new incarnation
+	FNRTS
 
- LOCAL
+older$l	MOV	R0,R10
+	BL	install_new_file	; dual load the new file
+	MOVVC	R10,R0			; save window offset
+	BLVC	conv_wind_off		; set up R8/R9 for the newly loaded file
+	ADRVC	R0,s$l
+	MOVVC	R1,#600
+	BLVC	warn_user_token
+	MOVVC	R0,R10
+	FNRTS
+
+altered$l
+	BL	get_LoadBox
+	MOV	R8,#0
+	BL	create_open_leaf
+	MOVVC	R0,#-1			; no window for this
+	FNRTS
+
+load$l	MOV	R0,R10
+	BL	install_new_file
+	FNRTS
+
+s$l	FNS	("zap_MultipleCopies")
+
+	LOCAL
+
 
 ;E R0=filename. Load file and install without any questions.
 ;X R0=window offset. (Path name canonicalised) WB #
- FNAME install_new_file
+	FNAME	install_new_file
 install_new_file
- FNJSR "R1-R10"
- SYSLOGF "install_new_file %0s",LOG_FILE
- MOV R1,R0			; filename
- FNLDR R0,wimp_version
- CMP R0,#300
- BLT gotfname$l			; don't canonicalise
- MOV R0,#37
- FNLDR R2,wimp_block
- MOV R3,#0
- MOV R4,#0
- MOV R5,#&100
- SWI XOS_FSControl		; Canonicalise path
- FNRTS VS
- FNLDR R1,wimp_block
- BL get_filename_case_sensitive
- FNLDR R1,wimp_block
+	FNJSR	"R1-R10"
+	SYSLOGF "install_new_file %0s",LOG_FILE
+	MOV	R1,R0			; filename
+	FNLDR	R0,wimp_version
+	CMP	R0,#300
+	BLT	gotfname$l		; don't canonicalise
+	MOV	R0,#37
+	FNLDR	R2,wimp_block
+	MOV	R3,#0
+	MOV	R4,#0
+	MOV	R5,#&100
+	SWI	XOS_FSControl		; Canonicalise path
+	FNRTS	VS
+	FNLDR	R1,wimp_block
+	BL	get_filename_case_sensitive
+	FNLDR	R1,wimp_block
 gotfname$l
- MOV R0,#5
- SWI XOS_File			; read cat info and attributes to R5
- BLVC check_object_type
- FNRTS VS			; not a file error
- FNLDR R10,opt_flags
- ORR R0,R10,#1<<8		; no write access
- TST R5,#&22
- FNSTR R0,opt_flags,EQ		; no W or w
- TST R5,#&08
- FNSTR R0,opt_flags,NE		; locked
- MOV R0,R4			; length (R1=fname R2/R3=load exec)
- BL create_file_block
- FNSTR R10,opt_flags		; restore flag options
- FNRTS VS
- MOV R0,#0
- SWI XHourglass_On
- MOV R0,#&FF
- LDR R2,[R9,#f_ptr]
- MOV R3,#0
- SWI XOS_File			; load file R5=attributes
- BVS err$l			; no read access / disc loading error
- STR R5,[R9,#f_attr]		; write the stored attributes
-; AND R0,R5,#&FF
-; TEQ R0,#3
-; LDRNE R0,[R9,#f_flags]
-; ORRNE R0,R0,#1<<28
-; STRNE R0,[R9,#f_flags]		; not the standard WR attributes
+	MOV	R0,#5
+	SWI	XOS_File		; read cat info and attributes to R5
+	BLVC	check_object_type
+	FNRTS	VS			; not a file error
+	FNLDR	R10,opt_flags
+	ORR	R0,R10,#1<<8		; no write access
+	TST	R5,#&22
+	FNSTR	R0,opt_flags,EQ		; no W or w
+	TST	R5,#&08
+	FNSTR	R0,opt_flags,NE		; locked
+	MOV	R0,R4			; length (R1=fname R2/R3=load exec)
+	BL	create_file_block
+	FNSTR	R10,opt_flags		; restore flag options
+	FNRTS	VS
+	MOV	R0,#0
+	SWI	XHourglass_On
+	MOV	R0,#&FF
+	LDR	R2,[R9,#f_ptr]
+	MOV	R3,#0
+	SWI	XOS_File		; load file R5=attributes
+	BVS	err$l			; no read access / disc loading error
+	STR	R5,[R9,#f_attr]		; write the stored attributes
 
 ; >>> gerph change
- [ USE_WRITE_FILES=1
- BLVC  write_loaded_files
- ]
+	[ USE_WRITE_FILES=1
+	BLVC	write_loaded_files
+	]
 ; gerph change <<<
 
- BL initialise_checksums	; sja: setup checksums before startup commands can alter the file
+	BL	initialise_checksums	; sja: setup checksums before startup commands can
+	FNLDR	R10,opt_format		;   alter the file
+	BL	test_shiftctrl
+	TST	R1,#2
+	ORRNE	R0,R10,#1<<31		; force default mode
+	FNSTR	R0,opt_format,NE
+	BL	create_window_block	; create window block and window
+	FNSTR	R10,opt_format,VC	; VC?????
 
- FNLDR R10,opt_format
- BL test_shiftctrl
- TST R1,#2
- ORRNE R0,R10,#1<<31		; force default mode
- FNSTR R0,opt_format,NE
- BL create_window_block		; create window block and window
- FNSTR R10,opt_format,VC	; VC?????
-;
-; in case things move around (which they don't...)
-;
-; MOVVC R1,R0
-; BLVC get_wind_off		; R0=offset of window block
-; MOVVC R0,R1
+	FNLDR	R7,wimp_buffer,VC
+	MOVVC	R10,R0
 
- FNLDR R7,wimp_buffer,VC
-;
- MOVVC R10,R0
+	MOVVC	R3,#&100
+	MOVVC	R0,R3
+	BLVC	heap_claim
+	FNSTR	R0,wimp_buffer,VC
 
- MOVVC R3,#&100
- MOVVC R0,R3
- BLVC heap_claim
- FNSTR R0,wimp_buffer,VC
+	MOVVC	R0,R10
+	BLVC	create_window_caret
 
- MOVVC R0,R10
- BLVC create_window_caret
+	FNLDR	R0,wimp_buffer,VC
+	BLVC	heap_free
 
- FNLDR R0,wimp_buffer,VC
- BLVC heap_free
-
- FNSTR R7,wimp_buffer,VC
+	FNSTR	R7,wimp_buffer,VC
 
 ; R9 still /seems/ to be OK at this point...
 
- BLVC get_wind_off		; R0=offset of window block
- MOVVC R2,R0			; sja: protect window offset from test_changed
- BLVC test_changed		; sja: has the file really changed since loading?
- MOVVC R1,#0
-; MVNVS R1,#0			; error flag
+	BLVC	get_wind_off		; R0=offset of window block
+	MOVVC	R2,R0			; sja: protect window offset from test_changed
+	BLVC	test_changed		; sja: has the file really changed since loading?
+	MOVVC	R1,#0
 
- SWIVC XHourglass_Off
- MOVVC R0,R2
-; FNRTS VC
-; FNRTV
- FNRTS
+	SWIVC	XHourglass_Off
+	MOVVC	R0,R2
+	FNRTS
 
-err$l				; error loading the file so kill
- ADDS R10,R0,#0			; save error pointer/CLV
- BL discard_file		; delete the file block
- SWI XHourglass_Off
- MOV R0,R10
- FNRTV				; restore the error
+err$l					; error loading the file so kill
+	ADDS	R10,R0,#0		; save error pointer/CLV
+	BL	discard_file		; delete the file block
+	SWI	XHourglass_Off
+	MOV	R0,R10
+	FNRTV				; restore the error
 
- FNAME get_filename_case_sensitive
+
+
+	FNAME	get_filename_case_sensitive
 get_filename_case_sensitive
- FNJSR "R0-R6,R11"
- MOV R0,R1
- BL find_leaf_name
- MOV R11,R0			; pointer to leaf...
- MOV R0,#9
- MOV R14,#0
- STRB R14,[R11,#-1]
- FNLDR R2,wimp_data
- MOV R3,#255
- MOV R4,#0
- MOV R5,#&FF
- MOV R6,R11
- SWI XOS_GBPB			; to my suprise, this works :-)
- BVS simplyexit$l
- FNRTS VS
- CMP R3,#0
- MOVGT R1,R11
- BLGT strcopy
+	FNJSR	"R0-R6,R11"
+	MOV	R0,R1
+	BL	find_leaf_name
+	MOV	R11,R0			; pointer to leaf...
+	MOV	R0,#9
+	MOV	R14,#0
+	STRB	R14,[R11,#-1]
+	FNLDR	R2,wimp_data
+	MOV	R3,#255
+	MOV	R4,#0
+	MOV	R5,#&FF
+	MOV	R6,R11
+	SWI	XOS_GBPB		; to my suprise, this works :-)
+	BVS	simplyexit$l
+	FNRTS	VS
+	CMP	R3,#0
+	MOVGT	R1,R11
+	BLGT	strcopy
 simplyexit$l
- MOV R14,#'.'
- STRB R14,[R11,#-1]
- FNRTS
+	MOV	R14,#'.'
+	STRB	R14,[R11,#-1]
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=filename R8/R9=window dropped on
 ;X file inserted into text (or name if shift held) #
- FNAME inject_file
+	FNAME	inject_file
 inject_file
- FNJSR "R1-R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R2,R0
- PULL "R0"
- SYSLOGF "inject_file %0s into wind %8x (%1d) file %9x (%2d)",LOG_FILE
- ]
- MOV R11,R0			; save file name
-; SWI &107
- BL find_input			; get input offset in R0
- PUSH "R0"			; save input offset
- LDR R10,[R9,#f_source]		; the data block
- CMP R10,#0			; hard-coded to Text mode ...
- BLE precarryon$l
- LDR R14,[R10,#ee_ee]
- CMP R14,#0
- BNE precarryon$l		; Not EE file
- LDRGT R14,[R14,#ee_windoffset]	; OK even if a set-up EE file...?
- CMPGT R14,#0
- BMI carryon$l
+	FNJSR	"R1-R11"
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R2,R0
+	PULL	"R0"
+	SYSLOGF "inject_file %0s into wind %8x (%1d) file %9x (%2d)",LOG_FILE
+	]
+	MOV	R11,R0			; save file name
+	BL	find_input		; get input offset in R0
+	PUSH	"R0"			; save input offset
+	LDR	R10,[R9,#f_source]	; the data block
+	CMP	R10,#0			; hard-coded to Text mode ...
+	BLE	precarryon$l
+	LDR	R14,[R10,#ee_ee]
+	CMP	R14,#0
+	BNE	precarryon$l		; Not EE file
+	LDRGT	R14,[R14,#ee_windoffset] ; OK even if a set-up EE file...?
+	CMPGT	R14,#0
+	BMI	carryon$l
 precarryon$l
- FNLDR R10,car_cursor
- BL goto_file_offset		; hopefully simply works...
+	FNLDR	R10,car_cursor
+	BL	goto_file_offset	; hopefully simply works...
 carryon$l
- PULL "R10"
- FNLDR R1,opt_temporary		; set by paste GC code
- MOV R0,#0
- CMP R1,#0
- FNSTR R0,opt_temporary
- MOVEQ R0,#&81
- MOVEQ R1,#&FF			; either shift
- MOVEQ R2,#&FF
- SWIEQ XOS_Byte			; scan keyboard
- FNRTS VS
- TEQ R1,#&FF
- BEQ name$l			; shift held so inject name
- MOV R0,#0
- SWI XHourglass_On
- MOV R0,#5
- MOV R1,R11
- SWI XOS_File			; get length in R4
- MOVVC R6,R4			; save length
- MOVVC R0,R6
- BLVC heap_claim
-; MOVVC R10,R7			; save input offset
-; FNRTS VS
- MOVVC R7,R0			; save buffer address
- MOVVC R0,#&FF
- MOVVC R1,R11
- MOVVC R2,R7
- MOVVC R3,#0
- SWIVC XOS_File			; load data
- MOVVC R4,R10			; copy insert point to R4
- MOVVC R0,R2			; load address
- MOVVC R1,R11			; file name
- MOVVC R2,#0
- BLVC find_file_mode		; find mode number in R10
- ; do we need to check bit 31 after this call?
-; FNRTS VS
- MOVVC R1,R4			; insert point
- MOVVC R2,R6			; length
- MOVVC R3,R7			; data
- MOVVC R11,#e_loading
- BLVC call_given_mode		; convert the file
-;  FNRTS VS
-;  LDR R0,[R9,#f_source]		; the data block
-;  CMP R0,#0			; EE file?
-;  MOVLE R0,#&11
-;  BLE justgetonwithit$l
-;  LDR R0,[R0,#ee_ee]
-;  CMP R0,#0			; EE file?
-;  LDR R0,[R8,#w_flags]
-;  AND R0,R0,#1<<14
-;  CMPEQ R0,#1<<14		; cursor unlinked...?
-; MOVNE R0,#&11			; insert block
-; MOVEQ R0,#&36			; insert block no move
- MOVVC R0,#&11			; insert block
-;justgetonwithit$l
- BLVC execute_command
- MOVVC R11,#0
- MOVVS R11,R0
- MOV R0,R7
- BL heap_free			; free buffer
- SWI XHourglass_Off
- MOVS R0,R11
- FNRTS EQ
- FNRTV
-name$l				; insert name instead of file
- MOV R0,R11			; file name
- BL str_len
- MOV R4,R0			; name length
- FNLDR R0,wimp_kbdbuf
- ADD R1,R2,#4
- BL heap_ensure
- FNSTR R0,wimp_kbdbuf,VC
- MOVVC R3,R0			; buffer
- MOVVC R1,R3
- MOVVC R2,R11
- BLVC strcpy			; copy in name
- MOVVC R0,#&20
- STRVCB R0,[R1]			; add a space
- MOVVC R0,#&11			; insert block
- MOVVC R1,R10			; ins point
- ADDVC R2,R4,#1
- BLVC execute_command
- FNRTS
+	PULL	"R10"
+	FNLDR	R1,opt_temporary	; set by paste GC code
+	MOV	R0,#0
+	CMP	R1,#0
+	FNSTR	R0,opt_temporary
+	MOVEQ	R0,#&81
+	MOVEQ	R1,#&FF			; either shift
+	MOVEQ	R2,#&FF
+	SWIEQ	XOS_Byte		; scan keyboard
+	FNRTS	VS
+	TEQ	R1,#&FF
+	BEQ	name$l			; shift held so inject name
+	MOV	R0,#0
+	SWI	XHourglass_On
+	MOV	R0,#5
+	MOV	R1,R11
+	SWI	XOS_File		; get length in R4
+	MOVVC	R6,R4			; save length
+	MOVVC	R0,R6
+	BLVC	heap_claim
+	MOVVC	R7,R0			; save buffer address
+	MOVVC	R0,#&FF
+	MOVVC	R1,R11
+	MOVVC	R2,R7
+	MOVVC	R3,#0
+	SWIVC	XOS_File		; load data
+	MOVVC	R4,R10			; copy insert point to R4
+	MOVVC	R0,R2			; load address
+	MOVVC	R1,R11			; file name
+	MOVVC	R2,#0
+	BLVC	find_file_mode		; find mode number in R10
+					; do we need to check bit 31 after this call?
+	MOVVC	R1,R4			; insert point
+	MOVVC	R2,R6			; length
+	MOVVC	R3,R7			; data
+	MOVVC	R11,#e_loading
+	BLVC	call_given_mode		; convert the file
+	MOVVC	R0,#&11			; insert block
+	BLVC	execute_command
+	MOVVC	R11,#0
+	MOVVS	R11,R0
+	MOV	R0,R7
+	BL	heap_free		; free buffer
+	SWI	XHourglass_Off
+	MOVS	R0,R11
+	FNRTS	EQ
+	FNRTV
+name$l					; insert name instead of file
+	MOV	R0,R11			; file name
+	BL	str_len
+	MOV	R4,R0			; name length
+	FNLDR	R0,wimp_kbdbuf
+	ADD	R1,R2,#4
+	BL	heap_ensure
+	FNSTR	R0,wimp_kbdbuf,VC
+	MOVVC	R3,R0			; buffer
+	MOVVC	R1,R3
+	MOVVC	R2,R11
+	BLVC	strcpy			; copy in name
+	MOVVC	R0,#&20
+	STRVCB  R0,[R1]			; add a space
+	MOVVC	R0,#&11			; insert block
+	MOVVC	R1,R10			; ins point
+	ADDVC	R2,R4,#1
+	BLVC	execute_command
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create file blocks					;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R0=length R1=filename R2/R3=load/exec of proposed file
 ;X R9=pointer to file block with rubbish file of correct length #
 ;  Create type set as 0 doesn't use WB #
- FNAME create_file_block
+	FNAME	create_file_block
 create_file_block
- FNJSR "R1-R5,R10"		; careful - explicit pull below
- SYSLOGF "create_file_block length %0x for %1s, l %2x e %3x",LOG_FILE
- MOV R10,R0			; save required length
- FNLDR R0,file_list
- FNLDR R1,file_num
- MOV R2,#file_blk		; size thereof...?
- BL claim_list_block		; add entry to file list
-; FNRTS VS
- FNSTR R0,file_list,VC
- FNSTR R1,file_num,VC		; save new list vals
- MOVVC R9,R2			; pointer to free block
- MOVVC R0,R3			; offset of free block
- ADDVC R1,R10,#file_size	; amount to claim + split size
- BLVC set_block_size		; claim size of file
-; FNRTS VS
- STRVC R10,[R9,#f_splito]	; write splito
- STRVC R10,[R9,#f_len]		; write file length
+	FNJSR	"R1-R5,R10"		; careful - explicit pull below
+	SYSLOGF "create_file_block length %0x for %1s, l %2x e %3x",LOG_FILE
+	MOV	R10,R0			; save required length
+	FNLDR	R0,file_list
+	FNLDR	R1,file_num
+	MOV	R2,#file_blk		; size thereof...?
+	BL	claim_list_block	; add entry to file list
+	FNSTR	R0,file_list,VC
+	FNSTR	R1,file_num,VC		; save new list vals
+	MOVVC	R9,R2			; pointer to free block
+	MOVVC	R0,R3			; offset of free block
+	ADDVC	R1,R10,#file_size	; amount to claim + split size
+	BLVC	set_block_size		; claim size of file
+	STRVC	R10,[R9,#f_splito]	; write splito
+	STRVC	R10,[R9,#f_len]		; write file length
 
-; STRVC R10,[R9,#f_chklen]	; write file length
-; BLVC calculate_checksum
-; STRVC R0,[R9,#f_chksum]
+	LDRVC	R0,[R9,#f_blklen]
+	STRVC	R0,[R9,#f_bufl]		; write bufl
+	STRVC	R0,[R9,#f_splite]	; write splite
+	SUBVC	R0,R0,R10
+	STRVC	R0,[R9,#f_splits]	; write splits
+	MOVVC	R0,#0
+	STRVC	R0,[R9,#f_depth]	; zero multiple operations count
+	STRVC	R0,[R9,#f_proposed_name] ; no temporary save filename ...
+	MOVVC	R0,#-1
+	STRVC	R0,[R9,#f_cmode]	; mode that owns file
+	MOVVC	R0,#4
+	BLVC	heap_claim
+	STRVC	R0,[R9,#f_links]	; links buffer
+	MOVVC	R14,#-1
+	STRVC	R14,[R0]		; put stopper on list
+	FNLDR	R1,opt_flags,VC
+	LDRVC	R0,ext1$l
+	ANDVC	R1,R1,R0		; get the valid bits
+	STRVC	R1,[R9,#f_flags]	; file flags
+	BLVC	init_kill_buffer	; create undo buffer & marker buffer
+	LDMVCFD R13,{R1-R5,R14}		; read input vars (R14?)	; !!! Unmatched return LDM
+	STRVC	R2,[R9,#f_load]
+	STRVC	R3,[R9,#f_exec]		; load and exec address
+	FNLDR	R0,wimp_attr,VC
+	STRVC	R0,[R9,#f_attr]		; default attributes
+	MOVVC	R0,R1
+	BLVC	str_len			; get length of filename
+	ADDVC	R0,R0,#1
+	BLVC	heap_claim		; claim file name buffer
+	STRVC	R0,[R9,#f_name]
+	MOVVC	R2,R1			; source
+	MOVVC	R1,R0			; dest
+	BLVC	strcopy			; copy filename into buffer
+	FNRTS				; end
+ext1$l  DCD	fflags_mask
 
- LDRVC R0,[R9,#f_blklen]
- STRVC R0,[R9,#f_bufl]		; write bufl
- STRVC R0,[R9,#f_splite]	; write splite
- SUBVC R0,R0,R10
- STRVC R0,[R9,#f_splits]	; write splits
- MOVVC R0,#0
- STRVC R0,[R9,#f_depth]		; zero multiple operations count
- STRVC R0,[R9,#f_proposed_name]	; no temporary save filename ...
- MOVVC R0,#-1
- STRVC R0,[R9,#f_cmode]		; mode that owns file
- MOVVC R0,#4
- BLVC heap_claim
-; FNRTS VS
- STRVC R0,[R9,#f_links]		; links buffer
- MOVVC R14,#-1
- STRVC R14,[R0]			; put stopper on list
- FNLDR R1,opt_flags,VC
- LDRVC R0,ext1$l
- ANDVC R1,R1,R0			; get the valid bits
- STRVC R1,[R9,#f_flags]		; file flags
- BLVC init_kill_buffer		; create undo buffer & marker buffer
-; FNRTS VS
- LDMVCFD R13,{R1-R5,R14}	; read input vars (R14?)	; !!! Unmatched return LDM
- STRVC R2,[R9,#f_load]
- STRVC R3,[R9,#f_exec]		; load and exec address
- FNLDR	R0,wimp_attr,VC
- STRVC	R0,[R9,#f_attr]		; default attributes
- MOVVC R0,R1
- BLVC str_len			; get length of filename
- ADDVC R0,R0,#1
- BLVC heap_claim		; claim file name buffer
- STRVC R0,[R9,#f_name]
- MOVVC R2,R1			; source
- MOVVC R1,R0			; dest
- BLVC strcopy			; copy filename into buffer
- FNRTS				; end
-ext1$l DCD fflags_mask
+
 
 ;E R0=file type R1=flags mask R2=flags eor R3=format mask
 ;  R4=format eor (=> (BIC mask) EOR eor)
 ;X R8/R9 Empty file created with current flags/format altered #
 ;  R0=wimp_modelist block for this file
- FNAME create_file
+	FNAME	create_file
 create_file
- FNJSR "R1-R5"
- SYSLOGF "create_file type %0x, flags BIC %1x EOR %2x, format BIC %3x",LOG_FILE
- FNLDR R5,opt_flags
- BIC R1,R5,R1
- EOR R1,R1,R2
- FNSTR R1,opt_flags
- FNLDR R2,opt_format
- BIC R1,R2,R3
- EOR R1,R1,R4
- FNSTR R1,opt_format
- BL create_empty
- FNSTR R2,opt_format,VC
- FNSTR R5,opt_flags,VC
- FNRTS
+	FNJSR	"R1-R5"
+	SYSLOGF "create_file type %0x, flags BIC %1x EOR %2x, format BIC %3x",LOG_FILE
+	FNLDR	R5,opt_flags
+	BIC	R1,R5,R1
+	EOR	R1,R1,R2
+	FNSTR	R1,opt_flags
+	FNLDR	R2,opt_format
+	BIC	R1,R2,R3
+	EOR	R1,R1,R4
+	FNSTR	R1,opt_format
+	BL	create_empty
+	FNSTR	R2,opt_format,VC
+	FNSTR	R5,opt_flags,VC
+	FNRTS
+
 
 ;E R0=file type
 ;X created empty new file R8/R9 and window WB but not given input #
 ;  R0=wimp_modelist block of info
- FNAME create_empty
+	FNAME	create_empty
 create_empty
- FNJSR
- SYSLOGF "create_empty type %0x",LOG_FILE
- BL create_empty_file
- BLVC create_window_block
- FNRTS
+	FNJSR
+	SYSLOGF "create_empty type %0x",LOG_FILE
+	BL	create_empty_file
+	BLVC	create_window_block
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=file type
 ;X created new empty file and R9 set up WB #
- FNAME create_empty_file
+	FNAME	create_empty_file
 create_empty_file
- FNJSR "R1-R4"
- SYSLOGF "create_empty_file type %0x",LOG_FILE
- MOV R4,R0			; save filetype
- BL calc_load			; R2/R3=load/exec
-; LDMVSFD R13!,{R1-R4,PC}
- ADRVC R1,name$l			; temp filename
- MOVVC R0,#0			; length
- BLVC create_file_block
-; LDMVSFD R13!,{R1-R4,PC}
- MOVVC R0,R4
- FNLDR R1,wimp_block,VC
- BLVC get_ftype			; read filetype
- FNRTS VS
- LDR R0,[R1]
- AND R14,R0,#&FF
- TEQ R14,#'&'			; if the name begins with '&',
- MOVEQ R0,R0,LSR #8		; assume that it's really a hex filetype
- ORREQ R0,R0,#'_'<<24
- MOVEQ R14,#0
- STMEQIA R1,{R0,R14}
- MOV R0,R1			; filename
- BL str_len
- ADD R1,R1,R0			; terminator
- FNLDR R0,file_list
- SUB R0,R9,R0
- MOV R0,R0,LSR#f_shift
- ADD R0,R0,#1			; file offset+1
- MOV R2,#16
- SWI XOS_ConvertCardinal4
-; LDMVSFD R13!,{R1-R4,PC}
- FNLDR R0,wimp_block,VC
- BLVC new_file_name		; correct file name
+	FNJSR	"R1-R4"
+	SYSLOGF "create_empty_file type %0x",LOG_FILE
+	MOV	R4,R0			; save filetype
+	BL	calc_load		; R2/R3=load/exec
+	ADRVC	R1,name$l		; temp filename
+	MOVVC	R0,#0			; length
+	BLVC	create_file_block
+	MOVVC	R0,R4
+	FNLDR	R1,wimp_block,VC
+	BLVC	get_ftype		; read filetype
+	FNRTS	VS
+	LDR	R0,[R1]
+	AND	R14,R0,#&FF
+	TEQ	R14,#'&'		; if the name begins with '&',
+	MOVEQ	R0,R0,LSR #8		; assume that it's really a hex filetype
+	ORREQ	R0,R0,#'_'<<24
+	MOVEQ	R14,#0
+	STMEQIA R1,{R0,R14}
+	MOV	R0,R1			; filename
+	BL	str_len
+	ADD	R1,R1,R0		; terminator
+	FNLDR	R0,file_list
+	SUB	R0,R9,R0
+	MOV	R0,R0,LSR#f_shift
+	ADD	R0,R0,#1		; file offset+1
+	MOV	R2,#16
+	SWI	XOS_ConvertCardinal4
+	FNLDR	R0,wimp_block,VC
+	BLVC	new_file_name		; correct file name
 
- BLVC initialise_checksums
+	BLVC	initialise_checksums
 
- FNRTS
-name$l FNS ("NewFile")
+	FNRTS
+name$l  FNS	("NewFile")
 
- LOCAL
+	LOCAL
+
 
 ;E R8/R9 as there is a unique window left open on this file
 ;X file deleted via discard_file / CS and warning given if changed #
- FNAME delete_file
+	FNAME	delete_file
 delete_file
- FNJSR "R1,R7,R10-R11";"R1,R7,R8-R11";
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R7,R0
- PULL "R0"
- SYSLOGF "delete_file wind %8x (%1d) file %9x (%7d)",LOG_FILE
- ]
-; BL conv_wind_off		; ?!?!?!?!?! bug
- BL test_changed
- BEQ kill$l			; unaltered
-; SWI &107			; not fires...!!!!!!!!!!!!!!!!!!!
+	FNJSR	"R1,R7,R10-R11"		; "R1,R7,R8-R11";
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R7,R0
+	PULL	"R0"
+	SYSLOGF "delete_file wind %8x (%1d) file %9x (%7d)",LOG_FILE
+	]
+	BL	test_changed
+	BEQ	kill$l			; unaltered
 
- LDR R10,[R9,#f_cmode]		; mode 'owning' file
- CMP R10,#0
- BMI warn$l			; none
- MOV R1,#5			; wants to kill file
- MOV R11,#e_init
- BL call_given_mode		; ask mode
- FNRTS VS
- CMP R1,#-1
- BEQ kill$l			; discard if it tells us to
-warn$l
- BL get_DyingBox
- MOV R7,R1
- BL create_open_leaf
- SUBVCS R0,R0,#0		; sec
- FNRTS
-kill$l
- BL discard_file		; OK
- ADDVCS R0,R0,#0		; clc
- FNRTS
+	LDR	R10,[R9,#f_cmode]	; mode 'owning' file
+	CMP	R10,#0
+	BMI	warn$l			; none
+	MOV	R1,#5			; wants to kill file
+	MOV	R11,#e_init
+	BL	call_given_mode		; ask mode
+	FNRTS	VS
+	CMP	R1,#-1
+	BEQ	kill$l			; discard if it tells us to
 
- LOCAL
+warn$l	BL	get_DyingBox
+	MOV	R7,R1
+	BL	create_open_leaf
+	SUBVCS  R0,R0,#0		; sec
+	FNRTS
+
+kill$l	BL	discard_file		; OK
+	ADDVCS  R0,R0,#0		; clc
+	FNRTS
+
+	LOCAL
+
 
 ;E R9
 ;X file deleted regardless of whether it has been altered or not
 ;  first all relating windows are deleted via discard_window #
- FNAME discard_file
- DCD 1
+	FNAME	discard_file
+	DCD	1
 discard_file
- FNJSR "R1,R10-R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- SYSLOGF "discard_file file %9x (%0d)",LOG_FILE
- PULL "R0"
- ]
- LDR R10,[R9,#f_cmode]		; mode 'owning' file
- CMP R10,#0
- BMI checked$l			; hopefully...
- MOV R1,#3			; killing file
- MOV R11,#e_init
- BL call_given_mode
- FNRTS VS
-checked$l			; checked with the mode which owns it
- MOV R1,#3
- BL issue_service		; warn anyone who is interested
- ADRVC R10,sub$l
- BLVC do_eachwindow
- ADRVC R10,link$l
- MOVVC R0,#-1
- BLVC do_linked_files
- BLVC delete_file_leafs
- BLVC free_file
- BLVC minimise_memory
+	FNJSR	"R1,R10-R11"
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	SYSLOGF "discard_file file %9x (%0d)",LOG_FILE
+	PULL	"R0"
+	]
+	LDR	R10,[R9,#f_cmode]	; mode 'owning' file
+	CMP	R10,#0
+	BMI	checked$l		; hopefully...
+	MOV	R1,#3			; killing file
+	MOV	R11,#e_init
+	BL	call_given_mode
+	FNRTS	VS
+checked$l				; checked with the mode which owns it
+	MOV	R1,#3
+	BL	issue_service		; warn anyone who is interested
+	ADRVC	R10,sub$l
+	BLVC	do_eachwindow
+	ADRVC	R10,link$l
+	MOVVC	R0,#-1
+	BLVC	do_linked_files
+	BLVC	delete_file_leafs
+	BLVC	free_file
+	BLVC	minimise_memory
 
 ; >>> gerph change
- [ USE_WRITE_FILES=1
- BLVC  write_loaded_files
- ]
+	[ USE_WRITE_FILES=1
+	BLVC	write_loaded_files
+	]
 ; gerph change <<<
 
- FNRTS
-sub$l
- B discard_window
-link$l				; discard a link
- STR R0,[R7,#8]			; remove link to this file
- MOV PC,R14
+	FNRTS
+
+sub$l	B	discard_window
+link$l	STR	R0,[R7,#8]		; remove link to this file
+	MOV	PC,R14
+
 
 ;E R9
 ;X all memory used by this file freed #
- FNAME free_file
+	FNAME	free_file
 free_file
- FNJSR "R1"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- SYSLOGF "free_file file %9x (%0d)",LOG_FILE
- PULL "R0"
- ]
- BL get_file_off		; R0=file offset
- MOV R1,#0
- BL set_block_size		; set the file block size to 0
- FNRTS VS
- MOVVC R1,#-1
- STRVC R1,[R9,#f_ptr]		; mark the file block as deleted
- BLVC free_undo			; free all undo buffer data
- BLVC free_link_entry		; free linked entry data
- LDRVC R0,[R9,#f_name]
- STRVC R1,[R9,#f_name]
- BLVC heap_free
- LDRVC R0,[R9,#f_uptr]
- STRVC R1,[R9,#f_uptr]
- BLVC heap_free
- LDRVC R0,[R9,#f_mptr]
- STRVC R1,[R9,#f_mptr]
- BLVC heap_free
- LDRVC R0,[R9,#f_links]
- STRVC R1,[R9,#f_links]
- BLVC heap_free
- FNRTS VS
- LDR R0,[R9,#f_depth]
- TEQ R0,#0
- SWINE XHourglass_Off		; switch off hourglass if in long op
- SUBS R0,R0,R0
- FNRTS
+	FNJSR	"R1"
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	SYSLOGF "free_file file %9x (%0d)",LOG_FILE
+	PULL	"R0"
+	]
+	BL	get_file_off		; R0=file offset
+	MOV	R1,#0
+	BL	set_block_size		; set the file block size to 0
+	FNRTS	VS
+	MOVVC	R1,#-1
+	STRVC	R1,[R9,#f_ptr]		; mark the file block as deleted
+	BLVC	free_undo		; free all undo buffer data
+	BLVC	free_link_entry		; free linked entry data
+	LDRVC	R0,[R9,#f_name]
+	STRVC	R1,[R9,#f_name]
+	BLVC	heap_free
+	LDRVC	R0,[R9,#f_uptr]
+	STRVC	R1,[R9,#f_uptr]
+	BLVC	heap_free
+	LDRVC	R0,[R9,#f_mptr]
+	STRVC	R1,[R9,#f_mptr]
+	BLVC	heap_free
+	LDRVC	R0,[R9,#f_links]
+	STRVC	R1,[R9,#f_links]
+	BLVC	heap_free
+	FNRTS	VS
+	LDR	R0,[R9,#f_depth]
+	TEQ	R0,#0
+	SWINE	XHourglass_Off		; switch off hourglass if in long op
+	SUBS	R0,R0,R0
+	FNRTS
+
 
 ;E R0=file offset/-ve
 ;X R9=file block / 0 |
-
 conv_file_off
- CMP R0,#0
- MOVMI R9,#0
- MOVMI PC,R14
- FNLDR R9,file_list
- ADD R9,R9,R0,LSL#f_shift
- MOV PC,R14
+	CMP	R0,#0
+	MOVMI	R9,#0
+	MOVMI	PC,R14
+	FNLDR	R9,file_list
+	ADD	R9,R9,R0,LSL#f_shift
+	MOV	PC,R14
+
 
 ;E R9=file pointer
 ;X R0=file offset /-1 if pointer too low |
-
 get_file_off
- FNLDR R0,file_list
- SUBS R0,R9,R0
- MVNLT R0,#0
- MOVGE R0,R0,LSR#f_shift
- MOV PC,R14
+	FNLDR	R0,file_list
+	SUBS	R0,R9,R0
+	MVNLT	R0,#0
+	MOVGE	R0,R0,LSR#f_shift
+	MOV	PC,R14
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Save text							 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R8=window saving from R9=file to save (Safe saves ONLY)
 ;X Text saved and restamped if it is filetyped. Flags and titles
@@ -683,455 +653,408 @@ get_file_off
 ;  Checks for CSD/date first #
 ;  e_init is called to check the save is ok
 ;  R0=0 if save ok / -1 if warning box opened - don't kill file
- FNAME save_text
+	FNAME	save_text
 save_text
- FNJSR "R1,R7,R10-R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R7,R0
- PULL "R0"
- SYSLOGF "save_text wind %8x (%1d) file %9x (%7d)",LOG_FILE
- ]
- LDR R10,[R9,#f_cmode]
- CMP R10,#0
- BMI checked$l
- MOV R0,R10
- MOV R1,#4
- MOV R11,#e_init
- BL call_given_mode
- FNRTS VS
- CMP R1,#-1			; did mode tell me to abort?
- BNE checked$l
- MOV R1,R0
- LDR R0,[R9,#f_proposed_name]	; finished with this
- TEQ R0,#0			; eg QUICKSAVE doesn't set this
- BLNE heap_free
- MOV R11,#0
- STR R11,[R9,#f_proposed_name]
- MOVVC R0,R1
- FNRTS				; abort with R0 setup
-checked$l			; checked with mode owning the file
- LDR R0,[R9,#f_proposed_name]
- CMP R0,#0
- LDREQ R0,[R9,#f_name]
- BL check_file_name
- TEQ R0,#0
- BEQ dirok$l
- BL get_SaveCBox
- BLVC create_open_leaf		; warn
- MOVVC R0,#-1			; leaf window opened
-; MOVVC R0,#0			; leaf window opened
- FNRTS
-dirok$l				; directory path checked
- BL save_file_date
- FNRTS
+	FNJSR	"R1,R7,R10-R11"
 
- LOCAL
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R7,R0
+	PULL	"R0"
+	SYSLOGF "save_text wind %8x (%1d) file %9x (%7d)",LOG_FILE
+	]
+
+	LDR	R10,[R9,#f_cmode]
+	CMP	R10,#0
+	BMI	checked$l
+	MOV	R0,R10
+	MOV	R1,#4
+	MOV	R11,#e_init
+	BL	call_given_mode
+	FNRTS	VS
+	CMP	R1,#-1			; did mode tell me to abort?
+	BNE	checked$l
+	MOV	R1,R0
+	LDR	R0,[R9,#f_proposed_name] ; finished with this
+	TEQ	R0,#0			; eg QUICKSAVE doesn't set this
+	BLNE	heap_free
+	MOV	R11,#0
+	STR	R11,[R9,#f_proposed_name]
+	MOVVC	R0,R1
+	FNRTS				; abort with R0 setup
+
+checked$l				; checked with mode owning the file
+	LDR	R0,[R9,#f_proposed_name]
+	CMP	R0,#0
+	LDREQ	R0,[R9,#f_name]
+	BL	check_file_name
+	TEQ	R0,#0
+	BEQ	dirok$l
+	BL	get_SaveCBox
+	BLVC	create_open_leaf	; warn
+	MOVVC	R0,#-1			; leaf window opened
+	FNRTS
+
+dirok$l	BL	save_file_date		; directory path checked
+	FNRTS
+
+	LOCAL
+
 
 ;E R0=Name string
 ;X R0=0 if ok/1 if not a full path name |
- FNAME check_file_name
+	FNAME	check_file_name
 check_file_name
- FNJSR
-a$l
- LDRB R14,[R0],#1
- TEQ   R14,#'.'			; not a leaf name
- TEQNE R14,#':'
- TEQNE R14,#'<'			; EG <wimp$scrap>
- TEQNE R14,#'>'
- MOVEQ R0,#0
- FNRTS EQ			; ok, found a path identifier
- CMP R14,#&20
- BCS a$l			; loop
- MOV R0,#1			; not ok
- FNRTS
+	FNJSR
+a$l	LDRB	R14,[R0],#1
+	TEQ	R14,#'.'		; not a leaf name
+	TEQNE	R14,#':'
+	TEQNE	R14,#'<'		; EG <wimp$scrap>
+	TEQNE	R14,#'>'
+	MOVEQ	R0,#0
+	FNRTS	EQ			; ok, found a path identifier
+	CMP	R14,#&20
+	BCS	a$l			; loop
+	MOV	R0,#1			; not ok
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R8=window R9=file WB
 ;X File saved regardless of CSD but checks dest date first #
 ;  R0=0 if saved / -1 if warned
- FNAME save_file_date
+	FNAME	save_file_date
 save_file_date
- FNJSR "R7"
- [ LOGGING = SYSLOG
- PUSH "R0-R1"
- BL get_file_off
- MOV R1,R0
- BL get_wind_off
- SYSLOGF "save_file_date wind %8x (%0d) file %9x (%1d)",LOG_FILE
- PULL "R0-R1"
- ]
- BL check_date
- TEQ R0,#0
- BEQ save$l
- BL get_SaveOBox
- BL create_open_leaf		; open warning window
- MOVVC R0,#-1			; warned
- FNRTS
-save$l
- MOV R0,#0
- BL save_file_buffer
- MOVVC R0,#0			; file saved
- FNRTS
+	FNJSR	"R7"
 
- LOCAL
+	[ LOGGING = SYSLOG
+	PUSH	"R0-R1"
+	BL	get_file_off
+	MOV	R1,R0
+	BL	get_wind_off
+	SYSLOGF "save_file_date wind %8x (%0d) file %9x (%1d)",LOG_FILE
+	PULL	"R0-R1"
+	]
+
+	BL	check_date
+	TEQ	R0,#0
+	BEQ	save$l
+	BL	get_SaveOBox
+	BL	create_open_leaf	; open warning window
+	MOVVC	R0,#-1			; warned
+	FNRTS
+
+save$l	MOV	R0,#0
+	BL	save_file_buffer
+	MOVVC	R0,#0			; file saved
+	FNRTS
+
+	LOCAL
+
 
 ;E R9=file (with file name in f_name)
 ;X R0=0 if date ok (file in Zap is newer than the one on the disc)
 ;  R0=1 if the date not ok (file on disc is newer - has changed)
- FNAME check_date
+	FNAME	check_date
 check_date
- FNJSR "R1-R5"
- FNLDR R0,opt_switches
- TST R0,#switch_CheckDate
- BEQ checked$l			; don't check the date stamps
-;
- LDR R0,[R9,#f_load]
- BL calc_ftype
- BCC checked$l			; not dated
- LDR R1,[R9,#f_proposed_name]
- CMP R1,#0
- LDREQ R1,[R9,#f_name]
- BL read_file_timestamp
- FNRTS VS
- TEQ R2,#0
- TEQEQ R3,#0
- BEQ checked$l
-; LDR R0,[R9,#f_load]
-; BL calc_ftype
-; BCC checked$l			; not dated
-; MOV R0,#5
-; LDR R1,[R9,#f_name]
-; SWI XOS_File			; read date of file
-; FNRTS VS
-; TST R0,#1
-; BEQ checked$l			; not found
-; MOV R0,R2			; load address
-; BL calc_ftype
-; BCC checked$l			; not dated
-; AND R2,R2,#&FF			; R2=msb of date R3=lsb of date
- LDR R0,[R9,#f_exec]		; lsb of buffer date
- SUBS R3,R3,R0
- LDRB R0,[R9,#f_load]		; msb of buffer date
- SBC R2,R2,R0			; R2/R3=file date-buffer date
- ADDS R0,R0,#0			; clv if overflow occurred
- CMP R2,#0
- BLT checked$l			; file date<buffer date
- BGT bad$l			; file date >> buffer date
- CMP R3,#200
- BLE checked$l			; file date<buffer date+2 sec
-bad$l
- MOV R0,#1
- B end$l
+	FNJSR	"R1-R5"
+	FNLDR	R0,opt_switches
+	TST	R0,#switch_CheckDate
+	BEQ	checked$l		; don't check the date stamps
+	LDR	R0,[R9,#f_load]
+	BL	calc_ftype
+	BCC	checked$l		; not dated
+	LDR	R1,[R9,#f_proposed_name]
+	CMP	R1,#0
+	LDREQ	R1,[R9,#f_name]
+	BL	read_file_timestamp
+	FNRTS	VS
+	TEQ	R2,#0
+	TEQEQ	R3,#0
+	BEQ	checked$l
+	LDR	R0,[R9,#f_exec]		; lsb of buffer date
+	SUBS	R3,R3,R0
+	LDRB	R0,[R9,#f_load]		; msb of buffer date
+	SBC	R2,R2,R0		; R2/R3=file date-buffer date
+	ADDS	R0,R0,#0		; clv if overflow occurred
+	CMP	R2,#0
+	BLT	checked$l		; file date<buffer date
+	BGT	bad$l			; file date >> buffer date
+	CMP	R3,#200
+	BLE	checked$l		; file date<buffer date+2 sec
+bad$l	MOV	R0,#1
+	B	end$l
+
 checked$l
- MOV R0,#0			; ok
-end$l
- ADDS R0,R0,#0			; clv or crashes wimp! (5 byte testing)
- FNRTS
+	MOV	R0,#0			; ok
+end$l	ADDS	R0,R0,#0		; clv or crashes wimp! (5 byte testing)
+	FNRTS
+
 
 ;E R1=ptr to path
 ;X R2=msb of date R3=lsb of date
- FNAME read_file_timestamp
+	FNAME	read_file_timestamp
 read_file_timestamp
- FNJSR "R1,R4-R7"
- MOV R0,#5
- SWI XOS_File			; read date of file
- BVS returnnull$l		; gets past this.
- TST R0,#1
- BEQ returnnull$l		; not found (why not!)
- MOV R0,R2			; load address
- BL calc_ftype
- ANDCS R2,R2,#&FF		; R2=msb of date R3=lsb of date
- FNRTS CS
-
+	FNJSR	"R1,R4-R7"
+	MOV	R0,#5
+	SWI	XOS_File		; read date of file
+	BVS	returnnull$l		; gets past this.
+	TST	R0,#1
+	BEQ	returnnull$l		; not found (why not!)
+	MOV	R0,R2			; load address
+	BL	calc_ftype
+	ANDCS	R2,R2,#&FF		; R2=msb of date R3=lsb of date
+	FNRTS	CS
 returnnull$l
-; SWI &107
- MOV R2,#0
- MOV R3,#0
- FNRTS
+	MOV	R2,#0
+	MOV	R3,#0
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=flags b0=> save unsafe
 ;  R8=window R9=file WB WD KB
 ;X file saved regardless of CSD/date #
- FNAME save_file_buffer
+	FNAME	save_file_buffer
 save_file_buffer
- FNJSR "R1-R6,R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- TST R0,#1
- BNE syslog_unsafe$l
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R2,R0
- SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d)",LOG_FILE
- B syslog_skip$l
+	FNJSR	"R1-R6,R11"
+
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	TST	R0,#1
+	BNE	syslog_unsafe$l
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R2,R0
+	SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d)",LOG_FILE
+	B	syslog_skip$l
 syslog_unsafe$l
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R2,R0
- SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d) (unsafe)",LOG_FILE
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R2,R0
+	SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d) (unsafe)",LOG_FILE
 syslog_skip$l
- PULL "R0"
- ]
- MOV R6,R0			; save the flags
- BL pre_save			; get it into correct form for saving
- BVS stop$l
- LDR R5,[R9,#f_len]
- MOV R0,R5
- MOV R1,#0
- BL split_buffer		; coagulate file
- BVS err$l			; failed
+	PULL	"R0"
+	]
 
-; LDR R0,[R9,#f_flags]
-; TST R0,#1<<3			; check to see if file has been modified...
-; BEQ a$l			; file not altered
+	MOV	R6,R0			; save the flags
+	BL	pre_save		; get it into correct form for saving
+	BVS	stop$l
+	LDR	R5,[R9,#f_len]
+	MOV	R0,R5
+	MOV	R1,#0
+	BL	split_buffer		; coagulate file
+	BVS	err$l			; failed
 
- LDR R2,[R9,#f_load]
- LDR R3,[R9,#f_exec]
- MOV R0,R2
- BL calc_ftype
- BCC a$l			; not stamped
- MOV R2,R0			; save file type
- FNLDR R1,wimp_block
- MOV R0,#3
- STRB R0,[R1]			; read 5 byte time
- MOV R0,#14
- SWI XOS_Word			; read time
- BVS err$l			; failed
- LDR R3,[R1]
- LDRB R0,[R1,#4]		; MSB of time
- ADD R2,R0,R2,LSL#8
- ORR R2,R2,#&FF000000
- ORR R2,R2,#&00F00000		; create load address
- STR R2,[R9,#f_load]
- STR R3,[R9,#f_exec]		; save load/exec with new stamp
-a$l
- TST R6,#1			; unsafe?
- BNE unsafe$l
- LDR R0,[R9,#f_proposed_name]
- CMP R0,#0
- LDREQ R0,[R9,#f_name]
- BL backup_file			; backup the file if safe
+	LDR	R2,[R9,#f_load]
+	LDR	R3,[R9,#f_exec]
+	MOV	R0,R2
+	BL	calc_ftype
+	BCC	a$l			; not stamped
+	MOV	R2,R0			; save file type
+	FNLDR	R1,wimp_block
+	MOV	R0,#3
+	STRB	R0,[R1]			; read 5 byte time
+	MOV	R0,#14
+	SWI	XOS_Word		; read time
+	BVS	err$l			; failed
+	LDR	R3,[R1]
+	LDRB	R0,[R1,#4]		; MSB of time
+	ADD	R2,R0,R2,LSL#8
+	ORR	R2,R2,#&FF000000
+	ORR	R2,R2,#&00F00000	; create load address
+	STR	R2,[R9,#f_load]
+	STR	R3,[R9,#f_exec]		; save load/exec with new stamp
+
+a$l	TST	R6,#1			; unsafe?
+	BNE	unsafe$l
+	LDR	R0,[R9,#f_proposed_name]
+	CMP	R0,#0
+	LDREQ	R0,[R9,#f_name]
+	BL	backup_file		; backup the file if safe
 unsafe$l
- BLVC save_file			; save the file to disc
- BVS err$l			; failed
- MOV R1,#1			; after a save
- BL post_load			; put file back into edit format
- FNRTS VS
- TST R6,#1
- FNRTS NE			; unsafe
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3		; mark unaltered
- STR R0,[R9,#f_flags]
- BL initialise_checksums
+	BLVC	save_file		; save the file to disc
+	BVS	err$l			; failed
+	MOV	R1,#1			; after a save
+	BL	post_load		; put file back into edit format
+	FNRTS	VS
+	TST	R6,#1
+	FNRTS	NE			; unsafe
+	LDR	R0,[R9,#f_flags]
+	BIC	R0,R0,#1<<3		; mark unaltered
+	STR	R0,[R9,#f_flags]
+	BL	initialise_checksums
 
- LDR R0,[R9,#f_proposed_name]
- CMP R0,#0
- BLNE new_file_name		; update to new saved filename
- LDR R0,[R9,#f_proposed_name]
- BL heap_free			; finished with this
- MOV R0,#0
- STR R0,[R9,#f_proposed_name]	; we've used this now, so clear it so no one gets hurt ...
- BL new_file_title		; update file title
- FNRTS
-stop$l
- MOV R1,R0
- LDR R0,[R9,#f_proposed_name]
- BL heap_free
- MOV R0,#0
- STR R0,[R9,#f_proposed_name]	; we won't be trying again ...
- MOV R0,R1
- FNRTS
+	LDR	R0,[R9,#f_proposed_name]
+	CMP	R0,#0
+	BLNE	new_file_name		; update to new saved filename
+	LDR	R0,[R9,#f_proposed_name]
+	BL	heap_free		; finished with this
+	MOV	R0,#0
+	STR	R0,[R9,#f_proposed_name] ; we've used this now, so clear it so no one gets hurt ...
+	BL	new_file_title		; update file title
+	FNRTS
 
-err$l
- ADDS R5,R0,#0			; save error pointer & clv
- MOV R1,#1			; after a save
- BL post_load			; put file back into edit format
- LDR R0,[R9,#f_proposed_name]
- BL heap_free			; finished with this
- MOV R0,#0
- STR R0,[R9,#f_proposed_name]	; we won't be trying again ...
- MOV R0,R5
- FNRTV
+stop$l	MOV	R1,R0
+	LDR	R0,[R9,#f_proposed_name]
+	BL	heap_free
+	MOV	R0,#0
+	STR	R0,[R9,#f_proposed_name] ; we won't be trying again ...
+	MOV	R0,R1
+	FNRTS
 
- LOCAL
+err$l	ADDS	R5,R0,#0		; save error pointer & clv
+	MOV	R1,#1			; after a save
+	BL	post_load		; put file back into edit format
+	LDR	R0,[R9,#f_proposed_name]
+	BL	heap_free		; finished with this
+	MOV	R0,#0
+	STR	R0,[R9,#f_proposed_name] ; we won't be trying again ...
+	MOV	R0,R5
+	FNRTV
+
+	LOCAL
+
 
 ; E R9
- FNAME initialise_checksums
+	FNAME	initialise_checksums
 initialise_checksums
- FNJSR "R0"
- LDR R0,[R9,#f_len]		; get file length
- STR R0,[R9,#f_chklen]		; write file length
- BL calculate_checksum
- STR R0,[R9,#f_chksum]
- FNRTS
+	FNJSR	"R0"
+	LDR	R0,[R9,#f_len]		; get file length
+	STR	R0,[R9,#f_chklen]	; write file length
+	BL	calculate_checksum
+	STR	R0,[R9,#f_chksum]
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R9=file split at start with load and exec updated
 ;X File saved to disc by OS_File #
- FNAME save_file
+	FNAME	save_file
 save_file
- FNJSR "R1-R5"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- SYSLOGF "save_file %9x (%0d)",LOG_FILE
- PULL "R0"
- ]
-; LDR R0,[R9,#f_flags]
-; TST R0,#1<<28
-; BNE access$l
- SWI XHourglass_On
- MOV R0,#0
- LDR R1,[R9,#f_proposed_name]
- CMP R1,#0
- LDREQ R1,[R9,#f_name]
- LDR R2,[R9,#f_load]
- LDR R3,[R9,#f_exec]
- LDR R4,[R9,#f_ptr]
- LDR R5,[R9,#f_len]
- ADD R5,R4,R5
- SWI XOS_File			; save the file
- MOVVC R0,#4
- LDRVC R5,[R9,#f_attr]
- SWIVC XOS_File			; set attributes
+	FNJSR	"R1-R5"
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	SYSLOGF "save_file %9x (%0d)",LOG_FILE
+	PULL	"R0"
+	]
+	SWI	XHourglass_On
+	MOV	R0,#0
+	LDR	R1,[R9,#f_proposed_name]
+	CMP	R1,#0
+	LDREQ	R1,[R9,#f_name]
+	LDR	R2,[R9,#f_load]
+	LDR	R3,[R9,#f_exec]
+	LDR	R4,[R9,#f_ptr]
+	LDR	R5,[R9,#f_len]
+	ADD	R5,R4,R5
+	SWI	XOS_File		; save the file
+	MOVVC	R0,#4
+	LDRVC	R5,[R9,#f_attr]
+	SWIVC	XOS_File		; set attributes
 
 ; >>> gerph change
- [ USE_WRITE_FILES=1
- BLVC  write_loaded_files
- ]
-  ; gerph change <<<
- MOVVC R5,#0
- MOVVS R5,R0
- SWI XHourglass_Off
+	[ USE_WRITE_FILES=1
+	BLVC	write_loaded_files
+	]
+; gerph change <<<
 
- MOVS R0,R5
- FNRTS EQ
- FNRTV
- FNRTS
-;access$l			; funny attributes / on a network
-; MOV R0,#&80
-; LDR R1,[R9,#f_name]
-; SWI XOS_Find			; open the file
-; FNRTS VS
-; MOV R1,R0			; file handle
-; MOV R0,#254
-; SWI XOS_Args
-; BVS close$l
-; TST R0,#1<<7
-; BLEQ err$l			; no write access
-; BVS close$l
-; MOV R0,#2
-; LDR R2,[R9,#f_ptr]
-; LDR R3,[R9,#f_len]
-; SWI XOS_GBPB			; write the data
-; MOVVC R0,#0			; no error
-;close$l				; R0=error pointer / 0
-; PUSH "R0"
-; MOV R0,#0
-; SWI XOS_Find			; close the file
-; PULL "R0"
-; TEQ R0,#0
-; BNE err2$l
-; LDR R0,[R9,#f_flags]
-; TST R0,#1<<3
-; FNRTS NE			; file altered so datestamp updated
-; MOV R0,#2
-; LDR R1,[R9,#f_name]
-; LDR R2,[R9,#f_load]
-; SWI XOS_File
-; MOVVC R0,#3
-; LDRVC R3,[R9,#f_exec]
-; SWIVC XOS_File
-; FNRTS
-;err$l ERR "File doesn't have write access"
-;err2$l
-; FNRTV
+	MOVVC	R5,#0
+	MOVVS	R5,R0
+	SWI	XHourglass_Off
 
- LOCAL
+	MOVS	R0,R5
+	FNRTS	EQ
+	FNRTV
+	FNRTS
+
+	LOCAL
+
 
 ;E R9
 ;X Title updated & redrawn for all windows on this file #
- FNAME new_file_title
+	FNAME	new_file_title
 new_file_title
- FNJSR "R10"
- ADR R10,sub$l
- BL do_eachwindow
- FNRTS
-sub$l B new_title
+	FNJSR	"R10"
+	ADR	R10,sub$l
+	BL	do_eachwindow
+	FNRTS
+sub$l	B	new_title
+
 
 ;E R0=new file name R9
 ;X file name buffer f_name updated #
- FNAME new_file_name
+	FNAME	new_file_name
 new_file_name
- FNJSR "R1-R2"
- MOV R2,R0			; save string
- BL str_len
- ADD R1,R0,#4			; length for new title buffer
- LDR R0,[R9,#f_name]		; buffer (aborts here!?)
- BL heap_ensure			; make room for new name
- STRVC R0,[R9,#f_name]
- MOVVC R1,R0
- BLVC strcopy			; copy in new title
- FNRTS
+	FNJSR	"R1-R2"
+	MOV	R2,R0			; save string
+	BL	str_len
+	ADD	R1,R0,#4		; length for new title buffer
+	LDR	R0,[R9,#f_name]		; buffer (aborts here!?)
+	BL	heap_ensure		; make room for new name
+	STRVC	R0,[R9,#f_name]
+	MOVVC	R1,R0
+	BLVC	strcopy			; copy in new title
+	FNRTS
+
 
 ;E R9
 ;X file marked as altered and new title set up #
- FNAME mark_changed
+	FNAME	mark_changed
 mark_changed
- FNJSR "R10"
- LDR R10,[R9,#f_len]
- LDR R0,[R9,#f_flags]
- LDR R14,[R9,#f_chklen]
- CMP R10,#CHECKSUM_MAX		; too big to checksum? *** HARDWIRED
- BHS largefile$l
- TST R0,#flags_Modified
- BEQ notchanged$l
- CMP R10,R14
- FNRTS NE
+	FNJSR	"R10"
+	LDR	R10,[R9,#f_len]
+	LDR	R0,[R9,#f_flags]
+	LDR	R14,[R9,#f_chklen]
+	CMP	R10,#CHECKSUM_MAX	; too big to checksum? *** HARDWIRED
+	BHS	largefile$l
+	TST	R0,#flags_Modified
+	BEQ	notchanged$l
+	CMP	R10,R14
+	FNRTS	NE
 manual_check
- LDR R10,[R9,#f_depth]		; in a long op, assume changed for speed
- TEQ R10,#0
- BNE clean_exit
- LDR R10,[R9,#f_chksum]
- BL quick_calculate_checksum
- AND R14,R10,#&FF
- CMP R0,R14
- BNE clean_exit
- BL calculate_checksum
- TEQ R0,R10
- BNE clean_exit
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#flags_Modified
- STR R0,[R9,#f_flags]
- BL new_file_title		; update all window titles ; !???
- FNRTS
+	LDR	R10,[R9,#f_depth]	; in a long op, assume changed for speed
+	TEQ	R10,#0
+	BNE	clean_exit
+	LDR	R10,[R9,#f_chksum]
+	BL	quick_calculate_checksum
+	AND	R14,R10,#&FF
+	CMP	R0,R14
+	BNE	clean_exit
+	BL	calculate_checksum
+	TEQ	R0,R10
+	BNE	clean_exit
+	LDR	R0,[R9,#f_flags]
+	BIC	R0,R0,#flags_Modified
+	STR	R0,[R9,#f_flags]
+	BL	new_file_title		; update all window titles ; !???
+	FNRTS
 notchanged$l
- CMP R10,R14
- BNE ischanged$l
- LDR R10,[R9,#f_chksum]
- BL calculate_checksum
- TEQ R0,R10
- BEQ clean_exit
- LDR R0,[R9,#f_flags]
+	CMP	R10,R14
+	BNE	ischanged$l
+	LDR	R10,[R9,#f_chksum]
+	BL	calculate_checksum
+	TEQ	R0,R10
+	BEQ	clean_exit
+	LDR	R0,[R9,#f_flags]
 ischanged$l
- ORR R0,R0,#flags_Modified
- STR R0,[R9,#f_flags]
- BL new_file_title		; update all window titles ; !???
- FNRTS
+	ORR	R0,R0,#flags_Modified
+	STR	R0,[R9,#f_flags]
+	BL	new_file_title		; update all window titles ; !???
+	FNRTS
+
 clean_exit
- ;FNPULL
- ;BICS PC,R14,#&FC000000
- FNRTVC				; not quite the same, but all that's needed - cl
+	FNRTVC
+
 largefile$l
 	TST	R0,#flags_Modified
 	ORR	R0,R0,#flags_Modified
@@ -1140,117 +1063,101 @@ largefile$l
 	LDR	R0,[R9,#f_change]
 	CMP	R0,#0
 	FNRTS	EQ
-	SUBS	R10,R10,R14	; overall size change for buffer
-	CMPNE	R10,R0		; is this 0 or f_change?
-	FNRTS	NE		; if not, return, else...
+	SUBS	R10,R10,R14		; overall size change for buffer
+	CMPNE	R10,R0			; is this 0 or f_change?
+	FNRTS	NE			; if not, return, else...
 redraw_anyway$l
-	BL	new_file_title	; update all window titles
+	BL	new_file_title		; update all window titles
 	FNRTS
 
 
-
-; afns
-;  FNS ("XXXXWIBBLE")
-
 ; E R9 = file...
 ; X R0 = checksum
- FNAME calculate_checksum
+	FNAME	calculate_checksum
 calculate_checksum
- FNJSR "R1-R5,R7,R8,R11"
-; MVN R6,#&E6			; chksum
- MVN R5,#&5500			; chksum
- MVN R4,#&5A0000		; chksum
- MVN R3,#&A5000000		; chksum
- MVN R11,#&000000B4		; chksum
+	FNJSR	"R1-R5,R7,R8,R11"
+	MVN	R5,#&5500		; chksum
+	MVN	R4,#&5A0000		; chksum
+	MVN	R3,#&A5000000		; chksum
+	MVN	R11,#&000000B4		; chksum
 
- LDR R1,[R9,#f_ptr]
- LDR R7,[R9,#f_splito]
- LDR R8,[R9,#f_splits]
- LDR R2,[R9,#f_len]
- CMP R2,#0
- BEQ endrapidly$l
- ADD R7,R7,R1
+	LDR	R1,[R9,#f_ptr]
+	LDR	R7,[R9,#f_splito]
+	LDR	R8,[R9,#f_splits]
+	LDR	R2,[R9,#f_len]
+	CMP	R2,#0
+	BEQ	endrapidly$l
+	ADD	R7,R7,R1
 ; R1 = current
 ; R2 = final
 ; R7 = split offset
 ; R8 = split size
-loop$l
- TEQ R1,R7
- ADDEQ R1,R1,R8
+loop$l	TEQ	R1,R7
+	ADDEQ	R1,R1,R8
 
- LDRB R0,[R1],#1
+	LDRB	R0,[R1],#1
 
-; FNRTS ; !!!!!!!!!!!!!!!!!!!!
+	MUL	R14,R2,R0		; R0<256, so faster this way round
+	EOR	R5,R5,R14,LSL #18
+	SUB	R5,R5,#&AA		; messing around...
+	ADDS	R4,R4,R14,LSL #10
+	ADD	R3,R4,R3,RRX		; collect carry?
+	ADD	R3,R4,R0
 
- MUL R14,R2,R0			; R0<256, so faster this way round
- EOR R5,R5,R14,LSL #18
- SUB R5,R5,#&AA			; messing around...
- ADDS R4,R4,R14,LSL #10
- ADD R3,R4,R3,RRX		; collect carry?
-; RSB R6,R5,R6,RRX		; more messing around...
- ADD R3,R4,R0
+	EOR	R11,R11,R0
+	RSB	R11,R11,R0
 
- EOR R11,R11,R0
- RSB R11,R11,R0
-
- SUBS R2,R2,#1
- BNE loop$l
+	SUBS	R2,R2,#1
+	BNE	loop$l
 endrapidly$l
- ADD R0,R4,R5
- ADD R0,R0,R3
+	ADD	R0,R4,R5
+	ADD	R0,R0,R3
 
- LDR R1,[R9,#f_flags]
- TST R1,#1<<29			; spool
- EORNE R0,R0,#&FF000000
- TST R1,#1<<27			; DOS
- EORNE R0,R0,#&00FF0000
+	LDR	R1,[R9,#f_flags]
+	TST	R1,#1<<29		; spool
+	EORNE	R0,R0,#&FF000000
+	TST	R1,#1<<27		; DOS
+	EORNE	R0,R0,#&00FF0000
 
- BIC R0,R0,#&FF
- AND R11,R11,#&FF
- ORR R0,R0,R11
+	BIC	R0,R0,#&FF
+	AND	R11,R11,#&FF
+	ORR	R0,R0,R11
+	FNRTS
 
-; ADDS R14,R14,#0		; clv...?
+	LOCAL
 
- FNRTS
 
-; FNPULL
-; BICS PC,R14,#&FC000000 ; Vbit	; return with NO error
-
- LOCAL
-
- FNAME quick_calculate_checksum
+	FNAME	quick_calculate_checksum
 quick_calculate_checksum
- FNJSR "R1,R2,R7,R8,R11"
- MVN R11,#&000000B4		; chksum
+	FNJSR	"R1,R2,R7,R8,R11"
+	MVN	R11,#&000000B4		; chksum
 
- LDR R1,[R9,#f_ptr]
- LDR R7,[R9,#f_splito]
- LDR R8,[R9,#f_splits]
- LDR R2,[R9,#f_len]
- CMP R2,#0
- BEQ endrapidly$l
- ADD R7,R7,R1
+	LDR	R1,[R9,#f_ptr]
+	LDR	R7,[R9,#f_splito]
+	LDR	R8,[R9,#f_splits]
+	LDR	R2,[R9,#f_len]
+	CMP	R2,#0
+	BEQ	endrapidly$l
+	ADD	R7,R7,R1
 ; R1 = current
 ; R2 = final
 ; R7 = split offset
 ; R8 = split size
-loop$l
- TEQ R1,R7
- ADDEQ R1,R1,R8
+loop$l	TEQ	R1,R7
+	ADDEQ	R1,R1,R8
 
- LDRB R0,[R1],#1
+	LDRB	R0,[R1],#1
 
- EOR R11,R11,R0
- RSB R11,R11,R0
+	EOR	R11,R11,R0
+	RSB	R11,R11,R0
 
- SUBS R2,R2,#1
- BNE loop$l
+	SUBS	R2,R2,#1
+	BNE	loop$l
 endrapidly$l
- AND R0,R11,#&FF
+	AND	R0,R11,#&FF
 
- FNRTS
-; FNPULL
-; BICS PC,R14,#&FC000000 ; Vbit	; return with NO error
+	FNRTS
+
 
 ; E R9
 ; X Z set if unchanged; R0 corrupt.
@@ -1258,14 +1165,15 @@ endrapidly$l
 maybe_test_changed
 	FNJSR
 	LDR	R14,[R9,#f_len]
-	CMP	R14,#CHECKSUM_MAX ; too big to checksum?
-	FNPULL	LO
-	BLO	test_changed	; no - test anyway
+	CMP	R14,#CHECKSUM_MAX	; too big to checksum?
+	FNPULL  LO
+	BLO	test_changed		; no - test anyway
 	LDR	R0,[R9,#f_chklen]
-	TEQ	R0,R14		; same length?
+	TEQ	R0,R14			; same length?
 	LDREQ	R0,[R9,#f_flags]
-	TSTEQ	R0,#1<<3	; marked as changed?
-	FNRTS			; return with Z set up appropriately
+	TSTEQ	R0,#1<<3		; marked as changed?
+	FNRTS				; return with Z set up appropriately
+
 
 ; E R9
 ; X Z set if unchanged; R0 corrupt.
@@ -1274,30 +1182,31 @@ test_changed
 	FNJSR	"R8-R11"
 	LDR	R0,[R9,#f_flags]
 	TST	R0,#1<<3
-	FNRTS	EQ		; return early if marked as unchange
+	FNRTS	EQ			; return early if marked as unchange
 	LDR	R10,[R9,#f_len]
 	LDR	R14,[R9,#f_chklen]
 	TEQ	R10,R14
-	FNRTS	NE		; or if length has changed
+	FNRTS	NE			; or if length has changed
 	LDR	R10,[R9,#f_chksum]
 	SWI	XHourglass_On
 	BL	calculate_checksum
 	MOV	R11,R0
 	SWI	XHourglass_Off
-	SUBS	R0,R0,R0	; avoid VS
+	SUBS	R0,R0,R0		; avoid VS
 	TEQ	R11,R10
-	FNRTS	NE		; or if checksum has changed
+	FNRTS	NE			; or if checksum has changed
 	STR	R11,[R9,#f_chksum]
 	LDR	R0,[R9,#f_len]
 	STR	R0,[R9,#f_chklen]
-	LDR	R0,[R9,#f_flags]; if reached here, file is clearly unchanged
-	BIC	R0,R0,#1<<3	; despite being marked as changed
+	LDR	R0,[R9,#f_flags]	; if reached here, file is clearly unchanged
+	BIC	R0,R0,#1<<3		; despite being marked as changed
 	STR	R0,[R9,#f_flags]
-	BL	new_file_title	; update all window titles ; !???
-	MOVS	R0,#0		; clear flag...
+	BL	new_file_title		; update all window titles ; !???
+	MOVS	R0,#0			; clear flag...
 	FNRTS
 
 	LOCAL
+
 
 ; E R0=0 -> unchanged, <>0 -> changed  R9
 ; X File marked appropriately; checksum recalculated if required.
@@ -1323,78 +1232,85 @@ mark_unchanged$l
 	BLEQ	new_file_title
 	FNRTS
 
+
 ;E R0=mask R1=eor R2=command 0/15
 ;X switches flags toggled or tick set if set |
- FNAME new_switches_set
+	FNAME	new_switches_set
 new_switches_set
- TEQ R2,#15
- BNE new_switches
- FNJSR
- FNLDR R14,opt_switches
- AND R14,R14,R1
- TEQ R14,R1
- MOVEQ R0,#1
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_switches
+	FNJSR
+	FNLDR	R14,opt_switches
+	AND	R14,R14,R1
+	TEQ	R14,R1
+	MOVEQ	R0,#1
+	MOVNE	R0,#0
+	FNRTS
+
 
 ;E R0=switches mask R1=switches eor
 ;X new switches value set |
- FNAME new_switches
+	FNAME	new_switches
 new_switches
- FNJSR
- FNLDR R14,opt_switches
- BIC R14,R14,R0
- EOR R14,R14,R1
- FNSTR R14,opt_switches
- FNRTS
+	FNJSR
+	FNLDR	R14,opt_switches
+	BIC	R14,R14,R0
+	EOR	R14,R14,R1
+	FNSTR	R14,opt_switches
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=propsed new file name
 ;  R7=leaf window index to update /0 if none
 ;  R8/R9 window to save / R8=-1 for selection
 ;X filename updated and text/selection saved R8/R9 updated #
- FNAME save_from_leaf
+	FNAME	save_from_leaf
 save_from_leaf
- FNJSR "R1,R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- MOV R1,R0
- BL get_file_off
- MOV R2,R0
- PULL "R0"
- SYSLOGF "save_from_leaf wind %8x (%1d) file %9x (%2d) to %0s (leaf index %7d)",LOG_FILE
- ]
- MOV R1,#0
- BL save_to_file
- FNRTS VS
- TEQ R0,#0
- FNRTS NE			; wasn't saved
- CMP R8,#0
- FNRTS LE			; was LE.
- MOV R11,R7
- BL update_after_save		; update the leaf window
- MOV R0,#0
- FNRTS
+	FNJSR	"R1,R11"
+
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	MOV	R1,R0
+	BL	get_file_off
+	MOV	R2,R0
+	PULL	"R0"
+	SYSLOGF "save_from_leaf wind %8x (%1d) file %9x (%2d) to %0s (leaf index %7d)",LOG_FILE
+	]
+
+	MOV	R1,#0
+	BL	save_to_file
+	FNRTS	VS
+	TEQ	R0,#0
+	FNRTS	NE			; wasn't saved
+	CMP	R8,#0
+	FNRTS	LE			; was LE.
+	MOV	R11,R7
+	BL	update_after_save	; update the leaf window
+	MOV	R0,#0
+	FNRTS
+
 
 ;E R11=leaf window index of leaf window file was saved from (successfully)
 ;X File window closed/swapped etc depending on flags #
- FNAME update_after_save
+	FNAME	update_after_save
 update_after_save
- FNJSR "R7-R9"
- MOV R7,R11			; window index
- BL conv_index_offs		; set up R8/R9
- LDR R0,[R7,#4]			; flags
- TST R0,#1<<3			; kill file?
- FNRTS EQ
- BIC R0,R0,#1<<3
- STR R0,[R7,#4]
- BL delete_swap_window		; swap if indicated
- BLVC discard_file
- FNRTS
+	FNJSR	"R7-R9"
+	MOV	R7,R11			; window index
+	BL	conv_index_offs		; set up R8/R9
+	LDR	R0,[R7,#4]		; flags
+	TST	R0,#1<<3		; kill file?
+	FNRTS	EQ
+	BIC	R0,R0,#1<<3
+	STR	R0,[R7,#4]
+	BL	delete_swap_window	; swap if indicated
+	BLVC	discard_file
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=filename to save to
 ;  R1=flags b0 unused
@@ -1403,173 +1319,176 @@ update_after_save
 ;	    b16-b31=filetype if saving as memory
 ;  R8/R9=wind or R8=-1 to save selection (was 0)
 ;X R0=0 if saved successfully - data saved to the given file. #
- FNAME save_to_file
+	FNAME	save_to_file
 save_to_file
- FNJSR "R1-R11"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_wind_off
- MOV R2,R0
- BL get_file_off
- MOV R3,R0
- PULL "R0"
- SYSLOGF "save_to_file wind %8x (%2d) file %9x (%3d) to %0s (flags %1x)",LOG_FILE
- ]
- TST R1,#2
- BNE m$l			; just save area of memory
- CMP R8,#0
- BLE s$l			; just save selection
- TST R1,#4
- BNE u$l			; unsafe
- MOV R2,R1			; save flags
- MOV R1,R0			; proposed new filename
- BL strdup
- FNRTS VS
- STR R0,[R9,#f_proposed_name]
- BL save_text			; save it updating * etc - also sets filename to f_proposed_name
- FNRTS				; return save status in R0
-u$l				; unsafe save of whole file
- LDR R2,[R9,#f_name]		; load old file name
- STR R0,[R9,#f_name]		; place you want to save to
- MOV R0,#1			; unsafe
- BL save_file_buffer		; save the file regardless of date/CSD
- STR R2,[R9,#f_name]		; restore
- MOVVC R0,#0
- FNRTS
-s$l
- MOV R6,R0			; selection filename
- BL check_file_name
- TEQ R0,#0
- BNE notdirok$l
- MOV R0,R6
- BL simply_save_selection
- FNRTS
+	FNJSR	"R1-R11"
 
-m$l				; save area of memory
- MOV R2,R1,LSR#16		; filetype
- MOV R1,R0			; filename
- SWI XHourglass_On
- MOV R0,#10
- MOV R3,#0
- MOV R4,R8
- ADD R5,R8,R9
- SWI XOS_File
- MOVVC R1,#0
- MOVVS R1,R0
- SWI XHourglass_Off
- MOVS R0,R1
- FNRTS EQ
- FNRTV
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_wind_off
+	MOV	R2,R0
+	BL	get_file_off
+	MOV	R3,R0
+	PULL	"R0"
+	SYSLOGF "save_to_file wind %8x (%2d) file %9x (%3d) to %0s (flags %1x)",LOG_FILE
+	]
+
+	TST	R1,#2
+	BNE	m$l			; just save area of memory
+	CMP	R8,#0
+	BLE	s$l			; just save selection
+	TST	R1,#4
+	BNE	u$l			; unsafe
+	MOV	R2,R1			; save flags
+	MOV	R1,R0			; proposed new filename
+	BL	strdup
+	FNRTS	VS
+	STR	R0,[R9,#f_proposed_name]
+	BL	save_text		; save it updating * etc - also sets name to f_proposed_name
+	FNRTS				; return save status in R0
+u$l					; unsafe save of whole file
+	LDR	R2,[R9,#f_name]		; load old file name
+	STR	R0,[R9,#f_name]		; place you want to save to
+	MOV	R0,#1			; unsafe
+	BL	save_file_buffer	; save the file regardless of date/CSD
+	STR	R2,[R9,#f_name]		; restore
+	MOVVC	R0,#0
+	FNRTS
+
+s$l	MOV	R6,R0			; selection filename
+	BL	check_file_name
+	TEQ	R0,#0
+	BNE	notdirok$l
+	MOV	R0,R6
+	BL	simply_save_selection
+	FNRTS
+
+m$l					; save area of memory
+	MOV	R2,R1,LSR#16		; filetype
+	MOV	R1,R0			; filename
+	SWI	XHourglass_On
+	MOV	R0,#10
+	MOV	R3,#0
+	MOV	R4,R8
+	ADD	R5,R8,R9
+	SWI	XOS_File
+	MOVVC	R1,#0
+	MOVVS	R1,R0
+	SWI	XHourglass_Off
+	MOVS	R0,R1
+	FNRTS	EQ
+	FNRTV
 
 ; E R6 = ????
 notdirok$l
- BL get_SaveSCBox
- FNLDR R0,wimp_data
-; MOV R1,#&F800
-; STR R1,[R0,#&84]		; somewhere...
- STR R6,[R0,#&88]		; somewhere...
- MOV R8,#0
- BL create_open_leaf		; warn - needs r8, though...
- MOVVC R0,#-1			; leaf window opened
- FNRTS
+	BL	get_SaveSCBox
+	FNLDR	R0,wimp_data
+	STR	R6,[R0,#&88]		; somewhere...
+	MOV	R8,#0
+	BL	create_open_leaf	; warn - needs r8, though...
+	MOVVC	R0,#-1			; leaf window opened
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ; E R0-> filename.
- FNAME simply_save_selection
+	FNAME	simply_save_selection
 simply_save_selection
- FNJSR
- SYSLOGF "simply_save_selection to %0s",LOG_FILE
- MOV R6,R0
- BL get_selection		; set up R8/R9
- FNRTS CS			; no selection
- BLVC read_selection		; get selection in buffer R3
- FNRTS VS
- LDR R0,[R9,#f_load]		; get load address
- BL calc_ftype
- MOVCC R0,   #&F00
- ORRCC R0,R0,#&0FD		; data type if none given
- MOV R4,R0			; proposed file type
- SWI XHourglass_On
- MOV R0,#2
- MOV R11,#e_selection
- BL call_mode			; doctor selection before saving
- BVS err$l
- ADD R5,R3,R2			; end
- MOV R2,R4			; filetype
- MOV R4,R3			; start
- MOV R3,#0
- MOV R1,R6			; file name
- MOV R0,#&0A			; date stamp
- SWI XOS_File			; save
-err$l
- MOVVC R1,#0
- MOVVS R1,R0
- MOV R0,R4
- BL heap_free			; free selected block
- SWI XHourglass_Off
- MOVS R0,R1
- FNRTS EQ
- FNRTV
+	FNJSR
+	SYSLOGF "simply_save_selection to %0s",LOG_FILE
+	MOV	R6,R0
+	BL	get_selection		; set up R8/R9
+	FNRTS	CS			; no selection
+	BLVC	read_selection		; get selection in buffer R3
+	FNRTS	VS
+	LDR	R0,[R9,#f_load]		; get load address
+	BL	calc_ftype
+	MOVCC	R0,   #&F00
+	ORRCC	R0,R0,#&0FD		; data type if none given
+	MOV	R4,R0			; proposed file type
+	SWI	XHourglass_On
+	MOV	R0,#2
+	MOV	R11,#e_selection
+	BL	call_mode		; doctor selection before saving
+	BVS	err$l
+	ADD	R5,R3,R2		; end
+	MOV	R2,R4			; filetype
+	MOV	R4,R3			; start
+	MOV	R3,#0
+	MOV	R1,R6			; file name
+	MOV	R0,#&0A			; date stamp
+	SWI	XOS_File		; save
 
- LOCAL
+err$l	MOVVC	R1,#0
+	MOVVS	R1,R0
+	MOV	R0,R4
+	BL	heap_free		; free selected block
+	SWI	XHourglass_Off
+	MOVS	R0,R1
+	FNRTS	EQ
+	FNRTV
+
+	LOCAL
+
 
 ;E R0=file name
 ;X R8/R9=window on the file (loaded if necessary) WB #
- FNAME find_file
+	FNAME	find_file
 find_file
- FNJSR "R1"
- SYSLOGF "file_find %0s",LOG_FILE
- MOV R1,R0			; save file name
- BL find_file_look
- FNRTS VS
- TEQ R9,#0
- BEQ fi20			; load it
- BL find_window
- FNRTS
-fi20
- MOV R0,R1
- BL install_file
- BLVC conv_wind_off		; set up R8/R9
- FNRTS
+	FNJSR	"R1"
+	SYSLOGF "file_find %0s",LOG_FILE
+	MOV	R1,R0			; save file name
+	BL	find_file_look
+	FNRTS	VS
+	TEQ	R9,#0
+	BEQ	fi20			; load it
+	BL	find_window
+	FNRTS
+
+fi20	MOV	R0,R1
+	BL	install_file
+	BLVC	conv_wind_off		; set up R8/R9
+	FNRTS
+
 
 ;E R0=pointer to file name
 ;X R9=file blk of this file / 0 if not found WB #
 ;  Filename canicalised before checking
- FNAME find_file_look
+	FNAME	find_file_look
 find_file_look
- FNJSR "R1-R5"
- SYSLOGF "file_file_look %0s",LOG_FILE
- MOV R3,R0			; save name pointer
- FNLDR R0,wimp_version
- CMP R0,#300
- BLT fi30
- MOV R0,#37
- MOV R1,R3
- FNLDR R2,wimp_block
- MOV R3,#0
- MOV R4,#0
- MOV R5,#&100
- SWI XOS_FSControl
- FNRTS VS
- FNLDR R3,wimp_block
-fi30
- FNLDR R9,file_list
- FNLDR R4,file_num
-fi15
- SUBS R4,R4,#1			; any left?
- MOVMI R9,#0
- FNRTS MI
- LDR R0,[R9,#f_ptr]
- CMP R0,#0
- BLE fi16			; not a valid file
- LDR R1,[R9,#f_name]
- MOV R2,R3
- BL strCMP			; case insensitive compare
- FNRTS EQ
-fi16
- ADD R9,R9,#file_blk		; next
- B fi15
+	FNJSR	"R1-R5"
+	SYSLOGF "file_file_look %0s",LOG_FILE
+	MOV	R3,R0			; save name pointer
+	FNLDR	R0,wimp_version
+	CMP	R0,#300
+	BLT	fi30
+	MOV	R0,#37
+	MOV	R1,R3
+	FNLDR	R2,wimp_block
+	MOV	R3,#0
+	MOV	R4,#0
+	MOV	R5,#&100
+	SWI	XOS_FSControl
+	FNRTS	VS
+	FNLDR	R3,wimp_block
+
+fi30	FNLDR	R9,file_list
+	FNLDR	R4,file_num
+fi15	SUBS	R4,R4,#1		; any left?
+	MOVMI	R9,#0
+	FNRTS	MI
+	LDR	R0,[R9,#f_ptr]
+	CMP	R0,#0
+	BLE	fi16			; not a valid file
+	LDR	R1,[R9,#f_name]
+	MOV	R2,R3
+	BL	strCMP			; case insensitive compare
+	FNRTS	EQ
+fi16	ADD	R9,R9,#file_blk		; next
+	B	fi15
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Dump file to buffer					      ;
@@ -1577,236 +1496,222 @@ fi16
 
 ;E R0=window OFFSET (and file_list/wind_list may be moved!)
 ;X file dumped to new text file #
- FNAME dump_file
+	FNAME	dump_file
 dump_file
- FNJSR "R1-R11"
- SYSLOGF "dump_file window offset %0d",LOG_FILE
- MOV R6,R0			; save window offset
- FNLDR R1,opt_flags
- BIC R0,R1,#1			; no undo on yet
- FNSTR R0,opt_flags
- MOV R0,#&F00
- ORR R0,R0,#&FF
- BL create_empty_file
- FNSTR R1,opt_flags
- FNRTS VS
- MOV R10,R9			; save file pointer
- MOV R0,R6
- BL conv_wind_off		; get source window
- LDR R5,[R8,#w_height]		; number of lines
- MOV R4,#0			; first line
-du1
- PUSH "R4-R5,R10"
- MOV R2,R4
- ADD R3,R4,#1
- BL update_cache		; R0=cached lines
- PULL "R4-R5,R10"
- FNRTS VS
- MOV R1,R0
- LDR R2,[R8,#w_txtw]
- MOV R0,#0
- BL tidy_cache_line
- FNRTS VS
- PUSH "R8-R9"
- MOV R9,R10			; output file
- MOV R8,#0			; no window
- MOV R3,R1			; text
- ADD R2,R2,#1			; length
- LDR R1,[R9,#f_len]		; offset
- MOV R0,#&11			; insert block
- BL execute_command
- PULL "R8-R9"
- FNRTS VS
- ADD R4,R4,#1			; next line
- CMP R4,R5
- BCC du1			; fill it in
- MOV R9,R10			; new file
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3		; file not altered
- ORR R0,R0,#1			; undo supported
- STR R0,[R9,#f_flags]		; new flags NB Don't need new title
- FNLDR R1,opt_mode0
- FNLDR R2,opt_format
- FNLDR R3,opt_cr		; save old vals
- LDR R0,[R8,#w_width]		; old width
- ADD R0,R0,#1
- FNSTR R0,opt_mode0
- BIC R0,R2,#&F00
- BIC R0,R0,#&0FF
- FNSTR R0,opt_format		; text display with no line nums
- MOV R0,#&0A
- ORR R0,R0,R0,LSL#8
- ORR R0,R0,R0,LSL#16
- FNSTR R0,opt_cr		; return code
- BL create_window_block
- FNSTR R0,opt_cr,VC		; fiddle options for a nice display
- FNSTR R1,opt_mode0,VC
- FNSTR R2,opt_format,VC
- FNSTR R3,opt_cr,VC		; put back old options
+	FNJSR	"R1-R11"
+	SYSLOGF "dump_file window offset %0d",LOG_FILE
+	MOV	R6,R0			; save window offset
+	FNLDR	R1,opt_flags
+	BIC	R0,R1,#1		; no undo on yet
+	FNSTR	R0,opt_flags
+	MOV	R0,#&F00
+	ORR	R0,R0,#&FF
+	BL	create_empty_file
+	FNSTR	R1,opt_flags
+	FNRTS	VS
+	MOV	R10,R9			; save file pointer
+	MOV	R0,R6
+	BL	conv_wind_off		; get source window
+	LDR	R5,[R8,#w_height]	; number of lines
+	MOV	R4,#0			; first line
 
- BLVC initialise_checksums
+du1	PUSH	"R4-R5,R10"
+	MOV	R2,R4
+	ADD	R3,R4,#1
+	BL	update_cache		; R0=cached lines
+	PULL	"R4-R5,R10"
+	FNRTS	VS
+	MOV	R1,R0
+	LDR	R2,[R8,#w_txtw]
+	MOV	R0,#0
+	BL	tidy_cache_line
+	FNRTS	VS
+	PUSH	"R8-R9"
+	MOV	R9,R10			; output file
+	MOV	R8,#0			; no window
+	MOV	R3,R1			; text
+	ADD	R2,R2,#1		; length
+	LDR	R1,[R9,#f_len]		; offset
+	MOV	R0,#&11			; insert block
+	BL	execute_command
+	PULL	"R8-R9"
+	FNRTS	VS
+	ADD	R4,R4,#1		; next line
+	CMP	R4,R5
+	BCC	du1			; fill it in
+	MOV	R9,R10			; new file
+	LDR	R0,[R9,#f_flags]
+	BIC	R0,R0,#1<<3		; file not altered
+	ORR	R0,R0,#1		; undo supported
+	STR	R0,[R9,#f_flags]	; new flags NB Don't need new title
+	FNLDR	R1,opt_mode0
+	FNLDR	R2,opt_format
+	FNLDR	R3,opt_cr		; save old vals
+	LDR	R0,[R8,#w_width]	; old width
+	ADD	R0,R0,#1
+	FNSTR	R0,opt_mode0
+	BIC	R0,R2,#&F00
+	BIC	R0,R0,#&0FF
+	FNSTR	R0,opt_format		; text display with no line nums
+	MOV	R0,#&0A
+	ORR	R0,R0,R0,LSL#8
+	ORR	R0,R0,R0,LSL#16
+	FNSTR	R0,opt_cr		; return code
+	BL	create_window_block
+	FNSTR	R0,opt_cr,VC		; fiddle options for a nice display
+	FNSTR	R1,opt_mode0,VC
+	FNSTR	R2,opt_format,VC
+	FNSTR	R3,opt_cr,VC		; put back old options
 
- FNRTS
+	BLVC	initialise_checksums
+	FNRTS
+
 
 ;X all files killed
-
- DCD 7
+	DCD	7
 Killfiles
 kill_files
- FNJSR "R10"
- ADRL R10,discard_file
- BL do_allfiles
- FNRTS
+	FNJSR	"R10"
+	ADRL	R10,discard_file
+	BL	do_allfiles
+	FNRTS
 
-;;E R0=load address
-;;X CC & R0=load addr / CS & R0=file type |
-;
-;calc_ftype
-; CMP R0,#&FF000000
-; MOVCS R0,R0,LSL#12		; clear top 12 bits
-; MOVCS R0,R0,LSR#20		; file type
-; MOV PC,R14			; return with C set up
 
 ;E R0=load address
 ;X CC & R0=load addr / CS & R0=file type |
- FNAME calc_ftype
+	FNAME	calc_ftype
 calc_ftype
- FNJSR
- BL checkseeifFTEloaded
- BVC itisthere$l
- SUBS R14,R14,R14		; clv
- CMP R0,#&FF000000
- MOVCS R0,R0,LSL#12		; clear top 12 bits
- MOVCS R0,R0,LSR#20		; file type
- FNRTS
+	FNJSR
+	BL	checkseeifFTEloaded
+	BVC	itisthere$l
+	SUBS	R14,R14,R14		; clv
+	CMP	R0,#&FF000000
+	MOVCS	R0,R0,LSL#12		; clear top 12 bits
+	MOVCS	R0,R0,LSR#20		; file type
+	FNRTS
 itisthere$l
- CMP R0,#&F0000000
- FNRTS CC			; return with C set up
- CMP R0,#&FF000000
- MOVCS R0,R0,LSL#12		; clear top 12 bits
- MOVCS R0,R0,LSR#20		; file type
- FNRTS CS
- MOV R0,R0,LSR#8
- EOR R0,R0,#&FF0000
- EOR R0,R0,#&F000
- CMP R14,#0			; make CS
- FNRTS
+	CMP	R0,#&F0000000
+	FNRTS	CC			; return with C set up
+	CMP	R0,#&FF000000
+	MOVCS	R0,R0,LSL#12		; clear top 12 bits
+	MOVCS	R0,R0,LSR#20		; file type
+	FNRTS	CS
+	MOV	R0,R0,LSR#8
+	EOR	R0,R0,#&FF0000
+	EOR	R0,R0,#&F000
+	CMP	R14,#0			; make CS
+	FNRTS
+
 
 ;E R0=file type / >=&1000 for none
 ;X R2=load address R3=execution address (current date) WB #
- FNAME calc_load
+	FNAME	calc_load
 calc_load
- FNJSR "R1"
- CMP R0,#&1000
- CMPNE R0,#&2000
- CMPNE R0,#&100000		; FTE...
- BCS cl19
- MOV R2,R0,LSL#8
- CMP R0,#&1000			; FTE?
+	FNJSR	"R1"
+	CMP	R0,#&1000
+	CMPNE	R0,#&2000
+	CMPNE	R0,#&100000		; FTE...
+	BCS	cl19
+	MOV	R2,R0,LSL#8
+	CMP	R0,#&1000		; FTE?
 
- ORRCC R2,R2,#&FF000000
- ORRCC R2,R2,#&00F00000		; create file type
- ORRCS R2,R2,#&F0000000		; FTE...
- BL read_current_time
- ADD R2,R2,R0			; time high
- FNRTS
-cl19
- MOV R2,#0
- MOV R3,#0
- FNRTS
+	ORRCC	R2,R2,#&FF000000
+	ORRCC	R2,R2,#&00F00000	; create file type
+	ORRCS	R2,R2,#&F0000000	; FTE...
+	BL	read_current_time
+	ADD	R2,R2,R0		; time high
+	FNRTS
+cl19	MOV	R2,#0
+	MOV	R3,#0
+	FNRTS
 
 local_timestore
- DCD 0
- DCD 0
+	DCD	0
+	DCD	0
+
 
 ;X R3 = time low R0 = time high
- FNAME read_current_time
+	FNAME	read_current_time
 read_current_time
- FNJSR "R1"
- ADR R1,local_timestore
-; FNLDR R1,wimp_data
-; ADD R1,R1,#&F8 - A bug - /not/ here...
- MOV R0,#14
- MOV R14,#3
- STRB R14,[R1]
- SWI XOS_Word
- LDRVC R3,[R1]			; time low
- LDRVCB R0,[R1,#4]
- FNRTS
+	FNJSR	"R1"
+	ADR	R1,local_timestore
+	MOV	R0,#14
+	MOV	R14,#3
+	STRB	R14,[R1]
+	SWI	XOS_Word
+	LDRVC	R3,[R1]			; time low
+	LDRVCB  R0,[R1,#4]
+	FNRTS
+
 
 ;E R0=file type (bottom 12 bits) R1=buffer (word aligned)
 ;X buffer contains file type string ending in 0 #
- FNAME get_ftype
+	FNAME	get_ftype
 get_ftype
- FNJSR "R1-R4"
- MOV R2,R0
- MOV R4,R1			; save buffer
- MOV R0,#18
- SWI XOS_FSControl
- FNRTS VS
- STMIA R4,{R2,R3}
-; STR R2,[R4]
-; STR R3,[R4,#4]
- MOV R0,#0
- STRB R0,[R4,#8]
-cw3
- LDRB R0,[R4],#1
- CMP R0,#&20
- BHI cw3
- MOV R0,#0
- STRB R0,[R4,#-1]		; take off trailing spaces
- FNRTS
+	FNJSR	"R1-R4"
+	MOV	R2,R0
+	MOV	R4,R1			; save buffer
+	MOV	R0,#18
+	SWI	XOS_FSControl
+	FNRTS	VS
+	STMIA	R4,{R2,R3}
+	MOV	R0,#0
+	STRB	R0,[R4,#8]
+cw3	LDRB	R0,[R4],#1
+	CMP	R0,#&20
+	BHI	cw3
+	MOV	R0,#0
+	STRB	R0,[R4,#-1]		; take off trailing spaces
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=file type / -1 if none R1=address of buffer
 ;  R2,R3=load,exec if R0=-1
 ;X sprite name for this file type put in buffer #
- FNAME get_file_sprite
+	FNAME	get_file_sprite
 get_file_sprite
- FNJSR "R1-R6"
- MOV R4,R0			; save type
- MOV R5,R1			; save buffer start
- CMP R4,#&1000
- CMPNE R4,#&2000
- CMPNE R4,#&100000
- LDR R14,str_file$l
- STR R14,[R1],#4
- BCS untyped$l
- CMP R4,#&1000
- MOV R0,R4			; file type
- MOV R4,R1			; save buffer posn
- MOV R2,#12			; buffer size
-; SWI XOS_ConvertHex4
-; MOV R1,bufferptr
-; MOV R2,#constant_buffersize
- SWICS XOS_ConvertHex6
- SWICC XOS_ConvertHex4
+	FNJSR	"R1-R6"
+	MOV	R4,R0			; save type
+	MOV	R5,R1			; save buffer start
+	CMP	R4,#&1000
+	CMPNE	R4,#&2000
+	CMPNE	R4,#&100000
+	LDR	R14,str_file$l
+	STR	R14,[R1],#4
+	BCS	untyped$l
+	CMP	R4,#&1000
+	MOV	R0,R4			; file type
+	MOV	R4,R1			; save buffer posn
+	MOV	R2,#12			; buffer size
+	SWICS	XOS_ConvertHex6
+	SWICC	XOS_ConvertHex4
 
- FNRTS VS
- MOV R0,#'_'
- STRB R0,[R4]			; change file0yyy to file_yyy
- MOV R0,#40
- MOV R2,R5
- SWI XWimp_SpriteOp		; R1-R6 read sprite info
- FNRTS VC
+	FNRTS	VS
+	MOV	R0,#'_'
+	STRB	R0,[R4]			; change file0yyy to file_yyy
+	MOV	R0,#40
+	MOV	R2,R5
+	SWI	XWimp_SpriteOp		; R1-R6 read sprite info
+	FNRTS	VC
 untyped$l
 	CMP	R4,#-1
-	BNE	typed$l		; typed? use file_xxx anyway
+	BNE	typed$l			; typed? use file_xxx anyway
 	LDR	R14,deaddead$l
-	LDMIB	R13,{R2,R3}	; get load/exec from stack
+	LDMIB	R13,{R2,R3}		; get load/exec from stack
 	TEQ	R2,R14
 	TEQEQ	R3,R14
-	LDREQ	R6,str_file_unf$l ; load/exec both == &DEADDEAD
-	LDRNE	R6,str_file_lxa$l ; other untyped
+	LDREQ	R6,str_file_unf$l	; load/exec both == &DEADDEAD
+	LDRNE	R6,str_file_lxa$l	; other untyped
 	STR	R6,[R5,#4]
 	MOV	R0,#40
 	MOV	R1,#0
 	STRB	R1,[R5,#8]
 	MOV	R2,R5
-	SWI	XWimp_SpriteOp	; check for existence
-	FNRTS	VC	; if exists then return, else use file_xxx
-typed$l	LDR	R6,str_file_xxx$l
+	SWI	XWimp_SpriteOp		; check for existence
+	FNRTS	VC			; if exists then return, else use file_xxx
+typed$l LDR	R6,str_file_xxx$l
 	STR	R6,[R5,#4]
 	MOV	R6,#0
 	STRB	R6,[R5,#8]
@@ -1816,14 +1721,16 @@ typed$l	LDR	R6,str_file_xxx$l
 	MOV	R2,R5
 	SWI	XWimp_SpriteOp
 	FNRTS
-str_file$l	= "file"
-str_file_xxx$l	= "_xxx"
-str_file_lxa$l	= "_lxa"
-str_file_unf$l	= "_unf"
-deaddead$l	& &DEADDEAD
+
+str_file$l	=	"file"
+str_file_xxx$l	=	"_xxx"
+str_file_lxa$l	=	"_lxa"
+str_file_unf$l	=	"_unf"
+deaddead$l	&	&DEADDEAD
+
+
 
 ;X looks through file list -> CC if no unsaved data in Zap / CS o/w |
-
 ; Side effect: will cause some files to be marked as unchanged
 	FNAME	test_quit_ok
 test_quit_ok
@@ -1831,19 +1738,19 @@ test_quit_ok
 	FNLDR	R9,file_list
 	FNLDR	R2,file_num
 	CMP	R2,#1
-	FNRTS	CC		; return if none in list
-te1
-	LDR	R0,[R9]
+	FNRTS	CC			; return if none in list
+te1	LDR	R0,[R9]
 	CMN	R0,#1
 	BLNE	test_changed
-	FNRTCS	NE
+	FNRTCS  NE
 	ADD	R9,R9,#file_blk
 	SUBS	R2,R2,#1
-	BHI	te1		; next file
-	ADDS	R0,R0,#0	; clc
+	BHI	te1			; next file
+	ADDS	R0,R0,#0		; clc
 	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R0=filename
 ;X R0=pointer to leaf name part of file |
@@ -1851,7 +1758,7 @@ te1
 find_leaf_name
 	FNJSR	"R1"
 	MOV	R1,R0
-find$l	LDRB	R14,[R1],#1
+find$l  LDRB	R14,[R1],#1
 	TEQ	R14,#'.'
 	TEQNE	R14,#':'
 	MOVEQ	R0,R1
@@ -1859,91 +1766,89 @@ find$l	LDRB	R14,[R1],#1
 	BHI	find$l
 	FNRTS
 
+
 ;E R9
 ;X kill ring buffer & marker buffer initialised #
- FNAME init_kill_buffer
+	FNAME	init_kill_buffer
 init_kill_buffer
- FNJSR
-; [ LOGGING = SYSLOG
-; PUSH "R0"
-; BL get_file_off
-; SYSLOGF "init_kill_buffer for file %9x (%0d)", LOG_FILE+1
-; PULL "R0"
-; ]
- MOV R0,#0
- STR R0,[R9,#f_ubufl]		; null buffer
- STR R0,[R9,#f_ulen]
- STR R0,[R9,#f_undo]
- STR R0,[R9,#f_undop]
- BL heap_claim			; claim buffer
- STRVC R0,[R9,#f_uptr]		; save buffer address
- MOVVC R0,#0
- STRVC R0,[R9,#f_mbufl]
- STRVC R0,[R9,#f_mlen]
- STRVC R0,[R9,#f_mark]
- BLVC heap_claim		; claim buffer
- STRVC R0,[R9,#f_mptr]		; save buffer address
- FNRTS
+	FNJSR
+	MOV	R0,#0
+	STR	R0,[R9,#f_ubufl]	; null buffer
+	STR	R0,[R9,#f_ulen]
+	STR	R0,[R9,#f_undo]
+	STR	R0,[R9,#f_undop]
+	BL	heap_claim		; claim buffer
+	STRVC	R0,[R9,#f_uptr]		; save buffer address
+	MOVVC	R0,#0
+	STRVC	R0,[R9,#f_mbufl]
+	STRVC	R0,[R9,#f_mlen]
+	STRVC	R0,[R9,#f_mark]
+	BLVC	heap_claim		; claim buffer
+	STRVC	R0,[R9,#f_mptr]		; save buffer address
+	FNRTS
+
 
 ;E R9
 ;X All leaf windows on this file deleted #
- FNAME delete_file_leafs
+	FNAME	delete_file_leafs
 delete_file_leafs
- FNJSR "R10"
- BL get_file_off
- ADR R10,delete_file_leafs_sub
- BL do_eachleaf
- FNRTS
+	FNJSR	"R10"
+	BL	get_file_off
+	ADR	R10,delete_file_leafs_sub
+	BL	do_eachleaf
+	FNRTS
 
 delete_file_leafs_sub
- FNJSR
- LDR R14,[R7,#8]
- CMP R14,#-1
- FNRTS EQ			; window not created
- LDR R14,[R7,#16]		; assosiated file offset
- TEQ R0,R14
- MOVEQ R14,#-1
- STREQ R14,[R7,#12]
- STREQ R14,[R7,#16]		; kill the linkage to this file
- BLEQ close_leaf_window
- FNRTS
+	FNJSR
+	LDR	R14,[R7,#8]
+	CMP	R14,#-1
+	FNRTS	EQ			; window not created
+	LDR	R14,[R7,#16]		; assosiated file offset
+	TEQ	R0,R14
+	MOVEQ	R14,#-1
+	STREQ	R14,[R7,#12]
+	STREQ	R14,[R7,#16]		; kill the linkage to this file
+	BLEQ	close_leaf_window
+	FNRTS
 
- LOCAL
+	LOCAL
+
 
 ;E R9=file
 ;X links entry buffer contents freed and reset #
 ;  the buffer itself is not freed.
- FNAME free_link_entry
+	FNAME	free_link_entry
 free_link_entry
- FNJSR "R1-R3"
- [ LOGGING = SYSLOG
- PUSH "R0"
- BL get_file_off
- SYSLOGF "free_link_entry for file %9x (%0d)",LOG_MEMORY
- PULL "R0"
- ]
- LDR R1,[R9,#f_links]		; start of buffer
- MOVS R2,R1			; pointer
- FNRTS MI
- MOV R3,#0
-a$l
- LDR R0,[R2]
- CMP R0,#0
- BLE b$l			; finished
- STR R3,[R2]
- BL heap_free
- LDRVC R0,[R2,#4]
- STRVC R3,[R2,#4]
- BLVC heap_free
- ADDVC R2,R2,#16
- BVC a$l
- FNRTS
-b$l
- MOV R0,#-1
- STR R0,[R1]
- FNRTS
+	FNJSR	"R1-R3"
+	[ LOGGING = SYSLOG
+	PUSH	"R0"
+	BL	get_file_off
+	SYSLOGF "free_link_entry for file %9x (%0d)",LOG_MEMORY
+	PULL	"R0"
+	]
+	LDR	R1,[R9,#f_links]	; start of buffer
+	MOVS	R2,R1			; pointer
+	FNRTS	MI
+	MOV	R3,#0
 
- LOCAL
+a$l	LDR	R0,[R2]
+	CMP	R0,#0
+	BLE	b$l			; finished
+	STR	R3,[R2]
+	BL	heap_free
+	LDRVC	R0,[R2,#4]
+	STRVC	R3,[R2,#4]
+	BLVC	heap_free
+	ADDVC	R2,R2,#16
+	BVC	a$l
+	FNRTS
+
+b$l	MOV	R0,#-1
+	STR	R0,[R1]
+	FNRTS
+
+	LOCAL
+
 
 ;X R0=Wimp KB buffer containing current directory name (or 0)
 	FNAME	find_current_directory_dde
@@ -1955,73 +1860,76 @@ find_current_directory_dde
 	MOV	R11,#e_init
 	BL	call_mode
 	CMP	R0,#0
-	LDRHIB	R1,[R0]
+	LDRHIB  R1,[R0]
 	CMPHI	R1,#32
 	BLS	fcd$l
-	FNLDR	R1,wimp_kbdbuf	; if dir name returned, copy it
+	FNLDR	R1,wimp_kbdbuf		; if dir name returned, copy it
 x$l	LDRB	R2,[R0],#1
 	CMP	R2,#32
-	MOVLS	R2,#0		; & fix the terminator
+	MOVLS	R2,#0			; & fix the terminator
 	STRB	R2,[R1],#1
 	BHI	x$l
 	FNLDR	R0,wimp_kbdbuf
 	FNRTS
-fcd$l	TEQ	R0,#0		; if <>0 returned (ie. SWI failed),
-	MOVNE	R0,#0		;  return 0
-	FNRTS	NE		; else return the current directory
+fcd$l	TEQ	R0,#0			; if <>0 returned (ie. SWI failed),
+	MOVNE	R0,#0			;  return 0
+	FNRTS	NE			; else return the current directory
 	FNPULL
 	; fall through to find_current_directory
 
-;X R0=Wimp KB buffer containing current directory name #
 
+;X R0=Wimp KB buffer containing current directory name #
 find_current_directory
- FNJSR "R1-R7"
- FNLDR R0,wimp_version
- CMP R0,#300
- BGE os3$l
- MOV R0,#0
- MOV R1,#0
- SWI XOS_Args			; R0=temp fs number
- MOVVC R1,R0
- FNLDR R2,wimp_kbdbuf,VC
- MOVVC R3,#&100
- MOVVC R0,#33
- SWIVC XOS_FSControl		; find FS name
- FNRTS VS
- MOV R0,R2
- BL str_len			; find length
- MOV R7,R0			; save length
- ADD R2,R2,R7			; end of FS name
- CMP R7,#0
- MOVGT R0,#':'
- STRGTB R0,[R2],#1		; finish FS name
- MOV R0,#5
- SWI XOS_GBPB			; read disc name
- FNRTS VS
- LDRB R3,[R2]			; length byte
- CMP R3,#0
- MOVGT R0,#':'
- STRGTB R0,[R2],#1		; bung colon before disc name
- ADD R2,R2,R3			; end of disc name
- MOVGT R0,#'.'
- STRGTB R0,[R2],#1
- MOV R0,#'$'
- STRB R0,[R2],#1
- MOV R0,#0
- STRB R0,[R2],#1
- FNLDR R0,wimp_kbdbuf
- FNRTS
-os3$l
- MOV R0,#37			; canonicalise path
- ADR R1,curr$l
- FNLDR R2,wimp_kbdbuf
- MOV R3,#0
- MOV R4,#0
- MOV R5,#&100
- SWI XOS_FSControl		; read the directory
- FNLDR R0,wimp_kbdbuf,VC
- FNRTS
-curr$l FNS ("@")
+	FNJSR	"R1-R7"
+	FNLDR	R0,wimp_version
+	CMP	R0,#300
+	BGE	os3$l
+	MOV	R0,#0
+	MOV	R1,#0
+	SWI	XOS_Args		; R0=temp fs number
+	MOVVC	R1,R0
+	FNLDR	R2,wimp_kbdbuf,VC
+	MOVVC	R3,#&100
+	MOVVC	R0,#33
+	SWIVC	XOS_FSControl		; find FS name
+	FNRTS	VS
+	MOV	R0,R2
+	BL	str_len			; find length
+	MOV	R7,R0			; save length
+	ADD	R2,R2,R7		; end of FS name
+	CMP	R7,#0
+	MOVGT	R0,#':'
+	STRGTB  R0,[R2],#1		; finish FS name
+	MOV	R0,#5
+	SWI	XOS_GBPB		; read disc name
+	FNRTS	VS
+	LDRB	R3,[R2]			; length byte
+	CMP	R3,#0
+	MOVGT	R0,#':'
+	STRGTB  R0,[R2],#1		; bung colon before disc name
+	ADD	R2,R2,R3		; end of disc name
+	MOVGT	R0,#'.'
+	STRGTB  R0,[R2],#1
+	MOV	R0,#'$'
+	STRB	R0,[R2],#1
+	MOV	R0,#0
+	STRB	R0,[R2],#1
+	FNLDR	R0,wimp_kbdbuf
+	FNRTS
+
+os3$l	MOV	R0,#37			; canonicalise path
+	ADR	R1,curr$l
+	FNLDR	R2,wimp_kbdbuf
+	MOV	R3,#0
+	MOV	R4,#0
+	MOV	R5,#&100
+	SWI	XOS_FSControl		; read the directory
+	FNLDR	R0,wimp_kbdbuf,VC
+	FNRTS
+
+curr$l  FNS	("@")
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Change file flags status					;
@@ -2029,446 +1937,425 @@ curr$l FNS ("@")
 
 ;E R0=flags mask R1=flags eor R9 / R9=0 for main
 ;X New R9 flags set and title bar updated for all windows on this file #
- FNAME new_file_flags
+	FNAME	new_file_flags
 new_file_flags
- TEQ R9,#0
- BEQ new_opt_flags
- FNJSR "R11"
- LDR R11,[R9,#f_flags]
- BIC R0,R11,R0			; flags mask
- EOR R0,R0,R1			; flags eor
- STR R0,[R9,#f_flags]
+	TEQ	R9,#0
+	BEQ	new_opt_flags
+	FNJSR	"R11"
+	LDR	R11,[R9,#f_flags]
+	BIC	R0,R11,R0		; flags mask
+	EOR	R0,R0,R1		; flags eor
+	STR	R0,[R9,#f_flags]
 
- TST R1,#(flags_DOSFile :OR: flags_SpoolFile)
- BLNE mark_changed		; changed if either of these bits have flipped
+	TST	R1,#(flags_DOSFile :OR: flags_SpoolFile)
+	BLNE	mark_changed		; changed if either of these bits have flipped
 
- LDR R0,[R9,#f_flags]
- EOR R11,R0,R11			; flags which have changed
- TST R11,#flags_Modified
- BEQ new_file_flags_done	; modified hasn't changed
- TST R0,#flags_Modified		; currently marked as changed?
- MOVNE R0,#-1
- STRNE R0,[R9,#f_chklen]	; yes - set check length to -1
- BLEQ initialise_checksums	; else init checksums
+	LDR	R0,[R9,#f_flags]
+	EOR	R11,R0,R11		; flags which have changed
+	TST	R11,#flags_Modified
+	BEQ	new_file_flags_done	; modified hasn't changed
+	TST	R0,#flags_Modified	; currently marked as changed?
+	MOVNE	R0,#-1
+	STRNE	R0,[R9,#f_chklen]	; yes - set check length to -1
+	BLEQ	initialise_checksums	; else init checksums
 
 new_file_flags_done
- BL new_file_title
- FNRTS
+	BL	new_file_title
+	FNRTS
+
 
 ;E R0=flags mask R1=flags eor R2=command type R8/R9=wind/0
 ;X New R9 flags set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
- FNAME new_file_flags_set
+	FNAME	new_file_flags_set
 new_file_flags_set
- TEQ R2,#15
- BNE new_file_flags
- FNJSR
- TEQ R9,#0
- FNLDR R14,opt_flags,EQ
- LDRNE R14,[R9,#f_flags]
- AND R14,R14,R1
- TEQ R14,R1			; all set?
- MOVEQ R0,#1			; yes so tick
- MOVNE R0,#0
- FNRTS
+	TEQ	R2,#15
+	BNE	new_file_flags
+	FNJSR
+	TEQ	R9,#0
+	FNLDR	R14,opt_flags,EQ
+	LDRNE	R14,[R9,#f_flags]
+	AND	R14,R14,R1
+	TEQ	R14,R1			; all set?
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Backup file before saving					;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R0=pointer to file name
 ;X If the path is proper and the file exists and there are directories
 ;  starting with ~ in the same directory as the file then the file
 ;  is renamed into the first ~ directory and any old version
 ;  Uses WB (&100) WD (&100) KB (&200)
- FNAME backup_file
+	FNAME	backup_file
 backup_file
- FNJSR "R1-R11"
- SYSLOGF "backup_file %0s",LOG_FILE+1
- MOV R10,R0			; save the file name
- MOV R11,R0			; save the file name
- BL check_file_name
- TEQ R0,#0
- FNRTS NE			; not a full path name
-;
-; MOV R5,R10
-; BL comparethem$l
-; BGT donothing$l
-;
- MOV R0,R10
- BL find_leaf_name		; R0=pointer to leaf name part of file
- SUB R7,R0,R10			; R7=length of the main part (inc dot)
- MOV R1,R10
- SUB R10,R0,#1			; R10 now points to .<leafname>
- FNLDR R2,wimp_block
- SUB R3,R7,#1			; don't do the dot as well
- MOV R0,#0
- STR R0,[R2,R3]			; add the terminator
- SWI XZapRedraw_MoveBytes	; WB=directory in which the file lives
- MOV R4,#0			; offset of first item
- FNLDR R8,wimp_kbdbuf		; R8=address of buffer for entries
- ADD R9,R8,#&100		; R9=address of buffer for pointers
-read$l				; read list of ~ directories (if any)
- CMP R4,#-1
- BEQ got$l			; read all the ~ directories
- MOV R0,#10
- FNLDR R1,wimp_block		; directory name
- FNLDR R2,wimp_data		; buffer
- MOV R3,#1			; number to read
- MOV R5,#&100			; buffer len
- ADR R6,tilde$l
- SWI XOS_GBPB			; WD=list of ~ matches in the WB directory
- FNRTS VS
- CMP R3,#1
- BLT read$l			; nothing read
- LDR R0,[R2,#16]		; object type
- TST R0,#2
- BEQ read$l			; not a directory
- ADD R2,R2,#21			; first byte after the ~
- MOV R1,R8			; address of buffer to write to
-a$l
- LDRB R0,[R2],#1
- STRB R0,[R1],#1
- TEQ R0,#0
- STREQ R8,[R9],#4
- MOVEQ R8,R1
- BEQ read$l			; accept that entry
- SUB R14,R0,#'0'
- CMP R14,#10
- BLO a$l
- B read$l			; no good
-got$l				; got a list of ~<num> dirs stored as <num>
- FNLDR R8,wimp_kbdbuf
- ADD R8,R8,#&100		; list of pointers
- SUBS R9,R9,R8			; size of the pointer list
- FNRTS LE			; no tilde files!
- MOV R0,R9,LSR#2		; number of elements
- MOV R1,R8			; data
- ADR R2,compare$l		; comparison routine
- MOV R3,R12			; workspace pointer
- SWI XOS_HeapSort
- FNRTS VS
- FNLDR R1,wimp_block
- ADD R2,R1,R7
- MOV R0,#'.'
- STRB R0,[R2,#-1]
- MOV R0,#'~'
- STRB R0,[R2]			; WB now contains <dir>.~
+	FNJSR	"R1-R11"
+	SYSLOGF "backup_file %0s",LOG_FILE+1
+	MOV	R10,R0			; save the file name
+	MOV	R11,R0			; save the file name
+	BL	check_file_name
+	TEQ	R0,#0
+	FNRTS	NE			; not a full path name
+	MOV	R0,R10
+	BL	find_leaf_name		; R0=pointer to leaf name part of file
+	SUB	R7,R0,R10		; R7=length of the main part (inc dot)
+	MOV	R1,R10
+	SUB	R10,R0,#1		; R10 now points to .<leafname>
+	FNLDR	R2,wimp_block
+	SUB	R3,R7,#1		; don't do the dot as well
+	MOV	R0,#0
+	STR	R0,[R2,R3]		; add the terminator
+	SWI	XZapRedraw_MoveBytes	; WB=directory in which the file lives
+	MOV	R4,#0			; offset of first item
+	FNLDR	R8,wimp_kbdbuf		; R8=address of buffer for entries
+	ADD	R9,R8,#&100		; R9=address of buffer for pointers
 
- ADD R7,R7,#1			; include the .~ as well
- FNLDR R5,wimp_block		; source buffer
- BL comparethem2$l
- BHI donothing$l
- SUBS R14,R14,R14		; BVS donothing
-; SWIHI &107
- FNLDR R2,wimp_data
- MOV R3,R7
- SWI XZapRedraw_MoveBytes	; WD now contains <dir>.~ as well
- MOV R4,#0
-loop$l				; R5=source buffer R4=dest
- SUBS R9,R9,#4			; next directory
- BLT movefile$l			; no more directories so move the file
- ADD R1,R5,R7			; pointer after the .~
- LDR R2,[R8,R9]			; directory name
- BL strcpy			; copy in
- MOV R2,R10
- BL strcopy			; add .<leaf>
- ;BL comparethem$l
- ;BGT loop$l
-; BGT donothing$l
- MOV R1,R5
- MOV R2,R4
- BL rename_file			; move that file
- FNRTS VS
- MOVS R0,R4			; save the old dest (as new source)
- FNLDR R0,wimp_data,EQ		; other buffer if it was zero
- MOV R4,R5			; new dest file
- MOV R5,R0			; new source file buffer
- B loop$l
-movefile$l			; finish off by moving the file
- ADD R1,R5,R7			; pointer after the .~
- SUB R1,R1,#2
- MOV R2,R10
- BL strcopy			; add .leaf over the .~
- MOV R1,R5
- MOV R2,R4
- BL rename_file			; move the file
- FNRTS				; finished!
+read$l	CMP	R4,#-1			; read list of ~ directories (if any)
+	BEQ	got$l			; read all the ~ directories
+	MOV	R0,#10
+	FNLDR	R1,wimp_block		; directory name
+	FNLDR	R2,wimp_data		; buffer
+	MOV	R3,#1			; number to read
+	MOV	R5,#&100		; buffer len
+	ADR	R6,tilde$l
+	SWI	XOS_GBPB		; WD=list of ~ matches in the WB directory
+	FNRTS	VS
+	CMP	R3,#1
+	BLT	read$l			; nothing read
+	LDR	R0,[R2,#16]		; object type
+	TST	R0,#2
+	BEQ	read$l			; not a directory
+	ADD	R2,R2,#21		; first byte after the ~
+	MOV	R1,R8			; address of buffer to write to
+
+a$l	LDRB	R0,[R2],#1
+	STRB	R0,[R1],#1
+	TEQ	R0,#0
+	STREQ	R8,[R9],#4
+	MOVEQ	R8,R1
+	BEQ	read$l			; accept that entry
+	SUB	R14,R0,#'0'
+	CMP	R14,#10
+	BLO	a$l
+	B	read$l			; no good
+
+got$l	FNLDR	R8,wimp_kbdbuf		; got a list of ~<num> dirs stored as <num>
+	ADD	R8,R8,#&100		; list of pointers
+	SUBS	R9,R9,R8		; size of the pointer list
+	FNRTS	LE			; no tilde files!
+	MOV	R0,R9,LSR#2		; number of elements
+	MOV	R1,R8			; data
+	ADR	R2,compare$l		; comparison routine
+	MOV	R3,R12			; workspace pointer
+	SWI	XOS_HeapSort
+	FNRTS	VS
+	FNLDR	R1,wimp_block
+	ADD	R2,R1,R7
+	MOV	R0,#'.'
+	STRB	R0,[R2,#-1]
+	MOV	R0,#'~'
+	STRB	R0,[R2]			; WB now contains <dir>.~
+
+	ADD	R7,R7,#1		; include the .~ as well
+	FNLDR	R5,wimp_block		; source buffer
+	BL	comparethem2$l
+	BHI	donothing$l
+	SUBS	R14,R14,R14		; BVS donothing
+	FNLDR	R2,wimp_data
+	MOV	R3,R7
+	SWI	XZapRedraw_MoveBytes	; WD now contains <dir>.~ as well
+	MOV	R4,#0
+
+loop$l					; R5=source buffer R4=dest
+	SUBS	R9,R9,#4		; next directory
+	BLT	movefile$l		; no more directories so move the file
+	ADD	R1,R5,R7		; pointer after the .~
+	LDR	R2,[R8,R9]		; directory name
+	BL	strcpy			; copy in
+	MOV	R2,R10
+	BL	strcopy			; add .<leaf>
+	MOV	R1,R5
+	MOV	R2,R4
+	BL	rename_file		; move that file
+	FNRTS	VS
+	MOVS	R0,R4			; save the old dest (as new source)
+	FNLDR	R0,wimp_data,EQ		; other buffer if it was zero
+	MOV	R4,R5			; new dest file
+	MOV	R5,R0			; new source file buffer
+	B	loop$l
+
+movefile$l				; finish off by moving the file
+	ADD	R1,R5,R7		; pointer after the .~
+	SUB	R1,R1,#2
+	MOV	R2,R10
+	BL	strcopy			; add .leaf over the .~
+	MOV	R1,R5
+	MOV	R2,R4
+	BL	rename_file		; move the file
+	FNRTS				; finished!
+
 donothing$l
-; SWI &107			; beep if no backup made...
- SUBS R14,R14,R14
- FNRTS
+	SUBS	R14,R14,R14
+	FNRTS
 
-tilde$l FNS ("~*")
-compare$l			; R0,R1=string pointers return LT if R0<R1
- FNJSR				; can corrupt R0-R3 SVC mode
- MOV R3,R0			; save the string
- BL readnum$l			; R2=value read
- MOVVC R1,R3			; first number
- MOVVC R3,R2
- BLVC readnum$l			; R2=value of R0, R3=value of R1
- CMPVC R2,R3
- FNRTS
-readnum$l			; R1=number string -> R2=value
- FNJSR
- LDRB R0,[R1]
- TEQ R0,#0
- MOVEQ R2,#-1			; null string return -1
- MOVNE R0,#10
- SWINE XOS_ReadUnsigned
- FNRTS
+tilde$l FNS	("~*")
+
+compare$l				; R0,R1=string pointers return LT if R0<R1
+	FNJSR				; can corrupt R0-R3 SVC mode
+	MOV	R3,R0			; save the string
+	BL	readnum$l		; R2=value read
+	MOVVC	R1,R3			; first number
+	MOVVC	R3,R2
+	BLVC	readnum$l		; R2=value of R0, R3=value of R1
+	CMPVC	R2,R3
+	FNRTS
+
+readnum$l				; R1=number string -> R2=value
+	FNJSR
+	LDRB	R0,[R1]
+	TEQ	R0,#0
+	MOVEQ	R2,#-1			; null string return -1
+	MOVNE	R0,#10
+	SWINE	XOS_ReadUnsigned
+	FNRTS
 
 ;E R5 = ptr to path...
 comparethem$l
- FNJSR "R1-R7"
-;X R3 = time low R0 = time high WB #
- BL read_current_time
- MOVVC R6,R3			; low bytes...
- MOVVC R7,R0			; high byte...
- MOVVC R1,R5
- BLVC read_file_timestamp
- BVS dontretgt$l
-;X R2=msb of date R3=lsb of date (or 0,0?)
- CMP R2,#0
- CMPEQ R3,#0
- FNRTS EQ			; target file not stamped...(not HI)
- CMP R7,R2
- BNE dontretgt$l
-; SWI &107			; always gets here
-; FNRTS HI			; always gets past this...
-; SWI &107 ; ???
- FNLDR R14,wimp_backupdelay
-; CMP R0,#&200
-; SWICS &107
- MOV R0,#100
- MUL R0,R14,R0
-; ADD R3,R3,#&1000		; in cs...
- ADD R3,R3,R0			; in cs...
- ;
- CMPVC R3,R6			; www?
- FNRTS VC
-dontretgt$l			; not HI...
- CMP R14,R14			; EQ
- FNRTS
+	FNJSR	"R1-R7"
+	BL	read_current_time	; R3 = time low R0 = time high
+	MOVVC	R6,R3			; low bytes...
+	MOVVC	R7,R0			; high byte...
+	MOVVC	R1,R5
+	BLVC	read_file_timestamp	; R2 = msb of date  R3 = lsb of date (or 0,0?)
+	BVS	dontretgt$l
+
+	CMP	R2,#0
+	CMPEQ	R3,#0
+	FNRTS	EQ			; target file not stamped...(not HI)
+	CMP	R7,R2
+	BNE	dontretgt$l
+	FNLDR	R14,wimp_backupdelay
+	MOV	R0,#100
+	MUL	R0,R14,R0
+	ADD	R3,R3,R0		; in cs...
+	CMPVC	R3,R6			; www?
+	FNRTS	VC
+dontretgt$l				; not HI...
+	CMP	R14,R14			; EQ
+	FNRTS
 
 ; R5 = ptr to path
 ; R7 = offset of last '.'
 ; R8 =
 ; R10 = ptr to leaf name...
 comparethem2$l
- FNJSR "R1-R2,R5"
- ADD R1,R5,R7			; pointer after the .~
- LDR R2,[R8]			; 'first' directory name
- BL strcpy			; copy in
- MOV R2,R10
- BL strcopy			; add .<leaf>
-; LDR R5,[R9,#f_name]
- MOV R5,R11			; file name...
- BL comparethem$l
- FNRTS
+	FNJSR	"R1-R2,R5"
+	ADD	R1,R5,R7		; pointer after the .~
+	LDR	R2,[R8]			; 'first' directory name
+	BL	strcpy			; copy in
+	MOV	R2,R10
+	BL	strcopy			; add .<leaf>
+	MOV	R5,R11			; file name...
+	BL	comparethem$l
+	FNRTS
 
-;movefile$l			; finish off by moving the file
-;;X R3 = time low R0 = time high WB #
-; BL read_current_time
-; MOV R6,R3
-; MOV R7,R0
-; MOV R1,R5
-; BL read_file_timestamp
-;;X R2=msb of date R3=lsb of date
-; CMP R2,#0
-; CMPEQ R3,#0
-; FNRTS EQ			; target file not stamped...
-; CMP R2,R7
-; FNRTS GT			; always gets past this...
-;; SWI &107
-; ADD R3,R3,#768			; in cs...
-; CMP R3,R6
-; FNRTS
+	LOCAL
 
- LOCAL
 
 ;E R1=source file name R2=dest file name/0
 ;X If R1 doesn't exist then returns with no error
 ;  If R1 exists and R2<>0 then R1 renamed to R2
 ;  If R1 exists and R2=0 then R1 is deleted
- FNAME rename_file
+	FNAME	rename_file
 rename_file
- FNJSR "R1-R6"
- MOV R6,R2			; save the dest
- MOV R0,#5
- SWI XOS_File
- FNRTS VS
- TST R0,#1
- FNRTS EQ			; object R1 doesn't exist as a file
- TEQ R6,#0			; is destination null:
- BEQ del$l
- MOV R0,#25
- MOV R2,R6
- SWI XOS_FSControl		; rename (same file system)
- FNRTS
-del$l
- MOV R0,#6
- SWI XOS_File			; delete the object
- FNRTS
+	FNJSR	"R1-R6"
+	MOV	R6,R2			; save the dest
+	MOV	R0,#5
+	SWI	XOS_File
+	FNRTS	VS
+	TST	R0,#1
+	FNRTS	EQ			; object R1 doesn't exist as a file
+	TEQ	R6,#0			; is destination null:
+	BEQ	del$l
+	MOV	R0,#25
+	MOV	R2,R6
+	SWI	XOS_FSControl		; rename (same file system)
+	FNRTS
+
+del$l	MOV	R0,#6
+	SWI	XOS_File		; delete the object
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Oscli handling						;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R0=string to oscli R2=command (0,6)
 ;  R3=0 for cli (direct output to null)
 ;  R3=1 for oscli (direct output to file then display)
 ;  R3=2 for wimptask (leave output going to VDU)
 ;X Command called and output displayed if R3=1 WB
- FNAME os_cli
-os_cli
- FNJSR "R1-R6,R8-R9"
- TEQ R2,#6
- BEQ prompt$l
- LDRB R14,[R0]
- CMP R14,#&20
- FNRTS CC			; ignore null strings
- MOV R6,R0
- CMP R3,#1
- FNLDR R1,wimp_block
- ADRLT R2,n$l			; get output redirection string
- ADREQ R2,s$l
- ADRGT R2,p$l			; (must be at least one character present)
- BL strcpy
- MOV R2,R6			; source
- SUB R6,R1,#1			; save start of string address
- BL strcopy
- FNLDR R0,wimp_block
- SWI XWimp_StartTask
- FNRTS VS
- TEQ R3,#1
- FNRTS NE			; no output
- MOV R0,#18
- ADR R1,f$l
- LDR R2,text$l
- SWI XOS_File			; set file attributes...
- MOVVC R0,#5
- ADRVC R1,f$l
- SWIVC XOS_File			; load/exec/len
- FNRTS VS
- ADDS R0,R4,#0			; length
- FNRTS LE			; file doesn't contain anything
- MOV R1,R6
- MOV R14,#'*'
- STRB R14,[R1]			; for displaying in the title
- BL create_file_block
- MOVVC R0,#&FF
- ADRVC R1,f$l
- LDRVC R2,[R9,#f_ptr]
- MOVVC R3,#0
- SWIVC XOS_File			; load file R5=attributes
- BLVC create_window_block		; create window block and window
- BLVC create_window_caret
- FNRTS
+	FNAME	os_cli
+os_cli	FNJSR	"R1-R6,R8-R9"
+	TEQ	R2,#6
+	BEQ	prompt$l
+	LDRB	R14,[R0]
+	CMP	R14,#&20
+	FNRTS	CC			; ignore null strings
+	MOV	R6,R0
+	CMP	R3,#1
+	FNLDR	R1,wimp_block
+	ADRLT	R2,n$l			; get output redirection string
+	ADREQ	R2,s$l
+	ADRGT	R2,p$l			; (must be at least one character present)
+	BL	strcpy
+	MOV	R2,R6			; source
+	SUB	R6,R1,#1		; save start of string address
+	BL	strcopy
+	FNLDR	R0,wimp_block
+	SWI	XWimp_StartTask
+	FNRTS	VS
+	TEQ	R3,#1
+	FNRTS	NE			; no output
+	MOV	R0,#18
+	ADR	R1,f$l
+	LDR	R2,text$l
+	SWI	XOS_File		; set file attributes...
+	MOVVC	R0,#5
+	ADRVC	R1,f$l
+	SWIVC	XOS_File		; load/exec/len
+	FNRTS	VS
+	ADDS	R0,R4,#0		; length
+	FNRTS	LE			; file doesn't contain anything
+	MOV	R1,R6
+	MOV	R14,#'*'
+	STRB	R14,[R1]		; for displaying in the title
+	BL	create_file_block
+	MOVVC	R0,#&FF
+	ADRVC	R1,f$l
+	LDRVC	R2,[R9,#f_ptr]
+	MOVVC	R3,#0
+	SWIVC	XOS_File		; load file R5=attributes
+	BLVC	create_window_block	; create window block and window
+	BLVC	create_window_caret
+	FNRTS
 prompt$l
- ADR R0,p$l
- MOV R1,#lineed_buf_cli
- BL minibuffer_prompt_and_history_no_suffix
-; FNcall Zap_MiniPrompt,R6
- FNRTS
-text$l DCD &FFF
-p$l = "*",0
-n$l = "{ > Null: } ",0
-s$l = "{ > <Wimp$Scrap> } ",0
-f$l = "<Wimp$Scrap>",0
- ALIGN
+	ADR	R0,p$l
+	MOV	R1,#lineed_buf_cli
+	BL	minibuffer_prompt_and_history_no_suffix
+	FNRTS
+
+text$l  DCD	&FFF
+p$l	=	"*",0
+n$l	=	"{ > Null: } ",0
+s$l	=	"{ > <Wimp$Scrap> } ",0
+f$l	=	"<Wimp$Scrap>",0
+	ALIGN
+
 
 ; >>> gerph change
- [ USE_WRITE_FILES=1
-   LOCAL
+	[ USE_WRITE_FILES=1
 
- FNAME write_loaded_files
+	LOCAL
+
+	FNAME	write_loaded_files
 write_loaded_files
-   FNJSR   "r0-r5,r9"           ; Stack registers
-   MOV     r0,#&83+(1<<2)+(1<<3)         ; mark as making errors
-   ADR     r1,writefile$l                ; the filename to write to
-   SWI     XOS_Find
-   FNRTVC VS           ; if error, return from call
-   MOV     r5,r0                         ; r5 = file handle
+	FNJSR	"r0-r5,r9"		; Stack registers
+	MOV	r0,#&83+(1<<2)+(1<<3)	; mark as making errors
+	ADR	r1,writefile$l		; the filename to write to
+	SWI	XOS_Find
+	FNRTVC  VS			; if error, return from call
+	MOV	r5,r0			; r5 = file handle
 
-   FNLDR   R9,file_list
-   FNLDR   R4,file_num
+	FNLDR	R9,file_list
+	FNLDR	R4,file_num
 
-loop$l
-   SUBS    R4,R4,#1                      ; any left?
-   MOVMI   R9,#0
-   BMI     done$l
-   LDR     R0,[R9,#f_ptr]
-   CMP     R0,#0
-   BLE     invalid$l                     ; not a valid file
+loop$l	SUBS	R4,R4,#1		; any left?
+	MOVMI	R9,#0
+	BMI	done$l
+	LDR	R0,[R9,#f_ptr]
+	CMP	R0,#0
+	BLE	invalid$l		; not a valid file
 ; now we do the processing
-   LDR     r2,[r9,#f_name]               ; read the filename pointer
-   MOV     r1,r5                         ; r1 = file handle
+	LDR	r2,[r9,#f_name]		; read the filename pointer
+	MOV	r1,r5			; r1 = file handle
 writename$l
-   LDRB    r0,[r2],#1                    ; read byte and increment
-   TEQ     r0,#0
-   SWINE   XOS_BPut                      ; write it
-   BVS     failed$l                      ; oh shit - it failed
-   BNE     writename$l                   ; if not end, go for more
-   MOV     r0,#10
-   SWI     XOS_BPut
+	LDRB	r0,[r2],#1		; read byte and increment
+	TEQ	r0,#0
+	SWINE	XOS_BPut		; write it
+	BVS	failed$l		; oh shit - it failed
+	BNE	writename$l		; if not end, go for more
+	MOV	r0,#10
+	SWI	XOS_BPut
 
 ; go on to the next one
 invalid$l
-   ADD     R9,R9,#file_blk               ; next
-   B       loop$l
+	ADD	R9,R9,#file_blk		; next
+	B	loop$l
 
-done$l
-   MOV     r0,#0                         ; close file code
-   MOV     r1,r5                         ; r1 = handle
-   SWI     XOS_Find                      ; close it
-   FNRTVC           ; Return from call
+done$l	MOV	r0,#0			; close file code
+	MOV	r1,r5			; r1 = handle
+	SWI	XOS_Find		; close it
+	FNRTVC				; Return from call
 
 failed$l
-   MOV     r0,#0                         ; close file code
-   MOV     r1,r5                         ; r1 = handle
-   SWI     XOS_Find                      ; close it
-   MOV     r0,#6                         ; delete file
-   ADR     r1,writefile$l                ; get filename
-   SWI     XOS_File
-   FNRTVC           ; Return from call
+	MOV	r0,#0			; close file code
+	MOV	r1,r5			; r1 = handle
+	SWI	XOS_Find		; close it
+	MOV	r0,#6			; delete file
+	ADR	r1,writefile$l		; get filename
+	SWI	XOS_File
+	FNRTVC				; Return from call
 
 writefile$l
-   = "ZapGenerated:OpenFiles",0
-   ALIGN
+	=	"ZapGenerated:OpenFiles",0
+	ALIGN
+
 
 ; load the files that have died
 ; uses wimp_data (WD) -  I hope this has ~256 bytes in it
 load_openfiles
-   FNJSR   "r0-r5,r9"           ; Stack registers
-   MOV     r0,#&43+(1<<2)+(1<<3)         ; mark as making errors
-   ADR     r1,writefile$l                ; the filename to write to
-   SWI     XOS_Find
-   FNRTVC VS           ; if error, return from call
-   MOV     r5,r0                         ; r5 = file handle
+	FNJSR	"r0-r5,r9"		; Stack registers
+	MOV	r0,#&43+(1<<2)+(1<<3)	; mark as making errors
+	ADR	r1,writefile$l		; the filename to write to
+	SWI	XOS_Find
+	FNRTVC  VS			; if error, return from call
+	MOV	r5,r0			; r5 = file handle
 
 read_all_files$l
- FNLDR     R2,wimp_data                  ; any temporary buffer
-   MOV     r1,r5
+	FNLDR	R2,wimp_data		; any temporary buffer
+	MOV	r1,r5
 read_file$l
-   SWI     XOS_BGet                      ; get a byte
-   BCS     done$l                        ; if no more, exit nicely
-   TEQ     r0,#10                        ; is that it ?
-   STRNEB  r0,[r2],#1                    ; store byte in buffer and inc
-   BNE     read_file$l                   ; if not, go for more
-   MOV     r0,#0                         ; 0 terminator
-   STRB    r0,[r2]                       ; terminate it
- FNLDR     R0,wimp_data                  ; any temporary buffer
-   BL      install_new_file              ; load it
-   B       read_all_files$l              ; and get the next file
- |
+	SWI	XOS_BGet		; get a byte
+	BCS	done$l			; if no more, exit nicely
+	TEQ	r0,#10			; is that it ?
+	STRNEB  r0,[r2],#1		; store byte in buffer and inc
+	BNE	read_file$l		; if not, go for more
+	MOV	r0,#0			; 0 terminator
+	STRB	r0,[r2]			; terminate it
+	FNLDR	R0,wimp_data		; any temporary buffer
+	BL	install_new_file	; load it
+	B	read_all_files$l	; and get the next file
+
+	|
+
 load_openfiles
-   MOV    pc,R14                        ; do nothing
- ]
+	MOV	pc,R14			; do nothing
+
+	]
 ; gerph change <<<
+
+
 
  END
