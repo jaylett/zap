@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.31 1999/06/02 14:55:57 james Exp $
+; $Id: Commands,fff,v 1.1.2.32 1999/06/05 17:24:45 ds Exp $
 
 c_Conditional	* (1<<21)
 
@@ -75,6 +75,7 @@ c_Conditional	* (1<<21)
 	EXPORT	shade_no_sel_at_all
 	EXPORT	checktrue
 	EXPORT	checklearn
+	EXPORT	disknav_tick
 
 	EXPORT	Autosoftwrap
 	EXPORT	Basemap
@@ -605,18 +606,30 @@ Allmodes
 	BEQ	minibuffer_prompt_token
 	FNJSR
 	MOV	R7,R0
+	LDRB	R0,[R7]
+	TEQ	R0,#':'
+	ADDEQ	R7,R7,#1
+	MOVNE	R8,#0
  ; suspicious code to deal with *other modes.*..!?
-	FNLDR	R11,opt_format
-	MOV	R0,#0			; start mode
-a$l
-	BL	tochangeibmode		; change mode from IB first!!!
-	FNRTS	VS
+	BL	get_wind_off
+	MOVS	R6,R0
+	FNLDRB	R11,opt_format,MI
+	LDRPLB	R11,[R8,#w_format]
+	MOV	R5,#0			; start mode
+a$l	MOV	R0,R6
+	BL	conv_wind_off
+	TEQ	R8,#0			; were we given a window?
+	BNE	ok$l
+	CMP	R0,#0			; has it been closed?
+	FNRTS	PL			; ... yes - return
+ok$l	MOV	R0,R5
+	BL	mode$l
 	BL	callallroutine2$l
-	ADD	R0,R0,#1
-	CMP	R0,#max_mode
+	ADD	R5,R5,#1
+	CMP	R5,#max_mode
 	BCC	a$l
-	AND	R0,R11,#&FF
-	BL	tochangeibmode		; back to how it was before...
+	MOV	R0,R11
+	BL	mode$l
 	FNRTS
 s$l
 	FNS	("zap_p_allmodes")
@@ -624,12 +637,14 @@ s$l
 callallroutine2$l
 	FNJSR	"R0-R12"
 	ORR	R0,R7,#1<<31
-	MOV	R8,#0
-	MOV	R9,#0
 	MOV	R10,#0
 	BL	command_string		; execute the string
 	STRVS	R0,[R13]
 	FNRTS
+
+mode$l	TEQ	R6,#0
+	BPL	new_mode
+	B	tochangeibmode		; change mode from IB first!!!
 
 	LOCAL
 
@@ -2898,29 +2913,42 @@ Keepregion
  BLVC plot_caret
  FNRTS
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lastcylinder
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#0
  MVN R3,#0
  B new_read_disc
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lastsector
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MVN R1,#0
  MOV R2,#0
  MOV R3,#0
  B new_read_disc
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lasttrack
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MVN R2,#0
  MOV R3,#0
  B new_read_disc
+
+disknav_tick
+	LDR	R0,[R9,#f_cmode]
+	TEQ	R0,#1			; is it a dzap created file?
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	MOV	PC,R14
 
  DCD 0
 Learn
@@ -3690,24 +3718,30 @@ noparam$l
  = 0
  ALIGN
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nextcylinder
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#0
  MOV R3,#1
  B new_read_disc
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nextsector
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#1
  MOV R2,#0
  MOV R3,#0
  B new_read_disc
 
- DCD c_UniversalArg
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nexttrack
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#1
@@ -4640,7 +4674,7 @@ Swapwindow
  DCD 7
 Switchtab
  LDR R0,[R8,#w_flags]
- ANDS R14,R0,#3<<9		; extract current tab mode
+ TST R0,#3<<9			; extract current tab mode
  BICNE R0,R0,#3<<9		; Unix tab mode
  ORREQ R0,R0,#1<<9		; set edit tab mode
  STR R0,[R8,#w_flags]
@@ -4806,7 +4840,7 @@ s$l FNS ("zap_m_tabchr")
  DCD 7+c_Param_Words+c_TickableMenuEntry
 Tabdisplay
  LDR R3,[R0]
- MOV R0,#&3000			; mask
+ MOV R0,#flags_TabMode		; mask
  CMP R3,#4
  MOVCS R3,#0
  MOV R1,R3,LSL#12
@@ -4815,18 +4849,17 @@ Tabdisplay
  DCD 7+c_Param_Words+c_TickableMenuEntry
 Tabmode
  LDR R3,[R0]
- MOV R0,#3<<9
+ MOV R0,#flags_TabMode
  MOV R1,#0			; default=unix tab
- TEQ R3,#1
- MOVEQ R1,#1<<9
- TEQ R3,#2
- MOVEQ R1,#2<<9
+ TEQ R3,#tab_AsAbove
+ TEQNE R3,#tab_Column
+ MOVEQ R1,R3,LSL #tab_Mode_shift
  B new_wind_flags_select
 
  DCD 7+c_TickableMenuEntry
 Tabsasspaces
  MOV R0,#0
- MOV R1,#1<<11		; toggle
+ MOV R1,#flags_InsertTabsAsSpaces ; toggle
  B new_wind_flags_set
 
  DCD 7+c_TickableMenuEntry
