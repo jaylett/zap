@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.6 2001/07/23 16:11:57 james Exp $
+; $Id: ModeBits,fff,v 2.7 2002/08/14 19:32:23 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -41,6 +41,7 @@
  EXPORT write_var
  EXPORT choose_mode_format
  EXPORT find_file_mode
+ EXPORT get_file_mode
  EXPORT cln_phy
  EXPORT cln_log
  EXPORT cln_off
@@ -978,9 +979,11 @@ choose_mode_format
  MOVEQ R14,#&8000
  STREQ R14,[R8,#w_addr]		; set absolute files address
 setaddr$l
- LDR R0,[R9,#f_load]		; load address
- LDR R1,[R9,#f_name]		; file name
- BL find_file_mode		; find mode number to use
+; LDR R0,[R9,#f_load]		; load address
+; LDR R1,[R9,#f_name]		; file name
+; BL find_file_mode		; find mode number to use
+ MOV r0,#0
+ BL get_file_mode		; find mode number to use
  FNRTS VS			; (must be valid)
  PUSH "R0-R12"
  MOV R0,#einterrogate_ModeType	; special checks for Throwback and TaskWindow
@@ -1106,6 +1109,106 @@ defblk$l			; default modelist block (not auto load!)
 deftxt$l
  = "Text",0
  ALIGN
+
+	;LOCAL	; need access to deftxt$l
+
+;E R0 b31 clear for mode number, set for mode name R8/R9
+;X as for find_file_mode
+
+get_file_mode
+	FNJSR	"R1-R7"
+	AND	R6,R0,#1<<31		; R6 != 0 if caller wants mode name
+	TEQ	R9,#0
+	BEQ	nomatch$l
+	LDR	R0,[R9,#f_load]
+	LDR	R1,[R9,#f_name]
+	ORR	R1,R1,R6
+	BL	find_file_mode
+	FNRTS	VS
+	FNLDR	R14,opt_format
+	TST	R14,#1<<31
+	BNE	nomatch$l		; mode forced
+	TEQ	R10,#0
+	ADR	R1,deftxt$l
+	TEQNE	R10,R1			; if text mode is indicated,
+	BEQ	is_text_mode$l		;   we're interested
+	TST	R0,#1<<31
+	FNRTS	EQ
+	PUSH	"R0"
+	MOV	R0,R10
+	BL	strCMPstr		; hmm, need string compare...
+	LDRB	R0,[R0]
+	CMP	R0,#32
+	PULL	"R0"
+	FNRTS	HI
+is_text_mode$l
+	; Ensure that the split isn't in the area to be searched
+	LDR	r0,[r9,#f_splito]
+	CMP	r0,#1024
+	MOVLO	r0,#1024
+	MOVLO	r1,#0
+	BLLO	split_buffer
+	; Look for the end of the first non-blank line within the first 1K
+	; If not found, return
+	LDR	r0,[r9,#f_ptr]
+	MOV	r1,#0			; current offset
+	LDR	r2,[r9,#f_len]
+	LDRB	r3,[r8,#w_cr]
+	MOV	r4,#0			; line start offset
+	CMP	r2,#1024
+	MOVHS	r2,#1024
+findeol$l
+	LDRB	r5,[r0,r1]
+	TEQ	r5,r3			; Line end?
+	BEQ	foundeol$l		; ... yes
+	ADD	r1,r1,#1		; ... no
+	TEQ	r1,r2
+	BNE	findeol$l		; Keep going until EOF or 1K searched
+	B	nomatch$l		; Nothing found, so return text mode
+foundeol$l
+	CMP	r4,r5			; Test for empty line
+	ADD	r4,r5,#1		; Update line start offset
+	BEQ	findeol$l		; If EQ, line is empty; try again
+	PUSH	"r4"			; stack this (search start offset)
+	FNLDR	r7,wimp_fileid
+findmatch$l
+	LDR	r0,[r7]
+	TEQ	r0,#0			; If no more to check,
+	PULL	"r14",EQ		;   unstack the search start offset
+	BEQ	nomatch$l		;   and return, saying text mode
+	LDR	r0,[r7,#4]
+	ADD	r0,r7,r0		; Point R0 at the regex
+	MOV	r1,#2
+	LDR	r3,[r13]		; Get the search start offset
+	MOV	r4,#-1			; Searching backwards from here
+	MOV	r5,#2_01100111 << 24	; \cmds, no macros, case sensitive
+	ORR	r5,r5,#1 << 22
+	BL	search_data
+	CMP	r0,#0
+	BLT	trynext$l
+	CMP	r1,r3			; End of match must be at/beyond LF
+	BHS	foundmode$l
+trynext$l
+	LDR	r0,[r7]
+	ADD	r7,r7,r0
+	B	findmatch$l
+foundmode$l
+	PULL	"r14"			; unstack/discard the search pos
+	ADD	r0,r7,#8
+	TST	r6,#1<<31
+	BLEQ	find_mode_number	; get the mode number (if req)
+	FNRTS	VS
+	MOVS	r10,r0
+	ADRPL	r0,defblk$l
+	FNRTS	PL
+nomatch$l
+	ADR	r0,defblk$l
+	TST	r6,#1<<31
+	FNLDRB	r10,opt_format,EQ	; default mode
+	ADDNE	r10,r0,#deftxt$l-defblk$l; or text mode
+	FNRTS
+eol$l	=	"\\n",0
+	ALIGN
 
 ;E R1=create block R8 (giving mode)
 ;X block filled with default opening window for current mode |
@@ -1623,7 +1726,7 @@ loop2$l
 ;X Set up wimp_format/wimp_flags (restore mode word) #
 
 modes_start
-	FNJSR	"R1-R3"
+	FNJSR	"R1-R7"
 	TEQ	R8,#0
 	FNLDRB	R1,opt_format,EQ
 	LDRNEB	R1,[R8,#w_format]	; mode number

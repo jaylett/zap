@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.7 2001/05/30 17:21:26 ds Exp $
+; $Id: KeyBits,fff,v 2.8 2002/08/14 19:32:23 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -948,6 +948,9 @@ init_keys
  ADRVC R0,read_keys
  ADRVC R1,str1a$l
  BLVC str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str5$l
+ BLVC str_readfile
  FNRTS
 
 str1$l = "<",|zap$|,"$Keys>",0
@@ -955,6 +958,7 @@ str1a$l = "ZapGenerated:Keys",0
 str2$l = "<",|zap$|,"$Types>",0
 str3$l = "<",|zap$|,"$Settings>",0
 str4$l = "<",|zap$|,"$ClickSend>",0 ; ...
+str5$l = "ZapGenerated:FileIds",0
  ALIGN
 
  LOCAL
@@ -1038,6 +1042,9 @@ cr11
  SUB R0,R3,#&1000		; file type
  CMP R0,#&1000
  BLS rk_mode			; &2000 is for untyped files
+ SUB R0,R3,#&2100		; file identification
+ CMP R0,#&100
+ BCC rk_fileid
  CMP R3,#&1000000
  BGE rk_mode			; &2000 is for untyped files
  CMP R3,#&10000
@@ -1568,6 +1575,68 @@ b$l
 ; STR R7,[R5,#8]			; command address
 ; STR R1,[R5,#12]		; command parameter
 ; B end$l
+
+	LOCAL
+
+; wimp_fileid conatains a 0 terminated list of blocks of the form:
+;
+;	#0  Block length (inclusive of this word)
+;	#4  Offset of regex (within this block)
+;	#8  Mode name (0 term)
+;           Zap-format regex (0 term)
+;	    Align to start of next block
+
+;E For the keys subs, R3=code/5xx for path R10=pointer in file
+;X may corrupt R0-R9 and (idealy) update R10 #
+
+rk_fileid
+	FNJSR
+	FNLDR	R5,wimp_fileid		; start of list
+	MOV	R1,R5			; current pointer
+a$l	LDR	R0,[R1]			; length of this block
+	CMP	R0,#0
+	ADDGT	R1,R1,R0
+	BGT	a$l			; next block
+	SUB	R6,R1,R5		; offset of the last entry
+	MOV	R0,R10
+	BL	str_len			; find the total length of this line
+	ADD	R1,R6,R0		; string length
+	ADD	R1,R1,#32		; + length words + NUL (=9) + space
+	MOV	R0,R5
+	BL	heap_ensure
+	FNRTS	VS
+	FNSTR	R0,wimp_fileid
+	ADD	R5,R0,R6			; start of new entry
+	ADD	R6,R5,#8			; start of string etc.
+	; Put the mode name in the block
+mode$l	LDRB	R0,[R10],#1
+	TEQ	R0,#0
+	TEQNE	R0,#10
+	FNRTS	EQ			; found unexpected EOL; return
+	TEQ	R0,#9
+	TEQNE	R0,#32
+	STRNEB	R0,[R6],#1
+	BNE	mode$l
+	MOV	R0,#0			; NUL-terminate the mode name
+	STRB	R0,[R6],#1
+	SUB	R0,R6,R5
+	STR	R0,[R5,#4]
+	SUB	R10,R10,#1
+	BL	str_skip
+	; Put the regex in the block
+regex$l	LDRB	R0,[R10],#1
+	CMP	R0,#31			; the regex is ctrl-terminated
+	MOVLSS	R0,#0			; we NUL-terminate it
+	STRB	R0,[R6],#1
+	BNE	regex$l
+	ADD	R6,R6,#3
+	BIC	R6,R6,#3		; align
+	SUB	R0,R6,R5
+	STR	R0,[R5]			; write block length
+	MOV	R0,#0
+	STR	R0,[R6]			; block list terminator
+	SUB	R10,R10,#1		; don't point past line end :-)
+	FNRTS
 
 ; R7=offset in vars buffer to put word
 
