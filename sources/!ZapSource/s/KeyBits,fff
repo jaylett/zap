@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.9 1999/02/13 01:23:28 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.10 1999/02/14 23:19:59 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -859,21 +859,30 @@ init_settings
 
 init_keys
  FNJSR "R1"
- MOV R0,#0
+ MOV R0,#-1
  FNSTR R0,key_basemapdef
  FNSTR R0,key_currentdef
+ FNLDR R1,key_maplist
+ LDR R0,[R1]
+ TEQ R0,#0
+ MOVPL R0,#-1
+ STRPL R0,[R1,#20] ; memory leak :-(
  ADR R0,read_keys
  ADR R1,str4$l ; ...
  BL str_readfile ; ...
- ADR R0,read_keys
- ADR R1,str2$l
- BL str_readfile
- ADR R0,read_keys
- ADR R1,str1$l
- BL str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str2$l
+ BLVC str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str1$l
+ BLVC str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str1a$l
+ BLVC str_readfile
  FNRTS
 
 str1$l = "<",|zap$|,"$Keys>",0
+str1a$l = "ZapGenerated:Keys",0
 str2$l = "<",|zap$|,"$Types>",0
 str3$l = "<",|zap$|,"$Settings>",0
 str4$l = "<",|zap$|,"$ClickSend>",0 ; ...
@@ -1174,7 +1183,7 @@ rk_key
  FNJSR
  FNLDR R5,key_currentdef
  TEQ R5,#0
- MOVEQ R5,R3,LSR#16		; get keymap number
+ MOVMI R5,R3,LSR#16		; get keymap number
  MOV R3,R3,LSL #16		; range start
  MOV R3,R3,LSR #16
  MOV R4,R4,LSL #16		; range end
@@ -1185,7 +1194,11 @@ rk_key
  FNRTS CS			; too large
  LDRB R0,[R10]
  TEQ R0,#'*'
- BEQ copy$l			; duplicate
+ FNLDR R6,key_basemapdef,EQ
+ BEQ copy$l			; duplicate (base map)
+ TEQ R0,#'#'
+ MOVEQ R6,R5
+ BEQ copy$l			; duplicate (current map)
  BL read_command		; get command to R7,R1,R6
  MOVVS R1,#0		; the bug...? nope...
  MOVVS R7,#0
@@ -1213,9 +1226,8 @@ copy$l
  ADD R10,R10,#1			; character after the "*"
  BL str_readnum
  MOVVS R0,R3			; replace with range start if none
- FNLDR R6,key_basemapdef
  TEQ R6,#0
- MOVEQ R6,R0,LSR#16		; source keymap number
+ MOVMI R6,R0,LSR#16		; source keymap number
  MOV R7,R0,LSL #16
  MOV R7,R7,LSR #16		; source range start
  MOV R8,R3			; current keynum
