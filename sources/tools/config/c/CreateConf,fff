@@ -1,0 +1,677 @@
+/***************************************************************************
+ *  Project: CreateConf         Purpose: Auto generate Zap's configuration *
+ *  © 1997 Martin Ebourne       Last update: 22-01-99                      *
+ ***************************************************************************/
+
+#ifdef __GNUC__
+#  define __gnuc_va_list va_list
+#  include "stdarg.h"
+#else
+#  include <stdarg.h>
+#endif
+#include <ctype.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include "kernel.h"
+
+#include "osfile.h"
+#include "osgbpb.h"
+
+/* C++, if only */
+#define false (0)
+#define true  (1)
+
+/* Constants */
+
+#define MaxLen          (255)
+#define MaxModes        (128)
+#define DirBufferSize   (1024)
+#define FileBufferSize  (10*1024)
+#define FileBufferGuard (1024)
+#define ArgsSize        (128)
+#define CacheSize       (64)
+#define QueuedSize      (128)
+
+/* Usage help text */
+static const char HelpText[] = "\
+CreateConf, version 0.51. © 1997 Martin Ebourne\n\
+Syntax: CreateConf [-help] [-time] [-debug] [-pretend] [-script <file>]\n\
+                   [-cache <file>] [-in <dir>] [-out <dir>] [-modules <dir>]\n\
+                   [( [-obey] [-at] <leaf> ... ) <name> <type>] [-exec <leaf>]\n\
+                   [-ifkey <keynum> ... [-else ...] [-endif]] ...\n\
+";
+
+/* Type for queued file entries */
+typedef struct {
+  const char  *file;
+  unsigned int length;
+  bool         at;
+  bool         obey;
+} TQueued;
+
+/* Type for file info */
+typedef struct {
+  fileswitch_object_type obj_type;
+  bits	load_addr;
+  bits	exec_addr;
+  int	size;
+  fileswitch_attr attr;
+} osfile_file_info;
+
+
+/* Option settings */
+
+bool debugFlag;		/* Debugging enabled */
+bool pretendFlag;	/* Don't actually do anything, just pretend */
+bool timeFlag;		/* Display execute time */
+const char *inDir[2] = { NULL,NULL }; /* Zap files input directory */
+const char *outDir = ""; /* Zap files output directory */
+
+/* Zap modules directory */
+const char *modulesNone = NULL;
+const char **modulesDirs = &modulesNone;
+
+bool executeFlag=true;	/* Exec opts. False if in disabled part of -ifkey */
+bool fileFlag;		/* Creating file - ie. in ( ) */
+bool atFlag;		/* Translate '@' in next file - ie. follows -at */
+bool obeyFlag; /* Include set for Obey$Dir so obey files will still work */
+
+
+/* Misc variables */
+
+const char *country;  /* Value of Zap$Country */
+const char **nextArg;	/* Array of unused parameters remaining */
+char *fileBuffer;	/* Buffer used to build files in */
+unsigned int fileBufferSize; /* Current size of fileBuffer */
+unsigned int endOffset;	/* Offset into fileBuffer of next free character */
+const char *cacheFile;	/* Cache filename */
+int *cacheBuffer;	/* Cache buffer */
+int cacheIndex;		/* Current cache index */
+int cacheValue;		/* Current calculated cache value */
+bool cacheChanged; /* Cache buffer has been changed and needs to be saved */
+TQueued *queued;	/* Queued buffer */
+int queuedSize;		/* Current size of queued buffer in entries */
+int queuedIndex;	/* Current queued index */
+
+
+/* Misc functions */
+
+
+/* Safe failure on error */
+void x(_kernel_oserror *const err)
+{
+  if (err) {
+    fprintf(stderr,"Error: %s\n",err->errmess);
+    exit(EXIT_FAILURE);
+  }
+}
+
+
+/* Error message */
+void fail(const char* const msg, ...)
+{
+  va_list v;
+  va_start(v, msg);
+  vfprintf(stderr, msg, v);
+  va_end(v);
+  exit(EXIT_FAILURE);
+}
+
+
+/* Safe realloc */
+void *Realloc(void *buffer, size_t size)
+{
+  buffer=realloc(buffer, size);
+  if (!buffer) fail("Out of memory\n");
+  return(buffer);
+}
+
+
+/* Safe malloc */
+void *Malloc(size_t size)
+{
+  return Realloc(NULL, size);
+}
+
+
+/* Case insensitive strcmp */
+int strcmpc(const char *s1, const char *s2)
+{
+  const char *S1=s1, *S2=s2;
+  int x, y;
+
+  do {
+    x=tolower(y=*S1++)-tolower(*S2++);
+  } while (y && x==0);
+  return x>0 ? 1 : x<0 ? -1 : 0;
+}
+
+
+/* Combine directory and leaf names into full pathname in buffer */
+void combineName(char *const buffer,
+  const char *const dir, const char *const leaf)
+{
+  int l=strlen(dir);
+  if (dir!=buffer) strcpy(buffer,dir);
+  /* Add in '.' unless we have a path */
+  if (buffer[l-1]!=':') buffer[l++]='.';
+  strcpy(buffer+l,leaf);
+}
+
+
+/* Get file info */
+void file_getinfo(osfile_file_info *const info, const char *const name)
+{
+  x((_kernel_oserror*)xosfile_read_no_path(name, &info->obj_type,
+      &info->load_addr, &info->exec_addr, &info->size, &info->attr));
+}
+
+
+/* Load file */
+void file_load(const char *const file, byte *const addr)
+{
+  int temp;
+  x((_kernel_oserror*)xosfile_load_stamped_no_path(file, addr,
+      (fileswitch_object_type*)&temp, (bits*)&temp, (bits*)&temp, &temp,
+      (fileswitch_attr*)&temp));
+}
+
+
+/* Return next argument for parsing.
+ * Quits automatically when last argument used
+ */
+const char *getArg(void)
+{
+  if (!*nextArg) {
+    /* Save cache file if required */
+    if (cacheChanged) {
+      if (debugFlag)
+        printf("Saving cache file %s\n",cacheFile);
+      x((_kernel_oserror*)xosfile_save_stamped(cacheFile, 0xFFD,
+          (byte*)cacheBuffer, (byte*)(cacheBuffer + cacheIndex*sizeof(int)))
+        );
+    }
+
+    /* Display the total time taken if requested */
+    if (timeFlag) {
+      clock_t time=clock();
+      printf("Total time %i.%i\n", time/CLOCKS_PER_SEC,
+        time*100/CLOCKS_PER_SEC%100);
+    }
+    exit(EXIT_SUCCESS);
+  }
+  return *nextArg++;
+}
+
+
+/* Read directory. Returns pointer to array of directory names */
+const char **readDirectory(const char *dir)
+{
+  char buffer[DirBufferSize];
+  const char **names=Malloc(MaxModes*sizeof(const char *));
+  int sequence=0,offset=0,dirl=strlen(dir);
+
+  /* Loop while there's still some left */
+  do {
+    int c;
+    const char *p=buffer;
+
+    /* Fill the buffer with names */
+    /*printf("os_gbpb on %s\n", dir);*/
+    x((_kernel_oserror*)xosgbpb_dir_entries(dir, (osgbpb_string_list *)p,
+        DirBufferSize, sequence, DirBufferSize, "!*", &c, &sequence));
+    /* Append directory onto end of list */
+    for (; c && offset<MaxModes-1; c--) {
+      int l=strlen(p)+1;
+      names[offset]=Malloc(l+dirl+1);
+      combineName((char *)names[offset++],dir,p);
+      p+=l;
+    }
+  } while (sequence!=-1 && offset<MaxModes-1);
+  names[offset]=NULL;
+  return names;
+}
+
+
+/* Execute file handler for forAll */
+void execute(const char *const name, const osfile_file_info *const info)
+{
+  if (debugFlag)    printf("Executing %s\n",name);
+  if (!pretendFlag) os_cli(name);
+}
+
+
+/* Queue append file handler for forAll */
+void queue(const char *const name, const osfile_file_info *const info)
+{
+  TQueued *q;
+
+  /* Calculate cache validity check */
+  cacheValue=os_crc(cacheValue,(byte*)info,(char*)(info+1),4);
+  cacheValue+=atFlag+obeyFlag*2;
+
+  /* Queue file for possible use later */
+  q=queued+queuedIndex++;
+  q->file=Malloc(strlen(name)+1);
+  strcpy((char *)q->file,name);
+  q->length=info->size;
+  q->at=atFlag;
+  q->obey=obeyFlag;
+
+  /* Watch for buffer full */
+  if (queuedIndex>=queuedSize)
+    queued=Realloc(queued,(queuedSize*=2)*sizeof(TQueued));
+}
+
+
+/* Translate @ into pathname of file */
+char *translate(char *start, char *end, const char *const file)
+{
+  int l=strlen(file);
+
+  while (l && file[l]!='.') l--;
+
+  for (; start<end; start++) {
+    if (*start=='@') {
+      memmove(start+l,start+1,end-start);
+      end+=l-1;
+      strncpy(start,file,l);
+      start+=l-1;
+    }
+  }
+  return(end);
+}
+
+
+/* Append file handler for forAll */
+void append(const char *const name, const osfile_file_info *const info)
+{
+  int length=info->size;
+
+  if (debugFlag)
+    printf("Appending %s%s\n",name,atFlag?" (@ translation)":"");
+
+  if (!pretendFlag) {
+    /* Check the buffer is big enough */
+    if (endOffset+length+FileBufferGuard>fileBufferSize) {
+      fileBufferSize=(endOffset+length+FileBufferGuard)*2;
+      fileBuffer=Realloc(fileBuffer, fileBufferSize);
+    }
+    /* Add comment header so the source can be identified */
+    sprintf(fileBuffer+endOffset,"\n| Included file %s\n",name);
+    endOffset+=strlen(fileBuffer+endOffset);
+    /* Add set for Obey$Dir if this is an obey file */
+    if (obeyFlag) {
+      sprintf(fileBuffer+endOffset,"Set Obey$Dir %s.^\n",name);
+      endOffset+=strlen(fileBuffer+endOffset);
+    }
+    /* Append file */
+    fileBuffer[endOffset++]='\n';
+    file_load(name, (byte*)(fileBuffer+endOffset));
+
+    /* Translate if appropriate, and work out new buffer end */
+    if (atFlag) {
+      endOffset=translate(fileBuffer+endOffset, fileBuffer+endOffset+length,
+        name)-fileBuffer;
+    } else {
+      endOffset+=length;
+    }
+
+    /* Ensure terminating lfs */
+    if(fileBuffer[endOffset-1]!='\n') fileBuffer[endOffset++]='\n';
+    fileBuffer[endOffset++]='\n';
+  }
+}
+
+
+/* Execute handler on all queued files */
+void forQueued(void (*handler)(const char *name, const osfile_file_info *info))
+{
+  unsigned int i;
+  osfile_file_info info;
+  bool at=atFlag;
+  bool obey=obeyFlag;
+
+  /* Step through queue calling handler */
+  for (i=0; i<queuedIndex; i++) {
+    info.size=queued[i].length;
+    atFlag=queued[i].at;
+    obeyFlag=queued[i].obey;
+    handler(queued[i].file, &info);
+  }
+  atFlag=at;
+  obeyFlag=obey;
+}
+
+
+/* Execute handler on all of file, taking @. prefix to mean all modules, else just in dir */
+void forAll(const char *file,
+  void (*handler)(const char *const name, const osfile_file_info *const info))
+{
+  unsigned int i;
+  char name[MaxLen+1];
+  osfile_file_info info;
+  bool isindir;
+
+  /* 'In' directory is in dir if no prefix on file, modules if "@." prefix */
+  const char **dirs;
+  if (file[0]=='@' && file[1]=='.') {
+    isindir=country!=0;
+    dirs=modulesDirs;
+    file+=2;
+  } else {
+    isindir=false;
+    dirs=inDir;
+  }
+
+  /* Check for file in all dirs */
+  for (i=0; dirs[i]; i++) {
+    memset(&info, 0, sizeof(osfile_file_info));
+    if (isindir) {
+      combineName(name, dirs[i], country);
+      combineName(name, name, file);
+      /* If file found, execute handler on it */
+      file_getinfo(&info, name);
+      if (info.obj_type==fileswitch_IS_FILE) {
+        handler(name, &info);
+        continue;
+      }
+    }
+    /* if not in dir or file not found */
+    combineName(name, dirs[i], file);
+    file_getinfo(&info, name);
+    if (info.obj_type==fileswitch_IS_FILE)
+      handler(name, &info);
+  }
+}
+
+
+/* Option handlers */
+
+
+/* Set boolean value */
+void setBool(const char *param, void *reference)
+{
+  *(bool *)reference=true;
+}
+
+
+/* Toggle boolean value */
+void toggleBool(const char *param, void *reference)
+{
+  *(bool *)reference=!*(bool *)reference;
+}
+
+
+/* Unset boolean value */
+void unsetBool(const char *param, void *reference)
+{
+  *(bool *)reference=false;
+}
+
+
+/* Set string value */
+void setString(const char *param, void *reference)
+{
+  *(const char **)reference=getArg();
+}
+
+
+/* -help */
+void help(const char *param, void *reference)
+{
+  fail(HelpText);
+}
+
+
+/* -script */
+void script(const char *param, void *reference)
+{
+  osfile_file_info info;
+  const char *arg=getArg();
+
+  if (debugFlag) printf("Reading from script file %s\n",arg);
+
+  /* Check file exists */
+  file_getinfo(&info, arg);
+  if (info.obj_type==fileswitch_IS_FILE) {
+    char *buffer=Malloc(info.size+2);
+    int i,size;
+
+    /* Load file into buffer and double 0 terminate it. Won't free it later
+     * - can't because there might be pointers into it */
+    file_load(arg, (byte*)buffer);
+    buffer[info.size]=buffer[info.size+1]=0;
+
+    /* Decode file into array of arguments */
+    nextArg=(const char **)Malloc((size=ArgsSize)*sizeof(const char *));
+    for (i=0; *buffer; i++) {
+      /* Skip white space and comments */
+      while (*buffer && (isspace(*buffer) || *buffer=='|')) {
+        if(*buffer=='|') {
+          while(*buffer && *buffer!='\n') buffer++;
+        } else {
+          buffer++;
+        }
+      }
+
+      /* If found non-whitespace, set entry pointing to it */
+      if (*buffer) nextArg[i]=buffer;
+
+      /* Skip over text and zero terminate it */
+      while (*buffer && !isspace(*++buffer));
+      *buffer++=0;
+
+      /* Grow args array as required */
+      if (i+2>=size)
+        nextArg=(const char **)
+          Realloc(nextArg, (size*=2)*sizeof(const char *));
+    }
+    nextArg[i]=NULL;
+  } else {
+    x((_kernel_oserror*)xosfile_make_error(arg, fileswitch_IS_FILE));
+  }
+}
+
+
+/* -cache */
+void cache(const char *param,void *reference)
+{
+  osfile_file_info info;
+  bool loaded=false;
+
+  /* If already using a cache file and we changed it, then save */
+  if (cacheChanged) {
+    if(debugFlag)
+      printf("Saving cache file %s\n",cacheFile);
+    x((_kernel_oserror*)xosfile_save_stamped(cacheFile, 0xFFD,
+        (byte*)cacheBuffer, (byte*)(cacheBuffer+cacheIndex*sizeof(int))));
+  }
+
+  /* Allocate buffers as required */
+  if (!cacheBuffer) {
+    cacheBuffer=Malloc(CacheSize*sizeof(int));
+    queued=Malloc((queuedSize=QueuedSize)*sizeof(TQueued));
+  }
+  cacheIndex=0;
+  queuedIndex=0;
+  cacheChanged=false;
+
+  /* Load cache file if it exists */
+  cacheFile=getArg();
+  file_getinfo(&info, cacheFile);
+  if (info.obj_type==fileswitch_IS_FILE) {
+    file_load(cacheFile,(byte*)cacheBuffer);
+    loaded=true;
+  }
+
+  if (debugFlag)
+    printf("Using cache file %s (%s)\n",cacheFile,loaded?"loaded":"created");
+}
+
+
+/* -modules */
+void modules(const char *param,void *reference)
+{
+  const char *arg=getArg();
+
+  if(debugFlag)
+    printf("Scanning modules directory %s\n",arg);
+
+  /* Shocking memory leak here, but the OS will clean up ;) */
+  modulesDirs=readDirectory(arg);
+}
+
+
+/* -ifkey */
+void ifKey(const char *param,void *reference)
+{
+  executeFlag=_kernel_osbyte(129,atoi(getArg()),255)>>16 & 1; /* C flag */
+}
+
+
+/* -exec */
+void exec(const char *param,void *reference)
+{
+  forAll(getArg(),execute);
+}
+
+
+/* ( */
+void open(const char *param,void *reference)
+{
+  time_t t;
+
+  if (debugFlag) puts("New file");
+
+  /* Ensure there is a file buffer and reset state as appropriate */
+  if (!fileBuffer) fileBuffer=Malloc(fileBufferSize=FileBufferSize);
+  fileFlag=true;
+  srand(1);
+  cacheValue=0;
+  queuedIndex=0;
+  t=time(NULL);
+  sprintf(fileBuffer,"| File generated at %s\n",ctime(&t));
+  endOffset=strlen(fileBuffer);
+}
+
+
+/* ) */
+void close(const char *param, void *reference)
+{
+  char name[MaxLen+1];
+  unsigned int type;
+
+  /* Get name and type */
+  fileFlag=false;
+  combineName(name,outDir,getArg());
+  sscanf(getArg(),"%x",&type);
+
+  if (cacheFile) {
+    osfile_file_info info;
+    int cv;
+
+    /* Calculate final cache CRC based on current file */
+    file_getinfo(&info, name);
+    cv=os_crc(cacheValue, (byte*)(&info), (char*)(&info+1), 4);
+
+    /* Process all the queued files */
+    forQueued(append);
+
+    if (debugFlag) printf("Writing %s (type %03x)\n",name,type);
+
+    /* Save the file */
+    if (!pretendFlag)
+      x((_kernel_oserror*)xosfile_save_stamped(name, type, (byte*)fileBuffer,
+          (byte*)(fileBuffer+endOffset)));
+
+    /* Calculate final cache CRC based on new file and store in cache buffer */
+    file_getinfo(&info, name);
+    cacheValue=os_crc(cacheValue, (byte*)(&info), (char*)(&info+1), 4);
+    cacheBuffer[cacheIndex]=cacheValue;
+    cacheChanged=true;
+    cacheIndex++;
+  } else {
+    /* No cache. Saving the file is easy */
+    if (debugFlag) printf("Writing %s (type %03x)\n",name,type);
+    if (!pretendFlag)
+      x((_kernel_oserror*)xosfile_save_stamped(name, type, (byte*)fileBuffer,
+          (byte*)(fileBuffer+endOffset)));
+  }
+}
+
+
+/* Unrecognised */
+void syntax(const char *param,void *reference)
+{
+  /* If filename and we are expecting one then append to buffer (or queue), else error */
+  if (fileFlag && *param!='-') {
+    forAll(param,cacheFile?queue:append);
+    atFlag=obeyFlag=false;
+  } else {
+    const char *next="";
+    if (*nextArg) next=getArg();
+    fail("Error at %s %s",param,next);
+  }
+}
+
+
+/* Parameter options */
+
+typedef void (*TOptionHandler)(const char *param, void *reference);
+
+typedef struct {
+  const char    *name;
+  TOptionHandler handler;
+  void          *reference;
+  bool           alwaysExecute;
+} TOption;
+
+const TOption options[] = {
+  { "-help"   , help      , NULL        , false },
+  { "-debug"  , setBool   , &debugFlag  , false },
+  { "-pretend", setBool   , &pretendFlag, false },
+  { "-time"   , setBool   , &timeFlag   , false },
+  { "-script" , script    , NULL        , false },
+  { "-cache"  , cache     , NULL        , false },
+  { "-in"     , setString , &inDir[0]   , false },
+  { "-out"    , setString , &outDir     , false },
+  { "-modules", modules   , NULL        , false },
+  { "-ifkey"  , ifKey     , NULL        , false },
+  { "-else"   , toggleBool, &executeFlag, true  },
+  { "-endif"  , setBool   , &executeFlag, true  },
+  { "-exec"   , exec      , NULL        , false },
+  { "("       , open      , NULL        , false },
+  { ")"       , close     , NULL        , false },
+  { "-at"     , setBool   , &atFlag     , false },
+  { "-obey"   , setBool   , &obeyFlag   , false },
+  { NULL      , syntax    , NULL        , false }
+};
+
+
+/* It all starts here */
+int main(int argc, char **argv)
+{
+  country=getenv("Zap$Country");
+  if (argc!=1) {
+    nextArg=(const char **)argv+1;
+    while (1) {
+      /* Get next argument */
+      const char *param=getArg();
+
+      /* Decode argument */
+      int i;
+      for (i=0; options[i].name && strcmpc(options[i].name,param)!=0; i++);
+
+      /* Call handler as appropriate */
+      if(executeFlag || options[i].alwaysExecute)
+        options[i].handler(param,options[i].reference);
+    }
+  } else {
+    help(NULL,NULL);
+  }
+  return(EXIT_FAILURE);
+}

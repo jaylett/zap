@@ -1,0 +1,631 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <time.h>
+
+#ifdef __GNUC__
+#  define __gnuc_va_list va_list
+#  include "stdarg.h"
+#else
+#  include <stdarg.h>
+#endif
+
+#define PROGRAM "MakeMenus"
+#define VERSION "0.1"
+
+/* Menu file entry type. */
+typedef enum
+  {
+    ITEM, HELP, LINE
+  }
+menu_entry_type;
+
+/* Menu entry. */
+typedef struct MENU_ENTRY_T
+  {
+    int lineno;
+    menu_entry_type type;
+    char *text;
+    char *command;
+    char *submenu;
+    struct MENU_ENTRY_T *next;
+  }
+menu_entry_t;
+
+/* Menu. */
+typedef struct
+  {
+    int lineno;
+    char *title;
+    menu_entry_t *first;
+    menu_entry_t *last;
+  }
+menu_t;
+
+/* Labels. */
+typedef struct
+  {
+    int lineno;
+    char *name;
+    int referenced;
+  }
+label_t;
+
+/* Maximum number of menus. */
+#define NUM_MENUS 256
+#define NUM_SYSTEM 20
+#define NUM_LABELS (NUM_MENUS - NUM_SYSTEM)
+
+/* The menus and labels arrays. */
+static menu_t menus[NUM_MENUS];
+static label_t labels[NUM_LABELS];
+
+/* The menus file buffer, and its end pointer. */
+static char *file, *end;
+
+/* The current line number (within the menus file). */
+static int lineno;
+
+/* Number of labels defined. */
+static int labels_used = 0;
+
+/* I/O */
+static const char *infile;
+static const char *outfile;
+static FILE *fd;
+
+/* Number of error messages so far reported */
+static int errors = 0;
+
+/* Is the character a space? */
+#define ISSPACE(c) ((c) == '\t' || (c) == ' ')
+
+
+static void
+help (void)
+{
+  puts (
+	 "Usage: " PROGRAM " INPUT_FILE OUTPUT_FILE\n"
+   "Translate menu name tokens '#foo' in Zap menus files to menu numbers.\n"
+	 "Use \"-\" for standard input or output.\n"
+	 "\n"
+	 "  --help            display this help and exit\n"
+	 "  --version         output version information and exit\n"
+	 "\n"
+	 "Report bugs to <betabugs@zap.uk.eu.org>");
+  exit (0);
+}
+
+
+static void
+version (void)
+{
+  puts (PROGRAM " version " VERSION "\n"
+	"Written by Darren Salt");
+  exit (0);
+}
+
+
+#ifdef __riscos
+/* Throwback. */
+static int throwback = 0;
+
+static void
+stop_throwback (void)
+{
+  _swix (0x42589 /* DDEUtils_ThrowbackEnd */ , 0);
+}
+#endif
+
+
+/* Report an error. */
+static void
+error (int status, const char *message,...)
+{
+  va_list args;
+  char msg[256];
+
+  va_start (args, message);
+  vsprintf (msg, message, args);
+  va_end (args);
+
+  /* Print the error in the standard format. */
+  fflush (stdout);
+  fputs (PROGRAM ": ", stderr);
+  if (lineno)
+    fprintf (stderr, "%i: ", lineno);
+  if (status < 0)
+    fputs ("warning: ", stderr);
+  fprintf (stderr, "%s\n", msg);
+  fflush (stderr);
+
+#ifdef __riscos
+  /* Use throwback if possible. */
+  switch (throwback)
+    {
+    case 0:			/* not initialised */
+      if (!(lineno && (signed) status < 2))
+        break;
+      if (_swix (0x42587 /* DDEUtils_ThrowbackStart */ , 0))
+	{
+	  throwback = 2;	/* ... failed */
+	  break;
+	}
+      else
+	{
+	  throwback = 1;
+	  atexit (stop_throwback);
+	  /* and fall through */
+	}
+    case 1:			/* successfully initialised */
+      if (lineno && (signed) status < 2)
+	_swix (0x42588 /* DDEUtils_ThrowbackSend */ , 0x3D,
+	       1, infile, lineno, (status > 0 ? 2 : (status + 1)), msg);
+    }
+#endif
+
+  if (status >= 0)
+    errors++;
+
+  /* Exit if asked. */
+  if (status > 0)
+    exit (status);
+}
+
+
+/* malloc, failing on error. */
+static void *
+xmalloc (int size)
+{
+  void *p = malloc (size);
+  if (!p)
+    error (2, "out of memory");
+  return p;
+}
+
+
+/* Read a word, leaving |file| pointing at one of '\t' ' ' '\n' EOF */
+static char *
+readword (void)
+{
+  char *p, *q;
+
+  p = file;
+  while (file < end && !ISSPACE (*file) && *file != '\n')
+    file++;
+  q = xmalloc (file + 1 - p);
+  memcpy (q, p, file - p);
+  q[file - p] = '\0';
+  return q;
+}
+
+
+/* Read a word, leaving |file| pointing at one of '\n' EOF */
+static char *
+readline (void)
+{
+  char *p, *q;
+
+  p = file;
+  while (file < end && *file != '\n')
+    file++;
+  if (file == p)
+    return 0;
+
+  q = xmalloc (file + 1 - p);
+  memcpy (q, p, file - p);
+  q[file - p] = '\0';
+  return q;
+}
+
+
+/* Read a string (must begin with '"'), leaving |file| pointing past
+ * terminating '"'. Copes with '""'. */
+static char *
+readstring (void)
+{
+  char *p, *q;
+  char c = '\0';
+
+  p = file;
+  if (*file++ != '"')
+    error (0, "expected a string");
+  while (file < end && (c = *file++) != '\n'
+	 && !(c == '"' && *file != '"'));
+  if (file >= end)
+    error (0, "end of file found within a string");
+  if (c == '\n')
+    {
+      file--;
+      error (0, "end of line found within a string");
+    }
+  q = xmalloc (file + 1 - p);
+  memcpy (q, p, file - p);
+  q[file - p] = '\0';
+  return q;
+}
+
+
+/* Point |file| past spaces and tabs, if it's pointing at any. */
+static void
+skipspcs (void)
+{
+  while (file < end && ISSPACE (*file))
+    file++;
+}
+
+
+/* Find closing quote character, and return pointer to following char. */
+static char *
+closequote (char *cmd, char open, char close)
+{
+  char c;
+  for (;;)
+    {
+      c = *cmd++;
+      switch (c)
+	{
+	case '\0':
+	  return 0;
+	case '"':
+	case '\'':
+	  if (c == close)
+	    return cmd + 1;
+	  if (c != open)
+	    cmd = closequote (cmd, c, c);
+	  break;
+	case '(':
+	  if (c != open)
+	    cmd = closequote (cmd, '(', ')');
+	  break;
+	case ')':
+	  if (c == close)
+	    return cmd + 1;
+	}
+    }
+}
+
+
+/* Find the '>' character, indicating a submenu. Ignores any which occur in
+ * (Zap) strings.
+ * Returns pointer to submenu label, or 0 if not of the form "#foo". */
+static char *
+findsubmenu (char *cmd)
+{
+  char c;
+  char *p;
+
+  for (;;)
+    {
+      c = *cmd++;
+      switch (c)
+	{
+	case '\0':
+	  return 0;
+	case '"':
+	case '\'':
+	  cmd = closequote (cmd, c, c);
+	  break;
+	case '(':
+	  cmd = closequote (cmd, '(', ')');
+	  break;
+	case '>':
+	  p = cmd - 1;
+	  while (ISSPACE (*cmd))
+	    cmd++;
+	  if (*cmd == '#')
+	    {
+	      *p = '\0';
+	      if (!cmd[1])
+		error (0, "missing label");
+	      return cmd + 1;
+	    }
+	  else
+	    return 0;
+	}
+    }
+}
+
+
+/* Create and add a menu entry. */
+static void
+add_entry (menu_t * menu, menu_entry_type type, char *text)
+{
+  menu_entry_t *entry = xmalloc (sizeof (menu_entry_t));
+  entry->lineno = lineno;
+  entry->type = type;
+  entry->text = text;
+  entry->command = 0;
+  entry->submenu = 0;
+  entry->next = 0;
+  if (menu->last)
+    menu->last->next = entry;
+  else
+    menu->first = entry;
+  menu->last = entry;
+}
+
+
+/* Look up a given label, returning its number, or 0 if not found. */
+static int
+find_label (const char *label)
+{
+  int i;
+  for (i = 0; i < labels_used; ++i)
+    if (!strcmp (labels[i].name, label))
+      return i + NUM_SYSTEM;
+  return 0;
+}
+
+
+/* Main program. */
+int
+main (int argc, char *argv[])
+{
+  int i;
+  menu_t *this_menu = 0;
+  char *l;
+
+  if (argc == 2 && argv[1][0] == '-' && argv[1][1] == '-' && argv[1][2])
+    {
+      l = argv[1] + 2;
+      i = strlen (l);
+      if (!strncmp (l, "help", i))
+	help ();
+      if (!strncmp (l, "version", i))
+	version ();
+    }
+
+  if (argc < 3)
+    error (1, "missing filename(s)");
+  if (argc > 3)
+    error (1, "too many arguments");
+  infile = argv[1];
+  outfile = argv[2];
+
+  /* Load file */
+  fd = strcmp (infile, "-") ? fopen (infile, "r") : stdin;
+  if (!fd)
+    error (2, "failed to open menu source file");
+  fseek (fd, 0, SEEK_END);
+  i = (int) ftell (fd);
+  file = xmalloc (i);
+  end = file + i;
+  fseek (fd, 0, SEEK_SET);
+  if (fread (file, 1, i, fd) != i)
+    error (2, "failed to read menu source file");
+  if (fd != stdin)
+    fclose (fd);
+
+  lineno = 1;
+  while (file < end)
+    {
+      l = readword ();
+      switch (*l)
+	{
+	case '|':		/* comment */
+	  break;
+	case '\0':		/* blank */
+	  free (l);
+	  skipspcs ();
+	  if (file >= end || *file == '\n')
+	    break;		/* ignore if EOF or at end of line */
+	  if (!this_menu)
+	    error (0, "expected a menu declaration");
+	  switch (*file)
+	    {
+	    case '-':		/* dashed line */
+	      if (!this_menu->last)
+		error (0, "dashed line cannot occur at menu start");
+	      if (this_menu->last->type != LINE)
+		add_entry (this_menu, LINE, 0);
+	      break;
+	    case '*':		/* help text */
+	      if (this_menu->last && this_menu->last->type != ITEM)
+		error (0, "misplaced help text");
+	      file++;
+	      skipspcs ();
+	      add_entry (this_menu, HELP, readstring ());
+	      break;
+	    case '"':		/* menu entry */
+	      add_entry (this_menu, ITEM, readstring ());
+	      skipspcs ();
+	      this_menu->last->command = readline ();
+	      this_menu->last->submenu =
+		findsubmenu (this_menu->last->command);
+	      break;
+	    default:
+	      error (0, "unrecognised menu data");
+	    }
+	  break;
+	case '#':		/* label */
+	  if (labels_used == NUM_LABELS)
+	    error (1, "too many labels!");
+	  l++;
+	  if (labels_used && find_label (l))
+	    error (0, "duplicated label '%s'", l);
+	  labels[labels_used].lineno = lineno;
+	  labels[labels_used].name = l;
+	  this_menu = &menus[labels_used + NUM_SYSTEM];
+	  this_menu->lineno = lineno;
+	  labels_used++;
+	  goto read_title;
+	default:
+	  if (*l >= '0' && *l < '9')
+	    {
+	      i = 0;
+	      while (l[i])
+		{
+		  if (!isdigit (l[i]))
+		    error (1, "invalid menu number");
+		  i++;
+		}
+	      i = atoi (l);
+	      if (i >= NUM_SYSTEM)
+		error (1, "menu number out of range");
+	      this_menu = &menus[i];
+	      if (this_menu->lineno)
+		error (1, "menu previously defined");
+	      this_menu->lineno = lineno;
+	      free (l);
+	    read_title:
+	      skipspcs ();
+	      this_menu->title = readstring ();
+	    }
+	  else
+	    error (0, "unrecognised menu data");
+	}
+      /* move to next line */
+      while (file < end && *file++ != '\n');
+      lineno++;
+    }
+  /* If there are errors, return. */
+  if (errors)
+    return 1;
+
+  /* OK. We've read in the menu structure... */
+  lineno = 0;
+
+  /* Check for the existence of required menus. */
+  for (i = 0; i < 6; ++i)
+    if (i != 3 && !menus[i].lineno)
+      error (0, "menu %i is undefined", i);
+
+  /* If there are errors, return. */
+  if (errors)
+    return 1;
+
+  /* Check for undefined labels and empty menus. */
+  for (i = 0; i < NUM_MENUS; ++i)
+    if (menus[i].lineno)
+      {
+	menu_entry_t *entry = menus[i].first;
+	if (!menus[i].first)
+	  {
+	    lineno = menus[i].lineno;
+	    error (0, "empty menu");
+	  }
+	while (entry)
+	  {
+	    if (entry->type == ITEM && entry->submenu)
+	      {
+		int i = find_label (entry->submenu);
+		if (i)
+		  labels[i - NUM_SYSTEM].referenced = 1;
+		else
+		  {
+		    lineno = entry->lineno;
+		    error (0, "undefined label '%s'", entry->submenu);
+		  }
+	      }
+	    entry = entry->next;
+	  }
+      }
+  /* If there are errors, return. */
+  if (errors)
+    return 1;
+
+  /* Check and warn about unreferenced (labelled) menus */
+  for (i = 0; i < labels_used; ++i)
+    if (labels[i].lineno && !labels[i].referenced)
+      {
+	lineno = labels[i].lineno;
+	error (-1, "unreferenced label '%s'", labels[i].name);
+      }
+
+  /* Now we do the output :-) */
+  lineno = 0;
+  fd = strcmp (outfile, "-") ? fopen (outfile, "w") : stdout;
+  if (!fd)
+    error (1, "failed to open output file");
+  {
+    time_t date;
+    time (&date);
+    fprintf (fd, "| File generated on %s\n"
+	     "| Number of valid menu handles\n%i\n",
+	     ctime (&date), labels_used + NUM_SYSTEM);
+  }
+  if (ferror (fd))
+    error (1, "write error");
+  for (i = 0; i < NUM_MENUS; ++i)
+    {
+      switch (i)
+	{
+	case 0:
+	  fprintf (fd, "\n| Zap iconbar menu");
+	  break;
+	case 1:
+	  fprintf (fd, "\n| Zap window menu");
+	  break;
+	case 2:
+	  fprintf (fd, "\n| File types menu (also used in save box)");
+	  break;
+	case 4:
+	  fprintf (fd, "\n| Main font menu");
+	  break;
+	case 5:
+	  fprintf (fd, "\n| Selection menu");
+	  break;
+	case 10:
+	  fprintf (fd, "\n| Throwback mode menu");
+	  break;
+	case 11:
+	  fprintf (fd, "\n| Byte mode menu");
+	  break;
+	case 12:
+	  fprintf (fd, "\n| Word mode menu");
+	  break;
+	case 14:
+	  fprintf (fd, "\n| Code mode menu");
+	  break;
+	case 15:
+	  fprintf (fd, "\n| Halfword mode menu");
+	  break;
+	case 20:
+	  fprintf (fd, "\n| User-defined menus");
+	}
+      if (ferror (fd))
+	error (1, "write error");
+      if (menus[i].lineno)
+	{
+	  menu_entry_t *entry = menus[i].first;
+	  fprintf (fd, "\n%i %s\n", i, menus[i].title);
+	  if (ferror (fd))
+	    error (1, "write error");
+	  do
+	    {
+	      switch (entry->type)
+		{
+		case ITEM:
+		  fprintf (fd, "\t%s", entry->text);
+		  if (!ferror (fd))
+		    {
+		      int i = strlen (entry->text);
+		      if (i >= 32)
+			fprintf (fd, " %s", entry->command);
+		      else
+			fprintf (fd, "\t\t\t\t%s" + (i / 8), entry->command);
+		    }
+		  if (ferror (fd))
+		    error (1, "write error");
+		  if (entry->submenu)
+		    fprintf (fd, "> %i\n", find_label (entry->submenu));
+		  else
+		    fprintf (fd, "\n");
+		  break;
+		case HELP:
+		  fprintf (fd, "\t* %s\n", entry->text);
+		  break;
+		case LINE:
+		  fprintf (fd, "\t-\n");
+		}
+	      if (ferror (fd))
+		error (1, "write error");
+	    }
+	  while ((entry = entry->next) != 0);
+	}
+    }
+  if (fd != stdout && fclose (fd))
+    error (1, "close error");
+}
