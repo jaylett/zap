@@ -1,5 +1,5 @@
 ; Diff colouring mode
-; $Id: module,fff,v 1.4 2001/04/24 12:47:56 james Exp $
+; $Id: module,fff,v 1.5 2001/04/24 18:40:57 ds Exp $
 ;
 ; (c) Zap Developers 2001
 ;
@@ -87,9 +87,8 @@ finalise_code
 	MOV	r0,#7
 	LDR	r2,[r12]
 	SWI	XOS_Module
-	FNRTS	VS
-	MOV	r0,#0
-	STR	r0,[r12]
+	MOVVC	r0,#0
+	STRVC	r0,[r12]
 	FNRTS
 
 mode_name
@@ -172,7 +171,7 @@ mode_table_end
 ; FIXME: we don't currently upgrade clone modes properly. I think we
 ; know how to do it, but we need to be sure. Until then, your clone modes
 ; won't upgrade smoothly (best solution is to delete them then recreate).
-	
+
 	LOCAL
 mode_init
 	CMP	r1, #einit_ModeMenu
@@ -249,12 +248,12 @@ vardata$l
 	DCD	0x77 :OR: (tab_DisplayAsSpaces :SHL: tab_DisplayFormat_config_shift)
 	DCD	0x7 :OR: modeconfig_LineNumberColon :OR: modeconfig_CursorSmart
 
-	
+init_modestarting
+
 ; Store our real mode number. We want to know the base mode number, so
 ; we can supply commands and similar that will do meaningful things
 ; in our base mode and all clones, but exit gracefully in others.
 	LOCAL
-init_modestarting
 	LDR	r1, [r11, #ws_modenumber] ; first init?
 	CMP	r1, #-1		; if it isn't, this is a clone init (ignore)
 	STREQ	r0, [r11, #ws_modenumber] ; hang onto it so we know our base
@@ -298,9 +297,9 @@ init_colours
 	CMP	r2, #colour_base
 	MOVLT	r2, #colour_base ; don't overwrite system colours
 	ADR	r3, cols$l
+set_col$l
 	ADD	r3, r3, r2, LSL #2
 	SUB	r3, r3, #(4*colour_base) ; find data for our first colour
-set_col$l
 	LDR	r0, [r3], #4
 	FNcall	Zap_ModeColour
 	ADD	r2, r2, #1
@@ -315,13 +314,26 @@ cols$l
 	DCD	0xFFBB0010	; cyan
 
 
+	LOCAL
 ; Called immediately before redraw. We figure out what
 ; type of diff this file is, and save it in our workspace.
 ; We know that no other redraw request will happen until
 ; our e_redrawline has been called following this.
-	LOCAL
 init_redrawstart
-	FNJSR	"r0-r5,r11"
+	FNJSR	"r0-r6,r11"
+	; first, look to see if we're at the start of a logical line...
+	MOV	r0,r2
+	FNcall	Zap_PhysicalLine; get file offset of this line
+	MOV	r6,r0
+	MOV	r11,#e_linestart
+	FNcall	Zap_CallMode	; get start of this logical line
+	FNcall	Zap_OffsetLine	; then get the physical line number
+	LDR	r2,[r13,#8]	; read stacked phys line no
+	TEQ	r0,r2		; same?
+	MOVEQ	r0,#0
+	MOVNE	r0,#redraw_INIT_DIFF_PHYS_LINE
+	BL	get_workspace
+	STRB	r0,[r11,#ws_redrawctrl]
 	MOV	r0,#0
 	LDR	r1,[r9,#f_ptr]
 	LDR	r2,[r9,#f_splito]
@@ -335,8 +347,7 @@ scan$l
 	MOVEQ	r4,#diff_UNIFIED
 	BEQ	knowndiff$l
 	TEQ	r4,#'*'		; '*' => context format
-	MOVEQ	r4,#diff_CONTEXT
-	BEQ	knowndiff$l
+	BEQ	context$l
 	TEQ	r4,#'d'		; 'd' => "diff" line? RCS format?
 	BEQ	diff_or_rcs$l
 	TEQ	r4,#'a'		; 'a' => RCS format, if followed by digit
@@ -351,7 +362,7 @@ unknowndiff$l
 	MOV	r4,#diff_UNKNOWN
 knowndiff$l
 	BL	get_workspace
-	STR	r4,[r11,#ws_difftype]
+	STRB	r4,[r11,#ws_difftype]
 	FNRTS
 
 readchar$l
@@ -388,6 +399,7 @@ standard_or_ed$l
 
 diff_or_rcs$l
 	; RCS is "d<number>" or "a<number>"
+; e_start / e_end must get Zap to save & restore all mode options
 	BL	readchar$l
 	TEQ	r4,#'i'
 	BEQ	nextline$l	; 'i' => "diff" line
@@ -397,9 +409,65 @@ maybe_rcs$l
 	MOVHS	r4,#diff_RCS
 	BHS	knowndiff$l	; digit => RCS format
 	B	unknowndiff$l
+; First, let text mode draw the line without colouring, and then
+; recolour as necessary based on the diff type (detected at
+; e_init #13).
+context$l
+	LDR	r0,[r13,#8]	; stacked start (phys) line
+	FNcall	Zap_PhysicalLine; get file offset of this line
+	SUBS	r0,r0,#1	; point at line end chr or outside file
+	MOVLT	r4,#diff_CONTEXT
+	BLT	knowndiff$l
+	PUSH	"r0"		; store this offset
+	MOV	r11,#e_linestart
+	FNcall	Zap_CallMode	; get start of prev logical line
+	MOV	r2,r0		; we're looking for start "*** " end "*"
+	BL	readchar
+	TEQ	r0,#'*'
+	ADDEQ	r0,r2,#1
+	BLEQ	readchar
+	TEQ	r0,#'*'
+	ADDEQ	r0,r2,#2
+	BLEQ	readchar
+	TEQ	r0,#'*'
+	ADDEQ	r0,r2,#3
+	BLEQ	readchar
+	TEQ	r0,#' '
+	PULL	"r1"		; unstack the line end offset
+	MOVNE	r4,#diff_CONTEXT
+	BNE	knowndiff$l	; not "*** "
+	MOV	r0,r1
+	BL	readchar
+	LDRB	r14,[r8,#w_cr]
+	TEQ	r0,r14		; if pointing at CR (should be!), ignore it
+	SUBEQ	r0,r1,#1
+	BLEQ	readchar
+	TEQ	r0,#'*'		; ending with '*'?
+	MOV	r4,#diff_CONTEXT
+	BLNE	get_workspace
+	LDRNEB	r2,[r11,#ws_redrawctrl]
+	ORRNE	r2,r2,#redraw_SPECIAL_COLOUR
+	STRNEB	r2,[r11,#ws_redrawctrl]
+	B	knowndiff$l
 
 
-; e_start / e_end must get Zap to save & restore all mode options
+; preserves flags
+; R0=char at offset R0
+readchar
+	FNJSR	"r1"
+	LDR	r1,[r9,#f_ptr]
+	LDR	r14,[r9,#f_len]
+	CMP	r0,r14
+	MOVHS	r0,#-1
+	FNRTSS	HS
+	LDR	r14,[r9,#f_splito]
+	CMP	r0,r14
+	LDRHS	r14,[r9,#f_splits]
+	ADDHS	r0,r0,r14
+	LDRB	r0,[r1,r0]
+	FNRTSS
+
+
 mode_start
 	FNJSR
 	LDRB	r0, [r8, #w_format] ; mode number
@@ -412,26 +480,71 @@ mode_end
 	FNcall	Zap_SaveModeWord
 	FNRTS
 
-; First, let text mode draw the line without colouring, and then
-; recolour as necessary based on the diff type (detected at
-; e_init #13).
+
 	LOCAL
 mode_redrawline
-	FNJSR	"r11"
+	FNJSR	"r7, r10, r11"
 
-	LDRB	r0, [r7, #0]	; first char of line
-	PUSH	"r0, r6, r9"
+	LDMIA	r13,{r7,r10}
+	PUSH	"r6, r9"
 	; Can't use Zap_BaseMode because r11 is a parameter to e_redrawline :-(
 	MOV	r0, #0
 	FNcall	Zap_ReadMode
 	MOV	lr, pc
 	LDR	pc, [r1, #(2*e_redrawline)]
 
-	PULL	"r4, r6, r9"	; r4 = first char of line
+	PULL	"r6, r9"
+	LDMIA	r13,{r2-r4}	; exchange R7,R10,R11 with stacked values
+	STMIA	r13,{r7,r10,r11}
+	MOV	r7,r2
+	MOV	r10,r3
+	TEQ	r11,r4
+	MOVEQ	r2,#redraw_SAME_LOGICAL_LINE
+	MOVNE	r2,#0		; r2 = flags byte for next call
 	BL	get_workspace
-	LDR	r11,[r11,#ws_difftype]
-	CMP	r11,#diff_NUM_TYPES
-	ADDLO	pc,pc,r11,LSL #2
+	LDRB	r4,[r11,#ws_redrawctrl]
+	TST	r4,#redraw_SAME_LOGICAL_LINE
+; If e_prevline (which is called before here) was told that we're
+; redrawing based on an edit action which includes the first character
+; of the file (ie it starts at offset 0) then redraw the entire file
+; rather than just the line surrounding the change. This is because
+; the redraw code always checks the first character of the file to see
+; whether this is a 'normal' or unified diff - if that character changes
+; we may need to update the entire file. We could be more cautious, and
+; check the actual character to see if we need to bother, but our redraw
+; isn't too expensive, and the code starts getting very messy at that point
+	LDRNE	r1,[r11,#ws_redrawcolour]
+	BNE	drawline$l
+	TST	r4,#redraw_INIT_DIFF_PHYS_LINE
+	BEQ	atlogicalstart$l
+	; adjust to start of *logical* line
+	LDR	r0,[r9,#f_ptr]
+	SUB	r0,r7,r0
+	LDR	r14,[r9,#f_splito]
+	CMP	r0,r14
+	LDRHS	r14,[r9,#f_splits]
+	SUBHS	r0,r0,r14	; R0 = file offset
+	MOV	r11,#e_linestart
+	FNcall	Zap_CallMode
+	; now set up R7 and R10 again
+	LDR	r7,[r9,#f_ptr]
+	LDR	r14,[r9,#f_splito]
+	CMP	r0,r14
+	LDRHS	r14,[r9,#f_splits]
+; Remember the start of this edit action
+; (zealous, since some f_docom's aren't relevant here) - but
+; diff redraw is reasonably cheap. 'Proper' modes would want to be
+; more cautious
+	ADDHS	r0,r0,r7
+	LDRHS	r14,[r9,#f_bufl]
+	ADD	r10,r7,r14
+	ADD	r7,r0,r7
+	BL	get_workspace
+atlogicalstart$l
+	BL	nextchar$l	; first char of line
+	LDRB	r1,[r11,#ws_difftype]
+	CMP	r1,#diff_NUM_TYPES
+	ADDLO	pc,pc,r1,LSL #2
 	B	done$l
 	B	standard$l
 	B	context$l
@@ -443,6 +556,7 @@ mode_redrawline
 standard$l
 	; add start '>', remove start '<'
 	; control lines start with digits
+	; warnings start with '\'
 	CMP	r4, #'>'
 	MOVEQ	r1, #colour_add
 	BEQ	drawline$l
@@ -459,28 +573,61 @@ standard$l
 informationals$l
 	TEQ	r4,#'d'
 	TEQNE	r4,#'O'
+	TEQNE	r4,#'\'
 	MOVEQ	r1,#colour_info
 	BEQ	drawline$l
 	B	done$l
 
 context$l
-	; add start '!', remove start '!' (!)
+	; add start '+', remove start '-', changed start '!'
 	; control lines start and end with '*'
-	; filename lines start with '*' (old) or '-' (new)
+	; filename lines start with '***' old) or '---' (new)
+	; warnings start with '\'
+	TEQ	r4, #'+'
+	MOVEQ	r1, #colour_add
+	BEQ	drawline$l
+
+	TEQ	r4, #'-'
+	BEQ	context_minus$l
+
 	TEQ	r4, #'!'
 	MOVEQ	r1, #colour_change
 	BEQ	drawline$l
 
 	TEQ	r4, #'*'
-	; TO DO: check last character
-	MOVEQ	r1, #colour_control
-	BEQ	drawline$l
+	BEQ	context_star$l
 
 	B	informationals$l
+
+context_minus$l
+	LDRB	r1,[r11,#ws_redrawctrl]
+	TST	r1,#redraw_SPECIAL_COLOUR
+	MOVEQ	r1,#colour_remove	; old content
+	MOVNE	r1,#colour_add		; new filename
+	B	drawline$l
+
+context_star$l
+	BL	nextchar$l
+	TEQ	r4, #'*'
+	BNE	informationals$l
+	BL	nextchar$l
+	TEQ	r4, #'*'
+	BNE	informationals$l
+	BL	nextchar$l
+	TEQ	r4, #' '
+	BNE	informationals$l
+	BL	lastchar$l
+	TEQ	r4, #'*'
+	MOVEQ	r1, #colour_control	; control line
+	BEQ	drawline$l
+	ORR	r2,r2,#redraw_SPECIAL_COLOUR
+	MOV	r1, #colour_remove	; filename line
+	B	drawline$l
 
 unified$l
 	; add start '+', remove start '-' (also colours old, new filenames)
 	; control start '@'
+	; warnings start with '\'
 	CMP	r4, #'+'
 	MOVEQ	r1, #colour_add
 	BEQ	drawline$l
@@ -495,27 +642,74 @@ unified$l
 
 	B	informationals$l
 
-	; can't colour without multiline parsing
-
 drawline$l
+	BL	get_workspace
+	STRB	r2,[r11,#ws_redrawctrl]
+	STRB	r1,[r11,#ws_redrawcolour]
 	LDR	r0, [r8, #w_txtw]
+	MOV	r2, #8 ; ctrl chars
+	ORR	r2, r2, r2,LSL #8
+	ORR	r2, r2, r2,LSL #16
 	ADD	r6, r6, r0
-loop$l	STRB	r1, [r6],#1
-	SUBS	r0, r0, #1
+loop$l	LDR	r3, [r6],#4
+	EOR	r3, r3, r2
+	TST	r3, #&000000FF
+	STRNEB	r1, [r6,#-4]
+	TST	r3, #&0000FF00
+	STRNEB	r1, [r6,#-3]
+	TST	r3, #&00FF0000
+	STRNEB	r1, [r6,#-2]
+	TST	r3, #&FF000000
+	STRNEB	r1, [r6,#-1]
+	SUBS	r0, r0, #4
 	BNE	loop$l
 
 done$l
 	FNRTS
 
-; If e_prevline (which is called before here) was told that we're
-; redrawing based on an edit action which includes the first character
-; of the file (ie it starts at offset 0) then redraw the entire file
-; rather than just the line surrounding the change. This is because
-; the redraw code always checks the first character of the file to see
-; whether this is a 'normal' or unified diff - if that character changes
-; we may need to update the entire file. We could be more cautious, and
-; check the actual character to see if we need to bother, but our redraw
-; isn't too expensive, and the code starts getting very messy at that point
+; preserves flags
+; R4=char, R7,R10 updated
+nextchar$l
+	FNJSR
+	CMP	r7,r10
+	BLHS	overflow$l
+	LDRVCB	r4,[r7],#1
+	MOVVS	r4,#-1
+	FNRTSS
+
+; preserves flags
+; R4=last char, R7,R10 updated
+lastchar$l
+	FNJSR	"r5"
+	MOV	r4,#-1
+	LDRB	r5,[r8,#w_cr]
+lc$l	CMP	r7,r10
+	BLHS	overflow$l
+	FNRTSS	VS
+	LDRB	r14,[r7],#1
+	TEQ	r14,r5
+	FNRTSS	EQ
+	MOV	r4,r14
+	B	lc$l
+
+; returns VC or VS; R7,R10 updated
+overflow$l
+	FNJSR
+	LDR	r0,[r9,#f_ptr]
+	LDR	r14,[r9,#f_bufl]
+	ADD	r0,r0,r14		; end of buffer
+	CMP	r10,r0
+	BCS	ov1$l			; end is off end of buffer=overflow
+	MOV	r10,r0			; end of second buffer
+	LDR	r0,[r9,#f_splits]	; split size
+	ADD	r5,r5,r0
+	ADD	r7,r7,r0		; move into second buffer
+	CMP	r7,r10			; is it off the end of the second buf
+	FNRTS	CC			; return if not
+ov1$l
+	FNRTV				; return with overflow
+
+
 	LOCAL
 mode_nextline
 	FNJSR	"r2, r9, r11"
@@ -534,10 +728,6 @@ just_nextline$l
 	FNcall	Zap_BaseMode
 	FNRTS
 
-; Remember the start of this edit action
-; (zealous, since some f_docom's aren't relevant here) - but
-; diff redraw is reasonably cheap. 'Proper' modes would want to be
-; more cautious
 	LOCAL
 mode_prevline
 	STR	r0, [ws, #ws_lastprevline]
