@@ -1,5 +1,5 @@
-; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 2.4 2000/09/17 22:39:26 ds Exp $
+; Minibuffer code + filename completion + interactive help
+; $Id: MiniBuff,fff,v 2.5 2000/10/05 00:13:14 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -14,6 +14,7 @@
  GET h.StartCode
  GET h.Boxes
  GET h.KeyBits
+ GET h.LineEditor
 
  IMPORT call_back
  IMPORT convert_key
@@ -25,7 +26,6 @@
  IMPORT menu_decode
  IMPORT mode_name
  IMPORT test_forkey
- IMPORT loadlineeditor
  IMPORT command_primative	; not *my* spelling (DS)
  IMPORT show_key
 
@@ -40,6 +40,8 @@
  EXPORT minibuffer_write_token
  EXPORT minibuffer_prompt
  EXPORT minibuffer_prompt_token
+ EXPORT minibuffer_prompt_and_history
+ EXPORT minibuffer_prompt_token_and_history
  EXPORT minibuffer_update
  EXPORT minibuffer_show
  EXPORT minibuffer_setcaret
@@ -57,11 +59,6 @@
  EXPORT help_help
  EXPORT find_command_help
  EXPORT display_help
- EXPORT kill_lineeditor
- EXPORT lineeditor_retrieve
- EXPORT lineeditor_setpos
- EXPORT lineeditor_append
- EXPORT lineeditor_kill
  EXPORT checkfortextop
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -367,9 +364,6 @@ minibuffer_open
  STR R14,local_callbacktime
  MOV R14,#0
  STR R14,local_callbackflag
- FNLDR R14,opt_switches
- TST R14,#switch_Autoload_lineeditor
- BLNE loadlineeditor		; load it if needed/possible.
  LDMFD R13!,{R1-R7,PC}
 
 ;X ensures minibuffer open / closed accoriding to opt_flags #
@@ -435,7 +429,8 @@ minibuffer_start
  FNLDR R0,opt_switches,VC
  ORRVC R0,R0,#switch_MinibufferStatus	; save what's in buffer on a recall
  FNSTR R0,opt_switches,VC
- FNLDR R0,mini_lineed,VC	; handle
+ FNLDR R0,lineed_currentbuf,VC	; handle
+ FNSTR R0,mini_lineed,VC	; make current for minibuffer
  BLVC lineeditor_reset		; reset minibuffer pointer
  FNRTS
 
@@ -572,7 +567,7 @@ mi_setmark
  FNSTR R7,mini_mark
  B mi4
 mi_histkill
- ADD R0,R12,#mini_lineed
+ FNLDR R0,mini_lineed
  BL lineeditor_kill
 ; SWI &107 ; ??????????????????????????????????
  B mi4
@@ -794,6 +789,28 @@ minibuffer_prompt_token
 	ORRVS	R0,R4,R11
 	BL	minibuffer_prompt
 	ADD	R13,R13,#256
+	FNRTS
+
+;E R0=pointer to text R4-R7=parameters R1=history buffer
+;X Text replaces the text before mark, updating all offsets;
+;  buffer selected #
+
+minibuffer_prompt_and_history
+	FNJSR
+	BL	minibuffer_prompt
+	MOVVC	R0,R1
+	BLVC	lineeditor_select
+	FNRTS
+
+;E R0=pointer to token R4-R7=parameters R1=history buffer
+;X Text replaces the text before mark, updating all offsets
+;  buffer selected #
+
+minibuffer_prompt_token_and_history
+	FNJSR
+	BL	minibuffer_prompt_token
+	MOVVC	R0,R1
+	BLVC	lineeditor_select
 	FNRTS
 
 ;X Minibuffer updated on screen (if open) with scroll offsets
@@ -1089,6 +1106,9 @@ a$l
  TEQNE R0,#&1D			; return
  TEQNE R14,#&1D			; + shift
  BEQ exec$l
+ TEQ R0,#&8000001D
+ MOVEQ R3,#&1D
+ BEQ exec_nosave$l
  BL minibuffer_key		; take the key action
  FNRTS VS
  TST R4,#1<<7
@@ -1107,8 +1127,10 @@ b$l
  FNRTS				; wait for next key press
 exec$l				; execute the command
  BL minibuffer_addline		; Save BEFORE command clears it, eg. COMMAND
- MOVVC R2,#1			; return pressed
- BLVC minibuffer_command	; tell the command the string
+ FNRTS VS
+exec_nosave$l
+ MOV R2,#1			; return pressed
+ BL minibuffer_command		; tell the command the string
  FNRTS VS			; R0=returned value
  TST R4,#1<<11
  BEQ close$l			; always close the minibuffer
@@ -1139,7 +1161,6 @@ minibuffer_addline
  ADDVC R1,R0,R1			; line to append
  FNLDR R0,mini_lineed,VC
  BLVC lineeditor_append		; add line to history
- FNSTR R0,mini_lineed,VC
  FNLDR R0,opt_switches,VC
  BICVC R0,R0,#switch_MinibufferStatus
  FNSTR R0,opt_switches,VC
@@ -1278,6 +1299,7 @@ recall$l			; recall a line from the history buffer
  FNLDR R0,mini_lineed		; handle
  BL lineeditor_retrieve		; get the line
  FNRTS VS
+ FNRTS EQ
  MOV R0,R1
  BL str_len
  ADD R0,R0,R3			; total length of recalled string
@@ -2027,136 +2049,6 @@ load_help
  SWIVC XOS_File			; load the file
  FNRTS
 help$l FNS ("<Zap$HelpData>")
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Remove line editor buffers before dying			;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-kill_lineeditor
- FNJSR
- ADD R0,R12,#mini_lineed
- BL lineeditor_kill
- BL kill_mbsearch_bufs
- FNRTS
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Interface to Olly's line editor				;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
- LOCAL
-
-;X R0=buffer handle / 0 if not yet allocated
-;  R1=line to insert
-;X R0=(possibly new) buffer handle #
-
-lineeditor_append
- FNJSR "R1-R3"
- TEQ R0,#0
- BNE app$l			; buffer exists
- BL loadlineeditor
- MOV R3,R1			; save line
- MOV R0,#0
- FNLDR R1,wimp_task
- MOV R2,#0
- SWI XLineEditor_CreateBuffer	; R0=handle
- BVS err$l
- MOV R1,R3
-app$l
- MOV R2,R0			; save handle
- SWI XLineEditor_AppendLine
- MOVVC R0,R2			; restore handle
- FNRTS
-err$l				; line editor doesn't exist
- SUBS R0,R0,R0			; R0=0 & clv
- FNRTS
-
-;E R0=buffer handle/0 R1=buffer R2=buffer len
-;X String read into buffer (if exists) #
-
-lineeditor_retrieve
- FNJSR "R1-R2"
- TEQ R0,#0
- FNRTS EQ			; no buffer here
-; BL lineeditor_hack
- SWI XLineEditor_GetLine
- FNRTS
-
-;E R0=buffer handle/0
-;X Buffer pointer reset to empty string at end #
-
-lineeditor_reset
- FNJSR "R1"
- TEQ R0,#0
- FNRTS EQ
- MOV R1,#&7FFFFFFF
-; BL lineeditor_hack
- SWI XLineEditor_SetPos
- FNRTS
-
-;E R0=ptr to buffer handle /0
-;X Buffer killed
-
-lineeditor_kill
-	FNJSR	"R7"
-	MOV	R7,R0
-	LDR	R0,[R7]
-	TEQ	R0,#0
-	MOVNE	R14,#0
-	STRNE	R14,[R7]
-	SWINE	XLineEditor_DeleteBuffer
-	FNRTS
-
-;E R0=buffer handle /0 R1=buffer position
-;X Buffer pointer decreased by one
-
-lineeditor_setpos
- FNJSR
- TEQ R0,#0
- FNRTS EQ
-; BL lineeditor_hack
- SWI XLineEditor_SetPos
- FNRTS
-
- LOCAL
-
-;E Called just befor a Line Editor Swi
-;X Call a line editor SWI via hackery as SWI number is zero.
-
-; lineeditor_hack
-;  ADD R14,R14,#4		; skip the SWI instruction
-;  FNJSR "R10-R12"
-;  BIC R14,R14,#&FC000003	; mask out flags
-;  LDR R11,[R14,#-4]		; read the SWI instruction
-;  AND R11,R11,#&3F		; get the SWI offset
-;  PUSH "R0-R5"
-;  MOV R0,#18			; look up module
-;  ADR R1,s$l
-;  SWI XOS_Module			; read the module info
-;  MOV R10,R3			; pointer to module
-;  STR R4,p$l			; private word
-;  PULL "R0-R5"
-;  BVS err$l
-;  LDR R14,[R10,#&20]		; swi code offset
-;  CMP R14,#&4000			; in range?
-;  BCS err$l			; old line editor
-;  CMP R14,#&20
-;  BCC err$l			; too small
-;  ADD R10,R10,R14		; address of swi code
-;  ADR R12,p$l
-;  SWI XOS_EnterOS		; go into SVC mode
-;  MOV R14,PC
-;  MOV PC,R10			; call the SWI
-;  MOV R10,PC
-;  BIC R10,R10,#3
-;  TEQP R10,#0			; reenter user mode (saving flags)
-;  MOV R0,R0
-;  FNRTS
-; err$l				; make sure there is an error
-;  BL err2$l
-;  FNRTS
-; p$l DCD 0
-; s$l FNS ("LineEditor")
-; err2$l ERR "No line editor"
 
 
 ; in #

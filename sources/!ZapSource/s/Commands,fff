@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.5 2000/09/24 22:01:32 ds Exp $
+; $Id: Commands,fff,v 2.6 2000/10/05 00:13:14 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -33,6 +33,7 @@ c_Conditional	* (1<<21)
 	GET	h.Boxes
 	GET	h.TMFs
 	GET	h.ModeBits
+	GET	h.LineEditor
 
 	IMPORT	Countmatches
 	IMPORT	TotalSel
@@ -592,7 +593,8 @@ key_command_table
 Allfiles
 	CMP	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_zapcommand
+	BEQ	minibuffer_prompt_token_and_history
 	ADR	R10,callallroutine$l
 	B	do_allfiles
 s$l
@@ -610,7 +612,8 @@ callallroutine$l
 Allmodes
 	CMP	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_zapcommand
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	MOV	R7,R0
 	LDRB	R0,[R7]
@@ -663,7 +666,8 @@ mode$l	TEQ	R6,#0
 Allwindows
 	CMP	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_zapcommand
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	ADR	R10,callallroutine$l
 	MOV	R7,R0
@@ -832,7 +836,8 @@ Basemapn
 prompt$l
 	ADR	R0,s$l
 	LDMFD	R13!,{R14}
-	B	minibuffer_prompt_token
+	MOV	R1,#lineed_buf_keymap
+	B	minibuffer_prompt_token_and_history
 s$l	FNS	("zap_p_basemap")
 keymap_name ; R14 on stack
 	BL	find_key_table
@@ -897,12 +902,12 @@ prekey$l
 	MOVVC	R14,#'&'
 	STRVCB	R14,[R0]		; put & at start
 	BLVC	minibuffer_write
-	MOVVC	R0,#&1D			; return operation finished
+	MOVVC	R0,#&8000001D		; return operation finished
 	FNRTS
-p$l
+p$l	FNPULL
 	ADR	R0,s$l
-	BL	minibuffer_prompt_token
-	FNRTS
+	MOV	R1,#lineed_buf_keymap
+	B	minibuffer_prompt_token_and_history
 s$l
 	FNS	("zap_p_bindtokey")
 
@@ -1061,7 +1066,8 @@ CloneBase
 CloneCreate
 	TEQ	R2,#6
 	ADREQ	R0,p$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_mode
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	SUB	R6,R0,#1
 	BL	str$l			; get clone name
@@ -1162,7 +1168,8 @@ CloneHide
 clone_dh$l
 	TEQ	R2,#6
 	ADREQ	R0,p$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_mode
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	SUB	R1,R0,#1
 s$l	LDRB	R0,[R1,#1]!
@@ -1221,7 +1228,8 @@ cl18
 Command					; R1=number of times (inc uni arg)
 	TEQ	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_zapcommand
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	TEQ	r2,#17
 	BEQ	m$l
@@ -1730,7 +1738,8 @@ Date
  TEQ R2,#6
  BNE insert_date
  ADR R0,da_s0
- B minibuffer_prompt_token
+ MOV R1,#lineed_buf_datetime
+ B minibuffer_prompt_token_and_history
 da_s0
  FNS ("zap_p_date")
 
@@ -2228,8 +2237,7 @@ Fflags_toggle
 Findfile
  FNJSR
  TEQ R2,#6
- ADREQ R0,fi_s0
- BEQ fi11
+ BEQ mini$l
  ; need to fix this to cope with DDEUtils...
  BL find_file ; FNcall Zap_FindFile
  MOVVC R0,#3			; bring to front
@@ -2241,8 +2249,11 @@ Findfile
  BLVC put_caret
 ; FNcallc Zap_PutCaret,VC,R11
  FNRTS
+mini$l
+ ADR R0,fi_s0
 fi11
- BL minibuffer_prompt_token		; insert prompt
+ MOV R1,#lineed_buf_filename
+ BL minibuffer_prompt_token_and_history
  FNRTS VS
  BL find_current_directory_dde
  TEQVC R0,#0
@@ -2548,7 +2559,7 @@ helpon$l
 key$l
  MOV R0,R14
  BL minibuffer_writec		; write that value
- MOVVC R0,#&1D			; finish
+ MOVVC R0,#&8000001D		; finish
  FNRTS
 p$l
  ADR R0,s$l
@@ -2566,7 +2577,8 @@ docs$l	= "Filer_OpenDir ZapResources:Docs",0
 Helpcom
  TEQ R2,#6
  ADREQ R0,s$l
- BEQ minibuffer_prompt_token
+ MOVEQ R1,#lineed_buf_help
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  MOV R2,#0
  BL find_command_help
@@ -2580,7 +2592,8 @@ s$l FNS ("zap_p_helpcom")
 Helpfn
 	TEQ	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_help
+	BEQ	minibuffer_prompt_token_and_history
 	FNJSR
 	MOV	R2,#0
 	ORR	R0,R0,#1<<31
@@ -2595,7 +2608,8 @@ s$l	FNS	("zap_p_helpfn")
 Helpvar
  TEQ R2,#6
  ADREQ R0,s$l
- BEQ minibuffer_prompt_token
+ MOVEQ R1,#lineed_buf_help
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  MOV R2,#0
  ORR R0,R0,#1:SHL:30
@@ -2654,7 +2668,7 @@ prekey$l
  MOVVC R14,#'&'
  STRVCB R14,[R0]		; put & at start
  BLVC minibuffer_write
- MOVVC R0,#&1D			; return operation finished
+ MOVVC R0,#&8000001D		; return operation finished
  FNRTS
 s$l FNS ("zap_p_helpkey")
 
@@ -2745,9 +2759,7 @@ Insertblock
  DCD c_Param_String+c_PreMinibuffer		; string input
 Insert
  TEQ R2,#6
-is2
- ADREQ R0,is_s0
- BEQ minibuffer_prompt_token
+ BEQ is2
  FNJSR
  SUB R1,R0,#1
 is1
@@ -2759,6 +2771,10 @@ is1
  FNRTS
 is_s0
  FNS ("zap_p_insert")
+is2
+ ADR R0,is_s0
+ MOV R1,#lineed_buf_string
+ B minibuffer_prompt_token_and_history
 
  DCD c_Param_String+c_PreMinibuffer		; string input
 Insertblockgs
@@ -2777,9 +2793,7 @@ Insertblockgs
  DCD c_Param_String+c_PreMinibuffer
 Insertgs
  TEQ R2,#6
-is3
- ADREQ R0,is_s1
- BEQ minibuffer_prompt_token
+ BEQ is3
  FNJSR
  FNLDR R1,wimp_kbdbuf
  MOV R2,#kbdbuf_size*4
@@ -2790,6 +2804,10 @@ is3
  FNRTS
 is_s1
  FNS ("zap_p_insertgs")
+is3
+ ADR R0,is_s1
+ MOV R1,#lineed_buf_string
+ B minibuffer_prompt_token_and_history
 
  DCD c_Param_String+c_OmitParameter
 Insertdate
@@ -2815,7 +2833,8 @@ Indent
 Indentby
  TEQ R2,#6
  ADREQ R0,s$l
- BEQ minibuffer_prompt_token
+ MOVEQ R1,#lineed_buf_string
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  CMP R2,#&8000
  BCS q$l
@@ -2898,17 +2917,18 @@ ke_s0
 Keymapn
 	TEQ	R2,#6
 	ADREQ	R0,s$l
-	BEQ	minibuffer_prompt_token
+	MOVEQ	R1,#lineed_buf_string
+	BEQ	minibuffer_prompt_token_and_history
+	FNJSR
 	TEQ	R2,#23
 	LDREQB	R0,[R8,#w_currentmap]
-	STMFD	R13!,{R14}
 	BEQ	keymap_name
 	BL	find_key_table_number
 	STRPLB	R0,[R8,#w_currentmap]
 	STRPLB	R0,[R8,#w_helpmap]
-	LDMPLFD	R13!,{PC}
+	FNRTS	PL
 bad_keymap_jump
-	LDMFD	R13!,{R14}
+	FNPULL
 	B	bad_keymap
 s$l	FNS	("zap_p_keymap")
 
@@ -3646,7 +3666,8 @@ Moden
  BEQ Moden_fn
  TEQ R2,#6
  ADREQ R0,s$l
- BEQ minibuffer_prompt_token
+ MOVEQ R1,#lineed_buf_string
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  ADR R14,ret$l
  CMP R2,#1
@@ -3668,8 +3689,7 @@ ret$l
  MOV R0,#0
  FNRTS				; no mode found
 s$l
- = "zap_p_moden",0
- ALIGN
+ FNS ("zap_p_moden")
 
 ;E R9=file
 ;X as for find_file_mode (with R1b31 set)
@@ -3722,7 +3742,6 @@ Null
  ; [<mode name>] [<filetype>]
 Newfile
  FNJSR
-
  CMP R2,#6			; kill off the minibuffer
  ADREQ R0,noparam$l
  FNRTS EQ
@@ -4503,6 +4522,8 @@ Dropmark
 Setmarginwidth
  TEQ R2,#6
  ADREQ R0,s$l
+ MOVEQ R1,#lineed_buf_number
+ BEQ minibuffer_prompt_token_and_history
  BEQ minibuffer_prompt_token
  FNJSR
  TEQ R2,#17
@@ -4559,7 +4580,8 @@ local_bpltemp
 Setwidth
  TEQ R2,#6
  ADREQ R0,s$l
- BEQ minibuffer_prompt_token
+ MOVEQ R1,#lineed_buf_number
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  TEQ R2,#17
  BEQ a$l
@@ -4943,7 +4965,8 @@ Toggleinsert
 Universalarg
  TEQ R2,#6
  ADREQ R0,un_s0
- BEQ minibuffer_prompt_token
+ MOVEQ	R1,#lineed_buf_number
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  CMP R2,#&8000
  BCS un18
@@ -5262,6 +5285,8 @@ Byte_prompt$l
  FNRTS VS
  FNLDR R0,wimp_block
  BL minibuffer_prompt
+ MOVVC R0,#lineed_buf_asm
+ BLVC lineeditor_select
  FNRTS VS
  LDR R2,local_store4		; byte count
  MOV R3,#0
@@ -5380,6 +5405,8 @@ prompt$l
  FNRTS VS
  FNLDR R0,wimp_block
  BL minibuffer_prompt
+ MOVVC R0,#lineed_buf_asm
+ BLVC lineeditor_select
  MOVVC R0,R6
  BLVC cln_readw
  FNRTS VS
@@ -5461,8 +5488,8 @@ Writebuffer
  MOVEQ PC,R14
  TEQ R2,#6
  ADREQ R0,p$l
- BEQ minibuffer_prompt_token
-
+ MOVEQ R1,#lineed_buf_filename
+ BEQ minibuffer_prompt_token_and_history
  FNJSR
  MOV R4,R0			; save filename
  LDR R0,[R9,#f_len]
@@ -5494,7 +5521,8 @@ Writefile
  BL check_file_name		; does name contain path
  MOVVC R7,R0			; save whether it conatins a path
  ADRVC R0,wr_s0
- BLVC minibuffer_prompt_token
+ MOVVC R1,#lineed_buf_filename
+ BLVC minibuffer_prompt_token_and_history
  FNRTS VS
  TEQ R7,#0
  BEQ wr11			; path given

@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 2.6 2000/09/24 22:01:32 ds Exp $
+; $Id: Boxes,fff,v 2.7 2000/10/05 00:13:14 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -21,6 +21,7 @@
 	GET	h.Search
 	GET	h.Redraw
 	GET	h.Commands
+	GET	h.LineEditor
 
 	IMPORT	err3
 	IMPORT	help_string_1
@@ -52,7 +53,6 @@
 	EXPORT	ctrllist
 	EXPORT	give_dbox_focus
 	EXPORT	poll_word_pdriverchanged
-	EXPORT	kill_mbsearch_bufs
 
 	EXPORT	Countmatches
 	EXPORT	Dzapbox
@@ -1424,9 +1424,8 @@ lc_Goto_newline
  BL icon_getind			; R0=address of search string
 
  MOV R1,R0
- LDR R0,mbsearchindex + 8
+ MOV R0,#lineed_buf_goto
  BL lineeditor_append		; add to history list.
- STR R0,mbsearchindex + 8
  MOV R0,R1
 
  ;MOV R5,#11			; icon with data
@@ -1921,7 +1920,7 @@ lc_open_menu
 lc_Goto_histmenu
  BL recreate_the_leaf_window
  BVS c_ret
- LDR R0,mbsearchindex + 8
+ MOV R0,#lineed_buf_goto
  STR R7,local_window_con
  BL hist_length_get
  MOV R4,R0
@@ -1938,8 +1937,8 @@ lc_Replace_histmenu
  BVS c_ret
  MOV R8,R4
  TST R8,#1
- LDREQ R0,mbsearchindex + 4
- LDRNE R0,mbsearchindex
+ MOVEQ R0,#lineed_buf_replace
+ MOVNE R0,#lineed_buf_search
  STR R7,local_window_con
  BL hist_length_get
  MOV R4,R0
@@ -1967,8 +1966,8 @@ lc_Search_histmenu
  BVS c_ret
  MOV R8,R4
  TST R8,#1
- LDRNE R0,mbsearchindex + 4
- LDREQ R0,mbsearchindex
+ MOVEQ R0,#lineed_buf_replace
+ MOVNE R0,#lineed_buf_search
  STR R7,local_window_con
  BL hist_length_get
  MOV R4,R0
@@ -2030,10 +2029,10 @@ ctrlu$l
 histmake$l
  FNJSR "R1-R10"
  MOV R10,R0
- LDR R0,mbsearchindex
+ MOV R0,#lineed_buf_search
 ortho_hist_clk
  MOV R1,#&80000000 ; wrap
- BL retreive_from_le
+ BL retrieve_from_le
  CMP R0,#0
  MOVEQ R0,#-1
  FNRTS EQ
@@ -2046,13 +2045,13 @@ ortho_hist_clk
 histmake_r$l
  FNJSR "R1-R10"
  MOV R10,R0
- LDR R0,mbsearchindex + 4
+ MOV R0,#lineed_buf_replace
  B ortho_hist_clk
 
 histmake_g$l
  FNJSR "R1-R10"
  MOV R10,R0
- LDR R0,mbsearchindex + 8
+ MOV R0,#lineed_buf_goto
  B ortho_hist_clk
 
 histmake_m$l
@@ -2076,7 +2075,7 @@ getlength$l
  FNJSR
  MOV R0,R7
  MOV R1,#&80000000 ; wrap
- BL retreive_from_le
+ BL retrieve_from_le
  CMP R0,#0
  MOVEQ R0,#-1
  FNRTS EQ
@@ -2087,10 +2086,7 @@ getlength$l
  FNRTS
 
 lc_Search_clearhist_Search
- MOV R5,#0
-lc_clearhist
- ADR R0,mbsearchindex
- ADD R0,R0,R5
+ MOV R0,#lineed_buf_search
  BL lineeditor_kill
  B c_ret
 
@@ -2100,13 +2096,15 @@ lc_Search_clearhist_Replace
  BVS c_ret
  LDR R5,[R1,#4]
  CMP R5,#15
- MOVEQ R5,#0
- MOVNE R5,#4
- B lc_clearhist
+ MOVEQ R0,#lineed_buf_search
+ MOVNE R0,#lineed_buf_replace
+ BL lineeditor_kill
+ B c_ret
 
 lc_Goto_clearhist
- MOV R5,#8
- B lc_clearhist
+ MOV R0,#lineed_buf_goto
+ BL lineeditor_kill
+ B c_ret
 
 cursorkeyprocession_Goto
  MOV R5,#15
@@ -2155,18 +2153,17 @@ lc_Search_out
  B c_ret
 
 lc_Goto_recall_mb
- BL loadlineeditor
  MOV R3,R1			; direction...
- LDR R0,mbsearchindex + 8
- BL retreive_from_le
+ MOV R0,#lineed_buf_goto
+ BL retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  MOV R5,#11
  FNindw R6,R7,t_GotoBox		; (TT fix or tab bug search box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
- LDREQ R0,mbsearchindex + 8
- BLEQ retreive_from_le
+ MOVEQ R0,#lineed_buf_goto
+ BLEQ retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  FNindw R6,R7,t_GotoBox		; (TT fix or tab bug search box)
@@ -2175,18 +2172,17 @@ lc_Goto_recall_mb
  B c_ret
 
 lc_Search_recall_mb		; E R1=direction code, R5=icon number R6/R7
- BL loadlineeditor
  MOV R3,R1			; direction...
- LDR R0,mbsearchindex
- BL retreive_from_le
+ MOV R0,#lineed_buf_search
+ BL retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  MOV R5,#15
  FNindw R6,R7,t_SearchBox	; (TT fix or tab bug search box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
- LDREQ R0,mbsearchindex
- BLEQ retreive_from_le
+ MOVEQ R0,#lineed_buf_search
+ BLEQ retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  ;FNind R7,t_ReplaceBox		; (TT fix or tab bug replace box)
@@ -2200,15 +2196,14 @@ lc_Search_recall_mb		; E R1=direction code, R5=icon number R6/R7
  B c_ret
 
 lc_Replace_recall_mb		; E R1=direction code, R5=icon number R6/R7
- BL loadlineeditor
  MOV R3,R1			; direction...
- BL to_retreive_from_le
+ BL to_retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  FNindw R6,R7,t_ReplaceBox	; (TT fix or tab bug Replace box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
- BLEQ to_retreive_from_le
+ BLEQ to_retrieve_from_le
  CMP R0,#0
  BEQ c_ret
  FNindw R6,R7,t_ReplaceBox	; (TT fix or tab bug Replace box)
@@ -2216,11 +2211,11 @@ lc_Replace_recall_mb		; E R1=direction code, R5=icon number R6/R7
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
 
-to_retreive_from_le
+to_retrieve_from_le
  CMP R5,#15
- LDREQ R0,mbsearchindex
- LDRNE R0,mbsearchindex + 4
- B retreive_from_le
+ MOVEQ R0,#lineed_buf_search
+ MOVNE R0,#lineed_buf_replace
+ B retrieve_from_le
 
 ;isiniconfifteen
 ; FNJSR
@@ -2238,7 +2233,7 @@ cmpstr0withictxt ; R5 = icon with str - R0 = other string R6,R7
  BL strcmp
  FNRTS ; EQ nor NE
 
-retreive_from_le ; E R1 = direction. R0=buffernum R5= icon...
+retrieve_from_le ; E R1 = direction. R0=buffernum R5= icon...
  FNJSR "R10"
  CMP R0,#0			; no line editor buffer...
  FNRTS EQ
@@ -2248,55 +2243,31 @@ retreive_from_le ; E R1 = direction. R0=buffernum R5= icon...
  BL getahistcharactr
  FNRTS
 
+ LOCAL
 getahistcharactr ; E R0 ; X R0 = ptr to entry / 0
  FNJSR
  FNLDR R1,wimp_buffer
  MOV R2,#255
  BL lineeditor_retrieve
+ BVS err$l
+ BEQ err$l
  FNLDR R0,wimp_buffer
  LDRB R14,[R0]
  CMP R14,#31
  MOVLES R0,#0
  FNRTS
-
-;mbsearch_ptr
-; DCD 0
-;mbsearch_mark
-; DCD 0
-;mbsearch_bufl
-; DCD 0
-;mbsearchbh			; LE search handle...
-; DCD 0
-mbsearchindex
- DCD 0
- DCD 0
- DCD 0
-; DCD 0
-
-kill_mbsearch_bufs
-	FNJSR
-	ADR	R0,mbsearchindex
-	BL	lineeditor_kill
-	ADR	R0,mbsearchindex+4
-	BL	lineeditor_kill
-	ADR	R0,mbsearchindex+8
-	BL	lineeditor_kill
+err$l
+	SUBS	R0,R0,R0
 	FNRTS
 
 resethistorypositions
  FNJSR
- LDR R0,mbsearchindex
- MOV R1,#&7FFFFFFF
- CMP R0,#0
- BLNE lineeditor_setpos		; reset the recall position to end
- LDR R0,mbsearchindex + 4
- MOV R1,#&7FFFFFFF
- CMP R0,#0
- BLNE lineeditor_setpos		; reset the recall position to end
- LDR R0,mbsearchindex + 8
- MOV R1,#&7FFFFFFF
- CMP R0,#0
- BLNE lineeditor_setpos		; reset the recall position to end
+ MOV R0,#lineed_buf_search
+ BL lineeditor_reset		; reset the recall position to end
+ MOV R0,#lineed_buf_replace
+ BL lineeditor_reset		; reset the recall position to end
+ MOV R0,#lineed_buf_goto
+ BL lineeditor_reset		; reset the recall position to end
  FNRTS
 
 lc_Search_search
@@ -2307,9 +2278,8 @@ lc_Search_search
  BL icon_getind			; R0=address of search string
 
  MOV R1,R0
- LDR R0,mbsearchindex
+ MOV R0,#lineed_buf_search
  BL lineeditor_append		; add to history list.
- STR R0,mbsearchindex
  MOV R0,R1
 
  MOV R1,#1
@@ -2787,18 +2757,16 @@ lc_Replace_replace
  BL icon_getind			; R0=address of search string
 
  MOV R1,R0
- LDR R0,mbsearchindex
+ MOV R0,#lineed_buf_search
  BL lineeditor_append		; add to history list.
- STR R0,mbsearchindex
  MOV R0,R1
 
  MOV R5,#16
  BL icon_getind			; R0=address of search string
 
  MOV R1,R0
- LDR R0,mbsearchindex + 4
+ MOV R0,#lineed_buf_replace
  BL lineeditor_append		; add to history list.
- STR R0,mbsearchindex + 4
  MOV R0,R1
 
  MOV R5,#15
