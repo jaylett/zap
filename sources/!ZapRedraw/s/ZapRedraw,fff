@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.12 2002/03/01 00:06:02 ds Exp $
+; $Id: ZapRedraw,fff,v 1.13 2002/11/09 19:56:57 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -104,34 +104,34 @@ module_flags	DCD	1				; 32bit safe!
 swi_table
  = |zap$|,"Redraw",0
  = "RedrawArea",0		; 0	0
- = "GetPaletteEntry",0		; 1     1
- = "RedrawRaster",0		; 2     2
- = "ConvertBitmap",0		; 3     3
- = "PrepareDataLine",0		; 4     4
- = "AddCursor",0		; 5     5
- = "FindCharacter",0		; 6     6
- = "MoveBytes",0		; 7     7
- = "CachedCharSize",0		; 8     8
- = "ConvBitmapChar",0		; 9     9
- = "CreatePalette",0		; 10    a
- = "InsertChar",0		; 11    b
- = "ReadSystemChars",0		; 12    c
- = "ReverseBitmaps",0		; 13    d
- = "ReadVduVars",0		; 14    e
- = "GetRectangle",0		; 15    f
- = "AddVduBitmaps",0		; 16    10
- = "CacheFontChars",0		; 17    11
- = "SpriteSize",0		; 18    12
- = "RedrawWindow",0		; 19    13
- = "Divide",0			; 20    14
- = "PlotRectangle",0		; 21    15
- = "AddCursorSmart",0		; 22    16
- = "FindFont",0			; 23    17
- = "LoseFont",0	                ; 24    18
- = "ReadCharSize",0		; 25    19
- = "Version",0			; 26    1a
- = "ListFonts",0		; 27    1b
- = "UpdateWindow",0		; 28    1c
+ = "GetPaletteEntry",0		; 1	1
+ = "RedrawRaster",0		; 2	2
+ = "ConvertBitmap",0		; 3	3
+ = "PrepareDataLine",0		; 4	4
+ = "AddCursor",0		; 5	5
+ = "FindCharacter",0		; 6	6
+ = "MoveBytes",0		; 7	7
+ = "CachedCharSize",0		; 8	8
+ = "ConvBitmapChar",0		; 9	9
+ = "CreatePalette",0		; 10	a
+ = "InsertChar",0		; 11	b
+ = "ReadSystemChars",0		; 12	c
+ = "ReverseBitmaps",0		; 13	d
+ = "ReadVduVars",0		; 14	e
+ = "GetRectangle",0		; 15	f
+ = "AddVduBitmaps",0		; 16	10
+ = "CacheFontChars",0		; 17	11
+ = "SpriteSize",0		; 18	12
+ = "RedrawWindow",0		; 19	13
+ = "Divide",0			; 20	14
+ = "PlotRectangle",0		; 21	15
+ = "AddCursorSmart",0		; 22	16
+ = "FindFont",0			; 23	17
+ = "LoseFont",0			; 24	18
+ = "ReadCharSize",0		; 25	19
+ = "Version",0			; 26	1a
+ = "ListFonts",0		; 27	1b
+ = "UpdateWindow",0		; 28	1c
  = "ReadFontInfo",0		; 29	1d
  = "ReadModeBPP",0		; 30	1e
  = 0
@@ -243,7 +243,7 @@ service_ZapRedrawDying	 DCD &48441
 
 ; kill the module, if allowed
 final_code	TEQ	R10,#0
-                MOVEQ	PC,R14                          ; non-fatal
+		MOVEQ	PC,R14				; non-fatal
 		FNJSR					; svc mode
 		LDR	R12,[R12]
 		BL	check_kill_cache		; ok to kill the cache?
@@ -255,7 +255,7 @@ final_code	TEQ	R10,#0
 		BEQ	error_cantdie			; in s.Cache
 		BL	messages_kill			; close messages file
 		BLVC	kill_cache			; kill cache if empty
-		MOVVC	R0,#7                           ; free workspace
+		MOVVC	R0,#7				; free workspace
 		MOVVC	R2,R12
 		SWIVC	XOS_Module
 		MOV	R0,#0
@@ -368,7 +368,7 @@ redraw_area
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Version SWI   					    ;
+; Version SWI						    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; read the version of the module
@@ -1121,219 +1121,170 @@ skip_ctrl_10
 ;  R2=input string
 ;  R3=foreground mask
 ;  R4=background mask
-;  R5=input length + flags     (flags??)
-;  R6=dest buffer (size 6*R5+16)
-;  R7=font mask... (not supplied if b3 of r_flags is zero)
-;X R0=highest char code used
-;  R5=length of output string
-
-local_max_out
- & 0
-local_ctrl_colour
- & 0
-
-prepare_data_line
- FNJSR "R1-R4,R6-R12"
- MOV R10,R7			; font data pointer...
- LDR R7,[R1,#r_for]		; current foreground
- AND R7,R7,#&FF
- LDR R8,[R1,#r_bac]		; current background
- LDR R11,[R1,#r_flags]		; current flags
- TST R11,#rf_substyles		; &8
- BEQ ordinary_prepare_data_line
-; STR R0,[R13,#-28]		; ctrl chars col
- STR R0,local_ctrl_colour
- MOV R9,R6			; save start of output
- MOV R14,#&20			; highest used code (space always)
- STR R14,local_max_out
- LDR R11,[R1,#r_caddr]
- CMP R11,#&8000
- ANDLO R1,R11,#&FF		; use initial substyles if present
- MOVHS R1,#-1			; dummy fonts flag (never match...!)
-pdl_loop
- CMP R5,#0
- BLE pdl_end
- LDRB R0,[R2],#1		; next byte
- LDRB R11,[R3],#1		; next foreground col
- LDRB R12,[R10],#1		; next font colour...
- LDR R14,local_max_out
- CMP R0,R14
- STRCS R0,local_max_out
- CMP R12,R1			; R1 = Current font...
- BNE pdl_new_font
- LDRB R12,[R4],#1		; next background col
- CMP R0,#&20
- BLCC pdl_new_ctrl_char		; control character
- TEQ   R7,R11
- TEQEQ R8,R12
- BLNE pdl_change_colour		; colours changed
-endofthepossibilities
- TEQ R0,#0
- STREQB R0,[R6],#1		; hmmm?
- STRB R0,[R6],#1		; save the char
- SUBS R5,R5,#1			; dec counter
- B pdl_loop
-pdl_end
- SUB R5,R6,R9			; current length
- CMP R5,#0
- BLE pdl_end_end
- LDRB R0,[R6,#-1]
- TEQ R0,#&20
- SUBEQ R6,R6,#1
- BEQ pdl_end			; strip spaces (no colour change)
-pdl_end_end
- MOV R0,#0
- STRB R0,[R6],#1
- MOV R0,#2
- STRB R0,[R6],#1		; add terminator
- ADD R5,R5,#2
- LDR R0,local_max_out
- FNRTS
-
-pdl_change_colour
- MOV R7,#0
- STRB R7,[R6],#1
- MOV R7,#1
- STRB R7,[R6],#1
- TST R1,#8			; old font
- MOV R7,R11
- MOV R8,R12			; new for/bac
- STREQB R7,[R6],#1
- STREQB R8,[R6],#1		; change colour
- STRNEB R8,[R6],#1
- STRNEB R7,[R6],#1		; change colour
- MOV PC,R14
-
-pdl_new_font
- CMP R0,#&20
- BLCC pdl_new_ctrl_char		; control character
- TST R12,#8			; new font
- TSTEQ R1,#8			; old font
- LDRB R1,[R4],#1		; next background col
- TEQEQ R7,R11
- TEQEQ R8,R1
- BEQ pdl_just_change_font ; pdl_change_colour_and_font	; colours changed
-
-pdl_change_colour_and_font
- MOV R7,#0
- STRB R7,[R6],#1
- MOV R7,#10			; chg colour and font
- STRB R7,[R6],#1
- TST R12,#8			; INVERT?
- MOV R7,R11
- MOV R8,R1			; new for/bac
-; MOVNE R8,R11
-; MOVNE R7,R1			; new bac/for
- STREQB R7,[R6],#1
- STREQB R8,[R6],#1		; change colour
- STRNEB R8,[R6],#1
- STRNEB R7,[R6],#1		; change colour
- MOV R1,R12			; store new font...
- STRB R12,[R6],#1		; font colour...
- B endofthepossibilities
-
-;pdl_a_simple_font_change
-; MOV R1,R12			; store new font...
-; STRB R12,[R6,#2]		; font colour...
-; MOV R12,#0
-; STRB R12,[R6],#1
-; MOV R12,#9
-; STRB R12,[R6],#2
-; B endofthepossibilities
-
-pdl_just_change_font
- MOV R1,R12			; store new font...
- STRB R12,[R6,#2]		; font colour...
- MOV R12,#0
- STRB R12,[R6],#1
- MOV R12,#9
- STRB R12,[R6],#2
- B endofthepossibilities
-
-;local_controlcolourtmp
-; DCD 0
-;
-;huc_redraw			; lowest character needed...?
-; DCD 0
-
-;E R0=colour to use for ctrl chars / -1 if none
-;  (R1=redraw block giving start for/bac cols)
-;  R2=input string
-;  R3=foreground mask R4=background mask
 ;  R5=input length
 ;  R6=dest buffer (size 6*R5+16)
+;  R7=substyle list (not supplied if b3 of r_flags is zero)
 ;X R0=highest char code used
 ;  R5=length of output string
 
-ordinary_prepare_data_line
- MOV R1,R0			; ctrl chars col (R1 not needed)
- MOV R9,R6			; save start of output
- MOV R10,#&20			; highest used code (space always)
-; !!!!!!!!!!!!!!!!!!!!!
-; MOV R0,#0
-; STRB R0,[R6],#1
-; STRB R0,[R6,#1]
-; MOV R0,#9
-; STRB R0,[R6],#2
-; !!!!!!!!!!!!!!!!!!!!! doesn't work...!!!
-pdl_loop2
- CMP R5,#0
- BLE pdl_end2
- LDRB R0,[R2],#1		; next byte
- LDRB R11,[R3],#1		; next foreground col
- LDRB R12,[R4],#1		; next background col
- CMP R0,R10
- MOVCS R10,R0			; highest char code used
- CMP R0,#&20
- BLCC pdl_ctrl_char		; control character
- TEQ   R7,R11
- TEQEQ R8,R12
- BLNE pdl_ordinary_change_colour; colours changed
- TEQ R0,#0
- STREQB R0,[R6],#1
- STRB R0,[R6],#1		; save the char
- SUBS R5,R5,#1			; dec counter
- B pdl_loop2
-pdl_end2
- SUB R5,R6,R9			; current length
- CMP R5,#0
- BLE pdl_end_end2
- LDRB R0,[R6,#-1]
- TEQ R0,#&20
- SUBEQ R6,R6,#1
- BEQ pdl_end2			; strip spaces (no colour change)
-pdl_end_end2
- MOV R0,#0
- STRB R0,[R6],#1
- MOV R0,#2
- STRB R0,[R6],#1		; add terminator
- ADD R5,R5,#2
- MOV R0,R10			; highest used character
- FNRTS
+; internally:
+;    R0 = temp
+;    R1 = printable char
+;    R2-R4 as input
+;    R5 = input bytes remaining
+;    R6 = destination
+;    R7 = substyle list / 0
+;    R8 = current fg
+;    R9 = current bg
+;   R10 = current style
+;   R11 = temp
+;   R12 -> module workspace including buffer
 
-pdl_new_ctrl_char
- FNJSR
-; LDR R14,[R13,#-24]		; local_controlcolourtmp
- LDR R14,local_ctrl_colour
- CMP R14,#0
- MOVPL R11,R14			; foreground colour for ctrl chars
- FNRTS
+; prepare_data_line workspace (in buffer)
+		^	:INDEX:buffer
+pdlws_ctl_col	#	4				; control colour
+pdlws_max	#	4				; highest used char
+pdlws_last_ctl	#	4				; pointer to end of last control sequence
+pdlws_output	#	4				; pointer to end of last control sequence
 
-pdl_ctrl_char
- CMP R1,#0
- MOVPL R11,R1			; foreground colour for ctrl chars
- MOV PC,R14
+prepare_data_line
+		FNJSR	"R1-R4,R6-R11"
 
-pdl_ordinary_change_colour
- MOV R7,#0
- STRB R7,[R6],#1
- MOV R7,#1
- STRB R7,[R6],#1
- MOV R7,R11
- MOV R8,R12			; new for/bac
- STRB R7,[R6],#1
- STRB R8,[R6],#1		; change colour
- MOV PC,R14
+		STR	R0,[R12,#pdlws_ctl_col]		; keep control colour
+		MOV	R0,#&20				; init highest char
+		STR	R0,[R12,#pdlws_max]
+		STR	R6,[R12,#pdlws_last_ctl]	; last control sequence pointer
+		STR	R6,[R12,#pdlws_output]		; output buffer start
+
+		LDRB	R8,[R1,#r_for]			; read initial colours
+		LDRB	R9,[R1,#r_bac]
+
+		LDR	R10,[R1,#r_flags]		; and initial style if present
+		TST	R10,#rf_substyles
+		MOVEQ	R7,#0
+		MOVEQ	R10,#0
+		BEQ	loop$l
+
+		LDR	R10,[R1,#r_caddr]		; get initial style from font handle
+		CMP	R10,#&8000
+		ANDLO	R10,R10,#&FF
+		MOVHS	R10,#0
+
+loop$l		LDRB	R1,[R2],#1			; get input character
+
+		LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
+		CMN	R0,#0				; and ctl colour > -1
+		CMPGE	R1,#&20				;
+		LDRGEB	R0,[R3],#1			; check fg colour same
+		TEQ	R0,R8
+		MOVNE	R8,R0
+		BNE	new_fg$l
+
+		LDRB	R0,[R4],#1			; check bg colour same
+		TEQ	R0,R9
+		MOVNE	R9,R0
+		BNE	new_bg$l
+
+		TEQ	R7,#0				; check style same
+		MOVEQ	R0,#0
+		LDRNEB	R0,[R7],#1
+		TEQ	R0,R10
+		MOVNE	R10,R0
+		BNE	new_style$l
+
+storechar$l	TEQ	R1,#0                           ; 0 -> 0,0
+		STREQB	R1,[R6],#1
+		STRB	R1,[R6],#1
+		LDR	R11,[R12,#pdlws_max]		; update highest char
+		CMP	R0,R11
+		STRHI	R0,[R12,#pdlws_max]
+
+		SUBS	R5,R5,#1
+		BNE	loop$l
+
+		LDR	R11,[R12,#pdlws_last_ctl]
+shorten_loop$l	CMP	R6,R11				; strip space characters from the end
+		BLS	done$l
+		LDRB	R0,[R6,#-1]!
+		TEQ	R0,#' '
+		BEQ	shorten_loop$l
+
+done$l		MOV	R0,#0				; terminate with 0,2
+		STRB	R0,[R6],#1
+		MOV	R0,#2
+		STRB	R0,[R6],#1
+
+		LDR	R0,[R12,#pdlws_output]		; get the output length
+		SUB	R5,R6,R0
+
+		LDR	R0,[R12,#pdlws_max]		; and the hightest printable character
+		FNRTS
+
+
+; new foreground colour (and possibly bg and style)
+new_fg$l	TEQ	R7,#0
+		MOVEQ	R0,#0				; check style same
+		LDRNEB	R0,[R7],#1
+		TEQ	R0,R10
+		MOVNE	R10,R0
+		BNE	new_fg_and_style$l
+
+		LDRB	R0,[R4],#1			; cehck bg same
+		TEQ	R0,R9
+		MOVNE	R9,R0
+		BNE	new_fg_and_bg$l
+
+		MOV	R0,#0				; only fg changing
+		STRB	R0,[R6],#1			; use 0,6,f
+		MOV	R0,#6
+		STRB	R0,[R6],#1
+		STRB	R8,[R6],#1
+		B	aftercode$l
+
+; new fg and bg (but not style)
+new_fg_and_bg$l	MOV	R0,#0				; use 0,1,f,b
+		STRB	R0,[R6],#1
+		MOV	R0,#1
+		STRB	R0,[R6],#1
+		STRB	R8,[R6],#1
+		STRB	R9,[R6],#1
+		B	aftercode$l
+
+; new bg colour (and possibly style, but not fg)
+new_bg$l	TEQ	R7,#0
+		MOVEQ	R0,#0				; check style same
+		LDRNEB	R0,[R7],#1
+		TEQ	R0,R10
+		MOVNE	R10,R0
+		BNE	new_style$l
+
+		MOV	R0,#0				; use 0,7,b
+		STRB	R0,[R6],#1
+		MOV	R0,#7
+		STRB	R0,[R6],#1
+		STRB	R9,[R6],#1
+		B	aftercode$l
+
+; new fg and style, and possibly bg
+new_fg_and_style$l
+		LDRB	R9,[R4],#1
+
+; new fg, bg and style
+new_style$l	MOV	R0,#0				; use 0,10,f,b,s
+		STRB	R0,[R6],#1
+		MOV	R0,#10
+		STRB	R0,[R6],#1
+		TST	R10,#(1<<3)			; check inverse bit
+		STRNEB	R9,[R6],#1
+		STRNEB	R8,[R6],#1
+		STREQB	R8,[R6],#1
+		STREQB	R9,[R6],#1
+		STRB	R10,[R6],#1
+
+; we've written a control sequence. keep a note of where
+aftercode$l	STR	R6,[R12,#pdlws_last_ctl]
+		B	storechar$l			; store the actual character
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2140,7 +2091,7 @@ rtol$l
  FNRTS VS
  LDR R0,[R1,#51]		; wa maxx (b0 set)
  PULL "R1"
- LDR R2,[R4,#4]                 ; visible minx
+ LDR R2,[R4,#4]			; visible minx
  ADD R2,R2,R0
  LDR R0,[R4,#20]		; scrollx
  SUB R2,R2,R0			; screen coords of wa maxx
@@ -2645,7 +2596,7 @@ loop$l
   CMP R2,#31				; fin?
   CMPLS R3,#31				; other one fin also?
   BHI nope$l				; nope
-  MOVS R0,#0                            ; yes - set Z
+  MOVS R0,#0				; yes - set Z
   FNRTS					; done
 nope$l
   CMP R2,#'z'				; lower than z?
