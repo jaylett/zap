@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.14 2002/11/17 00:16:02 christian Exp $
+; $Id: KeyBits,fff,v 2.15 2002/11/17 00:54:38 christian Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -2086,15 +2086,16 @@ basemap$l
 ; P R O C E S S	  K E Y	  S U B S			       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;E R0=wimp key number / -1 if failed to fetch any more
-; R6=number of key presses buffered so far
-; R7=address of buffered command if R6<>0
-; R8-R10=input caret (in correct window)
-;X If R0>=0 then R6,R7 updated and try and get another key
-; If R0<0 then carry on with main loop. #
+;E R0     = wimp key number / -1 if failed to fetch any more
+;  R4     = parameter type of previous buffered command
+;  R6     = number of key presses buffered so far
+;  R7     = address of buffered command if R6<>0
+;  R8-R10 = input caret (in correct window)
+;X If R0 >=0 then R4,R6,R7 updated and try and get another key
+;  If R0 < 0 then carry on with main loop. #
 	FNAME	process_key
 process_key
-	FNJSR	"R1,R5,R11"		; ,R11" ; "R5" R11!!!
+	FNJSR	"R1,R5,R11"
 	MOVS	R5,R0			; wimp key number
 	FNLDR	R1,key_modifiers,PL
 	BLPL	convert_key		; convert R0 to zap key number
@@ -2110,7 +2111,7 @@ process_key
 ;X R0>=0 to get another key, R0<0 to carry on sending keys #
 	FNAME	process_converted_key
 process_converted_key
-	FNJSR	"R1-R5"
+	FNJSR	"R1-R3,R5,R11"
 	CMP	R5,#0			; any more keys?
 	BMI	cantadd$l		; run out of buffered input
 	MOV	R1,R0			; key number
@@ -2119,8 +2120,8 @@ process_converted_key
 	BL	get_key_entry		; R0=key entry address/0 if none
 	BLVC	test_exec$l
 	FNRTS	VS			; may have loaded a module
-	MOVS	R4,R0			; save key entry
-	ADREQ	R4,null$l		; no entry!
+	MOVS	R11,R0			; save key entry
+	ADREQ	R11,null$l		; no entry!
 	LDRB	R0,[R8,#w_basemap]	; restore basemap
 	STRB	R0,[R8,#w_currentmap]	; KEYMAP will change it!
 	LDRB	R0,[R8,#w_format]	; mode number
@@ -2136,14 +2137,13 @@ process_converted_key
 	FNRTS	VS
 	CMP	R6,#0
 	BLE	cantadd$l		; not yet buffered anything
-	LDR	R0,[R4]			; command address
-	LDR	R14,[R4,#8]
-	ORR	R0,R0,R14,LSL #28
+	LDR	R0,[R11]		; command address
+	LDR	R14,[R11,#8]		; parameter type
 	TEQ	R0,R7
+	TEQEQ	R14,R4
 	BNE	cantadd$l		; no longer same Command
 	CMP	R6,#kbdbuf_size
-	BCS	cantadd$l		; buffered maximum allocation
-	B	gobuffer$l
+	BCC	gobuffer$l
 
 cantadd$l				; can't add the key to the buffer
 	CMP	R6,#0
@@ -2157,11 +2157,10 @@ cantadd$l				; can't add the key to the buffer
 donebuf$l				; executed the buffered command
 	MOVS	R0,R5			; carry on with main loop if no more
 	FNRTS	MI
-	LDR	R7,[R4]			; new command address
+	LDR	R7,[R11]		; new command address
 	CMP	R7,#0
 	BLE	hotkey$l		; pass on hotkey don't buffer
-	LDR	R14,[R4,#8]
-	ORR	R7,R7,R14,LSL #28
+	LDR	R4,[R11,#8]
 	MOV	R6,#0			; buffer now empty
 gobuffer$l
 	BL	buffer_key
@@ -2181,10 +2180,11 @@ hotkey$l
 notwimp$l
 	MOVVC	R0,#-1			; don't wait any more
 	FNRTS				; (or wimp gets confused)
+
 test_exec$l
 	FNJSR
-	BICS	R14,R7,#15<<28
-	LDRNE	R14,[R14,#-4]		; get flags for current command
+	TEQ	R7,#0
+	LDRNE	R14,[R7,#-4]		; get flags for current command
 	TSTNE	R14,#1<<28		; immediate exec?
 	BNE	go_exec$l
 	AND	R14,R14,#7<<3		; type of data - string?
@@ -2198,16 +2198,14 @@ go_exec$l
 	BL	exec$l
 	PULL	"R1-R5"
 	FNRTS
-exec$l
-	FNJSR	"R0"
+
+exec$l	FNJSR	"R0"
 	MOVS	R1,R6			; number of times pressed
 	FNRTS	EQ
 	BL	minibuffer_clear	; wipe minibuffer before new command
 	BLVC	minibuffer_close	; close minibuffer if it was open
 	PULL	"R14,PC",VS
-	MOV	R2,R7,LSR #4		; call normal reason code
-	AND	R2,R2,#15<<24
-	BIC	R7,R7,#15<<28
+	MOV	R2,R11,LSL #24		; call normal reason code
 	LDR	R0,[R7,#-4]		; command flags
 	MOV	R0,R0,LSR#3
 	AND	R0,R0,#7		; type of data
@@ -2220,7 +2218,7 @@ exec$l
 	FNRTS	VC
 	PULL	"R14,PC"
 null$l					; default null entry
-	DCD	0,0			; command,arg
+	DCD	0,0,0			; command, arg, type
 
 
 ;E R0=zap key number R5=wimp key number R8-R10=input caret
@@ -2228,6 +2226,7 @@ null$l					; default null entry
 	FNAME	process_a_key
 process_a_key
 	FNJSR	"R1-R7"
+	MOV	R4,#0
 	MOV	R6,#0			; none buffered
 	MOV	R7,#0			; no command buffered
 	BL	process_converted_key
@@ -2398,19 +2397,19 @@ sendacharzerototw
 	=	"CHAR 0",0,0
 
 
-;E R3=keynum R4=table entry R6=num currently buffered R7=function
+;E R3 = keynum  R4 = command paramater type  R11 = table entry
+;  R6 = num currently buffered   R7 = function
 ;X If not a string then parameter buffered R6 incremented
-; If a string with then address (or 0) stored in kbdbuf
-; If a data block then address stored in kbdbuf
-; R0=0/1 if minibuffer will be needed |
+;  If a string with then address (or 0) stored in kbdbuf
+;  If a data block then address stored in kbdbuf
+;  R0 = 0/1 if minibuffer will be needed |
 	FNAME	buffer_key
 buffer_key
-	FNJSR	"R1-R4,R7"
+	FNJSR	"R1-R4,R7,R11"
 	FNSTR	R3,key_last		; save last buffered keynumber
-	BIC	R7,R7,#15<<28
 	LDR	R1,[R7,#-4]		; get command flags
-	LDR	R2,[R4,#4]		; get parameter
-	MOV	R3,R1,LSR#3
+	LDR	R2,[R11,#4]		; get parameter
+	MOV	R3,R1,LSR #3
 	AND	R3,R3,#7		; data type
 	FNLDR	R14,wimp_kbdbuf		; buffer start
 	TEQ	R3,#3
@@ -2424,8 +2423,8 @@ buffer_key
 	ADD	R6,R6,#1		; inc R6
 	MOV	R0,#0			; no minibuffer needed
 	FNRTS
-bu10
-	STR	R2,[R14]		; save string parameter
+
+bu10	STR	R2,[R14]		; save string parameter
 	ADD	R6,R6,#1
 	TEQ	R2,#0
 	MOVEQ	R0,#1			; minibuffer
