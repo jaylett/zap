@@ -8,14 +8,31 @@
 	DCD	0x00
 	DCD	D1
 	DCD	ModHelpString
-	DCD	D1
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	mod_flags
+
+D1	=	"ZapTeX",0
+ModHelpString
+	=	"ZapTeX",9,9,"0.06 (00 Jan 0000) © "
+lp1	=	"Tim Tyler", 0x00
+	ALIGN
+
+mod_flags	DCD	1				; 32 bit compatible
+
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 Data3
-	=	"Zap", 0x00
-	DCD	0x00
+	=	"Zap",0
+
 w_formmb
 	DCD	-1
 	=	0x18, 0x18, 0x0, 0x0
 	DCD	0	;  REM mainwkspflags
+
 StartUpHere
 	STMFD	sp!, {lr}
 	LDR	r2, [r12, #0]
@@ -81,15 +98,15 @@ DataTable
 	DCD	ObeyLabeled
 	DCD	lp1
 	DCD	0x00	;  REM = BaseMode = Text
-	DCD	0x40D	;  REM mode = 13 ; bit 10 = workspace, please!
+	DCD	0x40D + 1<<14	;  REM mode = 13 ; bit 10 = workspace, please!
 	DCD	Initialisation	;  REM init
-	DCD	0	;  MnuDta; REM &00 ; menu...extension menu
-	DCD	Initialisation - DataTable	;  REM size of table ; len
+	DCD	menu	;  MnuDta; REM &00 ; menu...extension menu
+	DCD	TableEnd - DataTable	;  REM size of table ; len
 	DCD	0	;  postload
 	DCD	0	;  REM beforesave ; e_presave   \ called before saved
 	DCD	0
-	DCD	E_Start	;  REM e_start           \ window entering mode
-	DCD	E_End	;  REM e_end               \ window leaving mode
+	DCD	0 ;E_Start	;  REM e_start           \ window entering mode
+	DCD	0 ;E_End	;  REM e_end               \ window leaving mode
 	DCD	0x00	;  REM e-width             \ find work area width
 	DCD	0x00
 	DCD	0x00
@@ -133,13 +150,16 @@ DataTable
 	DCD	0x00	;  REM e_setwidth - changing window width
 	DCD	0x00
 	DCD	redrawA	;  REM e_prevline \ find start of update reg'n; Easy!
-	DCD	gotoopenwindow	;  REM ; e_openwindow
+	DCD	0 ;gotoopenwindow	;  REM ; e_openwindow
 	DCD	interrogate
+TableEnd
+
+menu	=	"ZapTex:Menus",0
+	ALIGN
+
 Initialisation
 	CMP	r1, #9
 	BEQ	spellcheck
-	CMP	r1, #7
-	BEQ	amenucreation
 	CMP	r1, #1
 	MOVCC	pc, lr
 	STREQ	r0, [r11, #4]
@@ -225,13 +245,8 @@ noheapblkatall
 	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
 justendtheresnoneed
 	LDMFD	sp!, {r1, r7, r8, pc}
-amenucreation
-	STMFD	sp!, {r0, lr}
-	BL	loadmenuifrequired
-	LDMVSFD	sp!, {r0, pc}
-	FNcall	Zap_ReadMenu
-	LDR	r1, [r0, #4]
-	LDMFD	sp!, {r0, pc}
+
+
 CmdTable
 	DCD	CmdTable
 	DCD	0
@@ -254,6 +269,8 @@ CmdTable
 	=	"LATEX_PREVSUBSECTION", 0, "", 0, "", 0, "", 0, ""
 	DCD	LaTeX_PrevSubsection
 	DCD	0
+
+
 modenumberlocal
 	DCD	0
 startupformatwd
@@ -266,150 +283,28 @@ GtIt
 	SUB	r7, r1, r7
 	STR	r7, [r0]
 	B	backinaction
+
 MenuExtension
-	=	"Comments", 0x00, "$ ... $", 0x00, "NotUsed", 0x00, "{ and }", 0x00, "\\commands", 0x00, "\\#"	;  Punctuation"
-	=	0x00, "Backslash", 0x0, "Special"	;  _ ^ ~ &"
-	=	0x0, "\\an@cmd", 0x0, "User"
-	DCW	0x0
+	=	"Comments",0
+	=	"$ ... $",0
+	=	"NotUsed",0
+	=	"{ and }",0
+	=	"\\commands",0
+	=	"\\#",0
+	=	"Backslash",0
+	=	"Special",0
+	=	"\\an@cmd",0
+	=	"User",0,0
 	ALIGN
-R8tmp
-	
-	DCD	0
-R9tmp
-	
-	DCD	0
-R12tmp
-	DCD	0
+
+R8tmp	DCD	0
+R9tmp	DCD	0
+R12tmp	DCD	0
+
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 lasttryadr
-	
 	DCD	0
-		;  .splus
-		;      STMFD   R13!,{R3,R14}
-		;      LDR     R2,[R9,#0]
-		;      LDR     R3,[R9,#52]
-		;      CMP     R1,R3
-		;      LDRCS   R3,[R9,#60]
-		;      ADDCS   R1,R1,R3
-		;      LDRCS   R0,[R9,#8]
-		;      ADDCS   R3,R3,R0
-		;      BL      SPlusBrG
-		;      BCC     SPlusBrB
-		;      ADD     R1,R1,#1
-		;      B       SPlusBrD
-		; 
-		;  .SPlusBrA
-		;      BL      SPlusBrF
-		; 
-		;  .SPlusBrB
-		;      BCS     SPlusBrD
-		;      BNE     SPlusBrA
-		; 
-		;  .SPlusBrC
-		;      TEQ     R0,#&20
-		;      LDRNEB  R14,[R8,#144]
-		;      TEQNE   R0,R14
-		;      BEQ     SPlusBrE
-		;      BL      SPlusBrF
-		;      BCS     SPlusBrD
-		;      BEQ     SPlusBrC
-		;  .SPlusBrD
-		;      LDR     R0,[R9,#56]
-		;      CMP     R1,R0
-		;      LDRCS   R0,[R9,#60]
-		;      SUBCS   R1,R1,R0
-		;      MVN     R2,#0
-		;      LDMFD   R13!,{R3,PC}
-		;  .SPlusBrE
-		;      BL      SPlusBrF
-		;      TEQ     R0,#&20
-		;      LDRNEB  R14,[R8,#144]
-		;      TEQNE   R0,R14
-		;      BEQ     SPlusBrE
-		;      B       SPlusBrD
-		; 
-		;  .SPlusBrF
-		;      ADD     R1,R1,#1
-		; 
-		;  .SPlusBrG
-		;      CMP     R1,R3
-		;      BCC     SMinusBrG
-		;      LDR     R0,[R9,#52]
-		;      TEQ     R1,R0
-		;      BNE     SPlusBrD
-		;      LDR     R0,[R9,#60]
-		;      ADD     R1,R1,R0
-		;      LDR     R3,[R9,#8]
-		;      ADD     R3,R3,R0
-		; 
-		;      STMFD   R13!,{R14}
-		;      LDR     R14,[R9,#f_bufl]
-		;      SUB     14,14,#1
-		;      CMP     R1,R14
-		;      LDRCCB  R0,[R2,R1]
-		;      AndCS   0,1,#&FF
-		;      LDMFD   R13!,{R14}
-		;      B       CursorPriority%
-		; 
-		;  .sminus
-		;      CMP     R2,#1
-		;      BHI     SMinusBrA
-		;      TEQ     R1,#0
-		;      SUBNE   R1,R1,#1
-		;      MVN     R2,#0
-		;      MOV     PC,R14
-		;  .SMinusBrA
-		;      STMFD   R13!,{R3,R14}
-		;      LDR     R2,[R9,#f_ptr]
-		;      LDR     R0,[R9,#f_splito]
-		;      CMP     R1,R0
-		;      LDRCS   R0,[R9,#f_splits]
-		;      ADDCS   R1,R1,R0
-		;      LDRCS   R3,[R9,#f_splite]
-		;      MOVCC   R3,#0
-		;  .SMinusBrB
-		;      BL      SMinusBrF
-		;      BCS     SMinusBrD
-		;      BNE     SMinusBrB
-		;  .SMinusBrC
-		;      TEQ     R0,#&20
-		;      LDRNEB  R14,[R8,#144]
-		;      TEQNE   R0,R14
-		;      BEQ     SMinusBrE
-		;      BL      SMinusBrF
-		;      BCS     SMinusBrD
-		;      BEQ     SMinusBrC
-		;  .SMinusBrD
-		;      ADD     R1,R1,#1
-		;      LDR     R0,[R9,#f_splite]
-		;      CMP     R1,R0
-		;      LDRCS   R0,[R9,#f_splits]
-		;      SUBCS   R1,R1,R0
-		;      MVN     R2,#0
-		;      LDMFD   R13!,{R3,PC}
-		;  .SMinusBrE
-		;      BL      SMinusBrF
-		;      TEQ     R0,#&20
-		;      LDRNEB  R14,[R8,#144]
-		;      TEQNE   R0,R14
-		;      BEQ     SMinusBrE
-		;      B       SMinusBrD
-		;  .SMinusBrF
-		;      SUB     R1,R1,#1
-		;      CMP     R1,R3
-		;      BCS     SMinusBrG
-		;      TEQ     R1,#0
-		;      MVNEQ   R2,#0
-		;      LDMEQFD R13!,{R3,PC}
-		;      LDR     R0,[R9,#f_splits]
-		;      SUB     R1,R1,R0
-		;      MOV     R3,#0
-		;  .SMinusBrG
-		;      CMP     R1,#0
-		;      LDRPLB  R0,[R2,R1]
-		;      AndMI   0,1,#&FF
-		; 
-		;      B       CursorPriority%
+
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 UnkPreColBit
 	STMFD	sp!, {r1-r4, lr}
@@ -438,33 +333,14 @@ DefaultColours
 	=	0x04	;  REM GSTrans        =&11
 	=	0x0C	;  REM Unknown        =&12
 	=	0x00, 0x00	;  REM double zero termination !
-		;  REM ALIGN
-		;  .CursorPriority%
-		;      STMFD   R13!,{R1}
-		;      LDRB    R1,[R8,#88]
-		;      TEQ     R0,R1
-		;      LDMFD   R13!,{R1}
-		;      OrrEQS  PC,R14,#&20000000
-		;      BIC     R14,R14,#&20000000
-		;      CMP     R0,#ASC"0"
-		;      OrrCCS  PC,R14,#&40000000
-		;      CMP     R0,#ASC":;"
-		;      MOVCC   PC,R14
-		;      CMP     R0,#ASC"A"
-		;      OrrCCS  PC,R14,#&40000000
-		;      CMP     R0,#ASC"["
-		;      MOVCC   PC,R14
-		;      CMP     R0,#ASC"a"
-		;      OrrCCS  PC,R14,#&40000000
-		;      CMP     R0,#ASC"{"
-		;      MOVCC   PC,R14
-		;      OrrS    PC,R14,#&40000000
+
 Tk1frm12andret
 	LDR	r0, [r11, #12]
 	SUBS	r0, r0, #1
 	STR	r0, [r11, #12]
 	MVNNE	r0, #0
-	MOVS	pc, lr
+	MOV	pc, lr
+
 ZapModeWord
 	STMFD	sp!, {r0-r2, lr}
 	LDR	r1, [r11, #4]
@@ -503,84 +379,8 @@ initialiseheap
 	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
 	BL	OnToWrtMdeWrd
 	LDMFD	sp!, {r1-r6, r8-r12, pc}
-E_Start
-	STMFD	sp!, {r1, r6, r7, lr}
-	STMFD	sp!, {r1-r12, lr}
-	LDRB	r1, [r11, #4]
-	ORR	r1, r1, #0x100
-	FNcall	Zap_ReadVar
-	STR	r0, localdefltmw
-	LDMFD	sp!, {r1-r12, lr}
-	BL	ZapModeWord
-	CMP	r7, #0
-	BLEQ	initialiseheap
-	TEQ	r8, #0
-	BEQ	BeforeAllare8
-	LDRVC	r1, [r7, #0]
-	TEQVC	r1, #zizeofcfgwksp
-	BEQ	BeforeAllare8
-	MOVVC	r1, #zizeofcfgwksp
-	MOVVC	r0, r7
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #8
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	MOVVC	r7, r0
-	STRVC	r1, [r7, #0]
-	BLVC	OnToWrtMdeWrd
-BeforeAll
-	LDR	r0, localdefltmw
-	LDR	r0, [r0, #0xC]
-	STR	r0, [r7, #0xC]
-	MOV	r0, #0x0D
-	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
-BeforeAllare8
-	LDRVC	r0, [r11, #4]
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #0x015C	;  REM restore mode options on e_start
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	LDR	r1, [r7, #0x0C]
-	ADRL	r0, w_formmb
-	STR	r1, [r0, #0x08]
-	CMP	r8, #0
-	LDMEQFD	sp!, {r1, r6, r7, pc}
-	BL	destroyanypanes
-	BLVC	gomakepanehappen
-	LDMVSFD	sp!, {r1, r6, r7, pc}
-	ADR	r0, keyssrchstr
-	MOV	r1, #2
-	MOV	r3, #0x100
-	MVN	r4, #0
-	MOV	r5, #((1:SHL:25) :OR: (1:SHL:26) :OR: (1:SHL:24))
-	FNcall	Zap_Search
-	CMP	r0, #0
-	LDR	r1, [r7, #0x0C]
-	ORRPL	r1, r1, #(1 << 19)
-	BICMI	r1, r1, #(1 << 19)
-	STR	r1, [r7, #0x0C]
-	ADRL	r0, w_formmb
-	STR	r1, [r0, #0x08]
-	LDMFD	sp!, {r1, r6, r7, pc}
-E_End
-	STMFD	sp!, {r7, lr}
-	CMP	r8, #0
-	BLNE	destroyanypanes
-	BL	ZapModeWord
-	LDRVC	r0, [r11, #4]
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #Zap_SaveModeWord	;  REM - save on e_end
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	LDMFD	sp!, {r7, pc}
-keyssrchstr
-	=	"KEY:\\|LineEditor\\|Paths:\\|Search macros:\\|&500", 0, ""
-	ALIGN
-SDsasa
-	DCD	0x1200004D
+
+SDsasa	DCD	0x1200004D
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 adrofrsix
 	DCD	0
@@ -625,9 +425,11 @@ BitAftStart
 	MOVNE	r10, r5
 	CMP	r7, r10
 	BCS	BitAftStart
-UpToStart
-	ADDS	r6, r6, #1	;  REM #2 USED TO MAKE THE TOP LINE GO WRONG
-	ADD	r7, r7, #1	;  REM #2 SEEMS TO BE EXECUTED ONLY AT THE BOF...? nope!
+	SUB	R6,R6,#1		; cl fix
+	SUB	R7,R7,#1		;
+UpToStart				;
+	ADDS	r6, r6, #2		;
+	ADD	r7, r7, #2		;
 	SUBPL	r7, r7, r6
 	LDMPLFD	sp, {r6}
 	TEQ	r5, r10
@@ -693,7 +495,7 @@ GSTstopB
 		; LDRB    R1,[R6,R1]
 		; TEQ     R1,#&11
 		; BEQ     aftertestA
-		; 
+		;
 		; SUB     R1,R3,#1
 		; MOV     R0,#&0B
 		; STRB    R0,[R6,R1]
@@ -768,56 +570,9 @@ afterteststop
 	TST	r2, #0x08000000
 	BNE	NotANum2
 	B	NotANumber
-		;     TEQ     R0,#ASC"&"
-		;     BEQ     PreTisNum%
-		;     CMP     R0,#ASC"9"
-		;     RSBLSS  R1,R0,#ASC"0"
-		;     BLS     PreTisNum%
-		;     And     R1,R2,#&FF
-		;     TEQ     R1,#&0F     ; REM COL = Orange/NUMBERS?
-		;     BNE     NotANumber%
-		; 
-		;     BIC     R2,R2,#&FF
-		;     Orr     R2,R2,#&0E
-		; 
-		;     TEQ     R0,#ASC"-"
-		;     BEQ     TisANumber%
-		;     CMP     R0,#ASC"%"
-		;     BLE     NotANumber%
-		;     TEQ     R0,#ASC"."
-		;     TEQNE   R0,#ASC:;
-		;     BEQ     pointinnum%
-		;     TEQ     R0,#ASC"x"
-		;     BEQ     TisANumber%
-		;     And     R1,R0,#&DF
-		;     TEQ     R1,#ASC"K"
-		;     TEQNE   R0,#ASC"_"
-		;     BEQ     TisANumber%
-		;     CMP     R1,#ASC"F"
-		;     RSBLSS  R1,R1,#ASC"A"
-		;     BHI     NotANumber%
-		; 
+
 TisANumber
-		;  REM not numbers?
-		;     FNlong_adr("  ",1,w_formmb + 8)
-		;     LDR     1,[1]
-		;     AndS    1,1,#(1 << 19)
-		;     BEQ     notkeynumberprob
-		; 
-		;     LDR     1,adrofrsix
-		;     ADD     1,1,#5
-		;     CMP     6,1
-		;     BCC     BeforeColour%
-		; 
-notkeynumberprob
-		;     BIC     R2,R2,#&FF
-		;     Orr     R2,R2,#&0F
-		;     TST     R2,#&80000000
-		;     BICNE   R2,R2,#&90000000
-		;     B       BeforeColour%
 NotANumber
-		;     CMP     R0,#ASC"_"
-		;     BEQ     PlainNoOSChk
 	CMP	r0, #128
 	BCS	PlainNoOSChk
 	CMP	r0, #'{'
@@ -977,7 +732,7 @@ lastofthebackslash
 	SUB	r3, r3, #1
 	STRB	r1, [r6, r3]
 	ADD	r3, r3, #1
-	B	AfterColour	;  BeforeColour% ; 
+	B	AfterColour	;  BeforeColour% ;
 ComCodeRestart
 	TEQ	r0, #'_'
 	BEQ	AfterCmdCntChk
@@ -1080,10 +835,10 @@ PreTisNum
 	ORR	r2, r2, #0x02
 	B	BeforeColour
 Sol6
-	
+
 	DCD	0
 Sol7
-	
+
 	DCD	0
 BranchYYY
 	CMP	r6, #0
@@ -1142,206 +897,7 @@ testampersand
 	B	afterteststop
 localrtadr
 	DCD	0
-		; .GSTtestMO
-		;     MOV     1,#0
-		; .GSTtest
-		;     STR     1,localrtadr
-		;     CMP     R6,#0
-		;     BLT     GSTstop
-		;     STMFD   13 !,{0,2,4,5}
-		; 
-		;     And     1,2,#&FF
-		;     TEQ     1,#&0A
-		;     TEQNE   1,#&09
-		;     BEQ     notaGSTSequence
-		; 
-		;     MOV     4,7
-		;     MVN     0,#0
-		; .GSTchklp
-		;     SUB     0,0,#1
-		; 
-		;     ADD     5,4,0
-		;     LDR     1,[9,#f_ptr]
-		; 
-		;     CMP     5,1
-		;     BCC     notaGSTSequence
-		; 
-		;     LDR     2,[9,#f_splito]
-		;     ADD     2,1,2
-		;     CMP     5,2
-		;     BCC     inbothalfalread
-		; 
-		;     LDR     2,[9,#f_splite]
-		;     ADD     2,1,2
-		;     CMP     5,2
-		;     LDRCC   5,[9,#f_splits]
-		;     SUBCC   4,4,5
-		; 
-		; .inbothalfalread
-		;     LDRB    R1,[4,0]
-		;     ;CMP     R1,#09     : ;BEQ GSTchklp
-		;     CMP     R1,#ASC">" : ;BEQ notaGSTSequence
-		;     CMP     R1,#ASC" " : ;BLT notaGSTSequence
-		;     CMP     R1,#ASC"""" : ;BEQ notaGSTSequence
-		;     CMP     R1,#127    : ;BGT notaGSTSequence
-		; ;    CMP     R1,#ASC"<"
-		; ;    BNE     GSTchklp
-		;     B     GSTchklp
-		; 
-		; .BACKInEntity
-		;     MOV     1,#&0E
-		; 
-		;     ADD     5,6,3
-		;     ADD     0,0,#1
-		; 
-		;     ADD     4,6,0
-		;     LDR     2,adrofrsix
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		;     ADD     0,0,#1
-		; 
-		;     MOV     R1,#&0B
-		; 
-		;     CMN     0,#0
-		;     BEQ     GupSAway
-		; .roundAloop
-		;     ADD     4,6,0
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		;     ADD     0,0,#1
-		;     CMP     0,#0
-		;     BLT     roundAloop
-		; .GupSAway
-		;     MOV     1,#&0E
-		; 
-		;     ADD     4,6,0
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		; 
-		;     LDMFD   13 !,{0,2,4,5}
-		; 
-		;     BCC    AfterColour%
-		;     LDR    1,localrtadr
-		;     CMP    1,#0
-		;     BEQ    AfterColour%
-		;     B      secondendofGST
-		; 
-		; .notaGSTSequence
-		;     LDMFD  13 !,{0,2,4,5}
-		;     LDR    1,localrtadr
-		;     CMP    1,#0
-		;     BEQ    GSTstop
-		;     B      secondendofGST
-		; 
-		; .GSTtestBO
-		;     MOV     1,#0
-		; .GSTtestB
-		;     STR     1,localrtadr
-		; 
-		;     CMP     R6,#0
-		;     BLT     GSTstopB
-		; 
-		;     STMFD   13 !,{0,2,4,5}
-		;     TST     2,#&40000000
-		;     BNE     notaGSTSequenceB
-		; 
-		;     FNlong_adr("  ",1,w_formmb + 8)
-		;     LDR     1,[1]
-		; 
-		;     AndS    1,1,#(1 << 19)
-		;     BEQ     notaGSTSequenceB
-		; 
-		;     And     1,2,#&FF
-		;     TEQ     1,#&0A
-		;     TEQNE   1,#&09
-		;     BEQ     notaGSTSequenceB
-		; 
-		;     MOV     4,7
-		;     MVN     0,#0
-		; .GSTchklpB
-		;     SUB     0,0,#1
-		; 
-		;     ADD     5,4,0
-		;     LDR     1,[9,#f_ptr]
-		; 
-		;     CMP     5,1
-		;     BCC     notaGSTSequenceB
-		; 
-		;     LDR     2,[9,#f_splito]
-		;     ADD     2,1,2
-		;     CMP     5,2
-		;     BCC     inbothalfalreadB
-		; 
-		;     LDR     2,[9,#f_splite]
-		;     ADD     2,1,2
-		;     CMP     5,2
-		;     LDRCC   5,[9,#f_splits]
-		;     SUBCC   4,4,5
-		; 
-		; .inbothalfalreadB
-		;     LDRB    R1,[4,0]
-		;     ;CMP     R1,#09     : ;BEQ GSTchklpB
-		;     CMP     1,#ASC" " : ;BLT notaGSTSequenceB
-		;     ; CMP     1,#ASC")"
-		;     CMP     1,#ASC""""
-		;     ; CMPNE   1,#ASC"'"
-		;     BEQ     notaGSTSequenceB
-		;     CMP     R1,#127    : ;BGT notaGSTSequenceB
-		;     CMP     R1,#ASC"("
-		;     BNE     GSTchklpB
-		;     CMN     0,#2
-		;     BCS     GSTchklpB
-		; 
-		; .BACKInEntityB
-		;     MOV     1,#&0C
-		; 
-		;     ADD     5,6,3
-		;     ADD     0,0,#1
-		; 
-		;     ADD     4,6,0
-		;     LDR     2,adrofrsix
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		;     ADD     0,0,#1
-		; 
-		;     MOV     R1,#&0C
-		; 
-		;     CMN     0,#0
-		;     BEQ     GupSAwayB
-		; .roundAloopB
-		;     ADD     4,6,0
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		;     ADD     0,0,#1
-		;     CMP     0,#0
-		;     BLT     roundAloopB
-		; .GupSAwayB
-		;     MOV     1,#&0C ; ?
-		; 
-		;     ADD     4,6,0
-		;     CMP     4,2
-		; 
-		;     STRCSB  1,[5,0]
-		; 
-		;     LDMFD   13 !,{0,2,4,5}
-		; 
-		;     BCC    AfterColour%
-		;     LDR    1,localrtadr
-		;     CMP    1,#0
-		;     BEQ    AfterColour%
-		;     B      secondendofGSTB
-		; 
-		; .notaGSTSequenceB
-		;     LDMFD  13 !,{0,2,4,5}
-		;     LDR    1,localrtadr
-		;     CMP    1,#0
-		;     BEQ    GSTstopB
-		;     B      secondendofGSTB
+
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 posscsvcommstart
 	LDR	r1, Sol7
@@ -1827,10 +1383,10 @@ colouringrapidexit
 	LDMFD	sp!, {r4-r12, pc}
 ErrorSet2
 		;  REM code is still here?
-	MOV	r9, #0	; 
-	ADD	r6, r6, r3	; 
-	ADD	r6, r6, r11	; 
-	MOV	r10, #0x10	; 
+	MOV	r9, #0	;
+	ADD	r6, r6, r3	;
+	ADD	r6, r6, r11	;
+	MOV	r10, #0x10	;
 lasdwB
 	ADD	r4, r7, r9
 	CMP	r4, r11
@@ -1920,25 +1476,6 @@ Branch210
 	BLEQ	Tk1frm12andret
 	LDMFD	sp!, {r11, pc}
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-D1
-	=	"ZapTeX"
-	DCW	0x0
-	DCD	0x00
-	DCD	0x00
-	DCD	0x00
-	DCD	D2
-	=	0x00
-D2
-	=	0x1B, 0x00, " provides support for", 0x1B, 0x02, "Zap editor.", 0x0D, "It provides a syntax-colouring mode for TeX ", 0x1B, 0x07, "s.", 0x00
-	ALIGN
-ModHelpString
-	=	"ZapTeX"
-	DCW	0x0909
-	=	"0.05 (00 Jan 0000) © Tim Tyler", 0x00
-lp1
-	=	"Tim Tyler", 0x00
-	ALIGN
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 charchar
 	STMFD	sp!, {lr}
 	MOV	r1, #0
@@ -2095,7 +1632,7 @@ asnormaldot
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
+		;
 		;     B       insrtstfhre
 beepandexit
 		;  REM stop full
@@ -2132,12 +1669,12 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
+		;
 		;     B       insrtstfhre
 		; .entityabbrev
 		;     MVN     0,#0
 		;     STR     0,isentity
-		; 
+		;
 		;     LDR     0,locoftableent
 		;     ;FNlong_adr("  ",0,entitylist)
 		;     LDR     1,storedofsofsow
@@ -2147,12 +1684,12 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     Secondtry
-		; 
+		;
 		;     B       insrtstfhre
 		; .Secondtry
 		;     MOV     0,#&1
 		;     STR     0,isentity
-		; 
+		;
 		;     LDR     0,locoftableent
 		;     ;FNlong_adr("  ",0,entitylist)
 		;     LDR     1,storedofsofsow
@@ -2162,7 +1699,7 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
+		;
 		;     B       insrtstfhre
 insrtstfhre
 	MOV	r2, #31	;  max value
@@ -2188,12 +1725,12 @@ _altered_4
 		;     LDR     0,endtermhere
 		;     CMP     0,#ASC"¿"
 		;     BNE     noequalsaddedon
-		; 
+		;
 		;     FNlong_adr("  ",3,w_formmb + 4)
 		;     LDRB    3,[3,#2]
 		;     CMP     3,#0
 		;     BNE     noequalsaddedon
-		; 
+		;
 		;     ADR     3,eqstrhere
 		;     LDR     2,inshash
 		;     LDR     1,storedofsofsow
@@ -2206,7 +1743,7 @@ _altered_4
 		;     LDRB    3,[3,#2]
 		;     CMP     3,#0
 		;     BNE     noclosetagneeded
-		; 
+		;
 		;     LDR     1,endtermhere
 		;     LDR     0,startslash
 		;     TEQ     1,#ASC"º"
@@ -2219,7 +1756,7 @@ _altered_4
 		;     MOV     0,#&1
 		;     MOV     2,#1
 		;     FNcall(Zap_Command)
-		; 
+		;
 		; .noclosetagneeded
 	FNcall	Zap_StopOp
 	LDMFD	sp!, {r0-r12, pc}
@@ -2283,7 +1820,7 @@ dontcomparejn
 	CMP	r12, r5
 	BLT	_altered_6
 		; STMFD   R13!,{R8-R12}
-		; 
+		;
 	STR	r12, delhash
 	MOV	r7, r11
 	MOV	r12, #0
@@ -2518,6 +2055,7 @@ _altered_12
 	SUBS	r4, r4, #1
 	BNE	_altered_12
 	B	FromMJE20
+
 FromMJE26
 		;  REM get delay
 	STMFD	sp!, {r1, r2, lr}
@@ -2531,21 +2069,7 @@ FromMJE26
 	TST	r1, #(1 << 26)
 	MOVNE	r0, r2
 	LDMFD	sp!, {r1, r2, pc}
-		; .ampsemi
-		;     FNlong_adr("  ",2,w_formmb + 4)
-		;     LDRB    2,[2,#1]
-		;     TST     1,#(1 << 24)
-		;     MOVNE   0,2
-		;     LDMFD   R13!,{1,2,PC}
-Zap_insertstuff
-	STMFD	sp!, {r7, lr}
-	MOV	r0, #1
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #Zap_DoCommand
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
-	LDMFD	sp!, {r7, pc}
+
 FromMJE27
 	STMFD	sp!, {r9, r11, lr}
 	LDR	r9, [r11, #4]	;  REM mode word...
@@ -2556,51 +2080,7 @@ FromMJE27
 	MOV	lr, pc
 	LDMFD	sp!, {pc}
 	LDMFD	sp!, {r11, pc}
-FromMJE28
-	LDR	r0, [r10, #12]
-	SUBS	r0, r0, #1
-	MOVLT	r0, #0
-	MOVLT	pc, lr
-FromMJE30
-	LDRB	r2, [r1], #1
-	CMP	r2, #0x20
-	MOVCC	r2, #0
-	STRB	r2, [r0], #1
-	BCS	FromMJE30
-	SUB	r0, r0, #1
-	MOVS	pc, lr
-	MOV	r1, r0
-	MOV	r0, #0
-FromMJE31
-	LDRB	r2, [r1, r0]
-	ADD	r0, r0, #1
-	CMP	r2, #0x20
-	BCS	FromMJE31
-	MOVS	pc, lr
-FromMJE32
-	TEQ	r8, #0
-	LDRNE	r0, [r8, #40]
-	MOVNE	pc, lr
-	STMFD	sp!, {r1, lr}
-	MOV	r1, #3
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #0x48
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
-	LDMFD	sp!, {r1, pc}
-FromMJE33
-	TEQ	r8, #0
-	LDRNE	r0, [r8, #92]
-	MOVNE	pc, lr
-	STMFD	sp!, {r1, lr}
-	MOV	r1, #2
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #Zap_ReadVar
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
-	LDMFD	sp!, {r1, pc}
+
 GetModeWord
 	STMFD	sp!, {r0-r2, lr}
 	LDR	r1, [r11, #4]
@@ -2707,12 +2187,13 @@ endcheckbackwardsnow
 	LDMFD	sp!, {r0, r2, pc}
 localstorevalue
 	DCD	0
+
 BranchSave
 	STMFD	sp!, {r1, r2, lr}
 	FNcall	Zap_SaveFile
 	LDMFD	sp!, {r1, r2, lr}
-JustRun
-	STMFD	sp!, {r0-r12, lr}
+
+JustRun	STMFD	sp!, {r0-r12, lr}
 	MOV	r0, #6
 	MOV	r3, #0x260
 	SWI	XOS_Module
@@ -2729,284 +2210,16 @@ JustRun
 	SWI	XOS_Module
 totalfailure
 	LDMFD	sp!, {r0-r12, pc}
-OneA
-	LDRB	r0, [r1], #1
+
+OneA	LDRB	r0, [r1], #1
 	STRB	r0, [r2], #1
 	CMP	r0, #0x20
 	BCS	OneA
 	MOV	r0, #0
 	STRB	r0, [r2, #-1]
 	MOV	pc, lr
-callmiscentrypt
-	STMFD	sp!, {r0-r12, lr}
-	ADRL	lr, w_formmb
-	LDR	lr, [lr, #8]
-	ANDS	lr, lr, #1 << 20
-	LDMEQFD	sp!, {r0-r12, pc}
-	ADRL	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #1
-	LDMMIFD	sp!, {r0-r12, pc}
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMMIFD	sp!, {r0-r12, pc}
-	ADD	r3, r3, #0x2C
-	STR	r3, alocaljumper
-	LDMFD	sp, {r0-r12, lr}
-	MOV	lr, pc
-	LDR	pc, alocaljumper
-	MOV	r0, r0
-	LDMFD	sp!, {r0-r12, pc}
-gotoopenwindow
-	STMFD	sp!, {lr}
-	BL	openwindowroutine
-	CMP	r0, #0	;  REM If there was a pane then no problem
-	LDMNEFD	sp!, {pc}	;  REM just return...
-	BL	gomakepanehappen	;  REM ...otherwise try to make one...
-	BLVC	openwindowroutine	;  REM ...and redraw it...
-	LDMFD	sp!, {pc}
-openwindowroutine
-	STMFD	sp!, {r0-r12, lr}
-	ADRL	lr, w_formmb
-	LDR	lr, [lr, #8]
-	TST	lr, #(1 << 20)
-	TSTEQ	lr, #(1 << 31)
-	LDMEQFD	sp!, {r0-r12, pc}
-	BL	trytoloadmode
-	ADRL	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #1
-	BMI	_altered_13
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	BVS	_altered_13
-	ADD	r3, r3, #0x28
-	STR	r3, alocaljumper
-	LDMFD	sp!, {r0-r12, lr}
-	ADRL	r2, w_formmb
-	LDR	r2, [r2, #8]
-	ANDS	r2, r2, #1 << 31
-	MOVNE	r2, #0xFF
-	LDR	pc, alocaljumper
-nojuice2
-	LDMFD	sp, {r0-r12, lr}
-	ADRALL	r9, modenumberlocal
-	LDR	r9, [r9]
-	MOV	r11, #e_openwindow
-	FNcall	Zap_BaseMode
-	LDMFD	sp!, {r0-r12, pc}
-gomakepanehappen
-	STMFD	sp!, {r0-r12, lr}
-	STMFD	sp!, {r1-r11}
-	ADRL	r1, modenumberlocal
-	LDRB	r1, [r1]
-	FNcall	Zap_GetModeWord
-	LDMFD	sp!, {r1-r11}
-	LDR	r0, [r0, #0x0C]
-	STR	r0, alocaljumper
-	ANDS	r0, r0, #1 << 20
-	LDMEQFD	sp!, {r0-r12, pc}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice1
-backinthethickofit
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r0-r12, pc}
-	ADD	r10, r3, #0x24
-	LDR	r0, alocaljumper
-	MOV	r4, #0
-	ANDS	r1, r0, #1 << 28
-	ORRNE	r4, r4, #8
-	ANDS	r1, r0, #1 << 29
-	ORRNE	r4, r4, #4
-	ANDS	r1, r0, #1 << 30
-	ORRNE	r4, r4, #2
-	LDR	r0, adrofscri
-	CMP	r0, #0
-	BLEQ	getthethreeelements
-	LDMVSFD	sp!, {r0-r12, pc}
-	MOV	r7, #0
-	MOV	r6, #0
-	LDR	r5, adrofmenu
-	LDR	r3, adrofscri
-	LDR	r2, adroftemp
-	LDR	r1, adrofspri
-	MOV	r0, #0
-	MOV	lr, pc
-	MOV	pc, r10
-	MOV	r0, r0
-	LDMFD	sp!, {r0-r12, pc}
-buttonsamed
-	=	"Zap"
-buttonsamed2
-	=	"Buttons", 0, "", 0, ""
-alocaljumper
-	DCD	0
-nojuice1
-	BL	trytoloadmode
-	CMP	r0, #0
-	BPL	backinthethickofit
-	LDMFD	sp!, {r0-r12, pc}
-trytoloadmode
-	STMFD	sp!, {lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_ModeNumber
-	LDMFD	sp!, {pc}
-destroyanypanes
-	STMFD	sp!, {r0-r12, lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice4
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r0-r12, pc}
-	ADR	r0, buttndelhere
-	FNcall	Zap_CommandString
-nojuice4
-	LDMFD	sp!, {r0-r12, pc}
-closeanypanes
-	STMFD	sp!, {r0-r12, lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice4
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r0-r12, pc}
-	ADR	r0, buttnclohere
-	FNcall	Zap_CommandString
-	LDMFD	sp!, {r0-r12, pc}
-buttndelhere
-	=	"BUTTONS_DELETE", 0, "", 0, ""
-buttnclohere
-	=	"BUTTONS_CLOSE", 0, "", 0, "", 0, ""
-_altered_13
-	LDMFD	sp, {r0-r12, lr}
-	ADRALL	r9, modenumberlocal
-	LDR	r9, [r9]
-	MOV	r11, #e_openwindow
-	FNcall	Zap_BaseMode
-	LDMFD	sp!, {r0-r12, pc}
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-getthethreeelements
-	STMFD	sp!, {r1-r4, lr}
-	ADR	r1, markcmdpath
-	BL	loadandretptr
-	LDMVSFD	sp!, {r1-r4, pc}
-	STR	r0, adrofscri
-	BL	changeLFto00
-	ADR	r1, marksprpath
-	BL	loadandretptr2
-	LDMVSFD	sp!, {r1-r4, pc}
-	ADR	r1, marktempath
-	BL	loadandretptr
-	LDMVSFD	sp!, {r1-r4, pc}
-	STR	r0, adroftemp
-	BL	loadmenuifrequired
-	LDMFD	sp!, {r1-r4, pc}
-loadmenuifrequired
-	STMFD	sp!, {lr}
-	LDR	r0, adrofmenu
-	CMP	r0, #0
-	LDMNEFD	sp!, {pc}
-	ADR	r1, markmenpath
-	BL	loadandretptr
-	LDMVSFD	sp!, {pc}
-	STR	r0, adrofmenu
-	LDMFD	sp!, {pc}
-loadandretptr
-	FNJSR	"r1-r5"
-	MOV	r0, #5
-	SWI	XOS_File
-	FNRTS	VS
-	STR	r4, tempS2
-	ADD	r0, r4, #7
-	BIC	r0, r0, #3
-	FNcall	Zap_Claim
-	STRVC	r0, tempS1
-	MOVVC	r3, #0
-	MOVVC	r2, r0
-	MOVVC	r0, #255
-	SWIVC	XOS_File
-	FNRTS	VS
-	LDR	r0, tempS1
-	LDR	r1, tempS2
-	MOV	r2, #0
-	B	zerotest_sja
-zeroloop_sja
-	STRB	r2, [r0, r1]
-	ADD	r1, r1, #1
-zerotest_sja
-	TST	r1, #3
-	BNE	zeroloop_sja
-	STR	r2,[ r0, r1]
-	FNRTS
-loadandretptr2
-	STMFD	sp!, {r1-r5, lr}
-	MOV	r0, #5
-	SWI	XOS_File
-	LDMVSFD	sp!, {r1-r5, pc}
-	BIC	r0, r4, #3
-	ADD	r0, r0, #0x10
-	FNcall	Zap_Claim
-	STR	r0, adrofspri
-	ADD	r4, r4, #5
-	STR	r4, [r0]
-	MOV	r3, #0
-	ADD	r2, r0, #4
-	MOV	r0, #255
-	SWI	XOS_File
-	LDMFD	sp!, {r1-r5, pc}
-tempS1
-	DCD	0
-tempS2
-	DCD	0
-adrofmenu
-	DCD	0
-adroftemp
-	DCD	0
-adrofspri
-	DCD	0
-adrofscri
-	DCD	0
-markcmdpath
-	=	"<ZapTeX$Scripts>", 0, ""
-	ALIGN
-marksprpath
-	=	"<ZapTeX$Sprites>", 0, ""
-	ALIGN
-marktempath
-	=	"<ZapTeX$Templates>", 0, ""
-	ALIGN
-markmenpath
-	=	"<ZapTeX$Menus>", 0, ""
-	ALIGN
-changeLFto00
-	LDR	r1, [r0]
-	CMP	r1, #0
-	MOVEQ	pc, lr
-	AND	r2, r1, #0xFF
-	CMP	r2, #0x0A
-	BICEQ	r1, r1, #0xFF
-	AND	r2, r1, #0xFF00
-	CMP	r2, #0x0A00
-	BICEQ	r1, r1, #0xFF00
-	AND	r2, r1, #0xFF0000
-	CMP	r2, #0x0A0000
-	BICEQ	r1, r1, #0xFF0000
-	AND	r2, r1, #0xFF000000
-	CMP	r2, #0x0A000000
-	BICEQ	r1, r1, #0xFF000000
-	STR	r1, [r0], #4
-	B	changeLFto00
+
+
 	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 	;	Queries from Zap
 	;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -3025,16 +2238,14 @@ swchars
 theswchars
 	=	" -~", 0
 	ALIGN
+
+
 	DCD	0x8017
 Cmdhtmlflagstoggle
 	STMFD	sp!, {lr}
 	LDR	r10, [r0]
 	ADRL	r1, modenumberlocal
 	LDR	r1, [r1]
-		; CMP     8,#0
-		; LDRNEB  0,[8,#w_format]
-		; CMPNE   0,1
-		; LDMNEFD D !,{PC}
 	STMFD	sp!, {r1-r11}
 	FNcall	Zap_GetModeWord
 	LDMFD	sp!, {r1-r11}
@@ -3061,33 +2272,10 @@ Cmdhtmlflagstoggle
 	ADRL	r0, w_formmb
 	STR	r7, [r0, #8]
 	CMP	r8, #0
-	LDMEQFD	sp!, {pc}
-	ANDS	r0, r5, #2
-	BLNE	sortbbout
-	ANDS	r0, r5, #0x10
-	BLNE	sortwwout3
-	ANDS	r0, r5, #8
-	BLNE	sortwwout2
-	ANDS	r0, r5, #4
-	BLNE	sortwwout
-	ANDS	r0, r5, #1
-	BLNE	sortbuttonsout
+	;LDMEQFD	sp!, {pc}
 	LDMFD	sp!, {pc}
 execute
 	AND	r2, r1, #0x1F
-	CMP	r2, #20
-	ORREQ	r5, r5, #1
-	CMP	r2, #28
-	CMPNE	r2, #29
-	CMPNE	r2, #30
-	ORREQ	r5, r5, #2	;  REM only 2 needed...?
-	CMP	r2, #31
-	ORREQ	r5, r5, #0x1C
-	CMP	r2, #27
-	CMPNE	r2, #24
-	CMPNE	r2, #19
-	ORREQ	r5, r5, #0x08
-	MOV	r3, #1
 	MOV	r3, r3, LSL r2
 	MOV	r2, #0
 	MOV	r4, #0
@@ -3101,6 +2289,7 @@ execute
 	ORR	r7, r7, r4
 	EOR	r7, r7, r3
 	MOV	pc, lr
+
 tickquery
 	AND	r2, r10, #0x1F
 	MOV	r3, #1
@@ -3109,48 +2298,11 @@ tickquery
 	MOVNE	r0, #1
 	MOVEQ	r0, #0
 	LDMFD	sp!, {pc}
-sortwwout
-	STMFD	sp!, {r5, lr}
-	MOV	r0, #4
-	BL	callmiscentrypt
-	LDMFD	sp!, {r5, pc}
-sortwwout2
-	STMFD	sp!, {r5, lr}
-	MOV	r0, #5
-	BL	callmiscentrypt
-	LDMFD	sp!, {r5, pc}
-sortwwout3
-	STMFD	sp!, {r5, lr}
-	MOV	r0, #7
-	BL	callmiscentrypt
-	LDMFD	sp!, {r5, pc}
-sortbbout
-	STMFD	sp!, {r5, lr}
-	MOV	r0, #3
-	BL	callmiscentrypt
-	CMP	r0, #0
-	LDMEQFD	sp!, {r5, pc}
-	BL	callopenthewindow
-	LDMFD	sp!, {r5, pc}
-callopenthewindow
-		;  REM entry r8 = window block
-	STMFD	sp!, {lr}
-	MOV	r1, r8
-	SWI	Wimp_GetWindowState
-	MOV	r0, #1
-	BL	gotoopenwindow
-	LDMFD	sp!, {pc}
-sortbuttonsout
-	STMFD	sp!, {r5, lr}
-	ANDS	r0, r7, #(1 << 20)
-	BLEQ	closeanypanes	;  REM buttons have been toggled off
-	ANDS	r0, r7, #(1 << 20)
-	LDMEQFD	sp!, {r5, pc}
-	BL	gomakepanehappen	;  REM buttons have been toggled on
-	BL	gotoopenwindow	;  REM Redraws the BBs - has to be done
-	BL	gotoopenwindow	;  REM twice - due to the first such
-		;  REM call after an open is ignored.
-	LDMFD	sp!, {r5, pc}
+
+
+
+
+
 spellcheck
 	STMFD	sp!, {lr}
 	MOV	r7, r0
@@ -3175,6 +2327,9 @@ charfromoffset
 	LDR	lr, [r9, #f_ptr]
 	LDRB	r0, [lr, r0]
 	LDMFD	sp!, {pc}
+
+
+
 		;  Name:;  LaTeXcmds
 		;  Purpose:; LaTeX-specific commands for Zap
 		;  Author:; LEN Elliott Hughes, 1995-1997
@@ -3355,7 +2510,7 @@ LaTeX_PrevPrimitive
 		;  ; This is the old prev primitive.
 		;  ; Disabled by Elliott Hughes 1997/03/19.
 		;  ;
-		;  
+		;
 		;  ; Are we sat on a section command?
 		;  MOV R0,R6
 		;  MOV R1,#2   ; No output.
@@ -3369,18 +2524,18 @@ LaTeX_PrevPrimitive
 		;  LDR R3,c_off
 		;  CMP R0,R3
 		;  BEQ BackOnlyOnce  ; Yes.
-		;  
+		;
 		;  ; No, so we find the start of *this* section first.
 		;  MOV R0,R6 ; ADR R0,SectionSearchString
 		;  MOV R1,#2   ; No output.
 		;  LDR R3,c_off
 		;  MOV R5,#(1<<30)+(1<<29) ; Case sensitive, no macros.
 		;   FNcall(Zap_Search)
-		;  
+		;
 		;  ; Was there a match? Return if not.
 		;  CMP R0,#0
 		;  LDMMIFD R13!,{PC}
-		;  
+		;
 		;  ; Find start of *previous* section.
 		;  .BackOnlyOnce
 		;  MOV R3,R0   ; Search again from match offset.
@@ -3388,7 +2543,7 @@ LaTeX_PrevPrimitive
 		;  MOV R1,#0   ; Output to cursor.
 		;  MOV R5,#(1<<30)+(1<<29) ; Case sensitive, no macros.
 		;   FNcall(Zap_Search)
-		;  
+		;
 		;  LDMFD R13!,{PC}
 		;  ] ; END OF COMMENTED OUT BLOCK
 ChapterSearchString
