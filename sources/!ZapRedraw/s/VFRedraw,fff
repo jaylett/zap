@@ -1,5 +1,5 @@
 ; Contains code for redraw via ViewFinder
-; $Id: VFRedraw,fff,v 1.2 2002/01/18 21:36:30 ds Exp $
+; $Id: VFRedraw,fff,v 1.3 2002/01/22 00:00:05 ds Exp $
 
 	GET	h.ZapRedHdr
 	GET	h.ZapRedraw
@@ -11,6 +11,7 @@
 	EXPORT	vf_redraw_raster
 	EXPORT	vf_plot_rect
 
+	EXPORT	viewfinder_test
 
 ;E Called from redraw_area_dsa
 ;X as for redraw_area_dsa
@@ -772,5 +773,40 @@ error$l	&	err_notimpl
 	=	"NotImpl",0
 	ALIGN
 
+;E -
+;X CS (HS) if ViewFinder in use
+
+viewfinder_test
+	FNJSR	"R0-R12"
+	LDR	R14,[R12,#viewfinder_select]
+	CMP	R14,#1
+	FNRTS	LO
+	SUB	R13,R13,#256	; allocate
+	MOV	R0,R13
+	MOV	R1,#0
+	MOV	R2,#0
+	STMIA	R0!,{R1,R2}	; char x,y
+	STMIA	R0!,{R1,R2}	; rect x,y
+	STMIA	R0!,{R1,R2}	; rect w,h
+	ADR	R1,vft_string$l
+	ADR	R2,vft_colour$l
+	ADD	R3,R1,#12
+	STMIA	R0!,{R1-R3}	; (strings, colour, font) info
+	MOV	R1,R13		; font data
+	MOV	R2,#1		; font width
+	MOV	R3,#1		; font height
+	MOV	R4,#2		; byte-aligned
+	STMIA	R0!,{R1-R4}
+	MOV	R0,#1:OR:9<<28	; text; OS, GCOL, no clip
+	MOV	R1,R13
+	SWI	XViewFinder_Draw
+	ADD	R13,R13,#256	; deallocate
+	CMNVS	R0,#0		; clear carry if V set
+	FNRTS
+
+;vftest$l
+;	& 0,0, 0,0, 3,0, -1	; null rectangle
+vft_string$l	&	0, 1, 0
+vft_colour$l	&	0, 0, 3, 3 ; EOR, transparent
 
 	END

@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.8 2002/01/18 21:36:30 ds Exp $
+; $Id: ZapRedraw,fff,v 1.9 2002/01/22 00:00:05 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -9,6 +9,7 @@
  GET h.Cache
  GET h.Messages
  GET h.DSARedraw
+ GET h.VFRedraw
  GET h.VDURedraw
 
  EXPORT div_mod
@@ -131,6 +132,7 @@ swi_table
  = "ListFonts",0		; 27    1b
  = "UpdateWindow",0		; 28    1c
  = "ReadFontInfo",0		; 29	1d
+ = "ReadModeBPP",0		; 30	1e
  = 0
  ALIGN
 
@@ -160,10 +162,14 @@ loop$l		STR	R0,[R2],#4
 
 	; Check for ViewFinder.
 		SUB	R13,R13,#12
-		ADR	R0,viewfinder_module
+		ADR	R0,viewfinder_1_29
 		SWI	XOS_CLI			; Is the module there?
 		MOVVS	R0,#0			; If not, stop now
 		BVS	set_vf_flag
+		ADR	R0,viewfinder_1_41
+		SWI	XOS_CLI			; Is it v1.41 or later?
+		MOVVC	R0,#1			; If so, assume active
+		BVC	set_vf_flag
 		ADR	R0,vf_enable_var	; Read Viewfinder$Enable
 		MOV	R1,R13
 		MOV	R2,#11
@@ -207,8 +213,10 @@ cb$l		FNJSR	"R1"				; PRMs are useless. Are we in SVC mode?
 		FNRTS
 
 
-viewfinder_module
+viewfinder_1_29
 		=	"%RMEnsure ViewFinder 1.29",0
+viewfinder_1_41
+		=	"%RMEnsure ViewFinder 1.41",0
 vf_enable_var	=	"ViewFinder$Enable",0
 
 		LOCAL
@@ -302,6 +310,7 @@ start$l
  B list_fonts
  B update_window
  B read_font_info
+ B read_mode_bpp
 end$l
 unknown$l ERROR err_ukswi,"UKSWI"
 
@@ -2546,6 +2555,23 @@ update_window
  MOV R1,R2			; wimp redraw block
  SWI XWimp_UpdateWindow
  BVC rw_1
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read mode BPP SWI					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;X R0 = ln2 (mode bpp), adjusted for ViewFinder
+
+read_mode_bpp
+ FNJSR "R1-R3"
+ BL viewfinder_test
+ MOVCS R0,#0
+ FNRTS HS
+ MOV R0,#-1
+ MOV R1,#9
+ SWI XOS_ReadModeVariable
+ MOVVC R0,R2
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

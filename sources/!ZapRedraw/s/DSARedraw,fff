@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.7 2002/01/18 21:36:30 ds Exp $
+; $Id: DSARedraw,fff,v 1.8 2002/01/22 00:00:05 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -51,11 +51,7 @@ redraw_area_dsa
 	TST	R0,#rf_aasuppress		; don't use vf if antialiased dsa
 	FNPULL	EQ
 	BEQ	novf$l
-o$l
-	LDR	R14,[R12,#viewfinder_select]
-	CMP	R14,#1
-	LDRHS	R14,[R1,#r_bpp]
-	CMPHS	R14,#3
+o$l	BL	viewfinder_test
 	FNPULL
 	BHS	vf_redraw_area
 novf$l
@@ -303,10 +299,7 @@ calculate_x_scroll
 
 redraw_raster_select
 	FNJSR
-	LDR	R14,[R12,#viewfinder_select]
-	CMP	R14,#1
-	LDRHS	R14,[R1,#r_bpp]
-	CMPHS	R14,#3
+	BL	viewfinder_test
 	FNPULL
 	BHS	vf_redraw_raster
 	; fall through
@@ -1422,9 +1415,7 @@ call_extension
 
 cached_char_size
  FNJSR
-	LDR	R14,[R12,#viewfinder_select]
-	CMP	R14,#1
-	CMPHS	R0,#3
+	BL	viewfinder_test
 	MOVHS	R0,#0		; with VF, we can normally use 1bpp fonts
  MOV R2,R2,LSL R0		; width in pixels
  CMP R2,#16
@@ -1462,10 +1453,8 @@ convert_bitmap
  SUBS R9,R9,R8			; number of chars to cache
  FNRTS LE
  LDR R7,[R1,#r_bpp]		; bpp to convert to
-	LDR	R14,[R12,#viewfinder_select]
-	CMP	R7,#3
-	CMPHS	R14,#1
-	MOVHS	R7,#0		; if VF in use and >=8bpp, just copy
+ 	BL	viewfinder_test
+	MOVHS	R7,#0		; if VF in use, just copy
  CMP R7,#0
  BLE cb_copy			; just copy the bitmap
  MOV R0,#1
