@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.12 1999/02/27 12:45:36 ds Exp $
+; $Id: Menus,fff,v 1.1.2.13 1999/02/27 19:36:42 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -73,16 +73,21 @@ $la	LDR R0,[$a,#(28+24*$b)]
 	STR R0,[$a,#(28+24*$b)]
 	MEND
 
-; create a new menu $t=title $w=width $c=creation sub
+; create a new menu $t=title $w=width $c=creation sub $h=offset to help data
 
 	GBLA menu_num_off
 	MACRO
-$la	FNnew_menu $t,$w,$c
+$la	FNnew_menu $t,$w,$c,$h
 menu_num_off SETA 0		; reset the menu entry count
 $la	= "$t",0		; title
 	ALIGN
-	DCD ($w<<4)			; width in os coords
+ [ "$h">""
+	DCD ($w<<4):OR:1<<31	; width in os coords
+	DCD $c, $h
+ |
+	DCD ($w<<4)		; width in os coords
 	DCD $c
+ ]
 	MEND
 
 ; create a new menu entry $t=title $f=flags $s=submenu $k=key/argument
@@ -1830,30 +1835,50 @@ mapn$l	MOV	R1,#'M'
 mf_warn * 8
 
 sm_curlist
- FNnew_menu "zap_m_ct",11,cm_curlist
+ FNnew_menu "zap_m_ct",11,cm_curlist, sm_curlist_help
  FNnme "zap_m_ct0",0,0,0,sub_curlist
  FNnme "zap_m_ct1",0,0,0,sub_curlist
  FNnme "zap_m_ct2",0,0,0,sub_curlist
  FNnme "zap_m_ct3",0,0,0,sub_curlist
  FNnme "zap_m_ct4",0,0,0,sub_curlist
  FNend_menu
+sm_curlist_help
+	= 27,"zap_h_ct",0
+	= 27,"zap_h_ctN",0
+	= 1,1,1,1
+	ALIGN
 
 sm_minibuffer
- FNnew_menu "zap_m_mb",12,cm_minibuffer
+ FNnew_menu "zap_m_mb",12,cm_minibuffer, sm_minibuffer_help
  FNnme "zap_m_mb0",0,0,0,sub_minibuffer,s_minipopup
  FNnme "zap_m_mb1",0,0,0,sub_minibuffer,s_miniperm
  FNnme "zap_m_mb2",0,0,0,sub_minifont,s_minifont
  FNnme "zap_m_mb3",mf_warn,mw_collist_mini,0,0,s_minifor
  FNnme "zap_m_mb4",mf_warn,mw_collist_mini,0,0,s_minibac
  FNend_menu
+sm_minibuffer_help
+	= 27,"zap_h_mb",0
+	= 27,"zap_h_mb0",0
+	= 27,"zap_h_mb1",0
+	= 27,"zap_h_mb2",0
+	= 27,"zap_h_mb3",0
+	= 27,"zap_h_mb4",0
+	ALIGN
 
 sm_cursor
- FNnew_menu "zap_m_cu",9,0
+ FNnew_menu "zap_m_cu",9,0, sm_cursor_help
  FNnme "zap_m_cu0",mf_warn,mw_curlist,0,0
  FNnme "zap_m_cu1",mf_warn,mw_curlist,0,0
  FNnme "zap_m_cu2",mf_warn,mw_curlist,0,0
  FNnme "zap_m_cu3",mf_warn,mw_curlist,0,0
  FNend_menu
+sm_cursor_help
+	= 27,"zap_h_cu",0
+	= 27,"zap_h_cu0",0
+	= 27,"zap_h_cu1",0
+	= 27,"zap_h_cu2",0
+	= 27,"zap_h_cu3",0
+	ALIGN
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialise old style relocatable menus	;
@@ -2354,12 +2379,18 @@ cms_sub
  FNJSR "R1-R11"
  MOV R1,R0			; source structure
  MOV R5,R1			; R5=save source
+ LDR R14,[R1,#12]
+ TST R14,#1<<31			; help text?
  ADD R1,R1,#&14			; first items
+ ADDNE R1,R1,#4
  MOV R4,#16+28			; R4=size need by menu (cm+header)
  MOV R6,#0			; R6=size needed by menu data
+ MOV R7,#2			; R7=number of words of help data
+ ORRNE R7,R7,#1<<31		; flag that help text is present
 count$l				; count num of entries and menu size
  BL cms_next
  ADD R4,R4,#24			; add another entry
+ ADD R7,R7,#1
  ADD R6,R6,#12			; submenu and interpret area
  ADD R6,R6,R0			; text buffer size
  BNE count$l			; count entries to R4
@@ -2367,12 +2398,46 @@ count$l				; count num of entries and menu size
  BL heap_claim
  FNRTS VS
  MOV R2,R0			; start of menu
+ PUSH "R7"
+ TST R7,#1<<31
+ MOVEQ R0,#0
+ MOVNE R0,R7,LSL #2		; help table size
+ BLNE heap_claim
+ ADDVS R13,R13,#4
+ FNRTS VS
+ MOV R7,R0			; start of help table
  ADD R3,R2,#16			; save start of wimp structure (to return)
  ADD R6,R2,R4			; start of indirected data buffer
  MOV R0,#0
- STR R0,[R2],#4			; zero the help text,
- STR R0,[R2],#4			;  menu max width,
+ STR R7,[R2],#4			; store the help table ptr
+ STR R0,[R2],#4			; zero the menu max width
  STR R0,[R2],#4			;  and count
+ PULL "R1"
+ TEQ R7,#0
+ BEQ nohelp$l
+ SUB R1,R1,#1:OR:1<<31
+ LDR R0,[R5,#20]
+ ADD R0,R0,R10			; point to help text block
+ MOV R8,R0
+help$l				; (first string is for 'no item selected')
+ LDRB R14,[R0]			; fill in entries:
+ CMP R14,#1
+ STRLO R14,[R7],#4		; - no help for this item
+ STREQ R8,[R7],#4
+ STRHI R0,[R7],#4		; - is help for this item
+ ADDEQ R0,R0,#1
+ BEQ nexthelp$l
+ MOV R8,R0			; R8 -> prev help item
+skip$l
+ LDRB R14,[R0],#1
+ TEQ R14,#0
+ BNE skip$l
+nexthelp$l
+ SUBS R1,R1,#1			; more to do?
+ BNE help$l
+ MOV R0,#-1			; end marker
+ STR R0,[R7]
+nohelp$l
  LDR R0,[R5,#&10]		; create sub offset
  TEQ R0,#0
  ADDNE R0,R0,R10		; create sub address
@@ -2383,8 +2448,11 @@ count$l				; count num of entries and menu size
  LDR R7,[R5,#&0C]
  MOV R8,#44
  MOV R14,#0
+ TST R7,#1<<31
+ BIC R7,R7,#1<<31
  STMIA R2!,{R1,R7,R8,R14}	; colours, width, height, spacing
  ADD R1,R5,#&14			; first item
+ ADDNE R1,R1,#4
 iconloop$l
  BL cms_icon			; fill in item icon and create its buffer
  LDRB R4,[R1]			; get the flags
@@ -2419,7 +2487,7 @@ cols$l DCD &00070207		; work area colours
 ;  EQ if at menu end (this was the last menu item) |
 
 cms_next
- FNJSR "R2"
+ FNJSR "R2,R3"
  LDRB R0,[R1,#1]		; minimum buffer size
  ADD R1,R1,#&10			; start of entry text
  MOV R2,R1			; save the start of the text entry
@@ -3140,6 +3208,8 @@ nohelp$l
  LDRLE R0,[R6,#8]
  ORRLE R0,R0,#1<<22		; and grey it if no entries were built
  STRLE R0,[R6,#8]
+ MOVLE R0,#0
+ STRLE R0,[R6,#-8]		; also set item height to 0
 
  FNLDR R2,menu_entries
  ADD R3,R1,#28			; skip over menu header...

@@ -1,5 +1,5 @@
 ; Contains MessageTrans interface code,
-; $Id: Messages,fff,v 1.1.2.3 1999/01/14 14:46:37 dj Exp $
+; $Id: Messages,fff,v 1.1.2.4 1999/02/27 19:36:43 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Heap
@@ -110,7 +110,7 @@ expand_menu
 	FNRTS	VS
 	MOV	R7,#0		; longest string
 	MOV	R8,R0		; menu buffer
-	MOV	R9,#0		;  used
+	MOV	R9,R11		;  used (but currently pointing to menu)
 	MOV	R10,#4096	;  length
 	LDRB	R0,[R11]
 	TEQ	R0,#0
@@ -132,10 +132,15 @@ useliteraltitle$l
 	LDMIA	R11!,{R0,R1}	; width, update menu code
 	STR	R0,[R8,#12]
 	STR	R1,[R8,#16]
+	TST	R0,#1<<31
+	BIC	R0,R0,#1<<31
+	LDRNE	R1,[R11],#4
+	STRNE	R1,[R8,#20]	; help pointer
+	MOVEQ	R9,#20
+	MOVNE	R9,#24		; R9=used space in buffer
 	SUB	R0,R0,#12
 	CMP	R7,R0
 	MOVLO	R7,R0
-	MOV	R9,#20
 entry$l	LDR	R0,[R11]	; menu entries...
 	CMN	R0,#1
 	BEQ	finish$l
@@ -197,7 +202,10 @@ finish$l
 	ADD	R7,R7,#12
 	CMP	R7,R0
 	MOVLO	R7,R0
-	STR	R7,[R8,#12]	; and menu width
+	LDR	R0,[R8,#12]
+	TST	R0,#1<<31
+	ORRNE	R7,R7,#1<<31
+	STR	R7,[R8,#12]	; and menu width (preserving top bit)
 	MOV	R0,R8
 	FNRTS			; done!
 error$l	STMFD	R13!,{R0}
