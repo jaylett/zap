@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.10 2002/11/07 12:54:53 james Exp $
+  // $Id: download.php,v 1.11 2003/03/13 17:53:22 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -131,7 +131,7 @@ if ($patch) {
 
 <ul>
  <li><a href="http://sudden.recoil.org/stronghelp/">StrongHelp</a> - a hypertext help system by Guttorm Vik; invaluable if you're programming under RISC OS</li>
- <li><a href="http://www.muscat.com/~olly/software/">Line Editor</a> by Olly Betts - makes the command line and taskwindows much nicer to use (this is also bundled with Zap) (see also <a href="http://www.youmustbejoking.demon.co.uk/progs.utils#lineeditor">here</a>)</li>
+ <li>Line Editor by Olly Betts - makes the command line and taskwindows much nicer to use (this is also bundled with Zap) (see also <a href="http://www.youmustbejoking.demon.co.uk/progs.utils.html#lineeditor">here</a>)</li>
 </ul>
 
 <hr>
@@ -263,5 +263,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/11/07 12:54:53 $');
+  zap_body_end ('$Date: 2003/03/13 17:53:22 $');
 ?>
