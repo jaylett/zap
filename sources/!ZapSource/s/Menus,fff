@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.1 2000/03/14 00:44:40 ds Exp $
+; $Id: Menus,fff,v 2.2 2000/05/17 21:47:02 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -748,15 +748,17 @@ mw_curlist
  MOV PC,R14
 
 ; create list of modules for grabbing
-
- DCD 7+(1<<16)
-Getworkspace			; grab workspace list
- B Getmodule
-
  LOCAL
 
  DCD 7+(1<<16)
+Getworkspace			; grab workspace list
+ MOV R8,#1<<15			; module number (with 'workspace' flag)
+ B Getmodule$l
+
+ DCD 7+(1<<16)
 Getmodule
+ MOV R8,#0			; module number
+Getmodule$l
  FNJSR
  TEQ R2,#16
  FNRTS NE
@@ -765,7 +767,6 @@ Getmodule
  MOV R2,#0
  ADR R3,execsub$l
  MOV R4,#22
- MOV R8,#0			; module number
  MOV R9,#0			; instantiation number
  BL build_menu
  MOVVC R1,R0
@@ -777,13 +778,14 @@ buildsub$l
  FNJSR "R1-R5"
  MOV R11,R0			; save buffer pointer
  MOV R0,#12
- MOV R1,R8
+ BIC R1,R8,#1<<15		; there won't be more than 32768 modules :-)
  MOV R2,R9
  SWI XOS_Module
  MVNVS R10,#0			; index
  BVS end$l
  ADD R10,R9,R8,LSL#16		; save index incase needed
- MOV R8,R1
+ AND R8,R8,#1<<15
+ ORR R8,R8,R1
  MOV R9,R2			; next module
  MOV R1,R11			; buffer
  LDR R0,[R3,#&10]		; title string offset
@@ -810,7 +812,8 @@ execsub$l
  BIC R7,R7,#1<<31		; save address of command that was called
  MOV R0,R1,LSR#16		; module number
  EOR R2,R1,R0,LSL#16
- MOV R1,R0
+ MOV R6,R0
+ BIC R1,R0,#1<<15
  MOV R0,#12
  SWI XOS_Module			; get info
  FNRTS VS
@@ -821,12 +824,13 @@ execsub$l
  MOV R7,R3			; save pointer
  CMP R7,#&8000
  FNRTS LE			; not valid
+ TST R6,#1<<15			; test 'workspace' flag bit
  LDR R6,[R7,#-4]
  SUB R0,R6,#4			; block length
  MOV R1,R10			; filename
- MOV R2, #&FF000000
- ORR R2,R2,#&FF0000		; load
- ORR R2,R2,#&00FA00
+ MOV R2,#0
+ SUBEQ R2,R2,#&600		; &FFFFFA00 (module)
+ SUBNE R2,R2,#&300		; &FFFFFD00 (data)
  MOV R3,#0			; exec
  BL create_file_block
  FNRTS VS
