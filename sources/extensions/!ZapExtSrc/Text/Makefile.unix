@@ -1,0 +1,52 @@
+# Make file for Zap Text Editor under unix
+# (c) Darren Salt, James Aylett
+
+# For the standard build name:
+#	make -r -f Makefile.unix
+# For alternative build names:
+#	make -r -f Makefile.unix BUILD=foo
+#	make -r -f Makefile.unix BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+
+# To build for Zap 1.40, append "INTL=no TMFS=no" to the command line
+
+# Targets:
+#	ZapText (default)	Build ZapText
+#	clean			Wipe .o and .t files, and auto-gen headers
+
+OBJECTS		=  o/module o/commands o/corecomms o/minfo \
+		   o/dwcomms o/tmtcomms o/sjacomms o/dscomms \
+		   o/jrfcomms o/dsutils o/coreutils o/pmcomms o/help
+
+asm		= as_ro
+link		= link_ro
+asmflags	= -nolocal -objasm -upper -pedantic -I$(ZapSource_Dir) -o $@
+linkflags	= -o o/tmplink -B 0 -bin
+
+__BUILD		= "-DBUILD=$(BUILD)"
+__INTL		= "-DINTL=$(INTL)"
+__TMFS		= "-DTMFS=$(TMFS)"
+
+makehdr		= $(ZapSource_Dir)/data/unix/makehdr
+timestamp       = sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
+rm		= rm -f
+
+t/%:		s/%,fff
+		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
+
+o/%:		s/%,fff
+		$(asm) $(__BUILD) $(__INTL) $(__TMFS) $(asmflags) $<
+
+# Final target
+ZapText:	objdirs tmplink
+		$(timestamp) < o/tmplink > ZapText,ffa
+
+objdirs:
+		mkdir -p o
+		mkdir -p t
+
+tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
+		$(link) $(linkflags) $(OBJECTS)
+
+clean:
+		$(rm) o/* t/* $(subst o/,h/,$(OBJECTS)) ZapText,ffa

@@ -1,6 +1,6 @@
 ; Zap Text Command Extension
-; $Id: dwcomms,fff,v 1.2 1998/12/03 17:45:04 dj Exp $
-; Copyright (C) 1998 Zap Developers
+; $Id: dwcomms,fff,v 1.3 1999/02/26 10:58:41 james Exp $
+; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -179,31 +179,48 @@ remove$l	MVN	r4,#0			; don't remove next one too
 ; Parameter coding by SJA
 		LOCAL
 
-prompt$l	=	"Direction: ", 0
-to$l		=	"to buffer", 0			; T
+prompt$l	StrZ	"zaptext_p_findsel", "Direction: "
+to$l		StrZ	"zaptext_s_to","to buffer"	; T
 
-next$l		=	"next match", 0			; N
-next2$l		=	"forward", 0			; F (don't use - depends on test order)
+next$l		StrZ	"zaptext_s_next","next match"	; N
+next2$l		StrZ	"zaptext_s_next2","forward"	; F (don't use - depends on test order)
 
-previous$l	=	"previous match", 0		; P
-previous2$l	=	"backward", 0			; B
+previous$l	StrZ	"zaptext_s_prev","previous match"; P
+previous2$l	StrZ	"zaptext_s_prev2","backward"	; B
 
-first$l		=	"first match", 0
-first2$l	=	"from "
-first3$l	=	"start", 0			; S
+first$l		StrZ	"zaptext_s_first","first match"
+first2$l	Str	"zaptext_s_first2","from "
+first3$l	StrZ	"zaptext_s_first3","start"	; S
 
-last$l		=	"last match", 0
-last2$l		=	"from "
-last3$l		=	"end", 0			; E
+last$l		StrZ	"zaptext_s_last","last match"
+last2$l		Str	"zaptext_s_last2","from "
+last3$l		StrZ	"zaptext_s_last3","end"		; E
 		ALIGN
+
+		GBLA	lbl_count
+		GBLS	lbl_string
+lbl_count	SETA	1
+lbl_string	SETS	"x$lbl_count"
 
 		MACRO
 $la		TEST	$a,$b
-$la		ADR	r0,$a
-		MOV	r1,r3
+$la
+ [ INTL=""
+		ADRL	r1,$a
+		MOV	r2,#0
+		FNcall	Zap_LookupToken
+		BVS	$lbl_string
+		MOV	r0,r2
+ |
+		ADR	r0,$a
+ ]
+		MOV	r1,r4
 		BL	strstarts
 		MOVEQ	r5,#$b
 		BEQ	go$l
+$lbl_string
+lbl_count	SETA	lbl_count + 1
+lbl_string	SETS	"x$lbl_count"
 		MEND
 
 		&	(3:SHL:3)+(1:SHL:6)
@@ -214,7 +231,7 @@ dw_findsel
 
 		FNJSR
 
-		MOV	r3,r0				; move into storage position
+		MOV	r4,r0				; move into storage position
 
 		; Test to see if the given string starts with any of the
 		; parameters we have above, in turn. Hence abbreviations
@@ -237,7 +254,7 @@ dw_findsel
 
 		; Okay, so none of the strings checked out.
 		; Let's try running it through OS_EvaluateExpression for kicks.
-		MOV	r0,r3
+		MOV	r0,r4
 		MOV	r1,#0
 		MOV	r2,#0				; don't use a buffer!
 		SWI	XOS_EvaluateExpression		; do it
@@ -257,7 +274,7 @@ go$l
 
 err$l
 		FNPULL					; get lr back
-		ERR	"Parameter not recognised"
+		StrERR	"zaptext_e_badparam", "Parameter not recognised"
 
 ; Modified DW code starts here
 ; Called with r5 = search type. Don't call with an invalid search type;
@@ -282,7 +299,7 @@ search$l
 		MOVNE	r1,#0			; buffer or cursor
 
 		MOVPL	r4,#1
-		MVNMI	r4,#0			; forward/backward
+		MOVMI	r4,#-1			; forward/backward
 
 		CMP	r5,#2			; +2
 		CMPNE	r5,#0			; 0

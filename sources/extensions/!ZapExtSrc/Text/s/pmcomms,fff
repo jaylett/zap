@@ -1,6 +1,6 @@
 ; Zap Text Command Extension
-; $Id: pmcomms,fff,v 1.2 1998/12/03 17:45:10 dj Exp $
-; Copyright (C) 1998 Zap Developers
+; $Id: pmcomms,fff,v 1.3 1999/02/26 10:58:42 james Exp $
+; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -68,8 +68,7 @@
 ; PIPE
 		LOCAL
 
-prompt$l	=	"Pipe in: ", 0
-		ALIGN
+prompt$l	StrZA	"zap_p_pipein", "Pipe in: "
 
 		&	(1)+(3:SHL:3)+(1:SHL:6)+(1:SHL:9)
 pm_pipe
@@ -155,8 +154,7 @@ do_insert
 ; PIPESEL, PIPEBUF
 		LOCAL
 
-prompt$l	=	"Pipe through: ", 0
-		ALIGN
+prompt$l	StrZA	"zaptext_p_pipethru", "Pipe through: "
 
 		&	(1)+(3:SHL:3)+(1:SHL:6)+(1:SHL:9)
 pm_pipebuf
@@ -175,7 +173,7 @@ pm_pipebuf
 		SWIEQ	XHourglass_Off
 		FNRTS	EQ			; nothing to filter
 		LDR	r3,[fileptr,#f_ptr]
-		ADR	r1,file_in
+		ADRL	r1,file_in
 		BL	save
 		BVS	error_ret
 
@@ -332,8 +330,7 @@ pm_insertpipedsel
 ; FILTERSEL, FILTERBUF
 		LOCAL
 
-prompt$l	=	"Filter through: ", 0
-		ALIGN
+prompt$l	StrZA	"zaptext_p_filterthru", "Filter through: "
 
 		&	(1)+(3:SHL:3)+(1:SHL:6)+(1:SHL:9)
 pm_filterbuf
@@ -424,7 +421,6 @@ tidy_out	ADR	r1,file_out
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Error returns                                                ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-error_nosel	ADR	r0,error_noselection	; Fall through!
 error_ret	ADR	r1,file_in
 		BL	delete			; clear up
 		ADR	r1,file_out
@@ -433,16 +429,20 @@ error_ret	ADR	r1,file_in
 		SWI	XHourglass_Off
 		FNRTV				; return the error
 
+; This is duplicated to make the internationalisation code work better.
+error_nosel	ADR	r1,file_in
+		BL	delete			; clear up
+		ADR	r1,file_out
+		BL	delete			; both temp files
+
+		FNPULL
+		StrERR	"zap_e_nosel", "No selection"
+
 error_free	MOV	r1,r0
 		MOV	r0,r3
 		FNcall	Zap_Free
 		MOV	r0,r1
 		B	error_ret
-
-error_noselection
-		DCD	0
-		=	"No selection", 0
-		ALIGN
 
 		LOCAL
 filter
@@ -617,7 +617,8 @@ filter_file
 		SWI	XWimp_StartTask		; start child task
 		BVS	error_starttask
 		TEQ	r0,#0
-		ADRNE	r0,error_livetask
+		BLNE	error_livetask
+;		ADRNE	r0,error_livetask
 		BNE	error_starttask
 
 		MOV	r0,r2			; free the heap block
@@ -657,16 +658,21 @@ find_command
 		ADRNE	r0,cmd_template2$l
 		FNRTS	NE
 
-		ADR	r0,error_nocommand
-		FNRTV
+		FNPULL
+		StrERR	"zaptext_e_nocommand", "Command not found"
+;		ADR	r0,error_nocommand
+;		FNRTV
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-error_livetask	DCD	0
-		=	"Task has not completed", 0
+; You need to BL to this ...
+error_livetask
+		StrERR	"zaptext_e_livetask", "Task has not completed"
+;		DCD	0
+;		=	"Task has not completed", 0
 
-error_nocommand	DCD	0
-		=	"Command not found", 0
-		ALIGN
+;error_nocommand	DCD	0
+;		=	"Command not found", 0
+;		ALIGN
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -707,7 +713,8 @@ pipe_file
 		SWI	XWimp_StartTask
 		BVS	error_starttask
 		TEQ	r0,#0
-		ADRNE	r0,error_livetask
+;		ADRNE	r0,error_livetask
+		BLNE	error_livetask
 		BNE	error_starttask
 
 		MOV	r0,r2
@@ -780,11 +787,11 @@ loop2$l						; Copy [r5] into [r1]
 
 err_overflow$l
 		FNPULLP	"r1"
-		ERR	"Overflow"
+		StrERR	"zaptext_e_overflow", "Overflow"
 
 err_invalid$l
 		FNPULLP	"r1"
-		ERR	"Invalid template"
+		StrERR	"zaptext_e_template", "Invalid template"
 
 ; That's it
 		END

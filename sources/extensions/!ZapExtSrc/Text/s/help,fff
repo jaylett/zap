@@ -1,6 +1,6 @@
 ; Zap Text Command Extension
-; $Id: help,fff,v 1.2 1998/12/03 17:45:05 dj Exp $
-; Copyright (C) 1998 Zap Developers
+; $Id: help,fff,v 1.3 1999/02/26 10:58:41 james Exp $
+; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -158,8 +158,8 @@ help_searchcontext
 ; HELPTOPIC
 ; Gives help on the selection, or given word
 ; Gets search path from Zap$HelpPath_<mode name>
-prompt$l	=	"Lookup help on: ",0
-s_prompt$l	=	"Search for help on: ",0
+prompt$l	StrZ	"zaptext_p_lookuphelp", "Lookup help on: "
+s_prompt$l	StrZA	"zaptext_p_searchhelp", "Search for help on: "
 		ALIGN
 
 		&	(3:SHL:3)+(1:SHL:6)+(1:SHL:10)
@@ -290,12 +290,21 @@ help_setupblock
 		FNRTS
 
 		LOCAL
+;help_tmf	=	"HelpSearchPath"
 ; \E r0 termination, r3 initial block
 ; \X r0 updated, r1, r3 preserved
 help_path
 ;		FNJSP	"r1,r3,r5", "r0"		; push r0 as well
 		FNJSP	"r1,r3", "r0"			; push r0 as well
 
+; Start: of simple TMF code ...
+;		ADR	r0,help_tmf
+;		FNcall	Zap_LookupVariable
+;		FNRTP	"r0",EQ				; couldn't find it ...
+;		MOV	r1,r0				; to where the code expects it to be
+
+; Start: of section which will be replaced by simple TMF code ...
+; (Remember to get rid of help_zhpath at the same time)
 		LDRB	r0,[windptr,#w_format]		; mode number
 		FNcall	Zap_ReadMode
 		CMP	r1,#0
@@ -329,6 +338,7 @@ help_path
 		MOV	r0,#0
 		STRB	r0,[r1,r2]			; terminate properly
 
+; End: of section which will be replaced by simple TMF code ...
 		PULL	"r0"				; r1 preserved
 
 		PUSH	"r1"				; value of variable buffer
@@ -339,6 +349,7 @@ help_path
 		MOV	r3,r0				; store new r0
 		B	end$l				; clear up
 
+; This section will go with TMFs ...
 fail$l		MOV	r0,r5
 		FNcall	Zap_Free
 		FNRTPS	"r0"
@@ -346,6 +357,7 @@ fail$l		MOV	r0,r5
 stop$l		PULL	"r3"				; something went wrong ...
 end$l		MOV	r0,r5
 		FNcall	Zap_Free
+; ... down to here
 		MOV	r0,r1
 		FNcall	Zap_Free
 		MOV	r0,r3				; restore r0
@@ -441,12 +453,10 @@ help_message
 report$l	MOV	r0,r6				; window offset
 		FNcall	Zap_ConvWindOff			; \X r8/r9
 		ADR	r0,help_nohelp			; text
-		MOV	r1,#0				; default time
-		FNcall	Zap_Warning			; popup window
+		BL	warn
 		B	cleanup
 
-help_nohelp	=	"Help not available on that topic",0
-		ALIGN
+help_nohelp	StrZA	"zap_w_nohelp",	"Help not available on that topic"
 
 ; The help request bounced, so load up StrongHelp and try again
 help_bounced
