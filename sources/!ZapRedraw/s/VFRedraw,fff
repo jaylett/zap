@@ -1,5 +1,5 @@
 ; Contains code for redraw via ViewFinder
-; $Id: VFRedraw,fff,v 1.1.2.3 2001/11/10 01:21:44 christian Exp $
+; $Id: VFRedraw,fff,v 1.1.2.4 2001/12/29 00:04:42 ds Exp $
 
 	GET	h.ZapRedHdr
 	GET	h.ZapRedraw
@@ -78,15 +78,19 @@ vf_redraw_area
 	BPL	nom$l			; nope
 	BL	getnullcolour$l
 	PUSH	"R2,R5"
-	RSB	R5,R0,#0		; number of rasters to fill
-	LDR	R2,a_vf_clip		; R3,R4,R14 from above useful here
+	LDR	R5,[R1,#r_scrolly]
+	ADR	R2,a_vf_clip
+	RSB	R5,R5,#0		; number of rasters to fill
+	LDMIA	R2,{R2-R4,R14}		; area to fill (x,y,width,maxheight)
 	CMP	R5,R14
 	MOVHS	R5,R14			; clip the height
-	ADD	R0,R0,R5
-	STR	R0,[R1,#r_scrolly]
 	BL	vf_plot_rect
 	PULL	"R2,R5"
 	BVS	done$l
+	LDR	R0,[R1,#r_scrolly]
+	SUB	R5,R5,R0		; adjust Y coordinate for margin
+	CMP	R5,R8			; any more to display?
+	BGE	done$l
 nom$l					; now plot the text...
 	SUB	R5,R5,R12
 	MOV	R14,#5<<29:OR:1		; initial flags for ViewFinder_Draw
