@@ -1,0 +1,2847 @@
+; makefile.s
+; converted from makefile.bas by bas2asm.pl
+	GET	h.Makefile
+
+	DCD	0x00
+	DCD	StartUpHere
+	DCD	0x00
+	DCD	0x00
+	DCD	D1
+	DCD	ModHelpString
+	DCD	D1
+Data3
+	=	"Zap", 0x00
+	DCD	0x00
+w_formmb
+	DCD	-1
+	=	0x18, 0x18, 0x0, 0x0
+	DCD	0	;  REM mainwkspflags
+StartUpHere
+	STMFD	sp!, {lr}
+	LDR	r2, [r12, #0]
+	CMP	r2, #0
+	BNE	ModuleInit
+	MOV	r0, #6
+	MOV	r3, #0x20
+	SWI	XOS_Module
+	LDMVSFD	sp!, {pc}
+	STR	r2, [r12, #0]
+	ADRL	r0, Data47
+	STR	r2, [r0, #0]
+	MOV	r0, #0
+	STR	r0, [r2, #20]
+ModuleInit
+	MOV	r0, #4
+	STR	r0, [r2, #12]
+	MOV	r0, #0x12
+	ADR	r1, Data3
+	SWI	XOS_Module
+	MOVVC	r0, #0x0C
+	SWIVC	XOS_Module
+	LDMVSFD	sp!, {pc}
+	MOV	r12, r4
+	LDR	r2, [r3, #20]
+	ADD	r3, r3, r2
+	LDRB	r0, [r3, #3]
+	TEQ	r0, #'X'
+	ADDEQ	r3, r3, #1
+	LDRB	r0, [r3, #5]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'1'
+	BHI	MakeError
+	BNE	RefDataTab
+	LDRB	r0, [r3, #7]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'0'
+	BHI	MakeError
+	BNE	RefDataTab
+	LDRB	r0, [r3, #8]
+	CMP	r0, #'9'
+	RSBLSS	r0, r0, #'0'
+	BHI	MakeError
+RefDataTab
+	ADR	r0, DataTable
+	FNcall	0
+	ADR	r0, CmdTable
+	FNcall	Zap_AddCommands
+	LDMFD	sp!, {pc}
+MakeError
+	ADR	r0, ErrorMess
+	SWI	OS_GenerateError
+ErrorMess
+	DCD	0x00
+	=	"ZapMakeFile requires Zap version 1.00 or greater.", 0, 0
+	ALIGN
+ObeyLabeled
+	=	"MakeFile"
+	DCD	0x00
+DataTable
+	DCD	DataTable
+	DCD	ObeyLabeled
+	DCD	lp1
+	DCD	0x00	;  REM = BaseMode = Text
+	DCD	0x40D	;  REM mode = 13 ; bit 10 = workspace, please!
+	DCD	Initialisation	;  REM init
+	DCD	0x00	;  MnuDta; REM &00 ; menu...extension menu
+	DCD	Initialisation - DataTable	;  REM size of table ; len
+	DCD	0x00	;  postload
+	DCD	0x00	;  REM beforesave ; e_presave   \ called before saved
+	DCD	0x00
+	DCD	E_Start	;  REM e_start           \ window entering mode
+	DCD	E_End	;  REM e_end               \ window leaving mode
+	DCD	0x00	;  REM e-width             \ find work area width
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00	;  REM lp7 ; e_clnphy        \ physical to file offs
+	DCD	0x00	;  REM clnlog
+	DCD	0x00	;  REM clnphy
+	DCD	0x00	;  REM clnoff
+	DCD	0x00
+	DCD	0x00	;  e_sminus      \ perform shift-left
+	DCD	0x00	;  e_splus       \ perform shift-right
+	DCD	0x00
+	DCD	0x00
+	DCD	redrawline	;  REM e_redrawline   \ redraw line of display
+	DCD	0x00
+	DCD	charchar
+	DCD	0x00
+	DCD	0x00	;  e_tab       \ tab key pressed
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00	;  trytwo    \  REM e_saveandrun
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00	;  e_compile \ compile & run and don't exit
+	DCD	0x00
+	DCD	0x00	;  e_run \ run the program being edited
+	DCD	0x00	;  e_runandquit \ run
+	DCD	0x00	;  \ drops into language...?
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00	;  REM e_setwidth - changing window width
+	DCD	0x00
+	DCD	redrawA	;  REM e_prevline \ find start of update reg'n; Easy!
+	DCD	gotoopenwindow	;  REM ; e_openwindow
+	DCD	mode_interrogate	;  REM ; e__interrogate
+Initialisation
+	CMP	r1, #7
+	BEQ	amenucreation
+	CMP	r1, #1
+		;     MOVCC   R0,#0
+	MOVCC	pc, lr
+	STREQ	r0, [r11, #4]
+	STREQ	r0, modenumberlocal
+	TEQ	r1, #6
+	ADREQ	r1, MenuExtension
+	MOVEQ	pc, lr
+	TEQ	r1, #2
+	MOVNE	pc, lr
+	STMFD	sp!, {r1, r7, r8, lr}
+		;  REM here? yes!
+	STMFD	sp!, {r0, r1, r7}
+	MOV	r8, #'A'
+	ADRL	r1, TableHere
+loop2
+	LDRB	r0, [r1]
+	CMP	r0, r8
+	BGE	GtIt
+loop
+	LDRB	r0, [r1], #1
+	CMP	r0, #'z'
+	BLE	loop
+	LDRB	r0, [r1]
+	CMP	r0, #'*'
+	BNE	loop2
+backinaction
+	ADD	r8, r8, #1
+	CMP	r8, #'Z'
+	BLE	loop2
+	LDMFD	sp!, {r0, r1, r7}
+	MOV	r8, #0
+	BL	ZapModeWord
+	TEQ	r7, #0
+	BEQ	nocfginit
+	LDR	r0, [r7, #0]
+	CMP	r0, #zizeofcfgwksp
+	LDMEQFD	sp!, {r1, r7, r8, pc}
+		;  REM no !Config...
+nocfginit
+	MOV	r0, #0x11
+	FNcall	Zap_ModeColourNum	;  REM change palette size.
+	TEQ	r7, #0
+	BEQ	noheapblkatall
+	LDR	r1, [r7, #0]
+	TEQ	r1, #zizeofcfgwksp
+	BEQ	justendtheresnoneed
+	MOVVC	r1, #zizeofcfgwksp
+	MOVVC	r0, r7
+	LDRVC	lr, [r12, #0]
+	ADDVC	lr, lr, #8
+	STMVCFD	sp!, {lr}
+	MOVVC	lr, pc
+	LDMVCFD	sp!, {pc}
+	MOVVC	r7, r0
+	STRVC	r1, [r7, #0]
+	BLVC	OnToWrtMdeWrd
+noheapblkatall
+	MOV	r0, #zizeofcfgwksp
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #4	;  REM zap call - start heap block
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	MOV	r7, r0
+	BLVC	OnToWrtMdeWrd
+	MOVVC	r0, #zizeofcfgwksp
+	STRVC	r0, [r7, #0]
+	MOVVC	r0, #0
+	STRVC	r0, [r7, #4]
+	MOVVC	r0, #0x0D
+	STRVC	r0, [r7, #8]
+	LDRVC	r0, startupformatwd
+	STRVC	r0, [r7, #0x0C]
+	LDRVC	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
+	LDRVC	r1, [r11, #4]
+	MOVVC	r2, #0
+	LDRVC	lr, [r12, #0]
+	ADDVC	lr, lr, #Zap_ModeData	;  REM call - RD/WRT Zap Dater mode words.
+	STMVCFD	sp!, {lr}
+	MOVVC	lr, pc
+	LDMVCFD	sp!, {pc}
+	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
+justendtheresnoneed
+	LDMFD	sp!, {r1, r7, r8, pc}
+amenucreation
+	STMFD	sp!, {r0, lr}
+	BL	loadmenuifrequired
+	FNcall	Zap_ReadMenu
+	LDR	r1, [r0, #4]
+	LDMFD	sp!, {r0, pc}
+CmdTable
+	DCD	CmdTable
+	DCD	0
+	=	"MAKEFILE_FLAGSTOGGLE", 0, "", 0, "", 0, "", 0, ""
+	DCD	Cmdhtmlflagstoggle
+	DCD	0
+basemode
+	LDR	r9, modenumberlocal
+	FNjump	Zap_BaseMode
+modenumberlocal
+	DCD	0
+startupformatwd
+	DCD	0x07800000
+GtIt
+	ADRL	r0, AlphaIndex
+	SUB	r7, r8, #'A'
+	ADD	r0, r0, r7, LSL #2
+	ADRL	r7, TableHere
+	SUB	r7, r1, r7
+	STR	r7, [r0]
+	B	backinaction
+MenuExtension
+	=	"Comments", 0x00, "Strings", 0x00, "< ... >", 0x00, "( ... )", 0x00, "Commands", 0x00, "Punctuation", 0x00, "Numbers", 0x0, "-switches", 0x0, "+Commands", 0x0, "c.file"	;  12
+	=	0x0, "h.header"	;  13
+	=	0x0, "o.object", 0x0, "s.assembler"
+	DCW	0x0
+		;     EQUS "Logical op"
+		;     EQUW &0
+	ALIGN
+R8tmp
+	
+	DCD	0
+R9tmp
+	
+	DCD	0
+R12tmp
+	DCD	0
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+lasttryadr
+	
+	DCD	0
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+UnkPreColBit
+	STMFD	sp!, {r1-r4, lr}
+	ADR	r3, DefaultColours
+	LDR	r1, [r11, #4]	;  REM normally 0
+PreZModColBit
+	MOV	r2, #0x09	;  REM start colours
+ZModColBit
+	LDRB	r0, [r3], #1
+	FNcall	Zap_ModeColour	;  REM Read colour definitions
+	LDMVSFD	sp!, {r1-r4, pc}
+	ADD	r2, r2, #1
+	TEQ	r2, #0x16	;  REM max colours
+	BNE	ZModColBit
+	LDMFD	sp!, {r1-r4, pc}
+DefaultColours
+		;  REM Colour Numbers :
+	=	0x0A	;  REM Comment Colour =&9
+	=	0x0F	;  REM String colour  =&A
+	=	0x03	;  REM Punctuation    =&B
+	=	0x0D	;  REM Embedded {}    =&C
+	=	0x09	;  REM Commands       =&D
+	=	0x0C	;  REM Misc Punct.    =&E
+	=	0x0E	;  REM Number colour  =&F
+	=	0x02	;  REM Error colour   =&10
+	=	0x04	;  REM GSTrans        =&11
+	=	0x01	;  REM Unknown        =&12
+	=	0x02	;  REM Number colour  =&13
+	=	0x0B	;  REM .o.            =&15 ; RED!
+	=	0x03	;  REM .s.            =&14
+	=	0x01	;  REM Unknown        =&16?
+	=	0x00, 0x00	;  REM double zero termination !
+		;  REM ALIGN
+Tk1frm12andret
+	LDR	r0, [r11, #12]
+	SUBS	r0, r0, #1
+	STR	r0, [r11, #12]
+	MVNNE	r0, #0
+	MOVS	pc, lr
+ZapModeWord
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #4]
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #0x0164	;  REM Zap_GetModeWord - read the mode word
+	MOV	lr, pc
+	MOV	pc, r2
+	MOV	r7, r0
+	LDMFD	sp!, {r0-r2, pc}
+OnToWrtMdeWrd
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #4]
+WrtMdeWrd
+	MOV	r0, r7
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #0x0168	;  REM zap call...write the mode word
+	MOV	lr, pc
+	MOV	pc, r2
+	LDMFD	sp!, {r0-r2, pc}
+localdefltmw
+	DCD	0
+initialiseheap
+	STMFD	sp!, {r1-r6, r8-r12, lr}
+	MOV	r0, #zizeofcfgwksp
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #4
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	MOV	r7, r0
+	STR	r1, [r7, #0]
+	LDR	r0, localdefltmw
+	LDR	r0, [r0, #0xC]
+	STR	r0, [r7, #0xC]
+	MOV	r0, #0x0D
+	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
+	BL	OnToWrtMdeWrd
+	LDMFD	sp!, {r1-r6, r8-r12, pc}
+E_Start
+	STMFD	sp!, {r1, r6, r7, lr}
+	STMFD	sp!, {r1-r12, lr}
+	LDRB	r1, [r11, #4]
+	ORR	r1, r1, #0x100
+	FNcall	Zap_ReadVar
+	STR	r0, localdefltmw
+	LDMFD	sp!, {r1-r12, lr}
+	BL	ZapModeWord
+	CMP	r7, #0
+	BLEQ	initialiseheap
+	TEQ	r8, #0
+	BEQ	BeforeAllare8
+	LDRVC	r1, [r7, #0]
+	TEQVC	r1, #zizeofcfgwksp
+	BEQ	BeforeAllare8
+	MOVVC	r1, #zizeofcfgwksp
+	MOVVC	r0, r7
+	LDRVC	lr, [r12, #0]
+	ADDVC	lr, lr, #8
+	STMVCFD	sp!, {lr}
+	MOVVC	lr, pc
+	LDMVCFD	sp!, {pc}
+	MOVVC	r7, r0
+	STRVC	r1, [r7, #0]
+	BLVC	OnToWrtMdeWrd
+BeforeAll
+	LDR	r0, localdefltmw
+	LDR	r0, [r0, #0xC]
+	STR	r0, [r7, #0xC]
+	MOV	r0, #0x0D
+	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
+BeforeAllare8
+	LDRVC	r0, [r11, #4]
+	LDRVC	lr, [r12, #0]
+	ADDVC	lr, lr, #0x015C	;  REM restore mode options on e_start
+	STMVCFD	sp!, {lr}
+	MOVVC	lr, pc
+	LDMVCFD	sp!, {pc}
+	LDR	r1, [r7, #0x0C]
+	ADRL	r0, w_formmb
+	STR	r1, [r0, #0x08]
+	CMP	r8, #0
+	LDMEQFD	sp!, {r1, r6, r7, pc}
+	BL	destroyanypanes
+	BL	gomakepanehappen
+	ADR	r0, keyssrchstr
+	MOV	r1, #2
+	MOV	r3, #0x100
+	MVN	r4, #0
+	MOV	r5, #((1 << 25) :OR: (1 << 26) :OR: (1 << 24))
+	FNcall	Zap_Search
+	CMP	r0, #0
+	LDR	r1, [r7, #0x0C]
+	ORRPL	r1, r1, #(1 << 19)
+	BICMI	r1, r1, #(1 << 19)
+	STR	r1, [r7, #0x0C]
+	ADRL	r0, w_formmb
+	STR	r1, [r0, #0x08]
+	LDMFD	sp!, {r1, r6, r7, pc}
+E_End
+	STMFD	sp!, {r7, lr}
+	CMP	r8, #0
+	BLNE	destroyanypanes
+	BL	ZapModeWord
+	LDRVC	r0, [r11, #4]
+	LDRVC	lr, [r12, #0]
+	ADDVC	lr, lr, #Zap_SaveModeWord	;  REM - save on e_end
+	STMVCFD	sp!, {lr}
+	MOVVC	lr, pc
+	LDMVCFD	sp!, {pc}
+	LDMFD	sp!, {r7, pc}
+keyssrchstr
+	=	"KEY:\\|LineEditor\\|Paths:\\|Search macros:\\|&500\\|&400", 0, ""
+	ALIGN
+SDsasa
+	DCD	0x1200004D
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+adrofrsix
+	DCD	0
+redrawline
+	STMFD	sp!, {r6, r12, lr}
+	STMFD	sp!, {r7, r11}
+	STR	r6, adrofrsix
+	BL	Branch208
+	BL	ZapModeWord
+	LDR	r2, [r7, #8]	;  REM Preserved start colour & flags
+	LDR	r3, [r7, #0x0C]
+	ADRL	r12, w_formmb
+	STR	r3, [r12, #8]
+	LDMFD	sp!, {r7, r11}	;  REM calls...
+	LDR	r3, [r8, #60]	;  REM char width of cached line (x 8)
+	LDRB	r12, [r8, #88]	;  REM code of lf...?
+	BIC	r2, r2, #0x700
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x0D
+	ORR	r2, r2, #0xF000	;  REM ! ; fe? ; ff000
+	BIC	r2, r2, #0x00E00000	;  REM HERE? &0F000000
+	LDR	r5, [r9, #0]	;  REM ?
+	LDR	r10, [r9, #4]	;  REM ?
+	ADD	r10, r10, r5
+	TEQ	r7, r10
+	LDMEQFD	sp!, {r6, r12, pc}	;  REM end - return for good!
+	LDR	r10, [r9, #56]	;  REM ?
+	ADD	r10, r10, r5
+	CMP	r7, r10
+	MOVCC	r10, r5
+	MOV	r6, #0
+BitAftStart
+	SUB	r6, r6, #1
+	LDRB	r0, [r7], #-1
+	TEQ	r0, r12
+	BEQ	UpToStart
+	CMP	r7, r10
+	BCS	BitAftStart
+	TEQ	r5, r10
+	LDRNE	r10, [r9, #60]
+	SUBNE	r7, r7, r10
+	MOVNE	r10, r5
+	CMP	r7, r10
+	BCS	BitAftStart
+UpToStart
+	ADDS	r6, r6, #1	;  REM #2 USED TO MAKE THE TOP LINE GO WRONG
+	ADD	r7, r7, #1	;  REM #2 SEEMS TO BE EXECUTED ONLY AT THE BOF...? nope!
+	SUBPL	r7, r7, r6
+	LDMPLFD	sp, {r6}
+	TEQ	r5, r10
+	LDREQ	r10, [r9, #52]	;  REM ?
+	ADDEQ	r10, r10, r5
+	LDRNE	r10, [r9, #60]	;  REM ?
+	ADDNE	r5, r5, r10
+	LDRNE	r10, [r9, #8]	;  REM ?
+	ADDNE	r10, r10, r5
+	LDRB	r0, [r8, #0x90]	;  REM tabchar?
+	ORR	r12, r12, r0, LSL #24
+	LDR	r0, [r8, #100]	;  REM bytes per line / width of text
+	ORR	r12, r12, r0, LSL #12
+RtAtStrtA
+	MOV	lr, #0
+RtAtStrtB
+	CMP	r7, r10	;  REM EOF?
+	BCC	Branch13
+	LDR	r10, [r9, #8]
+	ADD	r10, r10, r5
+	CMP	r7, r10
+	LDMCSFD	sp!, {r6, r12, pc}
+	LDR	r1, [r9, #60]	;  REM ???
+	ADD	r7, r7, r1
+	ADD	r5, r5, r1
+	ADD	r10, r10, r1
+Branch13
+	LDRB	r0, [r7], #1	;  REM get char
+	AND	r1, r12, #0xFF
+	EOR	r2, r2, #0x0400	;  REM newline? ; alternating colour...
+	TEQ	r0, r1
+	TSTEQ	r2, #0x0400
+	BICEQ	r2, r2, #0x700	;  REM THIS CODE IS NEVER EXECUTED...
+	BICEQ	r2, r2, #0xFF
+	ORREQ	r2, r2, #0x0D
+	BEQ	RtAtStrtB
+	BIC	r2, r2, #0x0400
+	TEQ	r0, r1
+	BEQ	BranchNL	; REM Jeez, what a mess...
+	CMP	r6, #0	;  REM wed morn-reinit
+	MOVGT	r1, #1	;  REM @@@@ re init this?
+	STRGTB	r1, [r6, r3,LSL #1]
+	AND	r1, r2, #0xFF
+	CMP	r1, #0x0D
+	BEQ	BNL2
+Backhome
+	AND	r1, r2, #0xFF	;  REM Here begins the |G-type GStrans Testing
+	CMP	r1, #0x09	;  REM comment
+	BEQ	aftertestA
+	TEQ	r0, #'>'	;  REM GSTrans Testing1
+	BEQ	GSTtestMO	;  mon ok1
+GSTstop
+	TEQ	r0, #')'	;  REM GSTrans Testing1
+	BEQ	GSTtestBO	;  mon ok1
+GSTstopB
+	CMP	r6, #0	;  REM Here begins the |G-type GStrans testing
+		; BLE     aftert7
+		; LDRB    R1,[R6,#-1]
+		; CMP     R1,#ASC"|"
+		;  BNE     aftertestA
+	BGT	aftertestA	;  mon ok1
+		; SUB     R1,R3,#1
+		; LDRB    R1,[R6,R1]
+		; TEQ     R1,#&11
+		; BEQ     aftertestA
+		; 
+		; SUB     R1,R3,#1
+		; MOV     R0,#&0B
+		; STRB    R0,[R6,R1]
+		; MOV     R0,#&11
+		; STRB    R0,[R6,R3]
+		; LDRB    R0,[R7,#-1]
+		; B       AfterColour%
+aftert7
+	LDR	r1, Sol7
+	ADD	r1, r1, #2
+	CMP	r7, r1
+	BLE	aftertestA	;  REM code never fires?
+	LDRB	r1, [r7, #-2]	;  REM in hope
+	CMP	r1, #'#'
+	BEQ	AfterColour
+		; SUB     R1,R3,#1
+		; LDRB    R1,[R6,R1]
+		; TEQ     R1,#&11
+		; BEQ     aftertestA ; REM forget about ||
+aftertestA
+	TEQ	r0, #'"'
+	BEQ	QuoteBit
+	AND	r1, r2, #0xFF
+	CMP	r1, #0x0D
+	CMP	r1, #0x09
+	BEQ	ComCodeRestart
+	CMP	r1, #0x0A
+	BEQ	BeforeColour
+		; TEQ     R0,#ASC"{"
+		; BEQ     CurlyBrackOpen; mon ok1
+		; TEQ     R0,#ASC"}"
+		; BEQ     CurlyBrackClose ; mon ok1
+		; TEQ     R0,#ASC"%"
+		; BEQ     posscsvcommstart
+noposscsvcommstart
+		; TEQ     0,#ASC":;" ; pay no attention to colons...
+		; BICEQ   2,2,#&40000000 ; a command so far...?
+	TST	r2, #0x10000000	;  REM START OF LINE FLAG...
+	BNE	NotatStart
+	BIC	r2, r2, #0x40000000
+	TEQ	r0, #'#'
+	TSTEQ	r2, #0x04000000
+	BEQ	CommentStart
+		;     CMP     R0,#ASC"/"  ; REM   what about "*." who cares...; make yellow?
+		;     OrrEQ   R2,R2,#&10000000
+		;     BICEQ   R2,R2,#&FF  ; REM COL cream/normal - lt grey (= &0B);
+		;     OrrEQ   R2,R2,#&0E  ; REM testing very dubious TST code...
+		;     MovEQ   R1,#&0D
+		;     BEQ     fromslash
+NotatStart
+	TST	r2, #0x0100	;  REM ok
+		;     BICNE   R2,R2,#&FF  ; REM COL cream/normal - lt grey (= &0B);
+		;     OrrNE   R2,R2,#&0E  ; REM testing very dubious TST code...
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0C	;  REM COL Errors/Redirection  ...new
+	BEQ	BranchYYY
+	TEQ	r0, #'.'	;  REM &.Dir Testing
+	TEQNE	r0, #'/'	;  REM Fish & Chips Testing
+	BLE	testampersand
+afterteststop
+	AND	r1, r2, #0xFF
+		;     TEQ     R1,#&02     ; REM ????
+		;     BEQ     NotANumber%
+	TEQ	r1, #0x0D	;  REM COL Command! c .... NO NuffinUMBERS...
+	BICEQ	r2, r2, #0xFF
+	ORREQ	r2, r2, #0x02	;  (was 0E...)
+	ANDEQ	r1, r2, #0xFF
+	TEQ	r1, #0x02	;  REM COL cream/normal ... NO NUMBERS...
+	TEQNE	r1, #0x0F	;  REM COL Orange/Numbers?
+	BNE	BeforeColour
+		;     TST     R2,#&08000000
+		;     BNE     NotANum2%
+		;     TEQ     R0,#ASC"&"
+		;     BEQ     PreTisNum%
+	CMP	r0, #'9'
+	RSBLSS	r1, r0, #'0'
+	BLS	PreTisNum
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0F	;  REM COL = Orange/NUMBERS?
+	BNE	NotANumber
+	CMP	r0, #'9'
+	RSBLSS	r1, r0, #'0'
+	BICHI	r2, r2, #0xFF
+	ORRHI	r2, r2, #0x02
+	CMP	r0, #'%'
+	BLE	NotANumber
+	TEQ	r0, #'x'
+	BEQ	TisANumber
+	TEQ	r0, #'_'
+	BEQ	TisANumber
+	CMP	r1, #'@'
+	BHI	NotANumber
+TisANumber
+		;  REM not numbers?
+		;     FNlong_adr("  ",1,w_formmb + 8)
+		;     LDR     1,[1]
+		;     AndS    1,1,#(1 << 19)
+		;     BEQ     notkeynumberprob
+	LDR	r1, adrofrsix
+	ADD	r1, r1, #5
+	CMP	r6, r1
+	BCC	BeforeColour
+notkeynumberprob
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x0F
+	TST	r2, #0x80000000
+	BICNE	r2, r2, #0x90000000
+	B	BeforeColour
+NotANumber
+	CMP	r0, #'_'
+	BEQ	PlainNoOSChk
+	CMP	r0, #128
+	BCS	PlainNoOSChk
+		; CMP     0,#ASC"]"
+		; BEQ     itsoknow
+	CMP	r0, #'0'
+	BCC	itsoknow	;  AfterCmdCntChk
+	CMP	r0, #':'
+	BCC	DontBother	;  itsoknow
+	AND	r1, r0, #0xDF
+	CMP	r1, #'Z'
+	RSBLSS	r1, r1, #'A'
+	BLS	PlainNoOSChk
+itsoknow
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x09
+	TEQNE	r1, #0x0A
+	BEQ	DontBother
+Bother
+	STMFD	sp!, {lr}
+	BL	TableChk2	;  REM **************************
+	LDMFD	sp!, {lr}
+	TEQ	r0, #'.'
+	TEQEQ	r1, #0xEA00
+	BEQ	AfterColour
+	TST	r2, #0x14000000	;  REM START OF LINE FLAGS SET...
+	TEQEQ	r0, #'#'
+	BEQ	CommentStart	;  REM bugs
+DontBother
+	TST	r2, #0x00E00000
+	BNE	CmdCntChk
+AfterCmdCntChk
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x09
+	BEQ	BeforeColour
+	TEQ	r1, #0x02
+	BNE	SymbolChecking	;  REM  BR if not normal colour...
+		;     BIC     R2,R2,#&FF
+		;     Orr     R2,R2,#&0E
+		;     TEQ     R0,#ASC"_"     ; REM If numbers check for end...
+		;     TEQNE   R0,#ASC"-"
+		;     BEQ     PlainNoOSChk
+		; 
+PlainNoOSChk
+	CMP	r0, #'9'
+	RSBLSS	r1, r0, #'/'	;  REM = asc "0"
+	BICLS	r2, r2, #0xFF
+	ORRLS	r2, r2, #0x02
+	BLS	BeforeColour
+SymbolChecking
+	CMP	r6, #0
+	BLT	BeforeColour	;  REM BLT     BeforeColour%
+		;     TST     R2,#&8000000 ; ???!?!?
+		;     BNE     ErrEchConf
+	TEQ	r0, #':'
+		;     TEQ     R0,#ASC"@"
+	TEQNE	r0, #'$'
+	TEQNE	r0, #';'
+	TEQNE	r0, #'^'
+	TEQNE	r0, #'*'
+	TEQNE	r0, #'.'
+	TEQNE	r0, #'='
+	TEQNE	r0, #'<'
+	TEQNE	r0, #'>'
+	TEQNE	r0, #'\'
+	MOVEQ	r1, #0x0E
+	STREQB	r1, [r6, r3]
+	BEQ	AfterColour
+		;     TEQ     R0,#ASC"-"
+		;     MovEQ   R1,#&10
+		;     STREQB  R1,[R6,R3]
+		;     BEQ     AfterColour%
+BeforeColour
+		;  REM NUMBERS?
+	TEQ	r0, #' '
+	TEQNE	r0, r12, LSR #24	;  REM = tab?
+	BEQ	TabbingSub
+Branch24
+	CMP	r6, #0
+	BLE	firstpass	;  REM new addition to test
+	ANDGT	r1, r2, #0x0F	;  REM write colours
+	STRGTB	r1, [r6, r3]
+AfterColour
+		; CMP     R0,#&0D
+		; MovEQ   R0,#ASC"!"
+	CMP	r6, #0
+	STRGTB	r0, [r6], #1	;  REM write text
+firstpass
+	ADD	lr, lr, #1
+BeginOfEnd
+	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
+	TEQ	r0, r1	;  REM end character... yes!
+	BICEQ	r2, r2, #0x78000000	; REM START OF LINE FLAGS...
+	CMP	r6, #0
+	ADDLTS	r6, r6, #1
+	BMI	RtAtStrtB	;  REM round loop...
+	LDMEQFD	sp, {r6}	;  REM huh?
+	BEQ	RtAtStrtA
+	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
+	TEQ	r0, r1	;  REM end character... yes!
+	BEQ	tocheckbackwardsnow
+	ORRNE	r2, r2, #0x0400
+backcheckbackwardsnow
+	BIC	r1, r12, #0xFF000000	;  REM if not width...
+	CMP	lr, r1, LSR #12	;  WIDTH
+	BICLT	r2, r2, #0x0400
+	BLT	RtAtStrtB	;  REM go round loop...
+	BEQ	tohaveajollygoodtime
+tohaveajollygoodback
+	BIC	r0, r12, #0xFF000000
+	CMP	lr, r0, LSR #12	;  width...?
+	BICGE	r2, r2, #0x0400	;  REM NE
+		;  ADDEQ   R7,R7,#1
+		;  ADDEQ   R11,R11,#1
+	AND	r0, r12, #0x0200
+	ORR	r2, r2, r0
+	LDMFD	sp!, {r6, r12}
+	STMFD	sp!, {r7, r11}
+	BL	Branch208
+	BL	ZapModeWord
+	STR	r2, [r7, #8]
+	LDMFD	sp!, {r7, r11, pc}	;  REM on exit set things up r7...
+fromslash
+	CMP	r6, #0
+	BLT	BeforeColour	;  REM BLT     BeforeColour%
+	STRB	r1, [r6, r3]
+	B	AfterColour
+		;  REMB       BeforeColour%
+ComCodeRestart
+	TEQ	r0, #'_'
+	BEQ	AfterCmdCntChk
+	AND	r1, r0, #0xDF
+	CMP	r1, #'Z'
+	RSBLSS	r1, r1, #'@'
+	BLS	AfterCmdCntChk
+	B	itsoknow
+CmdCntChk
+	CMP	r0, #32
+	BNE	AfterCmdCntChk
+	CMP	r6, #0
+	BGT	r6version
+		; LDR     R1,Sol7
+		; ADD     R1,R1,#2 ; REM ???
+		; CMP     R7,R1
+	CMP	r6, #0
+	MOVLE	r1, #10
+	LDRGTB	r1, [r7, #-2]	;  REM danger
+overdangerperhaps
+	CMP	r1, #32
+	BEQ	AfterCmdCntChk
+	MOV	r1, r2, LSR #21
+	AND	r1, r1, #7
+	SUBS	r1, r1, #1
+	BICEQ	r2, r2, #0x10000000
+	BIC	r2, r2, #0x00E00000
+	ORR	r2, r2, r1, LSL #21
+	B	AfterCmdCntChk
+r6version
+	LDR	r1, Sol6	;  REM 13/10
+	SUB	r1, r1, #1
+	CMP	r6, r1	;  REM 13/10
+	LDRGTB	r1, [r6, #-1]	;  REM 13/10
+	BGT	overdangerperhaps	;  REM 13/10
+	MOV	r1, #' '
+	B	AfterCmdCntChk	;  REM 13/10
+ErrEchConf
+	CMP	r6, #0
+	BLE	AfterColour
+	AND	r1, r2, #0xFF
+	CMP	r1, #0x0F
+	BEQ	BeforeColour
+	CMP	r1, #0x0E
+	MOVEQ	r1, #0x02
+	STREQB	r1, [r6, r3]
+	TEQ	r0, #' '
+	TEQNE	r0, r12, LSR #24	;  REM = tab?
+	BEQ	TabbingSub
+	B	AfterColour
+NotANum2
+	CMP	r6, #0
+	BLE	NotANumber
+	CMP	r0, #'%'
+	BGT	NotANumber
+	SUB	r1, r3, #1
+	LDRB	r1, [r6, r1]
+	AND	r1, r1, #0xFF
+	CMP	r1, #0x0F
+	BNE	NotANumber
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x02
+	B	NotANumber
+BranchNL
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x09
+	TEQNE	r1, #0x0A
+	BEQ	DontBother2
+Bother2
+	STMFD	sp!, {lr}
+	BL	TableChk2	;  REM swap with sect below?;;;
+	LDMFD	sp!, {lr}
+DontBother2
+	MOV	lr, #0x70000000	;  REM        ;;Jeez, what a mess!;;
+	B	BeginOfEnd
+BNL2
+	BIC	r2, r2, #0x10000000	;  REM START OF LINE FLAGS SET...
+	STR	r6, Sol6
+	SUB	r1, r7, #1
+	STR	r1, Sol7
+	B	Backhome
+PreTisNum
+		;  REM not numbers?
+	CMP	r6, #0
+	BLT	TisANumber
+	LDRB	r1, [r6, #-1]
+	CMP	r1, #' '
+	BEQ	TisANumber
+	TEQ	r1, #'.'
+	TEQNE	r1, #':'
+	TEQNE	r1, #'-'
+	BNE	BeforeColour
+	ADD	r1, r6, r3
+	LDRB	r1, [r1, #-1]
+	AND	r1, r1, #0x0F
+	CMP	r1, #0x0F
+	BEQ	TisANumber
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x02
+	B	BeforeColour
+Sol6
+	
+	DCD	0
+Sol7
+	
+	DCD	0
+BranchYYY
+	CMP	r6, #0
+	BLT	BeforeColour	;  REM BLT     BeforeColour%
+	CMP	r0, #'9'
+	RSBLSS	r1, r0, #'0'
+	MOVLS	r1, #0x0F
+	STRLSB	r1, [r6, r3]
+	BLS	AfterColour
+	LDR	r1, Sol7
+	ADD	r1, r1, #2
+	CMP	r7, r1
+	MOVLE	r1, #10
+	LDRGTB	r1, [r7, #-2]	;  REM danger
+	TEQ	r0, #'.'	;  REM if in number
+	BNE	TryNextA
+	CMP	r1, #'9'
+	BGT	TryNextA
+	CMP	r1, #'0'
+	BLT	TryNextA
+	MOV	r1, #0x0F
+	STRB	r1, [r6, r3]
+	B	AfterColour
+TryNextA
+	TEQ	r0, #'_'	;  REM if in number
+	BNE	BeforeColour
+	CMP	r1, #'9'
+	BGT	BeforeColour
+	CMP	r1, #'0'
+	BLT	BeforeColour
+	MOV	r1, #0x0F
+	STRB	r1, [r6, r3]
+	B	AfterColour
+pointinnum
+	LDRB	r1, [r7, #-2]
+	CMP	r1, #'9'
+	BGT	NotANumber
+	CMP	r1, #'/'
+	BLE	NotANumber
+	LDRB	r1, [r7]
+	CMP	r1, #'9'
+	BGT	NotANumber
+	CMP	r1, #'/'
+	BLE	NotANumber
+	B	TisANumber	;  REM in a number...
+testampersand
+	CMP	r6, #0
+	BLE	afterteststop
+	LDRB	r1, [r6, #-1]
+	TEQ	r1, #'&'
+	BNE	afterteststop
+	SUB	r1, r3, #1
+	MOV	r0, #0x02
+	STRB	r0, [r6, r1]
+	LDRB	r0, [r7, #-1]
+	B	afterteststop
+localrtadr
+	DCD	0
+GSTtestMO
+	MOV	r1, #0
+GSTtest
+	STR	r1, localrtadr
+	CMP	r6, #0
+	BLT	GSTstop
+	STMFD	sp!, {r0, r2, r4, r5}
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0A
+	TEQNE	r1, #0x09
+	BEQ	notaGSTSequence
+	MOV	r4, r7
+	MVN	r0, #0
+GSTchklp
+	SUB	r0, r0, #1
+	ADD	r5, r4, r0
+	LDR	r1, [r9, #f_ptr]
+	CMP	r5, r1
+	BCC	notaGSTSequence
+	LDR	r2, [r9, #f_splito]
+	ADD	r2, r1, r2
+	CMP	r5, r2
+	BCC	inbothalfalread
+	LDR	r2, [r9, #f_splite]
+	ADD	r2, r1, r2
+	CMP	r5, r2
+	LDRCC	r5, [r9, #f_splits]
+	SUBCC	r4, r4, r5
+inbothalfalread
+	LDRB	r1, [r4, r0]
+		; CMP     R1,#09     : ;BEQ GSTchklp
+	CMP	r1, #'>'
+	BEQ	notaGSTSequence
+	CMP	r1, #' '
+	BLT	notaGSTSequence
+	CMP	r1, #'"'
+	BEQ	notaGSTSequence
+	CMP	r1, #127
+	BGT	notaGSTSequence
+	CMP	r1, #'<'
+	BNE	GSTchklp
+BACKInEntity
+	MOV	r1, #0x0E
+	ADD	r5, r6, r3
+	ADD	r0, r0, #1
+	ADD	r4, r6, r0
+	LDR	r2, adrofrsix
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	ADD	r0, r0, #1
+	MOV	r1, #0x0B
+	CMN	r0, #0
+	BEQ	GupSAway
+roundAloop
+	ADD	r4, r6, r0
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	ADD	r0, r0, #1
+	CMP	r0, #0
+	BLT	roundAloop
+GupSAway
+	MOV	r1, #0x0E
+	ADD	r4, r6, r0
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	LDMFD	sp!, {r0, r2, r4, r5}
+	BCC	AfterColour
+	LDR	r1, localrtadr
+	CMP	r1, #0
+	BEQ	AfterColour
+	B	secondendofGST
+notaGSTSequence
+	LDMFD	sp!, {r0, r2, r4, r5}
+	LDR	r1, localrtadr
+	CMP	r1, #0
+	BEQ	GSTstop
+	B	secondendofGST
+GSTtestBO
+	MOV	r1, #0
+GSTtestB
+	STR	r1, localrtadr
+	CMP	r6, #0
+	BLT	GSTstopB
+	STMFD	sp!, {r0, r2, r4, r5}
+		; TST     2,#&40000000
+		; BNE     notaGSTSequenceB
+		; FNlong_adr("  ",1,w_formmb + 8)
+		; LDR     1,[1]
+		; AndS    1,1,#(1 << 19)
+		; BEQ     notaGSTSequenceB
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0A
+	TEQNE	r1, #0x09
+	BEQ	notaGSTSequenceB
+	MOV	r4, r7
+	MVN	r0, #0
+GSTchklpB
+	SUB	r0, r0, #1
+	ADD	r5, r4, r0
+	LDR	r1, [r9, #f_ptr]
+	CMP	r5, r1
+	BCC	notaGSTSequenceB
+	LDR	r2, [r9, #f_splito]
+	ADD	r2, r1, r2
+	CMP	r5, r2
+	BCC	inbothalfalreadB
+	LDR	r2, [r9, #f_splite]
+	ADD	r2, r1, r2
+	CMP	r5, r2
+	LDRCC	r5, [r9, #f_splits]
+	SUBCC	r4, r4, r5
+inbothalfalreadB
+	LDRB	r1, [r4, r0]
+		; CMP     R1,#09     : ;BEQ GSTchklpB
+	CMP	r1, #' '
+	BLT	notaGSTSequenceB
+	CMP	r1, #')'
+	CMPNE	r1, #'"'
+		;  CMPNE   1,#ASC"'"
+	BEQ	notaGSTSequenceB
+	CMP	r1, #127
+	BGT	notaGSTSequenceB
+	CMP	r1, #'('
+	BNE	GSTchklpB
+	CMN	r0, #2
+	BCS	GSTchklpB
+BACKInEntityB
+	MOV	r1, #0x0C
+	ADD	r5, r6, r3
+	ADD	r0, r0, #1
+	ADD	r4, r6, r0
+	LDR	r2, adrofrsix
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	ADD	r0, r0, #1
+	MOV	r1, #0x0C
+	CMN	r0, #0
+	BEQ	GupSAwayB
+roundAloopB
+	ADD	r4, r6, r0
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	ADD	r0, r0, #1
+	CMP	r0, #0
+	BLT	roundAloopB
+GupSAwayB
+	MOV	r1, #0x0C	;  ?
+	ADD	r4, r6, r0
+	CMP	r4, r2
+	STRCSB	r1, [r5, r0]
+	LDMFD	sp!, {r0, r2, r4, r5}
+	BCC	AfterColour
+	LDR	r1, localrtadr
+	CMP	r1, #0
+	BEQ	AfterColour
+	B	secondendofGSTB
+notaGSTSequenceB
+	LDMFD	sp!, {r0, r2, r4, r5}
+	LDR	r1, localrtadr
+	CMP	r1, #0
+	BEQ	GSTstopB
+	B	secondendofGSTB
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+posscsvcommstart
+	LDR	r1, Sol7
+	ADD	r1, r1, #2
+	CMP	r7, r1
+	BNE	noposscsvcommstart
+	CMP	r6, #0
+	BCC	noposscsvcommstart
+	LDRB	r1, [r7, #-2]
+	CMP	r1, #'%'
+	BNE	noposscsvcommstart
+	MOV	r1, #0x09
+	ADD	r6, r6, r3
+	STRB	r1, [r6, #-1]
+	SUB	r6, r6, r3
+CommentStart
+		;  REM | comment..........
+		; LDR     1,adrofrsix
+		; CMP     6,1
+	LDR	r1, Sol7
+	ADD	r1, r1, #1
+	CMP	r7, r1
+	BEQ	sokinkeysfile
+	LDR	r1, [r9, #f_ptr]
+	ADD	r1, r1, #2
+	CMP	r7, r1
+	LDRCSB	r1, [r7, #-2]	;  check for \|...
+	CMP	r1, #'\'
+	BEQ	BeforeColour
+	ADRL	r1, w_formmb + 8
+	LDR	r1, [r1]
+	ANDS	r1, r1, #(1 << 19)
+	BNE	BeforeColour
+sokinkeysfile
+	AND	r1, r2, #0xFF
+	CMP	r1, #0x0A	;  REM in quotes?
+	BICNE	r2, r2, #0xFF
+	ORRNE	r2, r2, #0x09
+	ORRNE	r2, r2, #0x10000000
+	B	BeforeColour
+QuoteBit
+		;  REM "Quotes"
+	AND	r1, r2, #0xFF
+	CMP	r1, #0x09
+	BEQ	BeforeColour
+	ADRL	r1, w_formmb + 8
+	LDR	r1, [r1]
+	ANDS	r1, r1, #(1 << 19)
+	AND	r1, r2, #0xFF
+	BEQ	notinthekeysfile
+	CMP	r1, #0x0D
+	BEQ	BeforeColour
+notinthekeysfile
+	CMP	r1, #0x0A
+	BICNE	r2, r2, #0xFF
+	ORRNE	r2, r2, #0x0A
+	BNE	AfterColourafterchkback
+CurlyBrack
+		;  REM "No {} NUFFIN"
+	CMP	r6, #0
+	ANDGT	r1, r2, #0x0F
+	STRGTB	r1, [r6, r3]
+	BIC	r2, r2, #0xFF
+	MOV	r1, r2, LSR #24
+	AND	r1, r1, #0x01	;  REM Bits for {} depth
+	CMP	r1, #0x00
+	ORREQ	r2, r2, #0x0E	;  REM COL Cream/Normal
+	ORRNE	r2, r2, #0x0C	;  REM COL Grey/Redirected
+	B	AfterColour
+AfterColourafterchkback
+	AND	r1, r2, #0xFF
+	STMFD	sp!, {lr}
+	BL	TableChk2	;  REM **************************
+	LDMFD	sp!, {lr}
+	B	BeforeColour
+CurlyBrackOpen
+		;  REM originally for ' these ' ; "{"
+	ORR	r2, r2, #0x10000000
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0A
+	TEQNE	r1, #0x09
+	BEQ	BeforeColour
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x0C
+	ORR	r2, r2, #0x1000000
+	ORR	r12, r12, #0x0200
+	B	BeforeColour
+CurlyBrackClose
+		;  REM originally for ' these ' ; "}"
+	ORR	r2, r2, #0x10000000
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x0A
+	TEQNE	r1, #0x09
+	BEQ	BeforeColour
+	BIC	r2, r2, #0x1000000
+	MOV	r1, r2, LSR #24
+	AND	r1, r1, #0x01	;  REM Bits for {} depth
+	TEQ	r1, #0x00
+	BICNE	r2, r2, #0xFF
+	ORRNE	r2, r2, #0x0C	;  REM COL Grey/Redirected
+	ORRNE	r12, r12, #0x0200
+	BNE	BeforeColour
+	BIC	r12, r12, #0x0200
+	B	CurlyBrack
+TabbingSub
+	AND	r1, r2, #0xF
+	TEQ	r1, #0x0D
+	TEQNE	r1, #0x0B
+	ORREQ	r2, r2, #0x0100
+	AND	r1, r4, #0x3000
+	TEQ	r1, #0
+	TEQEQ	r0, r12, LSR #24
+	BEQ	AfterColour
+	TEQ	r0, #' '
+	BEQ	Branch24
+	CMP	r6, #0
+	BLT	BeginOfEnd
+	MOV	r0, #9	;  REM tab!
+	TEQ	r1, #0x1000
+	MOVEQ	r0, #0x20	;  REM " "!!!!
+	TEQ	r1, #0x3000
+	MOVEQ	r0, #'-'	;  REM "-"!!!!
+TabLoop
+	MOV	r1, #8	;  REM = COL control Character...
+	STRB	r1, [r6, r3]	; @@@@
+	MOV	r1, #1
+	STRB	r1, [r6, r3,LSL #1]	;  REM wrong?
+	STRB	r0, [r6], #1	;  REM @@@@@@
+	ADD	lr, lr, #1
+	AND	r1, r4, #0x3000
+	TEQ	r1, #0x2000
+	MOVEQ	r0, #0x20
+	BIC	r1, r12, #0xFF000000
+	TEQ	lr, r1, LSR #12
+	TSTNE	lr, #7
+	BNE	TabLoop
+	AND	r0, r4, #0x3000
+	TEQ	r0, #0x3000
+	MOVEQ	r0, #9	;  REM  | ?
+	STREQB	r0, [r6, #-1]	;  REM @@@@ ???
+	MOV	r0, r12, LSR #24
+	B	BeginOfEnd
+redrawA
+		;  REM redraw the screen and so forth
+	SUBS	r0, r0, #32
+	MOVMI	r0, #0
+	MOV	pc, lr
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+beginnchar
+	DCD	0
+storedr6flu
+	DCD	0
+cntcharback
+	DCD	0
+fullstopsofar
+	DCD	0
+locssforcase
+	DCD	0
+fullstopspeccase
+	LDR	r1, fullstopsofar
+	CMP	r1, #0
+	ADDEQ	r1, r1, #1
+	STREQ	r1, fullstopsofar
+	MOV	r1, #'.'
+	BEQ	tcloop
+	B	notanumberbackedonto
+splchkforminus
+	SUB	r11, r11, #1
+	ADD	r4, r8, r11
+	LDR	r1, [r9, #f_ptr]
+	LDR	r12, [r9, #f_splito]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	BCC	inbothalfTC2a
+	LDR	r12, [r9, #f_splite]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	LDRCC	r1, [r9, #f_splits]
+	SUBCC	r4, r4, r1
+inbothalfTC2a
+	LDR	r1, [r9, #f_ptr]
+	CMP	r4, r1
+	BCC	notANYone
+	LDRB	r1, [r4]
+	CMP	r1, #32	;  make sure ' ' before any '-'
+	BGT	notANYone
+	MOV	r1, #'-'
+		;     ADD     11,11,#1
+	B	notanumberbackedonto
+TableChk2
+	STR	r6, storedr6flu
+		; MOV PC,E
+	STMFD	sp!, {r4-r12, lr}
+		; REM LDR     R7,Sol6
+	MOV	r1, #0
+	STR	r1, fullstopsofar
+	MOV	r8, r7
+	LDR	r1, [r9, #f_ptr]
+	LDR	r12, [r9, #f_splito]
+	ADD	r12, r1, r12
+	CMP	r8, r12
+	BCC	ploughonin
+	LDR	r12, [r9, #f_splite]
+	ADD	r12, r1, r12
+	CMP	r8, r12
+	LDRCC	r1, [r9, #f_splits]
+	ADDCC	r8, r8, r1
+ploughonin
+	MVN	r11, #0
+tcloop
+	SUB	r11, r11, #1
+	ADD	r4, r8, r11
+	LDR	r1, [r9, #f_ptr]
+		;     CMP     4,1
+		;     BCC     notanumberbackedonto
+	LDR	r12, [r9, #f_splito]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	BCC	inbothalfTC2
+	LDR	r12, [r9, #f_splite]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	LDRCC	r1, [r9, #f_splits]
+	SUBCC	r4, r4, r1
+inbothalfTC2
+	LDR	r1, [r9, #f_ptr]
+	CMP	r4, r1
+	BCC	notanumberbackedonto
+	LDRB	r1, [r4]
+	CMP	r1, #'|'
+	CMPNE	r1, #']'
+	CMPNE	r1, #'['
+	CMPNE	r1, #'}'
+	CMPNE	r1, #'{'
+	CMPNE	r1, #'@'
+	BGT	tcloop
+		; CMP     R1,#ASC"-" ; for what...?
+		; BEQ     loop ; for what...?
+rightatverystart
+	TEQ	r1, #'.'
+	BEQ	fullstopspeccase
+	TEQ	r1, #'+'
+	BEQ	tcloop
+	TEQ	r1, #'@'
+	TEQNE	r1, #':'	;  REM ok as in C;h.foo
+	BEQ	notanumberbackedonto
+	TEQ	r1, #'-'
+	BEQ	splchkforminus
+	CMP	r1, #'0'
+	BCC	notanumberbackedonto
+	CMP	r1, #':'
+	BCC	tcloop
+		; .gothrough
+	CMP	r1, #' '
+	BGT	notANYone
+notanumberbackedonto
+	STR	r1, beginnchar
+	ADD	r11, r11, #1
+	ADD	r4, r8, r11
+	ADD	r11, r11, #1
+	RSB	r1, r11, #0
+	STR	r1, cntcharback
+	LDR	r1, [r9, #f_ptr]
+	CMP	r4, r1
+	BCC	notANYone
+	LDR	r12, [r9, #f_splito]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	BCC	inbothalfTC3
+		;  What on earth is this trying to do?
+		;  We've got rid of all things below the split -
+		;  now, if we're below the split end, we lop off the split size.
+		;  Huh? I could understand CS not CC (address -> offset), but
+		;  this doesn't make much sense ... however we load directly
+		;  from R4 in a minute (LDRB R1,[R4] in inbothalfTC3), so
+		;  we don't even want an offset - we want a valid address.
+		;  Anything in the split is invalid anyway, so we should either
+		;  be going to notANYone (as for < f_ptr, above) or we should
+		;  re-adjust to the start of the second part of the buffer.
+		;  Which?
+		;  Note that there are a few similar points above ...
+	LDR	r12, [r9, #f_splite]
+	ADD	r12, r1, r12
+	CMP	r4, r12
+	LDRCC	r1, [r9, #f_splits]
+	SUBCC	r4, r4, r1
+inbothalfTC3
+		; LDR     1,[9,#f_ptr]
+		; CMP     4,1
+		; BCC     notANYone
+	LDRB	r1, [r4]
+	FNupper	r1
+	CMP	r1, #'-'
+	MOVEQ	r1, #'Z'
+	CMP	r1, #'A'
+	BLT	notANYone
+	CMP	r1, #'Z'
+	BGT	notANYone
+	SUB	r1, r1, #'A'
+	ADRL	r12, AlphaIndex
+	ADD	r1, r12, r1, ASL #2
+	LDR	r1, [r1]
+	ADRL	r12, TableHere
+	ADD	r12, r12, r1
+	TST	r2, #0x04000000
+	ADRNEL	r12, TableEval
+lpa2
+	MOV	r8, #0	;  REM tablepointer
+	LDRB	r1, [r12]
+	CMP	r1, #'#'	;  no longer needed?
+	MOV	r1, #0
+	MVNEQ	r1, #0
+	ADDEQ	r12, r12, #1
+	STR	r1, locssforcase
+lpa1
+	LDRB	r1, [r12, r8]
+	CMP	r1, #'z'
+	MOVGT	r10, r8
+	BGT	gotexactmatch
+	MOV	r7, r1
+	ADD	r5, r4, r8
+	LDR	r1, [r9, #f_ptr]
+	LDR	lr, [r9, #f_splito]
+	ADD	lr, r1, lr
+	CMP	r5, lr
+	BCC	inbothalfTC4
+	LDR	lr, [r9, #f_splite]
+	ADD	lr, r1, lr
+	CMP	r5, lr
+	LDRCC	r1, [r9, #f_splits]
+	ADDCC	r5, r5, r1
+inbothalfTC4
+	ADRL	r1, w_formmb
+	LDR	r1, [r1, #0x08]
+	ANDS	r1, r1, #1 << 24
+	LDRB	r1, [r5]
+	BEQ	dothatupper
+	LDR	lr, locssforcase
+	CMP	lr, #0
+	BNE	noupperheren
+dothatupper
+	FNupper	r1
+noupperheren
+	TEQ	r7, #' '
+	BEQ	skiptabovr1
+skiptabovr1
+	CMP	r1, #':'	;  was 'COLON' / 64...
+	CMPNE	r1, #'<'	;  was 64...
+	CMPNE	r1, #'='
+	CMPNE	r1, #'>'
+	CMPNE	r1, #'/'
+	CMPNE	r1, #'-'
+	MOVLE	r1, #' '
+tabovr1
+	ADD	r8, r8, #1
+	CMP	r7, r1
+	BGT	bigger1
+	BEQ	lpa1
+maybenot
+	ADD	r12, r12, r8
+	SUB	r12, r12, #1
+_altered_0
+	LDRB	r1, [r12], #1
+	CMP	r1, #'z'
+	BLE	_altered_0
+	LDRB	r1, [r12]
+	CMP	r1, #'*'
+	BNE	lpa2
+couldnotfindit
+		; TST     2,#&1C000000
+		; LDMNEFD 13!,{R4-R12,PC}
+	RSB	r8, r11, #0
+	ORR	r2, r2, #0x10000000	;  SOL ...? no brackets...!
+	BIC	r2, r2, #0x40000000	;  a command yet flags...
+		; LDRB    1,[5] ; REM ??? V DUBIOUS...
+		;     CMP     1,#ASC"."
+		;     ADDEQ   8,8,#1
+	LDR	r1, beginnchar
+		;     TEQ     1,#ASC"-"
+		;     TEQNE   1,#ASC"!"
+		;     MovEQ   1,#&02 ; was &12
+		;     BICEQ   2,2,#&40000000 ; a command yet flags...
+		;     BEQ     ChooseColour2
+	TEQ	r1, #'-'	; option/switch
+	MOVEQ	r1, #0x10
+	BEQ	ChooseColour2
+		;     MOV     1,#&12
+		;     B       ChooseYerColour
+		;  deliberate fall through...
+notANYone
+	LDMFD	sp!, {r4-r12, pc}
+bigger1
+	CMP	r8, #1
+	BEQ	couldnotfindit
+	B	maybenot
+ChooseYerColour
+	AND	r9, r2, #0xFF
+	CMP	r9, #0x0F
+	CMPNE	r9, #0x0A
+	BEQ	notANYone
+	LDR	r9, storedr6flu
+	CMP	r9, #0
+	BLE	notANYone
+		; ADD     9,6,3
+		; LDRB    9,[9,11]  ; REM QUICK FIX...
+		; CMP     9,#&0A      ; REM ""
+		; LDMEQFD 13!,{R4-R12,PC}
+	MOV	r9, #0
+	ADD	r7, r6, r11
+	ADD	r6, r7, r3
+		; LDR     11,Sol6
+	LDR	r11, adrofrsix
+lasdwAO
+	ADD	r4, r7, r9
+	CMP	r4, r11
+	BCC	dontputitonsc
+		; LDRB    4,[R12,R9]
+		; CMP     4,#ASC"@"
+	STRB	r1, [r6, r9]	;  REM CS
+dontputitonsc
+	ADD	r9, r9, #1
+	CMP	r9, r8
+	BLT	lasdwAO
+	MOV	r1, #0xEA00
+	LDMFD	sp!, {r4-r12, pc}
+Prefixbit
+	RSB	r10, r11, #0
+		; STR     10,cntcharback
+		; LDRB    R1,[R6] ; REM ??? V DUBIOUS...
+	CMP	r1, #'.'
+	ADDEQ	r10, r10, #1
+	TEQ	r9, #150
+	MOVEQ	r1, #0x12
+	TEQ	r9, #151
+	MOVEQ	r1, #0x13
+	TEQ	r9, #152
+	MOVEQ	r1, #0x14
+	TEQ	r9, #153
+	MOVEQ	r1, #0x15
+	B	ChooseColour2
+Prefixbit2A
+	RSB	r10, r11, #0
+		; STR     10,cntcharback
+		; LDRB    R1,[R6] ; REM ??? V DUBIOUS...
+	CMP	r1, #'.'
+	ADDEQ	r10, r10, #1
+	MOV	r1, #0x0D
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x0F
+	B	ChooseColour2
+possiblyaMJE
+	TEQ	r1, #'-'
+	MOVEQ	r1, #0x11
+		;     MOVNE   1,#&12
+	BIC	r2, r2, #0x40000000	;  a command yet flags...
+	BEQ	ChooseColour2
+	B	colouringrapidexit	;  couldnotfindit
+gotexactmatch
+	ORR	r2, r2, #0x40000000	;  a command yet flags...
+	ORR	r2, r2, #0x10000000	;  START OF LINE FLAG...
+	BL	CheckRoutine
+		;     TEQ     R8,R10
+	TEQ	r9, #150
+	TEQNE	r9, #151
+	TEQNE	r9, #152
+	TEQNE	r9, #153
+	BEQ	Prefixbit
+		;     TEQ     R8,R10
+		;     TEQEQ   R9,#ASC"—"
+		;     BEQ     Prefixbit2A
+	RSBEQ	r10, r11, #0
+	TEQ	r9, #156
+	LDMEQFD	sp!, {r4-r12, pc}
+	LDR	r1, beginnchar
+		;     TEQ     1,#ASC"-"
+		;     TEQNE   1,#ASC"!"
+		;     MovEQ   1,#&02 ; was &12
+		;     BICEQ   2,2,#&40000000 ; a command yet flags...
+		;     BEQ     ChooseColour2
+	TEQ	r1, #'-'	; option/switch
+	MOVEQ	r1, #0x10
+	BEQ	ChooseColour2
+	TEQ	r9, #171
+	MOVEQ	r1, #0x11	;  gerph style...
+	BEQ	ChooseColour2
+		;     MovEQ   1,#&12 ; logop
+		;     BEQ     ChooseColour2
+	TEQ	r9, #176
+	BEQ	possiblyaMJE
+	MOV	r1, #0x0D
+	TEQ	r9, #'}'
+	MOVEQ	r1, #0x02	;  was &12
+	BICEQ	r2, r2, #0x40000000	;  a command yet flags...
+ChooseColour2
+	LDRB	r9, beginnchar
+		;     CMP     9,#&0A
+		;     BNE     everythingsfinerightnow
+		;     FNlong_adr("  ",9,w_formmb)
+		;     LDR     9,[9,#&08]
+		;     TST     9,#(1 << 19)
+		;     MOVNE   1,#&02 ; was &12
+		; .everythingsfinerightnow
+	LDR	r9, storedr6flu
+	CMP	r9, #0
+	BLE	notANYone
+	ANDS	r9, r2, #0xFF
+	CMP	r9, #0x0F
+	CMPNE	r9, #0x0A
+	BEQ	notANYone
+	ADD	r9, r6, r3
+	LDRB	r9, [r9, r11]	;  REM QUICK FIX...
+	CMP	r9, #0x0A	;  REM ""
+	LDMEQFD	sp!, {r4-r12, pc}
+	MOV	r9, #0
+	ADD	r7, r6, r11
+		; ADD     7,7,#1 ; REM ??? TT
+		; SUB     8,8,#1
+	ADD	r6, r7, r3
+	LDRB	r5, [r6, r9]
+	CMP	r5, #0x0A
+	LDMEQFD	sp!, {r4-r12, pc}
+	LDR	r11, adrofrsix
+	ADRL	r5, w_formmb
+	LDR	r5, [r5, #0x08]
+lasdwA
+	ADD	r4, r7, r9
+	CMP	r4, r11
+	BCC	beforesolhereargh
+	LDRB	lr, [r7, r9]
+	LDRB	r4, [r12, r9]
+		; TST     5,#1 << 27
+		; CMPNE   E,#64
+		; STRGTB  4,[7,9]
+lasdwA1
+	ADD	r4, r7, r9
+	CMP	r4, r11
+		;     CMPCS   4,#ASC"@" ; what was this for...
+	STRCSB	r1, [r6, r9]
+beforesolhereargh
+	ADD	r9, r9, #1
+	LDR	r4, cntcharback
+	CMP	r9, r4
+	BCS	colouringrapidexit
+	CMP	r9, r8
+	BLT	lasdwA
+	CMP	r9, r10
+	BLT	lasdwA1
+	MOV	r1, #0xEA00
+colouringrapidexit
+	LDMFD	sp!, {r4-r12, pc}
+ErrorSet2
+		;  REM code is still here?
+	MOV	r9, #0	; 
+	ADD	r6, r6, r3	; 
+	ADD	r6, r6, r11	; 
+	MOV	r10, #0x10	; 
+lasdwB
+	ADD	r4, r7, r9
+	CMP	r4, r11
+	BCC	beforesolherearghE
+	LDRB	r1, [r6, r9]
+	CMP	r1, #0xC	;  REM {} or error
+	CMPNE	r1, #0xA	;  REM ""
+	CMPNE	r1, #0x9	;  REM | Comment
+	STRNEB	r10, [r6, r9]
+beforesolherearghE
+	ADD	r9, r9, #1
+	LDR	r4, cntcharback
+	CMP	r9, r4
+	BCS	colouringrapidexit
+	CMP	r9, r8
+	BLT	lasdwB
+	BIC	r2, r2, #0xFF
+	ORR	r2, r2, #0x0F
+	LDMFD	sp!, {r4-r12, pc}
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CheckRoutine
+	ADD	r1, r12, r8
+	SUB	r1, r1, #1
+_altered_1
+	LDRB	r9, [r1], #1
+	CMP	r9, #'z'
+	BLE	_altered_1
+NotAThen
+		; TST     R2,#&10000000
+		; LDMNEFD R13!,{R4-R12,PC}
+		; OrrNE   R2,R2,#&10000000
+	BIC	r2, r2, #0x08000000
+	MOV	pc, lr
+Data47
+	DCD	0x0
+Branch208
+	LDR	r11, Data47
+	MOV	pc, lr
+Branch210
+	STMFD	sp!, {r0, r1, lr}
+	LDR	r11, Data47
+	LDR	r0, [r8, #w_format]	;  REM w_format
+	AND	r0, r0, #0xFF
+	MVN	lr, #0
+	LDR	r1, [r11, #8]
+	TEQ	r0, r1
+	ADDEQ	lr, lr, #1
+	LDRNE	r1, [r11, #4]
+	TEQNE	r0, r1
+	ADDEQ	lr, lr, #1
+	LDRNE	r1, [r11, #0]
+	TEQNE	r0, r1
+	ADDEQ	lr, lr, #1
+	LDMFD	sp!, {r0, r1, pc}
+	STMFD	sp!, {r11, lr}
+	LDR	r11, Data47
+	TEQ	r1, #0
+	BLEQ	Tk1frm12andret
+	LDMFD	sp!, {r11, pc}
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+D1
+	=	"ZapMakeFile", 0x0
+	DCD	0x00
+	DCD	0x00
+	DCD	0x00
+	DCD	D2
+	=	0x00
+D2
+	=	0x1B, 0x00, " provides support for", 0x1B, 0x02, "Zap editor.", 0x0D, "It provides a syntax-colouring mode for Zap command ", 0x1B, 0x07, "s.", 0x00
+	ALIGN
+ModHelpString
+	=	"ZapMakeFile", 0x09, "0.02 (10 May 1998) © Tim Tyler", 0x00
+	ALIGN
+lp1
+	=	"Tim Tyler", 0x00
+	ALIGN
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+charchar
+	STMFD	sp!, {lr}
+	MOV	r1, #0
+FromMJE4
+	CMP	r1, r5
+	BGE	FromMJE5
+	LDRB	r0, [r7, r1]
+	TEQ	r0, #'>'
+	TEQNE	r0, #')'
+	TEQNE	r0, #'.'
+	ADDNE	r1, r1, #1
+	BNE	FromMJE4
+	CMP	r5, #2
+	ADDCS	r1, r1, #1
+	BCS	FromMJE4
+	BL	FromMJE6
+	SUB	r5, r5, r1
+	ADD	r7, r7, r1
+	TEQ	r0, #'>'
+	BLEQ	FromMJE9
+	TEQ	r0, #')'
+	BLEQ	FromMJE10
+	TEQ	r0, #'.'
+	BLEQ	Abbreviation
+	SUB	r5, r5, #1
+	ADD	r7, r7, #1
+	MOV	r1, #0
+	B	FromMJE4
+FromMJE5
+	BL	FromMJE6
+	LDMFD	sp!, {pc}
+FromMJE6
+	CMP	r1, #0
+	MOVLE	pc, lr
+	STMFD	sp!, {r1-r10, lr}
+	MOV	r5, r1
+	MOV	r9, #Zap_CallMode
+	BL	FromMJE27
+	LDMFD	sp!, {r1-r10, pc}
+FromMJE9
+	STMFD	sp!, {r1-r10, lr}
+	LDR	r0, [r10, #12]
+	MOV	r1, #'<'
+	MOV	r2, #'>'
+	BL	FromMJE18
+	BLEQ	FromMJE11
+	MOV	r5, #1
+	MOV	r9, #Zap_CallMode
+	BL	FromMJE27
+	LDMFD	sp!, {r1-r10, pc}
+FromMJE10
+	STMFD	sp!, {r1-r10, lr}
+	LDR	r0, [r10, #12]
+	MOV	r1, #'('
+	MOV	r2, #')'
+	BL	FromMJE18
+	BLEQ	FromMJE11
+	MOV	r5, #1
+	MOV	r9, #Zap_CallMode
+	BL	FromMJE27
+	LDMFD	sp!, {r1-r10, pc}
+Abbreviation
+	STMFD	sp!, {r0-r12, lr}
+	MOV	r0, #0x81
+	MOV	r1, #0x8F
+	MOV	r2, #0xFF
+	SWI	XOS_Byte
+	BCS	asnormaldot
+	ADRL	r0, w_formmb
+	LDR	r0, [r0, #0x08]
+	TST	r0, #(1 << 25)
+	BEQ	asnormaldot
+	MOV	r0, #0
+	STR	r0, startslash
+	STR	r0, isentity
+	LDR	r0, [r10, #12]
+	SUB	lr, r0, #1
+	STR	lr, storedofsofeow
+	MOV	r1, #'('
+		; MOV     R2,#ASC"?"
+	BL	checkbackone
+	BEQ	firstabbrev
+		;     LDMFD   R13,{R0-R12,R14}
+		;     LDR     R0,[R10,#12]
+		;     MOV     R1,#ASC"="
+		;     MOV     R2,#ASC" "
+		;     BL      checkbackthree
+		;     BEQ     thirdabbrev
+		;     LDMFD   R13,{R0-R12,R14}
+		;     LDR     R0,[R10,#12]
+		;     MOV     R1,#ASC"<"
+		;     MOV     R2,#ASC">"
+		;     BL      checkbacktwo
+		;     BEQ     secondabbrev
+		;     LDMFD   R13,{R0-R12,R14}
+		;     LDR     R0,[R10,#12]
+		;     MOV     R1,#ASC"&"
+		;     MOV     R2,#ASC" "
+		;     BL      checkbackent
+		;     BEQ     entityabbrev
+asnormaldot
+	MOV	r5, #1
+	MOV	r9, #Zap_CallMode
+	BL	FromMJE27
+	LDMFD	sp!, {r0-r12, pc}
+		; .secondabbrev
+		;     LDR     0,locoftabletwo
+		;     LDR     1,storedofsofsow
+		;     LDR     2,storedofsofeow
+		;     SUB     2,2,1
+		;     FNlong_adr("  ",3,AlphaIndex2)
+		;     BL      getadrofabrcmd
+		;     ; REM returns adress in r7, length in r5.
+		;     BEQ     beepandexit
+		; 
+		;     B       insrtstfhre
+beepandexit
+		;  REM stop full
+	LDMFD	sp, {r0-r12, lr}
+	ADR	r7, insstrtst
+	MOV	r5, #1
+	MOV	r9, #Zap_CallMode
+	BL	FromMJE27
+realbeepandexit
+		; SWI     &107
+	LDMFD	sp!, {r0-r12, pc}
+firstabbrev
+	ADRL	r0, TableHere
+		; LDR     0,locoftablethree
+	LDR	r1, storedofsofsow
+	LDR	r2, storedofsofeow
+	SUB	r2, r2, r1
+	ADRL	r3, AlphaIndex
+	BL	getadrofabrcmd
+		;  REM returns adress in r7, length in r5.
+	BEQ	beepandexit
+	LDR	r1, inshash
+	LDR	r2, delhash
+	ADD	r2, r2, #1
+	CMP	r1, r2
+	BLE	beepandexit
+	B	insrtstfhre
+		; .thirdabbrev
+		;     FNlong_adr("  ",0,ThirdParam)
+		;     LDR     1,storedofsofsow
+		;     LDR     2,storedofsofeow
+		;     SUB     2,2,1
+		;     FNlong_adr("  ",3,AlphaIndex3)
+		;     BL      getadrofabrcmd
+		;     ; REM returns adress in r7, length in r5.
+		;     BEQ     beepandexit
+		; 
+		;     B       insrtstfhre
+		; .entityabbrev
+		;     MVN     0,#0
+		;     STR     0,isentity
+		; 
+		;     LDR     0,locoftableent
+		;     ;FNlong_adr("  ",0,entitylist)
+		;     LDR     1,storedofsofsow
+		;     LDR     2,storedofsofeow
+		;     SUB     2,2,1
+		;     FNlong_adr("  ",3,AlphaIndexent)
+		;     BL      getadrofabrcmd
+		;     ; REM returns adress in r7, length in r5.
+		;     BEQ     Secondtry
+		; 
+		;     B       insrtstfhre
+		; .Secondtry
+		;     MOV     0,#&1
+		;     STR     0,isentity
+		; 
+		;     LDR     0,locoftableent
+		;     ;FNlong_adr("  ",0,entitylist)
+		;     LDR     1,storedofsofsow
+		;     LDR     2,storedofsofeow
+		;     SUB     2,2,1
+		;     FNlong_adr("  ",3,AlphaIndexent)
+		;     BL      getadrofabrcmd
+		;     ; REM returns adress in r7, length in r5.
+		;     BEQ     beepandexit
+		; 
+		;     B       insrtstfhre
+insrtstfhre
+	MOV	r2, #31	;  max value
+	ADR	r3, deldatahere
+	ADRL	r5, w_formmb
+	LDR	r5, [r5, #0x08]
+_altered_2
+	LDRB	r1, [r7, r2]
+	STRB	r1, [r3, r2]
+	SUBS	r2, r2, #1
+	BPL	_altered_2
+	FNcall	Zap_StartOp
+	LDR	r2, delhash
+	ADD	r2, r2, #1
+	LDR	r1, storedofsofsow
+	MOV	r0, #0x2
+	FNcall	Zap_Command
+	LDR	r2, inshash
+	ADR	r3, deldatahere
+	LDR	r1, storedofsofsow
+	MOV	r0, #0x1
+	FNcall	Zap_Command
+		;     LDR     0,endtermhere
+		;     CMP     0,#ASC"¿"
+		;     BNE     noequalsaddedon
+		; 
+		;     FNlong_adr("  ",3,w_formmb + 4)
+		;     LDRB    3,[3,#2]
+		;     CMP     3,#0
+		;     BNE     noequalsaddedon
+		; 
+		;     ADR     3,eqstrhere
+		;     LDR     2,inshash
+		;     LDR     1,storedofsofsow
+		;     ADD     1,1,2
+		;     MOV     0,#&1
+		;     MOV     2,#1
+		;     FNcall(Zap_Command)
+		; .noequalsaddedon
+		;     FNlong_adr("  ",3,w_formmb + 4)
+		;     LDRB    3,[3,#2]
+		;     CMP     3,#0
+		;     BNE     noclosetagneeded
+		; 
+		;     LDR     1,endtermhere
+		;     LDR     0,startslash
+		;     TEQ     1,#ASC"º"
+		;     TEQNE   0,#ASC"/"
+		;     BNE     noclosetagneeded
+		;     ADR     3,gtstrhere
+		;     LDR     2,inshash
+		;     LDR     1,storedofsofsow
+		;     ADD     1,1,2
+		;     MOV     0,#&1
+		;     MOV     2,#1
+		;     FNcall(Zap_Command)
+		; 
+		; .noclosetagneeded
+	FNcall	Zap_StopOp
+	LDMFD	sp!, {r0-r12, pc}
+deldatahere
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+insstrtst
+	=	"...."
+		; .eqstrhere
+		;     EQUS "===="
+		; .gtstrhere
+		;     EQUS ">>>>"
+getadrofabrcmd
+	STMFD	sp!, {r8-r12, lr}
+	MOV	r6, r3
+	MOV	r3, r0
+	MOV	r4, r1
+	MOV	r5, r2
+	MOV	r0, r4
+	BL	FromMJE29
+	FNupper	r0
+	CMP	r0, #'A'
+	BLT	rapidleaving
+	CMP	r0, #'Z'
+	BGT	rapidleaving
+	SUB	r0, r0, #'A'
+	ADD	r11, r6, r0, ASL #2
+	LDR	r11, [r11]
+	ADD	r11, r11, r3
+_altered_3
+	MVN	r12, #0
+_altered_4
+	ADD	r12, r12, #1
+	ADD	r0, r4, r12
+	BL	FromMJE29
+	LDR	r7, isentity
+	TST	r7, #0x100
+	BLEQ	maker0upper
+	MOV	r2, r0
+findnextincc
+	LDRB	r1, [r11, r12]
+	CMP	r1, #'#'
+	ADDEQ	r11, r11, #1
+	BEQ	findnextincc
+	CMP	r1, #'{'
+	BCS	fndcmdend2
+	LDR	r7, isentity
+	TST	r7, #0x100
+	BLEQ	maker1upper
+	CMP	r1, r2
+	BNE	fndcmdend
+dontcomparejn
+	CMP	r12, r5
+	BLT	_altered_4
+		; STMFD   R13!,{R8-R12}
+		; 
+	STR	r12, delhash
+	MOV	r7, r11
+	MOV	r12, #0
+loop4
+	ADD	r12, r12, #1
+	LDRB	r1, [r11, r12]
+	CMP	r1, #' '
+	CMPNE	r1, #'{'
+	BLT	loop4
+	CMP	r1, #' '
+	ADDEQ	r11, r11, r12
+	LDREQB	r1, [r11, #1]
+	STR	r1, endtermhere
+	STR	r12, inshash
+	MOVS	r5, #8
+	LDMFD	sp!, {r8-r12, pc}
+fndcmdend
+	MOV	r0, r2
+	BL	maker0upper
+	BL	maker1upper
+	CMP	r0, r1
+	BEQ	loop3
+	CMP	r12, #0
+	BEQ	rapidleaving
+loop3
+	ADD	r12, r12, #1
+	LDRB	r1, [r11, r12]
+	CMP	r1, #'{'
+	BCC	loop3
+fndcmdend2
+	ADD	r12, r12, #1
+	ADD	r11, r11, r12
+	B	_altered_3
+rapidleaving
+	MOVS	r5, #0
+	LDMFD	sp!, {r8-r12, pc}
+FromMJE11
+	STMFD	sp!, {r0-r7, lr}
+	LDR	r4, [r10, #12]
+	STR	r0, [r10, #12]
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #Zap_ReflectCaret
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	SWI	XOS_ReadMonotonicTime
+	MOV	r3, r0
+	BL	FromMJE26
+	ADD	r3, r3, r0
+FromMJE12
+	MOV	r0, #0x98
+	MOV	r1, #0
+	SWI	XOS_Byte
+	BCC	FromMJE13
+	SWI	XOS_ReadMonotonicTime
+	CMP	r0, r3
+	BLT	FromMJE12
+FromMJE13
+	STR	r4, [r10, #12]
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #Zap_ReflectCaret
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	LDMFD	sp!, {r0-r7, pc}
+FromMJE18
+	STMFD	sp!, {r3, r4, lr}
+	MOV	r3, r0
+	MOV	r4, #1
+_altered_5
+	SUBS	r3, r3, #1
+	BLT	FromMJE20
+	MOV	r0, r3
+	BL	FromMJE29
+	TEQ	r0, r2
+	ADDEQ	r4, r4, #1
+	BEQ	_altered_5
+	CMP	r2, #'>'
+	TEQEQ	r0, #' '
+	BEQ	FromMJE20a
+	TEQ	r0, r1
+	BNE	_altered_5
+	SUBS	r4, r4, #1
+	BNE	_altered_5
+FromMJE20
+	MOV	r0, r3
+	LDMFD	sp!, {r3, r4, pc}
+FromMJE20a
+	MOVS	r0, #1
+	LDMFD	sp!, {r3, r4, pc}
+FromMJE20b
+	MOVS	r0, #0
+	LDMFD	sp!, {r3, r4, pc}
+storedofsofsow
+	DCD	0
+storedofsofeow
+	DCD	0
+delhash
+	DCD	0
+inshash
+	DCD	0
+endtermhere
+	DCD	0
+startslash
+	DCD	0
+isentity
+	DCD	0
+checkbackone
+	STMFD	sp!, {r3, r4, lr}
+	SUB	r3, r0, #1
+_altered_6
+	STR	r3, storedofsofsow
+	SUBS	r3, r3, #1
+	BLT	FromMJE20b
+	MOV	r0, r3
+	BL	FromMJE29
+		; TEQ     R0,R2
+		; ADDEQ   R4,R4,#1
+		; BEQ     loop
+	CMP	r0, #'@'
+	BLE	FromMJE20b
+		; CMP     R0,#ASC"@"
+		; BEQ     FromMJE20a%
+	TEQ	r0, r1
+	BNE	_altered_6
+	B	FromMJE20
+fndspaloc
+	DCD	0
+checkbacktwo
+	STMFD	sp!, {r3, r4, lr}
+	MOV	lr, #0
+	STR	lr, fndspaloc
+	MOV	r3, r0
+	MOV	r4, #1
+_altered_7
+	SUBS	r3, r3, #1
+	BLT	FromMJE20a
+	MOV	r0, r3
+	BL	FromMJE29
+	TEQ	r0, r2
+	ADDEQ	r4, r4, #1
+	BEQ	_altered_7
+	LDR	lr, fndspaloc
+	CMP	lr, #0
+	BNE	overspecchars
+	CMP	r0, #' '
+	STREQ	r0, fndspaloc
+	ADDEQ	lr, r3, #1
+	STREQ	lr, storedofsofsow
+	LDR	lr, fndspaloc
+	CMP	lr, #0
+	BNE	overspecchars
+	TEQ	r0, #'>'
+	TEQNE	r0, #'"'
+	TEQNE	r0, #'/'
+		; TEQNE  0,#ASC"."
+	BEQ	FromMJE20a
+overspecchars
+		; CMP     0,#32
+		; BCC     FromMJE20a%
+	TEQ	r0, r1
+	BNE	_altered_7
+	SUBS	r4, r4, #1
+	BNE	_altered_7
+	LDR	lr, fndspaloc
+	CMP	lr, #0
+	BEQ	FromMJE20a
+	B	FromMJE20b
+checkbackthree
+	STMFD	sp!, {r3, r4, lr}
+	MOV	r3, r0
+	MOV	r4, #1
+_altered_8
+	STR	r3, storedofsofsow
+	SUBS	r3, r3, #1
+	BLT	FromMJE20a
+	MOV	r0, r3
+	BL	FromMJE29
+	TEQ	r0, r2
+	ADDEQ	r4, r4, #1
+	BEQ	_altered_8
+	TEQ	r0, #'>'
+	TEQNE	r0, #'"'
+	TEQNE	r0, #'/'
+	BEQ	FromMJE20a
+	CMP	r0, #33
+	BCC	FromMJE20a
+	TEQ	r0, r1
+	BNE	_altered_8
+	SUBS	r4, r4, #1
+	BNE	_altered_8
+	B	FromMJE20
+checkbackent
+	STMFD	sp!, {r3, r4, lr}
+		; SWI &107
+	MOV	r3, r0
+	MOV	r4, #1
+_altered_9
+	STR	r3, storedofsofsow
+	SUBS	r3, r3, #1
+	BLT	FromMJE20a
+	MOV	r0, r3
+	BL	FromMJE29
+	TEQ	r0, r2
+	ADDEQ	r4, r4, #1
+	BEQ	_altered_9
+	CMP	r0, #'&'
+	BCC	FromMJE20a
+	TEQ	r0, r1
+	BNE	_altered_9
+	SUBS	r4, r4, #1
+	BNE	_altered_9
+	B	FromMJE20
+FromMJE26
+		;  REM get delay
+	STMFD	sp!, {r1, r2, lr}
+	MOV	r0, #0
+	ADRL	r1, w_formmb
+	LDR	r1, [r1, #0x08]
+		; CMP     2,#ASC";"
+		; BEQ     ampsemi
+	ADRL	r2, w_formmb + 4
+	LDRB	r2, [r2]
+	TST	r1, #(1 << 26)
+	MOVNE	r0, r2
+	LDMFD	sp!, {r1, r2, pc}
+		; .ampsemi
+		;     FNlong_adr("  ",2,w_formmb + 4)
+		;     LDRB    2,[2,#1]
+		;     TST     1,#(1 << 24)
+		;     MOVNE   0,2
+		;     LDMFD   R13!,{1,2,PC}
+Zap_insertstuff
+	STMFD	sp!, {r7, lr}
+	MOV	r0, #1
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #Zap_DoCommand
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	LDMFD	sp!, {r7, pc}
+FromMJE27
+	STMFD	sp!, {r9, r11, lr}
+	LDR	r9, [r11, #4]	;  REM mode word...
+	LDMFD	sp!, {r11}
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #Zap_BaseMode
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	LDMFD	sp!, {r11, pc}
+FromMJE28
+	LDR	r0, [r10, #12]
+	SUBS	r0, r0, #1
+	MOVLT	r0, #0
+	MOVLT	pc, lr
+FromMJE29
+	STMFD	sp!, {lr}
+	LDR	lr, [r9, #52]
+	CMP	r0, lr
+	LDRCS	lr, [r9, #60]
+	ADDCS	r0, r0, lr
+	LDR	lr, [r9, #0]
+	LDRB	r0, [lr, r0]
+	LDMFD	sp!, {pc}
+FromMJE30
+	LDRB	r2, [r1], #1
+	CMP	r2, #0x20
+	MOVCC	r2, #0
+	STRB	r2, [r0], #1
+	BCS	FromMJE30
+	SUB	r0, r0, #1
+	MOVS	pc, lr
+	MOV	r1, r0
+	MOV	r0, #0
+FromMJE31
+	LDRB	r2, [r1, r0]
+	ADD	r0, r0, #1
+	CMP	r2, #0x20
+	BCS	FromMJE31
+	MOVS	pc, lr
+FromMJE32
+	TEQ	r8, #0
+	LDRNE	r0, [r8, #40]
+	MOVNE	pc, lr
+	STMFD	sp!, {r1, lr}
+	MOV	r1, #3
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #0x48
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	LDMFD	sp!, {r1, pc}
+FromMJE33
+	TEQ	r8, #0
+	LDRNE	r0, [r8, #92]
+	MOVNE	pc, lr
+	STMFD	sp!, {r1, lr}
+	MOV	r1, #2
+	LDR	lr, [r12, #0]
+	ADD	lr, lr, #Zap_ReadVar
+	STMFD	sp!, {lr}
+	MOV	lr, pc
+	LDMFD	sp!, {pc}
+	LDMFD	sp!, {r1, pc}
+GetModeWord
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #4]
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #Zap_GetModeWord
+	MOV	lr, pc
+	MOV	pc, r2
+	MOV	r7, r0
+	LDMFD	sp!, {r0-r2, pc}
+PutModeWord
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #4]
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #Zap_PutModeWord
+	MOV	lr, pc
+	MOV	pc, r2
+	LDMFD	sp!, {r0-r2, pc}
+	STMFD	sp!, {r0-r2, lr}	;  REM ????
+	LDR	r1, [r11, #8]
+	B	FromMJE35
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #4]
+	B	FromMJE35
+	STMFD	sp!, {r0-r2, lr}
+	LDR	r1, [r11, #0]
+FromMJE35
+	MOV	r0, r7
+	LDR	r2, [r12, #0]
+	ADD	r2, r2, #0x0168
+	MOV	lr, pc
+	MOV	pc, r2
+	LDMFD	sp!, {r0-r2, pc}
+maker9lower
+	FNlower	r9
+	MOV	pc, lr
+maker9upper
+	FNupper	r9
+	MOV	pc, lr
+maker1lower
+	FNlower	r1
+	MOV	pc, lr
+maker1upper
+	FNupper	r1
+	MOV	pc, lr
+maker0upper
+	FNupper	r0
+	MOV	pc, lr
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+tohaveajollygoodtime
+	STMFD	sp!, {lr}
+	BL	checkbackwardsnow
+	LDR	lr, [r9, #f_ptr]
+	LDR	r0, [r9, #f_splito]
+	ADD	r0, r0, lr
+	CMP	r7, r0
+	LDREQ	r0, [r9, #f_splits]
+	ADDEQ	r0, r0, r7
+	MOVNE	r0, r7
+	LDR	r1, [r9, #f_bufl]
+	ADD	r1, lr, r1
+	CMP	r0, r1
+	LDRCCB	r0, [r0]	;  Hmm...(Beyond end...?)
+	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
+	TEQ	r0, r1	; INSTR(degiewCHR$ l R EM  ! the same ength as the width
+	ADDEQ	r7, r7, #1
+	ADDEQ	r11, r11, #1
+	LDMFD	sp!, {lr}
+	B	tohaveajollygoodback
+tocheckbackwardsnow
+	ADD	r11, r11, #1	;  REM This code only executed if <CR>...
+	BIC	r2, r2, #0xCF000000	;  REM START OF LINE FLAGS...xxx
+	BIC	r2, r2, #0x00F00000
+		;  B       backcheckbackwardsnow ; yyy
+	STMFD	sp!, {lr}
+	BL	checkbackwardsnow
+	LDMFD	sp!, {lr}
+	B	backcheckbackwardsnow
+checkbackwardsnow
+	STMFD	sp!, {r0, r2, r7, lr}
+	AND	r1, r2, #0xFF
+	TEQ	r1, #0x09
+	TEQNE	r1, #0x0A
+	BEQ	endcheckbackwardsnow
+		; CMP     0,#ASC"@"
+		; BCC     endcheckbackontoent
+	CMP	r0, #'{'
+	BCS	endcheckbackontoent
+alltizfine
+	ADD	r7, r7, #1
+	BL	TableChk2
+	SUB	r7, r7, #1
+endcheckbackontoent
+	ADD	r7, r7, #1
+	TEQ	r1, #0x09
+	BEQ	secondendofGSTB
+	MOV	r1, #1
+	B	GSTtest
+secondendofGST
+	MOV	r1, #1
+	B	GSTtestB
+secondendofGSTB
+		;  nah... SUB     R7,R7,#1
+endcheckbackwardsnow
+	LDMFD	sp!, {r0, r2, r7, pc}
+callmiscentrypt
+	STMFD	sp!, {r0-r12, lr}
+	ADRL	lr, w_formmb
+	LDR	lr, [lr, #8]
+	ANDS	lr, lr, #1 << 20
+	LDMEQFD	sp!, {r0-r12, pc}
+	ADRL	r0, buttonsamed2
+	FNcall	Zap_TestModeName
+	CMP	r0, #1
+	LDMMIFD	sp!, {r0-r12, pc}
+	MOV	r0, #18
+	ADR	r1, buttonsamed
+	SWI	XOS_Module
+	LDMMIFD	sp!, {r0-r12, pc}
+	ADD	r3, r3, #0x2C
+	STR	r3, alocaljumper
+	LDMFD	sp, {r0-r12, lr}
+	MOV	lr, pc
+	LDR	pc, alocaljumper
+	MOV	r0, r0
+	LDMFD	sp!, {r0-r12, pc}
+gotoopenwindow
+	STMFD	sp!, {lr}
+	BL	openwindowroutine
+	CMP	r0, #0	;  REM If there was a pane then no problem
+	LDMNEFD	sp!, {pc}	;  REM just return...
+	BL	gomakepanehappen	;  REM ...otherwise try to make one...
+	BL	openwindowroutine	;  REM ...and redraw it...
+	LDMFD	sp!, {pc}
+openwindowroutine
+	STMFD	sp!, {r0-r12, lr}
+	ADRL	lr, w_formmb
+	LDR	lr, [lr, #8]
+	TST	lr, #(1 << 20)
+	TSTEQ	lr, #(1 << 31)
+	LDMEQFD	sp!, {r0-r12, pc}
+	BL	trytoloadmode
+	ADRL	r0, buttonsamed2
+	FNcall	Zap_TestModeName
+	CMP	r0, #1
+	BMI	_altered_10
+	MOV	r0, #18
+	ADR	r1, buttonsamed
+	SWI	XOS_Module
+	BVS	_altered_10
+	ADD	r3, r3, #0x28
+	STR	r3, alocaljumper
+	LDMFD	sp!, {r0-r12, lr}
+		;     FNlong_adr("  ",2,w_formmb)
+		;     LDR     2,[2,#8]
+		;    AndS    2,2,#1 << 31
+		;   MOVNE   2,#&FF
+	LDR	pc, alocaljumper
+nojuice2
+	LDMFD	sp, {r0-r12, lr}
+	ADRALL	r9, modenumberlocal
+	LDR	r9, [r9]
+	MOV	r11, #e_openwindow
+	FNcall	Zap_BaseMode
+	LDMFD	sp!, {r0-r12, pc}
+gomakepanehappen
+	STMFD	sp!, {r0-r12, lr}
+	STMFD	sp!, {r1-r11}
+	ADRL	r1, modenumberlocal
+	LDRB	r1, [r1]
+	FNcall	Zap_GetModeWord
+	LDMFD	sp!, {r1-r11}
+	LDR	r0, [r0, #0x0C]
+	STR	r0, alocaljumper
+	ANDS	r0, r0, #1 << 20
+	LDMEQFD	sp!, {r0-r12, pc}
+	ADR	r0, buttonsamed2
+	FNcall	Zap_TestModeName
+	CMP	r0, #0
+	BMI	nojuice1
+backinthethickofit
+	MOV	r0, #18
+	ADR	r1, buttonsamed
+	SWI	XOS_Module
+	LDMVSFD	sp!, {r0-r12, pc}
+	ADD	r10, r3, #0x24
+	LDR	r0, alocaljumper
+	MOV	r4, #0
+	ANDS	r1, r0, #1 << 28
+	ORRNE	r4, r4, #8
+	ANDS	r1, r0, #1 << 29
+	ORRNE	r4, r4, #4
+	ANDS	r1, r0, #1 << 30
+	ORRNE	r4, r4, #2
+	LDR	r0, adrofscri
+	CMP	r0, #0
+	BLEQ	getthethreeelements
+	MOV	r7, #0
+	MOV	r6, #0
+	LDR	r5, adrofmenu
+	LDR	r3, adrofscri
+	LDR	r2, adroftemp
+	LDR	r1, adrofspri
+	MOV	r0, #0
+	MOV	lr, pc
+	MOV	pc, r10
+	MOV	r0, r0
+	LDMFD	sp!, {r0-r12, pc}
+buttonsamed
+	=	"Zap"
+buttonsamed2
+	=	"Buttons", 0, "", 0, ""
+alocaljumper
+	DCD	0
+nojuice1
+	BL	trytoloadmode
+	CMP	r0, #0
+	BPL	backinthethickofit
+	LDMFD	sp!, {r0-r12, pc}
+trytoloadmode
+	STMFD	sp!, {lr}
+	ADR	r0, buttonsamed2
+	FNcall	Zap_ModeNumber
+	LDMFD	sp!, {pc}
+destroyanypanes
+	STMFD	sp!, {r0-r12, lr}
+	ADR	r0, buttonsamed2
+	FNcall	Zap_TestModeName
+	CMP	r0, #0
+	BMI	nojuice4
+	MOV	r0, #18
+	ADR	r1, buttonsamed
+	SWI	XOS_Module
+	LDMVSFD	sp!, {r0-r12, pc}
+	ADR	r0, buttndelhere
+	FNcall	Zap_CommandString
+nojuice4
+	LDMFD	sp!, {r0-r12, pc}
+closeanypanes
+	STMFD	sp!, {r0-r12, lr}
+	ADR	r0, buttonsamed2
+	FNcall	Zap_TestModeName
+	CMP	r0, #0
+	BMI	nojuice4
+	MOV	r0, #18
+	ADR	r1, buttonsamed
+	SWI	XOS_Module
+	LDMVSFD	sp!, {r0-r12, pc}
+	ADR	r0, buttnclohere
+	FNcall	Zap_CommandString
+	LDMFD	sp!, {r0-r12, pc}
+buttndelhere
+	=	"BUTTONS_DELETE", 0, "", 0, ""
+buttnclohere
+	=	"BUTTONS_CLOSE", 0, "", 0, "", 0, ""
+_altered_10
+	LDMFD	sp, {r0-r12, lr}
+	ADRALL	r9, modenumberlocal
+	LDR	r9, [r9]
+	MOV	r11, #e_openwindow
+	FNcall	Zap_BaseMode
+	LDMFD	sp!, {r0-r12, pc}
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+getthethreeelements
+	STMFD	sp!, {r1-r4, lr}
+	ADR	r1, markcmdpath
+	BL	loadandretptr
+	STR	r0, adrofscri
+	BL	changeLFto00
+	ADR	r1, marksprpath
+	BL	loadandretptr2
+	ADR	r1, marktempath
+	BL	loadandretptr
+	STR	r0, adroftemp
+	BL	loadmenuifrequired
+	LDMFD	sp!, {r1-r4, pc}
+loadmenuifrequired
+	STMFD	sp!, {lr}
+	LDR	r0, adrofmenu
+	CMP	r0, #0
+	LDMNEFD	sp!, {pc}
+	ADR	r1, markmenpath
+	BL	loadandretptr
+	STR	r0, adrofmenu
+	LDMFD	sp!, {pc}
+loadandretptr
+	STMFD	sp!, {r1-r5, lr}
+	MOV	r0, #5
+	SWI	XOS_File
+	LDMVSFD	sp!, {r1-r5, pc}
+		;     Orr     0,4,#3
+		;     ADD     0,0,#&1
+	STR	r4, tempS2
+	ADD	r0, r4, #0x4
+	FNcall	Zap_Claim
+	STR	r0, tempS1
+	MOV	r3, #0
+	MOV	r2, r0
+	MOV	r0, #255
+	SWI	XOS_File
+	LDRVC	r0, tempS1
+	LDRVC	r1, tempS2
+	MOVVC	r2, #0
+	STRVCB	r2, [r0, r1]
+	LDMFD	sp!, {r1-r5, pc}
+loadandretptr2
+	STMFD	sp!, {r1-r5, lr}
+	MOV	r0, #5
+	SWI	XOS_File
+	LDMVSFD	sp!, {r1-r5, pc}
+	BIC	r0, r4, #3
+	ADD	r0, r0, #0x10
+	FNcall	Zap_Claim
+	STR	r0, adrofspri
+	ADD	r4, r4, #5
+	STR	r4, [r0]
+	MOV	r3, #0
+	ADD	r2, r0, #4
+	MOV	r0, #255
+	SWI	XOS_File
+	LDMFD	sp!, {r1-r5, pc}
+tempS1
+	DCD	0
+tempS2
+	DCD	0
+adrofmenu
+	DCD	0
+adroftemp
+	DCD	0
+adrofspri
+	DCD	0
+adrofscri
+	DCD	0
+markcmdpath
+	=	"<ZapMakeFile$Scripts>", 0, "", 0, "", 0, ""
+	ALIGN
+marksprpath
+	=	"<ZapMakeFile$Sprites>", 0, "", 0, "", 0, ""
+	ALIGN
+marktempath
+	=	"<ZapMakeFile$Templates>", 0, ""
+	ALIGN
+markmenpath
+	=	"<ZapMakeFile$Menus>", 0, ""
+	ALIGN
+changeLFto00
+	LDR	r1, [r0]
+	CMP	r1, #0
+	MOVEQ	pc, lr
+	AND	r2, r1, #0xFF
+	CMP	r2, #0x0A
+	BICEQ	r1, r1, #0xFF
+	AND	r2, r1, #0xFF00
+	CMP	r2, #0x0A00
+	BICEQ	r1, r1, #0xFF00
+	AND	r2, r1, #0xFF0000
+	CMP	r2, #0x0A0000
+	BICEQ	r1, r1, #0xFF0000
+	AND	r2, r1, #0xFF000000
+	CMP	r2, #0x0A000000
+	BICEQ	r1, r1, #0xFF000000
+	STR	r1, [r0], #4
+	B	changeLFto00
+	DCD	0x8017
+Cmdhtmlflagstoggle
+	STMFD	sp!, {lr}
+	LDR	r10, [r0]
+	ADRL	r1, modenumberlocal
+	LDR	r1, [r1]
+		; CMP     8,#0
+		; LDRNEB  0,[8,#w_format]
+		; CMPNE   0,1
+		; LDMNEFD D !,{PC}
+	STMFD	sp!, {r1-r11}
+	FNcall	Zap_GetModeWord
+	LDMFD	sp!, {r1-r11}
+	MOV	r6, r0
+	LDR	r7, [r6, #0xC]
+	CMP	r2, #15
+	BEQ	tickquery
+	MOV	r5, #0
+	AND	r1, r10, #0xFF
+	BL	execute
+	MOV	r1, r10, LSR #8
+	AND	r1, r1, #0xFF
+	TST	r1, #0x80
+	BLNE	execute
+	MOV	r1, r10, LSR #16
+	AND	r1, r1, #0xFF
+	TST	r1, #0x80
+	BLNE	execute
+	MOV	r1, r10, LSR #24
+	AND	r1, r1, #0xFF
+	TST	r1, #0x80
+	BLNE	execute
+	STR	r7, [r6, #0xC]
+	ADRL	r0, w_formmb
+	STR	r7, [r0, #8]
+	CMP	r8, #0
+	LDMEQFD	sp!, {pc}
+	ANDS	r0, r5, #2
+	BLNE	sortbbout
+	ANDS	r0, r5, #0x10
+	BLNE	sortwwout3
+	ANDS	r0, r5, #8
+	BLNE	sortwwout2
+	ANDS	r0, r5, #4
+	BLNE	sortwwout
+	ANDS	r0, r5, #1
+	BLNE	sortbuttonsout
+	LDMFD	sp!, {pc}
+execute
+	AND	r2, r1, #0x1F
+	CMP	r2, #20
+	ORREQ	r5, r5, #1
+	CMP	r2, #28
+	CMPNE	r2, #29
+	CMPNE	r2, #30
+	ORREQ	r5, r5, #2	;  REM only 2 needed...?
+	CMP	r2, #31
+	ORREQ	r5, r5, #0x1C
+	CMP	r2, #27
+	CMPNE	r2, #24
+	CMPNE	r2, #19
+	ORREQ	r5, r5, #0x08
+	MOV	r3, #1
+	MOV	r3, r3, LSL r2
+	MOV	r2, #0
+	MOV	r4, #0
+	MOV	r1, r1, LSR #5
+	AND	r1, r1, #3
+	CMP	r1, #1
+	MOVEQ	r2, r3
+	CMP	r1, #2
+	MOVEQ	r4, r3
+	BIC	r7, r7, r2
+	ORR	r7, r7, r4
+	EOR	r7, r7, r3
+	MOV	pc, lr
+tickquery
+	AND	r2, r10, #0x1F
+	MOV	r3, #1
+	MOV	r3, r3, LSL r2
+	TST	r7, r3
+	MOVNE	r0, #1
+	MOVEQ	r0, #0
+	LDMFD	sp!, {pc}
+sortwwout
+	STMFD	sp!, {r5, lr}
+	MOV	r0, #4
+	BL	callmiscentrypt
+	LDMFD	sp!, {r5, pc}
+sortwwout2
+	STMFD	sp!, {r5, lr}
+	MOV	r0, #5
+	BL	callmiscentrypt
+	LDMFD	sp!, {r5, pc}
+sortwwout3
+	STMFD	sp!, {r5, lr}
+	MOV	r0, #7
+	BL	callmiscentrypt
+	LDMFD	sp!, {r5, pc}
+sortbbout
+	STMFD	sp!, {r5, lr}
+	MOV	r0, #3
+	BL	callmiscentrypt
+	CMP	r0, #0
+	LDMEQFD	sp!, {r5, pc}
+	BL	callopenthewindow
+	LDMFD	sp!, {r5, pc}
+callopenthewindow
+		;  REM entry r8 = window block
+	STMFD	sp!, {lr}
+	MOV	r1, r8
+	SWI	Wimp_GetWindowState
+	MOV	r0, #1
+	BL	gotoopenwindow
+	LDMFD	sp!, {pc}
+sortbuttonsout
+	STMFD	sp!, {r5, lr}
+	ANDS	r0, r7, #(1 << 20)
+	BLEQ	closeanypanes	;  REM buttons have been toggled off
+	ANDS	r0, r7, #(1 << 20)
+	LDMEQFD	sp!, {r5, pc}
+	BL	gomakepanehappen	;  REM buttons have been toggled on
+	BL	gotoopenwindow	;  REM Redraws the BBs - has to be done
+	BL	gotoopenwindow	;  REM twice - due to the first such
+		;  REM call after an open is ignored.
+	LDMFD	sp!, {r5, pc}
+mode_interrogate
+	CMP	r0, #25
+	MOVEQ	r0, #0
+	MOVEQ	pc, lr
+	STMFD	sp!, {r9, r11, lr}
+	MOV	r11, #e_interrogate
+	BL	basemode
+	LDMFD	sp!, {r9, r11, pc}
+TableEval
+	=	"AND }", "VAL }", "**"
+AlphaIndex
+	=	10, "Greetings from The Mandala Centre.", 10, "Please feel free place any additional commands in the space provided"
+	ALIGN
+		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	DCD	0x2A2A0A2E
+TableHere
+	=	"AUTOINDENT |", "AUX |", "BLOCKID |", "BISON |", "CC |", "C++ |", "CFRONT |", "CMHG |", "C++.–", "CPP.–", "C.–", "COPY «", "CDIR |", "CREATE «", "DECAOF |", "DELETE «", "DIFF |", "ECHO «", "FIND |", "GCC |", "H.—", "LIBFILE |", "LINK |", "MV «", "OBJASM |", "OBJSIZE |", "O.˜", "RM «", "RUN «", "REMOVE |", "SED |", "SQUEEZE |", "S.™", "SETTYPE «", "STOH «", "TOANSI |", "TOPCC |", "WORDSTR |", "Yum |", "Zen |", "**", 10
+
+	END
