@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Execute,fff,v 2.8 2002/11/11 00:11:53 christian Exp $
+; $Id: Execute,fff,v 2.9 2002/11/14 15:50:08 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -62,6 +62,7 @@
 
 ;E,X as for read_command (plus validate_command)
 ; Returns R1=0 on read error (for block freeing purposes)
+	FNAME	read_validate_command
 read_validate_command
 	FNJSR
 	BL	read_command
@@ -74,7 +75,7 @@ read_validate_command
 ;E R0=command name terminated by <=32 or colon/&/quote
 ;X R0=command address/0 if not found WB #
 ;  Module with command in is loaded if need be.
-
+	FNAME	find_key_command
 find_key_command
 	FNJSR	"R7"
 	BL	look_key_command
@@ -93,7 +94,7 @@ find_key_command
 ;NB It tests to see if the command exists even if it was the b0 set form
 ;   since the module may have already been loaded - don't want the module
 ;   being loaded twice!
-
+	FNAME	validate_command
 validate_command
 	CLC
 	TST	R7,#1
@@ -125,7 +126,7 @@ end$l					; R0=command address to return
 ;E R7=command address / 0 / bit 0 set form
 ;X R0=command flags word (from External info if command not loaded)
 ;  R7 updated if b0 set and command is loaded
-
+	FNAME	get_command_flags
 get_command_flags
 	FNJSR
 	TST	R7,#1
@@ -151,7 +152,7 @@ got$l	LDREQ	R0,[R0,#-4]
 ;X R0=command address if found and loaded
 ;    =pointer to command name in external table with bottom bit set
 ;    =0 if not found anywhere WB |
-
+	FNAME	look_key_command
 look_key_command
 	FNJSR	"R1-R7"
 	FNLDR	R5,wimp_block		; buffer to store command name
@@ -218,7 +219,7 @@ notloaded$l
 ;X R0=word if found CS if not |
 ;  R4=start of the matching string in the table (if found)
 ;  flags_word=offset into flags words table (for not-yet-loaded commands)
-
+ FNAME search_command_table
 search_command_table
  FNJSR "R1-R3,R11"		; don't push R4
  MOV R11,#4			; offset into flags words table
@@ -253,7 +254,7 @@ flags_word & 0
 
 ;E R0=command address
 ;X R0=address of command name (upper case)/0 if not found #
-
+ FNAME find_command_fromkey
 find_command_fromkey
  FNJSR "R1-R7"
  MOV R5,R0			; save the command we're looking for
@@ -302,7 +303,7 @@ com$l
 ;  (String of commands concatenated to a single Multicommand)
 ;  (:<return> skipped so can have multiple lines)
 ;  (See buffer_stroke for Mulicommand data format) #
-
+ FNAME read_command
 read_command
  FNJSR "R2-R5"
  BL read_one_command
@@ -393,7 +394,7 @@ c$l	LDRB	R14,[R10,#1]!	; find ':' or end-of-string
 ;  R0=? *not* 2 if parameter is string and it's OK to ignore in multicommands
 ;  R0=-1 if parameter not valid
 ;  R7=command address #
-
+ FNAME check_arg_valid
 check_arg_valid
  FNJSR
  MOV R7,R0
@@ -471,7 +472,7 @@ f$l FNS ("zap_e_unkfn")
 ;  R10 updated (eg to colon) (preserved if no command found) WB #
 ;      (top bit preserved regardless)
 ;  (command string is just read - no type checking is done)
-
+ FNAME read_one_command
 read_one_command
  FNJSR "R2-R3,R11"
  AND R11,R10,#1<<31
@@ -743,7 +744,7 @@ numquoted$l
 	B	bad_arg$l
 
 ;E R0=universal arg value to set for next command
-
+	FNAME	universal_arg
 universal_arg
 	FNSTR	R0,key_count	; count number
 	FNLDR	R0,key_flags
@@ -777,7 +778,7 @@ universal_arg
 ;	Block (4) Pointer to the block (data_length=4) (data_length=num)
 ;       Byte/word expression (5) as string
 ;       String expression (6) as string
-
+ FNAME buffer_stroke
 buffer_stroke
  FNJSR "R0-R3,R6-R8"
  MOV R2,R0			; save data (address)
@@ -815,7 +816,7 @@ end$l
 ;  R7=command address (validated)
 ;X key stroke inserted into key_learn buffer
 ;  (and bungs a -1 on the end) #
-
+ FNAME learn_stroke
 learn_stroke
  FNJSR "R4-R6"
  TST R3,#1<<31
@@ -853,7 +854,7 @@ learn_stroke
 ;  R7=command address
 ;  R8-R10=window/file/cursor or 0
 ;X Command called once via process command with R1=1 #
-
+ FNAME process_key_command
 process_key_command
  FNJSR "R1,R13"	; R13 for workspace
 ; TST R2,#1<<27			; bit of param type
@@ -883,7 +884,7 @@ do$l
 ;  they are executed multiple times if universal arg bit set.
 ;  If R2=0 on entry then returns R0=0 / -1 if minibuffer opened
 ;  If R2>0 on entry then R0=output of the command
-
+ FNAME process_command
 process_command
  FNJSR "R1-R11"
  MOV R6,R0			; save R0 value to send to command
@@ -1058,7 +1059,7 @@ notcommand$l
 ;  R6=parameter type
 ;X command executed / error if R8-R10 needed but not given #
 ;  R0=output of the command, R1=output type
-
+	FNAME	process_function
 process_function
 	FNJSR	"R2-R11"
 	MOV	R2,#23
@@ -1098,6 +1099,7 @@ notfunction$l
 badparam_fn
 	ERR	"zap_e_fnarg"
 
+ FNAME fake_minibuffer_command
 fake_minibuffer_command
  FNJSR "R1,R7-R10"
 ; BL get_input_caret
@@ -1120,7 +1122,7 @@ mi12
 ;E R1=number of times buffered R11=universal arg num of times
 ;  R4=1-3 in bits 12-13 (0 done)
 ;X R1=value to pass to command R11=number of times to call the command |
-
+ FNAME get_ptr_multiplicities
 get_ptr_multiplicities
  TEQ R4,#1<<12
  MULEQ R1,R11,R1
@@ -1143,7 +1145,7 @@ get_ptr_multiplicities
 ;  R5=amount to increment buffer pointer by on each command call
 ;  R6=buffer to pass to command
 ;  R11=number of times to call the command
-
+ FNAME get_list_multiplicities
 get_list_multiplicities
  TEQ R5,#2
  MOVEQ R5,#4			; 4 bytes per arg
@@ -1171,7 +1173,7 @@ a$l
 
 ;E R11=keyflags
 ;X R11=universal argument rate for the command
-
+ FNAME get_uni_arg
 get_uni_arg
  BIC R11,R11,#1<<4
  FNSTR R11,key_flags		; clear universal state
@@ -1190,7 +1192,7 @@ get_uni_arg
 ;X Make a low level execution of the command
 ;  Calls the align caret and then the command address
 ;  Corrupts R0-R11 #
-
+	FNAME	exec_command
 exec_command
 	FNJSR ; trouble... note the PULL "...PC"s below
 	MOV	R11,#e_aligncaret
@@ -1258,7 +1260,7 @@ isstr$l	PULL	"R1,R2"
 
 ;E R2=Command call type R4=command flags R8-R10=arguments
 ;X Arguments updated so valid or an error given #
-
+ FNAME check_args
 check_args
  FNJSR				; must check for window/file first
  TST R4,#2			; (eg called from options menu)
@@ -1286,7 +1288,7 @@ err2$l ERRlit "Internal error: Bad command call"
 ;  R6=source data
 ;  R11=number of copies to have (>1)
 ;X R0=heap block pointer with data #
-
+ FNAME duplicate_args
 duplicate_args
  FNJSR "R1-R11"
  MUL R1,R5,R1			; length of the argument data
@@ -1323,7 +1325,7 @@ a$l
 ;E R0=string + b31 if don't want commands learnt
 ;  R8-R10=input caret/0's (uses wimp_kbdbuf)
 ;X Command string executed R0=0/-1 if minibuf opened #
-
+ FNAME command_string
 command_string
  FNJSR "R1-R7"
  AND R2,R0,#1 << 31		; get the learn flag
@@ -1358,7 +1360,7 @@ err$l
 ;X R0=0, or pointer to string (in Zap heap) [always string if R1 was -ve]
 ;  R1=integer, or length of string
 ;  Block containing string is 'just big enough'
-
+ FNAME evaluate_string
 evaluate_string
 	FNJSR	"R0-R11"
 	BIC	R10,R0,#1<<31		; input expression
@@ -1582,7 +1584,7 @@ badeval_any$l
 ; E R10=function string
 ; X R0=result (ptr if R1=3), or error if V set
 ;   R1=result type (1=byte,2=word,3=string)
-
+	FNAME	function_string
 function_string
 	FNJSR	"R2-R9"
 	ORR	R10,R10,#1<<31
@@ -1628,7 +1630,7 @@ badreturnvalue$l
 ;  R6=data type (0=none ... 6=str expr)
 ;X R0=actual length of data block to be stored in a buffer_command
 ;  write (excluding first two words) length is word aligned |
-
+ FNAME command_data
 command_data
  FNJSR
  CMP R6,#10
@@ -1672,7 +1674,7 @@ type4$l
 ;X R0->char following var name
 ;  R1=char following var name
 ;  EQ if input R0 == output R0
-
+	FNAME	validate_varname
 validate_varname
 	FNJSR	"R2"
 	MOV	R2,R0
@@ -1705,7 +1707,7 @@ var_prefix =	"Zap$Var_"	; 8 characters
 ;X R0->char following var name
 ;  R1=char following var name
 ;  EQ if input R0 == output R0
-
+	FNAME	validate_varname_wild
 validate_varname_wild
 	FNJSR	"R2"
 	MOV	R2,R0
@@ -1740,7 +1742,7 @@ end$l	SUB	R0,R0,#1
 
 ;E R0->variable name R1=var name length
 ;X R0->wimp_buffer (containing variable name, prefixed by "Zap$Var_")
-
+	FNAME	make_varname
 make_varname
 	FNJSR	"R1-R3"
 	CMP	R1,#247

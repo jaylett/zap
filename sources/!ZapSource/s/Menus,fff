@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.18 2002/11/12 01:18:41 christian Exp $
+; $Id: Menus,fff,v 2.19 2002/11/14 15:50:08 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -123,7 +123,7 @@ $ll	* menu_num_off
 
 ;E R0=number R10=menu
 ;X buffer of first menu entry filled with number and R0-R2 corrupted |
-
+ FNAME cm_buffernum
 cm_buffernum
  FNJSR
  LDR R2,[R10,#28+20]		; buffer length
@@ -134,7 +134,7 @@ cm_buffernum
 
 ;E R0=number R10=menu
 ;X buffer of first menu entry filled with number and R0-R2 corrupted |
-
+ FNAME cm_bufferhex
 cm_bufferhex
  FNJSR
  LDR R2,[R10,#28+20]		; buffer length
@@ -148,7 +148,7 @@ cm_bufferhex
 
 ;E R0=string R10=menu
 ;X string copied into menu entry #
-
+ FNAME cm_bufferstring
 cm_bufferstring
  FNJSR "R1-R4"
  MOV R2,R0			; source string
@@ -160,7 +160,7 @@ cm_bufferstring
 
 ;E R0=number R5=icon menu number R10=menu
 ;X buffered #
-
+ FNAME cm_bufferhex_icon
 cm_bufferhex_icon
  FNJSR "R1-R2"
  ADD R2,R5,R5,LSL#1		; R5*3
@@ -173,6 +173,7 @@ cm_bufferhex_icon
  SWI XOS_ConvertHex8
  FNRTS
 
+ FNAME cm_curlist
 cm_curlist
  FNJSR
  FNLDR R1,opt_cursor
@@ -209,6 +210,8 @@ cm_minibuffer
 ; SUBMENU INTERPRET					     ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  LOCAL
+
+ FNAME sub_curlist
 sub_curlist
  FNJSR				; R0=new cursor type
  LDR R4,[R11,#-8]		; get cursor number
@@ -242,6 +245,7 @@ sub$l				; very similar to sub in StartCode:palette_changed
  SWIVC XWimp_ForceRedraw
  FNRTS
 
+ FNAME sub_minibuffer
 sub_minibuffer
  FNJSR
  MOV R3,#0
@@ -253,6 +257,7 @@ sub_minibuffer
  BL minibuffer_ensure
  FNRTS
 
+ FNAME sub_minifont
 sub_minifont
  FNJSR
  MOV R1,#1<<27
@@ -1930,7 +1935,7 @@ sm_cursor_help
 ;X mode menus, main menu and Zap menu structures created  #
 ;  (Now creates them in heap blocks)
 ;  memory 0=reserved 1=reserved 2=curlist 3=minibuffer 4=cursor
-
+ FNAME init_menus
 init_menus
  FNJSR "R1-R2"
  FNLDR R2,menu_memory		; address of 16 word memory
@@ -1966,7 +1971,7 @@ expand$l
 
 ;E R10=start of menu structure title string
 ;X R0=created menu (+4)/0 if it wasn't valid #
-
+ FNAME read_one_menu
 read_one_menu
  FNJSR "R1-R7,R10-R11"
  BL read_count_menu		; find number of entries
@@ -2060,7 +2065,7 @@ colours$l & &70207
 ;  R1=total amount of storage space needed for the menu entry strings
 ;  R2=space per menu entry
 ;  R3=menu help text space #
-
+ FNAME read_count_menu
 read_count_menu
 	FNJSR	"R9-R11"
 	MOV	R11,#0			; number found so far
@@ -2113,7 +2118,7 @@ errh$l	FNPULL
 ;E R10=somewhere on a menu entry line
 ;X R10=start of next line after the indenting spaces CS if there are no
 ;  more entries
-
+ FNAME next_menu_entry
 next_menu_entry
  FNJSR
  BL str_next			; start of next line
@@ -2131,7 +2136,7 @@ a$l
 
 ;E R0=menu handle
 ;X R1=pointer to wimp menu structure (+8) /0
-
+ FNAME read_menu_handle
 read_menu_handle
  FNJSR
  FNLDR R1,menu_handles
@@ -2146,7 +2151,7 @@ read_menu_handle
 ;E R3=menu entry to create R4=start of scratch space
 ;  R6=max len of entry text (from read_count_menu) R10=input file text
 ;X R0-R2 corrupted R4 updated R3 decremented to delete the entry #
-
+ FNAME read_one_entry
 read_one_entry
  FNJSR "R5-R7,R10"
  MOV R0,#0
@@ -2241,7 +2246,7 @@ getanull$l
 
 ;E R7=the command to create the box for R10=command name string
 ;X R0=address of the leaf box menu
-
+ FNAME create_leaf_box
 create_leaf_box
  FNJSR "R1-R6"
  LDR R4,[R7,#-4]		; get the command flags
@@ -2312,7 +2317,7 @@ header$l
  LOCAL
 
 ; creation sub for a leaf menu box (index=the command address)
-
+ FNAME cm_leaf_box
 cm_leaf_box
  FNJSR
  ADD R6,R10,#28			; first menu entry
@@ -2374,7 +2379,7 @@ c$l
  LOCAL
 
 ; interpret sub for a leaf menu box (index=the command address)
-
+ FNAME sub_leaf_box
 sub_leaf_box
  FNJSR
  ADDS R7,R1,#0			; index = the command address
@@ -2401,7 +2406,7 @@ temp$l DCD 0
 ;E R0=source menu (in old Zap relocatable format)
 ;  R1=base for offsets (start of module)
 ;X R0=wimp created menu structure (zap+8) (in heap block) |
-
+ FNAME create_menu_structure
 create_menu_structure
  FNJSR "R10"
  MOV R10,R1
@@ -2414,7 +2419,7 @@ create_menu_structure
 ;  R10=module start (start of module used for offsets)
 ;X R0=menu(+4) (now stored in a heap block) |
 ;  Internal  R1=current source  R2=current destination R3=start dest
-
+ FNAME cms_sub
 cms_sub
  FNJSR "R1-R11"
  MOV R1,R0			; source structure
@@ -2525,7 +2530,7 @@ cols$l DCD &00070207		; work area colours
 ;X R0=size of buffer needed for this entry (inc term and aligned)
 ;  R1=next item pointer
 ;  EQ if at menu end (this was the last menu item) |
-
+ FNAME cms_next
 cms_next
  FNJSR "R2,R3"
  LDRB R0,[R1,#1]		; minimum buffer size
@@ -2555,7 +2560,7 @@ a$l
 ;X Text for this entry set up and pointer written, len, validation string
 ;  Icon flags for this entry set up
 ;  R6 updated to next free location |
-
+ FNAME cms_icon
 cms_icon
  FNJSR "R1-R5"
  MOV R4,R1			; R4=source
@@ -2600,7 +2605,7 @@ icon$l DCD &00009131		; icon flags (indirect text)
 
 ;E R1=pointer to menu (zap+8)
 ;X key short cuts shown on this one menu (not recursive) #
-
+ FNAME show_menu
 show_menu
  FNJSR "R1,R2,R6-R11"
  LDR R6,[R1,#-12]		; get menu max width
@@ -2659,7 +2664,7 @@ a$l	LDRB	R0,[R1],#1
 
 ;E R1=menu address R2=mouse x R3=mouse y R4=mode (if R3b31 set) R8/R9
 ;X menu updated and opened & wimp_menuptr/wimp_menu updated #
-
+ FNAME create_menu
 create_menu
  FNJSR "R1-R3"
  TST R3,#1<<31
@@ -2681,7 +2686,7 @@ a$l
 
 ;E R1=menu address R2=mouse x R3=mouse y R8/R9
 ;X menu updated and opened etc.
-
+ FNAME open_menu
 open_menu
  FNJSR "R11"
  FNLDR R0,menu_count
@@ -2705,7 +2710,7 @@ open_menu
 ;
 ;E R0=offset in previous menu/0 R1=menu to update  R8/R9=source window
 ;X menu updated (not recursive) #
-
+ FNAME update_menu
 update_menu
  CMP R1,#&100
  MOVCC PC,R14			; serious problems...
@@ -2970,7 +2975,7 @@ loop$l
 ;  R0,R7 not set up
 ;  R9 treated as invalid
 ;X R0,R2,R7 changed
-
+ 	FNAME	menu_process_key_command
 menu_process_key_command
 	FNJSR	"R9"
 	LDR	R7,[R5,#-4]
@@ -2998,7 +3003,7 @@ menu_process_key_command
 ;X menu backed up and R11,#-4 has the address of the backup copy +b31
 ;  Backup copy is of the form length,backup[,help ptrs (-1 term)] #
 ;  (The [] part is only present if the menu has help text)
-
+	FNAME	update_menu_backup
 update_menu_backup
 	FNJSR	"R1-R5"
 	ADD	R0,R11,#28		; first item
@@ -3033,7 +3038,7 @@ update_menu_backup
 ;  R11=block with -1 terminated list of the selected path
 ;X All menus on selected path are updated. Menu warn code called as it
 ;  follows the path. menu_count incremented first #
-
+ FNAME update_menu_path
 update_menu_path
  FNJSR "R1-R2,R5,R11"
  FNLDR R0,menu_count
@@ -3072,6 +3077,7 @@ a$l
 
  LOCAL
 
+ FNAME menu_warning
 menu_warning
  FNJSR
  MOV R11,R1			; start of data block
@@ -3108,7 +3114,7 @@ a$l
 ;  R5=offset in previous menu
 ;  R8/R9=window /0
 ;X R1=handle of window to open or pointer to submenu or 0 if none.
-
+ FNAME call_warn_code
 call_warn_code
  FNJSR "R2,R7,R10"
  LDR R10,[R2,#12]		; text of the entry
@@ -3160,7 +3166,7 @@ a$l
 ;    R1=help text (first byte=ESC if token) [statically stored] or 0 / saved
 ;    R2-R7 saved (unless you alter R7 deliberately - beware)
 ;    R8-R11 updated (for your use, and passed back to you) #
-
+ FNAME build_menu_with_help
 build_menu_with_help
  FNJSR "R1-R11"
  PUSH "R5"			; save help ptr
@@ -3318,7 +3324,7 @@ null$l
 
 ; ensure menu_struct has 36 bytes free and menu_entries 64 bytes free
 ; R6 and R7 are corresponding pointers to update. #
-
+ FNAME build_menu_ensure
 build_menu_ensure
  FNJSR "R1"
 
@@ -3375,6 +3381,7 @@ re33
 ;E R0=pointer to a list of 24 byte menu entries
 ;X R0=number of entries in the list |
 
+ FNAME count_menu_entries
 count_menu_entries
  FNJSR "R1"
  MOV R1,#0			; zero the count
@@ -3392,6 +3399,7 @@ a$l
 ;X R0=height of the entries in OS coords including dashes |
 ;  (Excludes title as so do open coords)
 
+ FNAME count_menu_size
 count_menu_size
  FNJSR "R1-R2"
  LDR R2,[R0,#20]		; height of entries
@@ -3412,6 +3420,7 @@ a$l
 ;E R1=pointer to menu structure
 ;X R0=num of menu entries & bit 7 of last item cleared |
 
+ FNAME count_menu_clear
 count_menu_clear
  FNJSR "R1"
  ADD R1,R1,#28			; first item
@@ -3427,6 +3436,7 @@ count_menu_clear
 ;E R0=number of entries R1=menu structure
 ;X stop bit added |
 
+ FNAME add_menu_stop
 add_menu_stop
  FNJSR
  ADD R0,R0,R0,LSL#1		; *3
@@ -3439,6 +3449,7 @@ add_menu_stop
 ;E R0=menu structure
 ;X sorted to alphabetical order #
 
+ FNAME sort_menu
 sort_menu
  FNJSR "R1-R11"
  MOV R1,R0			; menu structure
@@ -3498,6 +3509,7 @@ so2
 ;E R0=num objects R1=pointers list R4=objs start R5=objs size
 ;X actual objects sorted #
 
+ FNAME sort_objects
 sort_objects
  FNJSR "R1-R4,R10"
  MOV R10,R0			; num objects left
@@ -3530,6 +3542,7 @@ so6
 ;E As for build_menu but uses the font menu buffer
 ;X As for build_menu
 
+ FNAME build_font_menu
 build_font_menu
  FNJSR "R6-R7"
  BL swap$l
@@ -3592,6 +3605,7 @@ swapmenu			; swap over without changing flags
 ;     R11=menu sequence end (end of block returned by wimp)
 ;  ;X may corrupt R0-R11 #
 
+ FNAME menu_click
 menu_click
  FNJSR "R1-R11"
  BL menu_decode			; R2=item R3=last item R11=sequence end
@@ -3675,6 +3689,7 @@ outline$l			; for outline fonts...
 ;X R0=help text / 0 |
 ;  (Called in response to message Help_Request; uses wimp_kbdbuf)
 
+	FNAME	menu_get_help
 menu_get_help
 	FNJSR	"R1-R7,R11"
 	LDR	R4,[R11]
@@ -3731,6 +3746,7 @@ outline$l =	"zap_h_outline",0
 ;  If clicked item is in menu generated by Font_ListFonts, then
 ;    R2->relevant menu offsets R3=0
 
+ FNAME menu_decode
 menu_decode
  FNJSR "R1,R4"
  ADD R2,R1,#28			; current chosen item
@@ -3761,6 +3777,7 @@ me1
 ;E Heap set up
 ;X Menu file read into heap blocks and then linked #
 
+ FNAME load_menus
 load_menus
  FNJSR "R1,R8-R11"
 ; FNLDR R0,menu_handles
@@ -3780,6 +3797,7 @@ str$l = "<",|zap$|,"$Menus>",0
 ;E R0=pointer to filename of Zap_menu file
 ;X R0=list of menu handles or <=0 #
 
+ FNAME load_menu
 load_menu
  FNJSR "R1"
  MOV R1,R0
@@ -3795,6 +3813,7 @@ read$l
 ;X R0=pointer to heap block containing number of handle, handle0, etc
 ;  or 0 if file invalid
 
+ FNAME read_menu
 read_menu
  FNJSR "R10"
  MOV R10,R0
@@ -3810,6 +3829,7 @@ read_menu
 ;E R4=menu handles (+4)
 ;X Menus linked to each other #
 
+ FNAME link_menus
 link_menus
  FNJSR "R1-R6"
  LDR R3,[R4,#-4]			; number of valid handles
@@ -3847,6 +3867,7 @@ end$l					; done this entry
 ;E R10=start of zero termianted menu file
 ;X R4=pointer to menu handles block (+4) #
 
+ FNAME read_menus
 read_menus
  FNJSR "R1-R3,R10"
  MOV R4,#0			; address of menu handles (+4)
