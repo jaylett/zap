@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.12 2002/11/18 11:18:42 christian Exp $
+; $Id: ModuleBits,fff,v 2.13 2004/09/23 20:31:07 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -90,26 +90,26 @@ help_string_2	FNS (" © Zap developers")
 ; Command table
 
 command_table
- FNS (|zap$|:CC:"Command")
- DCD Zap_StringCommand
- DCD &630001
- DCD zcsy
- DCD zchp
+	FNS	(|zap$|:CC:"Command")
+	DCD	Zap_StringCommand
+	DCD	&630001
+	DCD	zcsy
+	DCD	zchp
 
- FNS (|zap$|:CC:"_Desktop")
- DCD Zap_Desktop
- DCD &02FF00
- DCD dessy
- DCD deshp
+	FNS	(|zap$|:CC:"_Desktop")
+	DCD	Zap_Desktop
+	DCD	&02FF00
+	DCD	dessy
+	DCD	deshp
 
- DCD 0
+	DCD 0
 
-zchp  = "*",27,0," executes a colon-separated string of Zap commands.",13
-zcsy  = 27,30,"*]<string>",0
+zchp	= "*",27,0," executes a colon-separated string of Zap commands.",13
+zcsy	= 27,30,"*]<string>",0
 
-deshp = "*",27,0," runs",27,2,"Zap module",27,16,"(optionally) loads in",27,2
-      = "given file on startup. Zap",27,")initialised as a WIMP task.",13
-dessy = 27,30,"-noicon] [<filename>]",0
+deshp	= "*",27,0," runs",27,2,"Zap module",27,16,"(optionally) loads in",27,2
+	= "given file on startup. Zap",27,")initialised as a WIMP task.",13
+dessy	= 27,30,"-noicon] [<filename>]",0
 
  ALIGN
 
@@ -121,48 +121,49 @@ module_flags	DCD	1				; 32 bit aware
 ; INITIALISE AND FINALISE				       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;X claims and clears workspace, links templates, added modes
 
 initialise_code
- FNJSR
- MOV R0,#6
- MOV R3,   #(variable_size :AND: &00FF)
- ORR R3,R3,#(variable_size :AND: &FF00)
- SWI XOS_Module			; claim varable workspace
- BLVC messages_open
- FNRTS VS			; R3 saved
- STR R2,[R12]			; save workspace
- MOV R12,R2
- MOV R1,#0
- BL fill_words			; clear workspace
- ADR R0,Module_header		; start of the module
- FNSTR R0,env_modstart		; save it as the module start address
- FNADR R0,ext$l			; table of branch instructions
- FNSTR R0,env_main_entry	; save at start of workspace
- BL add_default_modes		; add default modes and commands
- FNRTS
+	FNJSR
+	MOV	R0,#6
+	MOV	R3,   #(variable_size :AND: &00FF)
+	ORR	R3,R3,#(variable_size :AND: &FF00)
+	SWI	XOS_Module		; claim varable workspace
+	BLVC	messages_open
+	FNRTS	VS			; R3 saved
+	STR	R2,[R12]		; save workspace
+	MOV	R12,R2
+	MOV	R1,#0
+	BL	fill_words		; clear workspace
+	ADR	R0,Module_header	; start of the module
+	FNSTR	R0,env_modstart		; save it as the module start address
+	FNADR	R0,ext$l		; table of branch instructions
+	FNSTR	R0,env_main_entry	; save at start of workspace
+	BL	add_default_modes	; add default modes and commands
+	FNRTS
+
 ext$l DCD zap_entry_table
 
 
 
 finalise_code
- FNJSR
- MOV R1,R12			; save private word pointer
- LDR R12,[R12]
- FNLDR R0,wimp_task		; we can't die if we're active
- CMP R0,#0			;
- CMPNE R0,#-1			;
- BNE noyoudont$l		;
+	FNJSR
+	MOV R1,R12			; save private word pointer
+	LDR R12,[R12]
+	FNLDR R0,wimp_task		; we can't die if we're active
+	CMP R0,#0			;
+	CMPNE R0,#-1			;
+	BNE noyoudont$l			;
 
- MOV R0,#7			; free our workspace - I'm fairly certain
- MOV R2,R12			; the kernel can do this for us, however
- MOV R12,R1			;
- SWI XOS_Module			;
- SUBS R0,R0,R0			; clv  and R0 = 0
- STR R0,[R12]			; null private word
- FNRTS				;
+	MOV R0,#7			; free our workspace - I'm fairly certain
+	MOV R2,R12			; the kernel can do this for us, however
+	MOV R12,R1			;
+	SWI XOS_Module			;
+	SUBS R0,R0,R0			; clv  and R0 = 0
+	STR R0,[R12]			; null private word
+	FNRTS				;
 
 noyoudont$l
  ADR R0,err$l
@@ -180,83 +181,84 @@ err$l
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 Zap_Desktop
- FNJSR
- LDR R12,[R12]
- FNLDR R14,wimp_task
- TEQ R14,#0			; task dead
- CMNNE R14,#1			; task starting up
- MOVEQ R2,R0			; command tail (ie filename)
- ADREQ R1,title_string
- MOVEQ R0,#2
- SWIEQ XOS_Module			; enter the module
- FNRTS
+	FNJSR
+	LDR	R12,[R12]
+	FNLDR	R14,wimp_task
+	TEQ	R14,#0			; task dead
+	CMNNE	R14,#1			; task starting up
+	MOVEQ	R2,R0			; command tail (ie filename)
+	ADREQ	R1,title_string
+	MOVEQ	R0,#2
+	SWIEQ	XOS_Module		; enter the module
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SERVICE CALL HANDLER					       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- DCD service_table ; table offset (ursula only)
+	DCD service_table		; table offset (ursula only)
 service_call
- MOV r0,r0	   ; ursula magic word
-; fast service rejection code
- TEQ R1,#&49	; StartWimp
- TEQNE R1,#&4A	; StartedWimp
- TEQNE R1,#&27	; PostReset
- TEQNE R1,#&7F	; PDriverChanged
- MOVNE pc,r14
+	MOV r0,r0			; ursula magic word
+	; fast service rejection code
+	TEQ	R1,#&49			; StartWimp
+	TEQNE	R1,#&4A			; StartedWimp
+	TEQNE	R1,#&27			; PostReset
+	TEQNE	R1,#&7F			; PDriverChanged
+	MOVNE	pc,r14
+
 service_call_accepted
- LDR R12,[R12]			; get zap workspace
- TEQ R1,#&49
- BEQ service_startwimp
- TEQ R1,#&4A
- BEQ service_startedwimp
- TEQ R1,#&7F
- BEQ service_pdriverchanged
- TEQ R1,#&27
- BEQ service_reset
- MOV PC,R14
+	LDR	R12,[R12]		; get zap workspace
+	TEQ	R1,#&49
+	BEQ	service_startwimp
+	TEQ	R1,#&4A
+	BEQ	service_startedwimp
+	TEQ	R1,#&7F
+	BEQ	service_pdriverchanged
+	TEQ	R1,#&27
+	BEQ	service_reset
+	MOV	PC,R14
 
 service_table
- DCD 0  ; flags
- DCD service_call_accepted
-; the following are the service calls we accept. They MUST be in
-; order.
- DCD &27 ; reset
- DCD &49 ; start wimp
- DCD &4A ; started wimp
- DCD &7F ; printer driver changed
- DCD 0 ; end of list
+	DCD	0			; flags
+	DCD	service_call_accepted
+	; the following are the service calls we accept. They MUST be in
+	; order.
+	DCD	&27			; reset
+	DCD	&49			; start wimp
+	DCD	&4A			; started wimp
+	DCD	&7F			; printer driver changed
+	DCD	0			; end of list
 
 
 service_startwimp
- FNJSR
- SYSLOG "Zap service_startwimp", LOG_STATUS
- FNLDR R14,wimp_task
- TEQ R14,#0
- MVNEQ R14,#0
- FNSTR R14,wimp_task,EQ
- ADREQ R0,start_string
- MOVEQ R1,#0
- FNRTS
+	FNJSR
+	SYSLOG	"Zap service_startwimp", LOG_STATUS
+	FNLDR	R14,wimp_task
+	TEQ	R14,#0
+	MVNEQ	R14,#0
+	FNSTR	R14,wimp_task,EQ
+	ADREQ	R0,start_string
+	MOVEQ	R1,#0
+	FNRTS
 
-start_string	    FNS (|zap$|:CC:"_Desktop")
+start_string	FNS (|zap$|:CC:"_Desktop")
 
 service_startedwimp
- FNJSR
- SYSLOG "Zap service_startedwimp", LOG_STATUS
- FNLDR R14,wimp_task
- CMP R14,#0
- MOVMI R14,#0
- FNSTR R14,wimp_task,MI
- FNRTS
+	FNJSR
+	SYSLOG	"Zap service_startedwimp", LOG_STATUS
+	FNLDR	R14,wimp_task
+	CMP	R14,#0
+	MOVMI	R14,#0
+	FNSTR	R14,wimp_task,MI
+	FNRTS
 
 service_reset
- FNJSR
- SYSLOG "Zap service_reset", LOG_STATUS
- MOV R14,#0
- FNSTR R14,wimp_task		; task pseudo - dead
- FNSTR R14,file_num		; and no files (zap not active)
- FNRTS
+	FNJSR
+	SYSLOG	"Zap service_reset", LOG_STATUS
+	MOV	R14,#0
+	FNSTR	R14,wimp_task		; task pseudo - dead
+	FNSTR	R14,file_num		; and no files (zap not active)
+	FNRTS
 
 service_pdriverchanged
 	FNJSR
@@ -266,7 +268,7 @@ service_pdriverchanged
 	FNSTR	R14,wimp_poll_word
 	FNRTS
 
- LOCAL
+	LOCAL
 
 
 ;X default modes 0-4,11 added to mode list & command table #
@@ -286,6 +288,7 @@ cmd$l	LDR	R0,extc$l
 	ADD	R0,R1,R0
 	BL	add_command_table
 	FNRTS
+
 extm$l	& mode_table_0
 	& mode_table_1
 	& mode_table_2
@@ -295,6 +298,7 @@ extm$l	& mode_table_0
 	& mode_table_6
 	& mode_table_11
 	& 0
+
 extc$l  DCD key_command_table
 
 
@@ -308,22 +312,23 @@ extc$l  DCD key_command_table
 ;X writes all of Zap's memory to disc #
 
 core_dump
- FNJSR
- SYSLOG "Dumping core, module and workspace into <Zap$Dir>", LOG_ALWAYS
- ADR R1,module$l
- FNADR R4,ext1$l
- FNADR R5,ext2$l
- BL core_save
- ADRVC R1,main$l
- FNLDR R4,env_start,VC
- FNLDR R5,env_top,VC
- BLVC core_save
- ADRVC R1,worksp$l
- MOVVC R4,R12
- ADDVC R5,R12,#(variable_size :AND: &00FF)
- ADDVC R5,R5,#(variable_size :AND: &FF00)
- BLVC core_save
- FNRTS
+	FNJSR
+	SYSLOG	"Dumping core, module and workspace into <Zap$Dir>", LOG_ALWAYS
+	ADR	R1,module$l
+	FNADR	R4,ext1$l
+	FNADR	R5,ext2$l
+	BL	core_save
+	ADRVC	R1,main$l
+	FNLDR	R4,env_start,VC
+	FNLDR	R5,env_top,VC
+	BLVC	core_save
+	ADRVC	R1,worksp$l
+	MOVVC	R4,R12
+	ADDVC	R5,R12,#(variable_size :AND: &00FF)
+	ADDVC	R5,R5,#(variable_size :AND: &FF00)
+	BLVC	core_save
+	FNRTS
+
 ext1$l	 DCD Module_header
 ext2$l	 DCD Module_end
 module$l FNS (|zapdir$|:CC:".D-Mod")
@@ -331,12 +336,12 @@ worksp$l FNS (|zapdir$|:CC:".D-Work")
 main$l	 FNS (|zapdir$|:CC:".D-Core")
 
 core_save
- FNJSR
- MOV R2,R4
- MOV R3,R4
- MOV R0,#0
- SWI XOS_File
- FNRTS
+	FNJSR
+	MOV R2,R4
+	MOV R3,R4
+	MOV R0,#0
+	SWI XOS_File
+	FNRTS
 
 
 
@@ -354,8 +359,7 @@ Zap_StringCommand
 	LDR	R12,[R12]		; get our workspace
 	FNLDR	R2,exception_buffer	; will do for now.
 	; er strcopy?
-loop$l
-	LDRB	r3,[r0],#1
+loop$l	LDRB	r3,[r0],#1
 	STRB	r3,[r2],#1
 	CMP	r3,#32
 	BGE	loop$l			; string copied to our block
