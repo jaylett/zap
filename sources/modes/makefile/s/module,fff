@@ -1,6 +1,6 @@
 ; makefile.s
 ; converted from makefile.bas by bas2asm.pl
-; $Id: module,fff,v 1.15 2003/03/05 01:27:53 christian Exp $
+; $Id: module,fff,v 1.16 2003/09/25 00:14:56 christian Exp $
 
 	GET	h.Makefile
 
@@ -12,7 +12,7 @@
 	DCD	0x00
 	DCD	D1
 	DCD	ModHelpString
-	DCD	D1
+	DCD	0
 	DCD	0
 	DCD	0
 	DCD	0
@@ -23,19 +23,11 @@
 ; -------- module command table -----------
 
 D1	=	"ZapMakeFile",0
-	DCD	0
-	DCD	0
-	DCD	0
-	DCD	D2
-	=	0
-
-D2	=	27,0," provides support for",27,2,"Zap editor.",13
-	=	"It provides a syntax-colouring mode for Acorn Make",27,7,"s.",0
-	ALIGN
 
 ModHelpString
-	=	"ZapMakeFile",9,"0.11 (00 Jan 0000) © "
-lp1	=	"Tim Tyler",0
+	=	"ZapMakeFile",9,"0.12 (00 Jan 0000) © Zap developers",0
+
+authors	=	"Tim Tyler, Christian Ludlam",0
 	ALIGN
 
 module_flags
@@ -86,7 +78,7 @@ ObeyLabeled
 mode_table
 	DCD	mode_table
 	DCD	ObeyLabeled
-	DCD	lp1
+	DCD	authors
 	DCD	0x00	;  REM = BaseMode = Text
 	DCD	13 + 1<<10 + 1<<14			; e_mode
 	DCD	Initialisation	;  REM init
@@ -190,7 +182,7 @@ done$l
 	BEQ	nocfginit
 	LDR	r0, [r7, #0]
 	CMP	r0, #zizeofcfgwksp
-	LDMEQFD	sp!, {r1, r7, r8, pc}
+	BEQ	check_colours$l
 	;  REM no !Config...
 nocfginit
 	MOV	r0, #col_last		; was 0x11 - but that's wrong!
@@ -230,12 +222,18 @@ noheapblkatall
 	LDRVC	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
 	LDRVC	r1, [r11, #4]
 	MOVVC	r2, #0
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #Zap_ModeData	;  REM call - RD/WRT Zap Dater mode words.
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
+	FNcallc	Zap_ModeData,VC	;  REM call - RD/WRT Zap Dater mode words.
+	LDMVSFD	sp!, {r1, r7, r8, pc}
+
+check_colours$l
+	MOV	R0,#col_last	; set new colour number / read old
+	LDR	r1, [r11, #4]	; mode number
+	FNcall	Zap_ModeColourNum
+	MOV	R2,R0
+	CMP	R2,#9
+	MOVLO	R2,#9
+	CMP	R0,#col_last
+	BLLO	UnkPreColBit	; init new ones
 justendtheresnoneed
 	LDMFD	sp!, {r1, r7, r8, pc}
 
@@ -282,6 +280,8 @@ MenuExtension
 	=	"h.header",0		; 19
 	=	"o.object", 0		; 20
 	=	"s.assembler",0		; 21
+	=	"Functions",0		; 22
+	=	"Directives",0		; 22
 	=	0
 	ALIGN
 
@@ -295,15 +295,13 @@ lasttryadr
 
 
 ; -- initialise default colours
-
+; E r2 = colour number to start from
 UnkPreColBit
 	STMFD	sp!, {r1-r4, lr}
-	ADR	r3, DefaultColours
+	ADR	r3, DefaultColours-9
 	LDR	r1, [r11, #4]	;  REM normally 0
-PreZModColBit
-	MOV	r2, #0x09	;  REM start colours
 ZModColBit
-	LDRB	r0, [r3], #1
+	LDRB	r0, [r3,r2]
 	FNcall	Zap_ModeColour	;  REM Read colour definitions
 	LDMVSFD	sp!, {r1-r4, pc}
 	ADD	r2, r2, #1
@@ -325,6 +323,8 @@ DefaultColours
 	=	0x02	;  REM h.header	      =&13
 	=	0x0B	;  REM .o.	      =&15 ; RED!
 	=	0x03	;  REM .s.	      =&14
+	=	0x0e	;  REM functions
+	=	0x0c	;  REM directives
 	ALIGN
 
 ;Tk1frm12andret
@@ -702,6 +702,11 @@ SymbolChecking				; check for misc punctuation
 	TEQNE	R0, #'@'		; new cl
 	TEQNE	R0, #'%'		; new 0.07
 	TEQNE	R0, #'-'		; new 0.07
+	TEQNE	R0, #'('		; new 0.12
+	TEQNE	R0, #')'		; new 0.12
+	TEQNE	R0, #'{'		; new 0.12
+	TEQNE	R0, #'{'		; new 0.12
+	TEQNE	R0, #'+'		; new 0.12
 	MOVEQ	r1, #col_punct
 	STREQB	r1, [r6, r3]
 	BEQ	AfterColour
@@ -1175,6 +1180,13 @@ storedR9
 	DCD	0
 
 fullstopspeccase
+	FNJSR	"R0"
+	MOV	R0,#1
+	BL	getm
+	TEQ	R0,#10
+	TEQNE	R0,#'-'
+	FNPULL
+	BEQ	notanumberbackedonto
 	LDR	r1, fullstopsofar
 	CMP	r1, #0
 	ADDEQ	r1, r1, #1
@@ -1315,15 +1327,15 @@ inbothalfTC3
 	LDRB	r1, [r4]
 	FNupper	r1
 	CMP	r1, #'A'		; check first char is in table
-	BLT	notANYone               ;
-	CMP	r1, #'Z'                ;
-	BGT	notANYone               ;
+	BLT	notANYone		;
+	CMP	r1, #'Z'		;
+	BGT	notANYone		;
 	SUB	r1, r1, #'A'		; point to first entry in table starting with
-	ADRL	r12, AlphaIndex         ; this letter
-	ADD	r1, r12, r1, LSL #2     ;
-	LDR	r1, [r1]                ;
-	ADRL	r12, TableHere          ;
-	ADD	r12, r12, r1            ;
+	ADRL	r12, AlphaIndex		; this letter
+	ADD	r1, r12, r1, LSL #2	;
+	LDR	r1, [r1]		;
+	ADRL	r12, TableHere		;
+	ADD	r12, r12, r1		;
 
 lpa2					; main loop per table entry
 	MOV	r8, #0
@@ -1333,22 +1345,22 @@ lpa1					; main loop per table char
 	MOVGT	r10, r8
 	BGT	gotexactmatch		; table finished - found it
 	MOV	r7, r1
-	ADD	r5, r4, r8              ; rather inefficient skipping of split
-	LDR	r1, [r9, #f_ptr]        ; which doesn't corrupt r4
-	LDR	lr, [r9, #f_splito]     ;
-	ADD	lr, r1, lr              ;
-	CMP	r5, lr                  ;
-	BCC	inbothalfTC4            ;
-	LDR	lr, [r9, #f_splite]     ;
-	ADD	lr, r1, lr              ;
-	CMP	r5, lr                  ;
-	LDRCC	r1, [r9, #f_splits]     ;
-	ADDCC	r5, r5, r1              ;
+	ADD	r5, r4, r8		; rather inefficient skipping of split
+	LDR	r1, [r9, #f_ptr]	; which doesn't corrupt r4
+	LDR	lr, [r9, #f_splito]	;
+	ADD	lr, r1, lr		;
+	CMP	r5, lr			;
+	BCC	inbothalfTC4		;
+	LDR	lr, [r9, #f_splite]	;
+	ADD	lr, r1, lr		;
+	CMP	r5, lr			;
+	LDRCC	r1, [r9, #f_splits]	;
+	ADDCC	r5, r5, r1		;
 inbothalfTC4
 	LDRB	r1, [r5]		; load char from file
 	FNlower	r1			; case insensitive
 	CMP	R1,#' '			; allow any ctrls as the command terminator
-	MOVLO	R1,#' '                 ;
+	MOVLO	R1,#' '			;
 tabovr1
 	ADD	r8, r8, #1		; next table entry
 	CMP	r7, r1			; same?
@@ -1413,9 +1425,15 @@ gotexactmatch
 	TEQNE	r9, #com_assembler
 	BEQ	Prefixbit
 
+	TEQ	R9,#com_function
+	BEQ	function$l
+
+	TEQ	R9,#com_directive
+	BEQ	directive$l
+
 	LDR	R1,beginnchar		; commands only coloured as such
-        TEQ	R1,#'-'			;
-        BEQ	minusfirst$l		;
+	TEQ	R1,#'-'			;
+	BEQ	minusfirst$l		;
 	TEQ	R1,#9			; if preceeded by ' ' '->' or '@'
 	TEQNE	R1,#' '			; consider !Run
 	TEQNE	R1,#'@'			;
@@ -1426,19 +1444,19 @@ gotexactmatch
 	MOVNE	r1, #col_commands
 
 ChooseColour2
-	LDR	r9, storedr6flu         ; before the start of the physical line
-	CMP	r9, #0                  ;
-	BLE	notANYone               ;
+	LDR	r9, storedr6flu		; before the start of the physical line
+	CMP	r9, #0			;
+	BLE	notANYone		;
 	AND	r9, r2, #0xFF		; don't colour commands if in strings or comments
 	CMP	r9, #col_numbers	;
-	CMPNE	r9, #col_strings        ;
-	BEQ	notANYone               ;
+	CMPNE	r9, #col_strings	;
+	BEQ	notANYone		;
 	ADD	r9, r6, r3
 	LDRB	r9, [r9, r11]		;  REM QUICK FIX...
 	CMP	r9, #col_strings	;
-	FNRTS	EQ                      ;
+	FNRTS	EQ			;
 	MOV	r9, #0
-	ADD	r7, r6, r11             ; r6 = output buffer, r11 = number of chars back (-ve)
+	ADD	r7, r6, r11		; r6 = output buffer, r11 = number of chars back (-ve)
 	ADD	r6, r7, r3		; r3 = w_txtw
 	LDRB	r5, [r6, r9]
 	CMP	r5, #col_strings
@@ -1467,15 +1485,15 @@ colouringrapidexit
 
 ; ---- checking for - before commands ----
 					; we had a minus first - check it's
-minusfirst$l			        ; preceeded by whitespace or ';'
+minusfirst$l				; preceeded by whitespace or ';'
 	PUSH	"R8,R9"			; keep current colour
 	LDR	R8,storedR8
 	LDR	R9,storedR9
 	LDR	R14,[R8,#w_cr]		;
-	AND	R14,R14,#&FF            ;
-        SUB	R4,R4,#1
+	AND	R14,R14,#&FF		;
+	SUB	R4,R4,#1
 minusloop$l
-        SUB	R4,R4,#1
+	SUB	R4,R4,#1
 	LDR	r1, [r9, #f_ptr]
 	CMP	r4, r1
 	BCC	iscommand$l		; off the start of the file - it is a command
@@ -1489,13 +1507,13 @@ minusloop$l
 	LDRCC	r5, [r9, #f_splits]
 	SUBCC	r4, r4, r5
 bothalfminus$l
-        LDRB	R1,[R4]
-        TEQ	R1,#' '
-        TEQNE	R1,#9
-        BEQ	minusloop$l
-        TEQ	R1,R14
-        TEQNE	R1,#';'
-        BNE	isntcommand$l
+	LDRB	R1,[R4]
+	TEQ	R1,#' '
+	TEQNE	R1,#9
+	BEQ	minusloop$l
+	TEQ	R1,R14
+	TEQNE	R1,#';'
+	BNE	isntcommand$l
 
 iscommand$l
 	PULL	"R8,R9"
@@ -1506,15 +1524,95 @@ iscommand$l
 
 isntcommand$l
 	LDR	R1,cntcharback		; colour the '-' as well
-	ADD	R1,R1,#1                ;
-	STR	R1,cntcharback          ;
+	ADD	R1,R1,#1		;
+	STR	R1,cntcharback		;
 	SUB	R11,R11,#1		;
 	MOV	R1,#col_switches
 	PULL	"R8,R9"
 	B	ChooseColour2
 
 
+; ------- checking for functions
 
+function$l
+	PUSH	"R0,R8,R9"
+	LDR	R8,storedR8
+	LDR	R9,storedR9
+
+	MOV	R0,#1
+	BL	getm
+	TEQ	R0,#'('
+	TEQNE	R0,#'{'
+	BNE	notf$l
+
+	MOV	R0,#2
+	BL	getm
+	TEQ	R0,#'$'
+	PULL	"R0,R8,R9",EQ
+	MOVEQ	R1,#col_function
+	BEQ	ChooseColour2
+
+notf$l	PULL	"R0,R8,R9"
+	FNRTS				; don't colour at all
+
+; ------- checking for directives
+
+directive$l
+	PUSH	"R0,R2,R3,R8,R9"
+	LDR	R8,storedR8
+	LDR	R9,storedR9
+	LDRB	R2,[R8,#w_cr]
+
+	MOV	R3,#0
+dlop$l	ADD	R3,R3,#1
+	CMP	R3,#4
+	BHS	notd$l
+
+	MOV	R0,R3
+	BL	getm
+	ADD	PC,PC,R3,LSL #3
+	MOV	R0,R0
+
+	MOV	R0,R0
+	MOV	R0,R0
+
+	TEQ	R0,#'.'			; prefixed by .
+	BEQ	dlop$l
+
+	TEQ	R0,#'-'			; prefixed by - (only really allowed for include)
+	BEQ	dlop$l
+
+	TEQ	R0,R2			; prefixed by lf
+	BNE	notd$l
+
+	PULL	"R0,R2,R3,R8,R9"
+	MOV	R1,#col_directive
+	B	ChooseColour2
+
+notd$l	PULL	"R0,R2,R3,R8,R9"
+	FNRTS				; don't colour at all
+
+
+; E r0 = -ve offset  r4 = current address
+; X r0 = char / 0
+getm	FNJSR	"R1,R4,R9"
+	LDR	R9,storedR9
+	SUB	R4,R4,R0
+	LDR	r14, [r9, #f_ptr]
+	CMP	r4, r14
+	MOVLO	R0,#0
+	FNRTS	LO
+	LDR	r1, [r9, #f_splito]
+	ADD	r1, r1, r14
+	CMP	r4, r1
+	BCC	bot$l
+	LDR	r1, [r9, #f_splite]
+	ADD	r1, r1, r14
+	CMP	r4, r1			; in the split?
+	LDRCC	r14, [r9, #f_splits]
+	SUBCC	r4, r4, r14
+bot$l	LDRB	R0,[R4]
+	FNRTS
 
 CheckRoutine
 	ADD	r1, r12, r8
@@ -1618,14 +1716,14 @@ FromMJE10C
 Abbreviation
 	STMFD	sp!, {r0-r12, lr}
 	MOV	r0, #0x81		; check for escape?
-	MOV	r1, #0x8F               ;
-	MOV	r2, #0xFF               ;
-	SWI	XOS_Byte                ;
+	MOV	r1, #0x8F		;
+	MOV	r2, #0xFF		;
+	SWI	XOS_Byte		;
 	BCS	asnormaldot
 	ADRL	r0, w_formmb		; check Complete is ticked
-	LDR	r0, [r0, #0x08]         ;
-	TST	r0, #(1 << 25)          ;
-	BEQ	asnormaldot             ;
+	LDR	r0, [r0, #0x08]		;
+	TST	r0, #(1 << 25)		;
+	BEQ	asnormaldot		;
 	MOV	r0, #0
 	STR	r0, startslash
 	;STR	r0, isentity
@@ -2237,8 +2335,10 @@ AlphaIndex
 
 	DCD	0x2A2A0A2E
 TableHere
+	=	"addprefix ",	com_function
+	=	"addsuffix ",	com_function
+	=	"amu ",		com_commands ; new 0.09
 	=	"as ",		com_commands
-	=	"amu",		com_commands ; new 0.09
 	=	"autoindent ",	com_commands
 	=	"aux ",		com_commands
 	=	"bison ",	com_commands
@@ -2257,29 +2357,57 @@ TableHere
 	=	"decaof ",	com_commands
 	=	"delete ",	com_morecmds
 	=	"diff ",	com_commands
+	=	"dir ",		com_function
 	=	"drlink ",	com_commands
 	=	"echo ",	com_morecmds
+	=	"else ",	com_directive
+	=	"endif ",	com_directive
+	=	"error ",	com_function
+	=	"filter ",	com_function
+	=	"filter-out ",	com_function
+	=	"findstring ",	com_function
+	=	"firstword ",	com_function
 	=	"find ",	com_commands
 	=	"gcc ",		com_commands
 	=	"h.",		com_header
-        =	"ifthere ",	com_morecmds ; new 0.07
+	=	"if ",		com_function
+	=	"ifdef ",	com_directive
+	=	"ifeq ",	com_directive
+	=	"ifndef ",	com_directive
+	=	"ifneq ",	com_directive
+	=	"ifthere ",	com_morecmds ; new 0.07
+	=	"include ",	com_directive
+	=	"join ",	com_function
 	=	"libfile ",	com_commands
 	=	"link ",	com_commands
 	=	"mv ",		com_morecmds
+	=	"notdir ",	com_function
 	=	"o.",		com_object
 	=	"objasm ",	com_commands
 	=	"objsize ",	com_commands
+	=	"origin ",	com_function
+	=	"override ",	com_directive
+	=	"patsubst ",	com_function
 	=	"remove ",	com_commands
+	=	"rename ",	com_commands ; new 0.12
 	=	"rm ",		com_morecmds
 	=	"run ",		com_morecmds
 	=	"s.",		com_assembler
 	=	"sed ",		com_commands
 	=	"settype ",	com_morecmds
+	=	"sort ",	com_function
+	=	"strip ",	com_function
+	=	"subst ",	com_function
 	=	"squeeze ",	com_commands
 	=	"stoh ",	com_morecmds
 	;=	"TOANSI ",	com_commands ; removed 0.07
 	;=	"TOPCC ",	com_commands ;
 	=	"wipe ",	com_morecmds ; new 0.07
+	=	"warning ",	com_function
+	=	"wildcard ",	com_function
+	=	"word ",	com_function
+	=	"words ",	com_function
+	=	"wordlist ",	com_function
 	=	"wordstr ",	com_commands
 	=	"yUm ",		com_commands ; these are never matched because we search for a
 	=	"zEn ",		com_commands ; lower case command
