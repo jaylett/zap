@@ -1,5 +1,5 @@
 ; Contains mode entry points for byte mode.
-; $Id: Mode1,fff,v 1.1.2.7 1999/02/05 18:25:35 ds Exp $
+; $Id: Mode1,fff,v 1.1.2.8 1999/02/11 01:53:54 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -57,7 +57,7 @@ mode_table_1
  DCD mode1_title
  DCD mode1_author
  DCD 0
- DCD 1+emode_BinaryMode+emode_UsesMessageTrans
+ DCD 1+emode_BinaryMode+emode_UsesMessageTrans+emode_MayBeCloned
  DCD mode1_init
  DCD 0
  DCD mode1_table_end-mode_table_1
@@ -65,8 +65,8 @@ mode_table_1
  DCD Null			; postload
  DCD Null
  DCD Null
- DCD mode1_start
- DCD mode1_end
+ DCD modes_start
+ DCD modes_end
  DCD mode1_width
  DCD mode1_linecol
  DCD mode1_lineoff
@@ -176,13 +176,22 @@ CmdBYTEgroupsize
  ADR R3,data$l
 CmdBYTEWORDgroupsize
  FNJSR
+ MOV R1,R0
+ LDRB R0,[R3]
+ CMP R2,#17
+ BEQ menu$l
+ BL isthisaclonebase
+r$l
+ MOVNE R0,#2			; in case R2=15
+ FNRTS NE			; return if not (a clone of) Code mode
+ CMP R2,#15
+ MOVLO R14,R0
+ TEQ R0,R14			; menu - right mode?
+ BNE r$l
  CMP R2,#6
  BEQ mini$l
 
- CMP R2,#17
- BEQ menu$l
-
- MOV R1,R0
+ MOV R4,R0
  MOV R2,#16			; maximum value
  MOV R0,#(10 + 1:SHL:29)	; base 10 default & flags
  SWI XOS_ReadUnsigned
@@ -191,7 +200,7 @@ CmdBYTEWORDgroupsize
  LDREQB R2,[R3,#1]		; default group size
  AND R2,R2,#&F			; 0 represents 16
  MOV R2,R2,LSL #mode1_BytesPerGroup_shift
- LDRB R1,[R3]			; mode number
+ MOV R1,R4			; mode number
  BL get_mode_word
  BIC R0,R0,#mode1_BytesPerGroup
  ORR R0,R0,R2
@@ -220,20 +229,29 @@ mini$l
  FNRTS
 
 menu$l
- CMP R0,#0
+ CMP R1,#0
  LDREQ R0,[R3,#8]		; offset to menu
  ADDEQ R0,R0,R3
  BLEQ lookup_token_R0
  FNRTS EQ
 
- CMP R0,#2
+ CMP R1,#2
  MOVEQ R0,#1
  FNRTS EQ
 
- CMP R0,#1
+ CMP R1,#1
  FNRTS NE
 
- LDRB R1,[R3]			; mode number
+ BL isthisaclonebase
+rm$l
+ MOVNE R0,#0
+ FNRTS NE			; return if not (a clone of) Code mode
+ CMP R2,#15
+ MOVLO R14,R0
+ TEQ R0,R14			; menu - right mode?
+ BNE rm$l
+
+ MOV R1,R0			; mode number
  BL get_mode_word
  ANDS R0,R0,#mode1_BytesPerGroup
  MOV R0,R0,LSR #mode1_BytesPerGroup_shift
@@ -266,14 +284,23 @@ CmdBYTEctrlreplace
  MOV R1,#1		; mode number
 CmdBYTEWORDctrlreplace
  FNJSR
+ MOV R3,R0
+ MOV R0,R1
+ CMP R2,#17
+ BEQ menu$l
+ BL isthisaclonebase
+r$l
+ MOVNE R0,#2			; in case R2=15
+ FNRTS NE			; return if not (a clone of) Code mode
+ CMP R2,#15
+ MOVLO R14,R0
+ TEQ R0,R14			; menu - right mode?
+ BNE r$l
  CMP R2,#6
  BEQ mini$l
 
- CMP R2,#17
- BEQ menu$l
-
  ; actually do it
- LDRB R2,[R0]
+ LDRB R2,[R3]
  BL get_mode_word
  BIC R0,R0,#mode1_ReplacementControlChar
  MOV R2,R2,LSL #mode1_ReplacementControlChar_shift
@@ -301,17 +328,26 @@ menutitle$l
  ALIGN
 
 menu$l
- CMP R0,#0			; rq for title
+ CMP R3,#0			; rq for title
  ADREQ R0,menutitle$l
  BLEQ lookup_token_R0
  FNRTS EQ
 
- CMP R0,#2			; rq for buffer size
+ CMP R3,#2			; rq for buffer size
  MOVEQ R0,#1
  FNRTS EQ
 
- CMP R0,#1			; rq for default
+ CMP R3,#1			; rq for default
  FNRTS NE
+
+ BL isthisaclonebase
+rm$l
+ MOVNE R0,#0
+ FNRTS NE			; return if not (a clone of) Code mode
+ CMP R2,#15
+ MOVLO R14,R0
+ TEQ R0,R14			; menu - right mode?
+ BNE rm$l
 
  BL get_mode_word
  AND R1,R0,#mode1_ReplacementControlChar
@@ -329,6 +365,16 @@ CmdBYTEflagstoggle
 CmdBYTEWORDflagstoggle
  FNJSR
  LDR R6,[R0]			; word argument
+ MOV R0,R1
+ BL isthisaclonebase
+r$l
+ MOVNE R0,#2			; in case R2=15
+ FNRTS NE			; return if not (a clone of) Code mode
+ CMP R2,#15
+ MOVLO R14,R0
+ TEQ R0,R14			; menu - right mode?
+ BNE r$l
+ MOV R1,R0
  BL get_mode_word
 
  MOV R3,#1
@@ -369,7 +415,7 @@ modes_getmodeword
  FNRTS
 
 mode1_width
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R6"
  MOV R2,#0
  BL modes_getmodeword
 
@@ -381,7 +427,9 @@ mode1_width
  MOVLT R0,#1
 
  STR R0,[R8,#w_bpl]
- LDR R5,[R8,#w_mode1]		; load our mode word
+ LDRB R5,[R8,#w_format]
+ ADD R6,R8,#w_mode0
+ LDR R5,[R6,R5,LSL #2]!		; load our mode word
  BIC R5,R5,#&FF
 
  ; Now calculate what the actual width will be.
@@ -404,7 +452,7 @@ mode1_width
  CMP R0,#&FF
  MOVGT R0,#&FF			; more than this is not permitted
  ORR R5,R5,R0			; put the DIV value in
- STR R5,[R8,#w_mode1]		; and store it
+ STR R5,[R6]			; and store it
 
  MOV R1,R5			; mode word...
  LDR R0,[R8,#w_bpl]
@@ -412,7 +460,7 @@ mode1_width
  BL mode1_calc_width
  MOV R0,R2			; returned value...
 
- LDMFD R13!,{R1-R5,PC}
+ FNRTS
 
 mode1_redrawlnum
  FNJSR
@@ -454,7 +502,9 @@ localmode_colon
 mode1_redrawline
  FNJSR
 
- LDR R1,[R8,#w_mode1]		; our mode word
+ LDRB R1,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R1,[R14,R1,LSL #2]		; our mode word
  STR R1,localmodeword
 
  LDR R0,[R8,#w_bpl]		; num chars
@@ -657,7 +707,9 @@ mode1_clnoff
 
 mode1_lineoff
  FNJSR "R2-R6"
- LDR R4,[R8,#w_mode1]
+ LDRB R4,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R4,[R14,R4,LSL #2]		; our mode word
 
  TST R4,#mode1_BinaryNumberDump
  MOVEQ R5,#3
@@ -688,7 +740,6 @@ mode1_lineoff
 
 mode1_linecol
  FNJSR "R1-R7"
- LDR R4,[R8,#w_mode1]
  MOV R2,#2			; hex width
  MOV R3,#1			; in bytes
 
@@ -696,13 +747,16 @@ mode1_linecol
 ;   R1=column R8/R9
 ;   R2=chars per screen column if hex (*4 if binary)
 ;   R3=bytes per screen column
-;   R4=display format word (b9 => groups, b11 => binary
-;			    b24-b27 = bytes per group)
+;      (w_format read here) (b9 => groups, b11 => binary
+;			     b24-b27 = bytes per group)
 ;\X R0=file offset of the column
 ;
 ;Temp R5=grouping counter, R7=characters remaining per line
 ;     R6=col offset currently under test, R4=n
 modes_linecol_breaks
+ LDRB R4,[R8,#w_format]
+ ADD R4,R8,R4,LSL #2
+ LDR R4,[R8,#w_mode0]		; get mode word
  STMFD R13!,{R0,R4}
  LDR R7,[R8,#w_bpl]		; bytes per line (NOT columns)
 
@@ -869,7 +923,9 @@ mode1_char
  FNJSR
  FNLDR R0,car_hexold
  FNSTR R0,car_hex
- LDR R6,[R8,#w_mode1]
+ LDRB R6,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R6,[R14,R6,LSL #2]
 in20
  TST R6,#mode1_BinaryNumberDump
  BNE in24
@@ -1036,14 +1092,6 @@ mode1_return
 mo_s0
  FNS ("EDITBYTE")
 
-mode1_start
- MOV R0,#1
- B modes_start
-
-mode1_end
- MOV R0,#1
- B modes_end
-
 ;E R1-R6 stacked R0=file offset R1=column
 ;  R2=chars per screen column R3=bytes per screen column
 ;X R0=file offset of the character
@@ -1074,7 +1122,9 @@ mode1_copy
  LOCAL
 
 binarytest$l
- LDR R0,[R8,#w_mode1]		; load in our mode word
+ LDRB R0,[R8,#w_format]
+ ADD R0,R8,R0,LSL #2
+ LDR R0,[R0,#w_mode0]		; load in our mode word
  TST R0,#mode1_BinaryNumberDump
  MOVNE R0,#2
  MOVEQ R0,#16
@@ -1114,13 +1164,14 @@ mode1_interrogate
  FNJSR "R4"			; store our R14, R4
  ADR R14,return$l		; where we come back to
  STMFD R13!,{R1-R3,R5-R7,R14}	; stack for procedure
- LDR R4,[R8,#w_mode1]
  MOV R2,#2			; hex width
  MOV R3,#1			; in bytes
  B modes_interrogate_width
 
 return$l
- STR R4,[R8,#w_mode1]		; store result
+ LDRB R14,[R8,#w_format]
+ ADD R14,R8,R14,LSL #2
+ STR R4,[R14,#w_mode0]		; store result
  FNRTS
 
 ;
@@ -1132,13 +1183,15 @@ return$l
 ;\E R1-R3,R5-R7 stacked R1=width in window columns R8/R9
 ;   R2=chars per screen column in hex (*4 if binary); add R3 for ascii
 ;   R3=bytes per screen column
-;   R4=display format word
 ;\X R0=bpl, R4=new display format word (number of groups updated)
 ;
 ;Temp R5=grouping counter, R6=col of current bpl, R7=break width
-;     R0=current bpl, R4=n
+;     R0=current bpl
 
 modes_interrogate_width
+ LDRB R4,[R8,#w_format]
+ ADD R4,R8,R4,LSL #2
+ LDR R4,[R8,#w_mode0]		; get mode word
  TST R4,#mode1_BinaryNumberDump
  MOVNE R2,R2,LSL #2		; *4 if binary
  ADD R2,R2,#1			; space at end

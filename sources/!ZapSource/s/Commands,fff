@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.15 1999/02/09 00:09:36 ds Exp $
+; $Id: Commands,fff,v 1.1.2.16 1999/02/11 01:53:51 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -164,6 +164,7 @@ key_command_table
 	FNcom	"CLEARGC",ClearGC
 	FNcom	"CLEFT",Cleft
 	FNcom	"CLI",Cli
+	FNcom	"CLONEBASE",CloneBase
 	FNcom	"CLONECREATE",CloneCreate
 	FNcom	"CLONEDELETE",CloneDelete
 	FNcom	"CLONEHIDE",CloneHide
@@ -1017,6 +1018,24 @@ tick$l
 
 	LOCAL
 
+	DCD	7+(3<<3)+(1<<15)
+CloneBase
+	TEQ	R2,#15
+	MOVNE	PC,R14
+	FNJSR
+	BL	test_mode_name
+	CMP	R0,#0
+	MOVMI	R0,#2
+	FNRTS	MI
+	BL	isthisaclonebase	; we just want the mode numbers
+	CMP	R14,#-1
+	CMPNE	R0,R14
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	FNRTS
+
+	LOCAL
+
 	DCD	7+(3<<3)+(1<<6)+(1<<14)
 CloneCreate
 	FNJSR
@@ -1053,6 +1072,17 @@ CloneCreate
 	BL	str$l
 	SUBS	R3,R7,R6
 	ADREQ	R0,noclonebase$l
+	BEQ	error$l
+	MOV	R0,R6
+	BL	find_mode_number
+	TEQ	R0,#0
+	ADRMI	R0,clonefail$l
+	BMI	error$l
+	BL	read_mode
+	LDR	R0,[R1,#e_mode*2]
+	TST	R0,#emode_MayBeCloned
+	ADREQ	R0,cantclone$l
+	MOVEQ	R4,R6
 	BEQ	error$l
 	FNLDR	R1,wimp_kbdbuf		; copy clone base name
 s$l	LDRB	R0,[R1],#1
@@ -1115,6 +1145,8 @@ cloneexists$l &	0
 	FNS	("zap_e_cloneexists")
 clonefail$l &	0
 	FNS	("zap_e_clonefail")
+cantclone$l &	0
+	FNS	("zap_e_badclonebase")
 
 	LOCAL
 

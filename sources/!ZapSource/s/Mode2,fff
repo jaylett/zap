@@ -1,5 +1,5 @@
 ; Contains mode entry points for word mode.
-; $Id: Mode2,fff,v 1.1.2.5 1999/02/05 18:25:37 ds Exp $
+; $Id: Mode2,fff,v 1.1.2.6 1999/02/11 01:53:55 ds Exp $
 
  GET h.ZapHeader
  GET h.Commands
@@ -36,7 +36,7 @@ mode_table_2
  DCD mode2_title
  DCD mode1_author
  DCD 1
- DCD 2+emode_BinaryMode+emode_UsesMessageTrans
+ DCD 2+emode_BinaryMode+emode_UsesMessageTrans+emode_MayBeCloned
  DCD mode2_init
  DCD 0
  DCD mode2_table_end-mode_table_2
@@ -44,8 +44,8 @@ mode_table_2
  DCD 0				; postload
  DCD 0
  DCD 0
- DCD mode2_start
- DCD mode2_end
+ DCD modes_start
+ DCD modes_end
  DCD mode2_width
  DCD mode2_linecol
  DCD mode2_lineoff
@@ -148,7 +148,7 @@ CmdWORDflagstoggle
  B CmdBYTEWORDflagstoggle
 
 mode2_width
- FNJSR "R1-R6"
+ FNJSR "R1-R7"
  MOV R2,#0
  BL modes_getmodeword
 
@@ -162,7 +162,9 @@ mode2_width
 
  MOV R14,R0,LSL#2		; 4*R0=num of bytes
  STR R14,[R8,#w_bpl]
- LDR R5,[R8,#w_mode2]
+ LDRB R5,[R8,#w_format]
+ ADD R7,R8,#w_mode0
+ LDR R5,[R7,R5,LSL #2]
  BIC R5,R5,#&FF
 
  MOV R1,R5,LSR #24
@@ -185,7 +187,7 @@ mode2_width
  MOVHI R0,#&FF			; more than this is not permitted
 
  ORR R1,R5,R0			; put the DIV value in
- STR R1,[R8,#w_mode2]
+ STR R1,[R7]
 
 ; MOV R1,R5			; mode word...
  MOV R0,R6			; as preserved above...
@@ -236,7 +238,9 @@ mode2_redrawline
  FNJSR
  PUSH "R11"
 
- LDR R1,[R8,#w_mode2]
+ LDRB R1,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R1,[R14,R1,LSL #2]
  STR R1,localmodeword
 
  MOV R11,R4			; store w_format
@@ -464,7 +468,9 @@ red_c2_l4
 
 mode2_lineoff
  FNJSR "R2-R6"
- LDR R4,[R8,#w_mode2]
+ LDRB R4,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R4,[R14,R4,LSL #2]
 
  TST R4,#mode2_BinaryNumberDump
  MOVEQ R5,#9
@@ -507,7 +513,6 @@ aloop$l
 
 mode2_linecol
  FNJSR "R1-R7"
- LDR R4,[R8,#w_mode2]
  MOV R2,#8			; hex width
  MOV R3,#4			; in bytes
  B modes_linecol_breaks		; sort it all out
@@ -569,7 +574,9 @@ mode2_char
  FNRTS EQ
  FNLDR R0,car_hexold
  FNSTR R0,car_hex
- LDR R6,[R8,#w_mode2]
+ LDRB R6,[R8,#w_format]
+ ADD R14,R8,#w_mode0
+ LDR R6,[R14,R6,LSL #2]
 in30
  TST R6,#mode2_BinaryNumberDump
  BNE in34			; binary
@@ -804,14 +811,6 @@ mode2_delete
  BLVC mode1_delete
  FNRTS
 
-mode2_end
- MOV R0,#2
- B modes_end
-
-mode2_start
- MOV R0,#2
- B modes_start
-
 mode2_returnword
 ; LDR R0,[R10,#c_off]
  BIC R0,R0,#3 ; round down to nearest word
@@ -848,13 +847,14 @@ mode2_interrogate
  FNJSR "R4"			; store our R14, R4
  ADR R14,return$l		; where we come back to
  STMFD R13!,{R1-R3,R5-R7,R14}	; stack for procedure
- LDR R4,[R8,#w_mode2]
  MOV R2,#8			; hex width
  MOV R3,#4			; in bytes
  B modes_interrogate_width
 
 return$l
- STR R4,[R8,#w_mode2]		; store result
+ LDRB R14,[R8,#w_format]
+ ADD R14,R8,R14,LSL #2
+ STR R4,[R14,#w_mode0]		; store result
  FNRTS
 
 whatwidthplease			; \E R1=w_bpl, \X R0=width to send to e_setwidth
@@ -862,7 +862,9 @@ whatwidthplease			; \E R1=w_bpl, \X R0=width to send to e_setwidth
  MOV PC,R14
 
 binarytest$l
- LDR R0,[R8,#w_mode2]		; load in our mode word
+ LDRB R0,[R8,#w_format]
+ ADD R0,R8,R0,LSL #2
+ LDR R0,[R0,#w_mode0]		; load in our mode word
  TST R0,#mode2_BinaryNumberDump
  MOVNE R0,#2
  MOVEQ R0,#16
