@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.10 2003/03/15 23:43:18 christian Exp $
+; $Id: CreateWind,fff,v 2.11 2003/03/21 18:07:48 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -440,23 +440,29 @@ correct_wind_blk
 	BLVC	create_palette		; load mode palette
 	FNRTS
 
-
+	LOCAL
 ;E R0=0,1,2 for open/reopen/reflect and R1=window blk R8
 ;  R0=3,4 to put at front/back of stack
 ;  R0=5 constrict...
+;     b31 set if to fake a window-open event
+;  R8
 ;X Window opened
 	FNAME	open_a_window
 open_a_window
-	TEQ	R0,#0
-	BEQ	open_window
-	TEQ	R0,#1
-	BEQ	reopen_window		; reopen_window
-	TEQ	R0,#2
-	BEQ	reflect_window
-	TEQ	R0,#5
-	BEQ	open_window_constrict	; open_window_constrict
-	FNJSR	"R1-R2"
-	MOV	R2,R0
+	FNJSR	"R1-R3"
+	AND	R3,R0,#1<<31
+	BIC	R0,R0,R3
+	CMP	R0,#(fb$l-jump$l)/4
+	ADRLO	R14,ret$l
+	ADDLO	PC,PC,R0,LSL #2
+	FNRTS
+jump$l	B	open_window
+	B	reopen_window
+	B	reflect_window
+	B	fb$l
+	B	fb$l
+	B	open_window_constrict
+fb$l	MOV	R2,R0
 	MOV	R1,R8
 	SWI	XWimp_GetWindowState
 	FNRTS	VS
@@ -466,6 +472,9 @@ open_a_window
 	STR	R0,[R8,#w_infront]
 	MOV	R1,R8
 	BL	open_window
+ret$l	TEQ	R3,#0
+	MOVNE	R1,R8
+	BLNE	open_request		; fake message for extension code
 	FNRTS
 
 
