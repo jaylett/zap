@@ -1,11 +1,10 @@
 ; Contains BASIC module header and non mode specific code.
-; $Id: ZapBASIC,fff,v 1.7 2002/11/18 13:13:52 christian Exp $
+; $Id: ZapBASIC,fff,v 1.8 2003/02/06 16:36:31 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
  GET h.BASIC
  GET h.BAStxt
- GET h.TaskWindow
  GET h.SWIs
  GET h.Version
 
@@ -110,11 +109,6 @@ command_table
  DCD 0
  DCD rnsyn
  DCD rnhlp
- FNS (|zap$|:CC:"BASIC_TaskWindow")
- DCD TaskWindow
- DCD &FF0001
- DCD twsyn
- DCD twhlp
  DCD 0
 
 tphlp
@@ -129,12 +123,6 @@ rnhlp
  = "(run a BASIC program directly from RAM. Don't use it.",13,10
 rnsyn
  = 27,1,0
-twhlp
- = "This command",27,")designed",27,"(enable",27,2,"Zap task "
- = "window",27,"(be used via CTRL-F12. It ensures that",27,2
- = "-ctrl option",27,")set.",13,10
-twsyn
- FNS ("Syntax: as for *TaskWindow")
 
 module_flags DCD 1			; 32 bit compatible
 
@@ -167,8 +155,6 @@ initialise_code
  ;FNRTS				; debugging code!
  LDRVC R0,ext6$l
  BLVC add_one_mode
- LDRVC R0,ext12$l
- BLVC add_one_mode
  FNRTS VS
  MOVVC R1,#0
  MOVVC R2,R11
@@ -178,7 +164,6 @@ initialise_code
 zap$l	FNS (|zap$|)
 ext5$l  DCD basic_table_start
 ext6$l  DCD bastxt_table_start
-ext12$l DCD twmode_table_start
 
 ; Address in module to store our workspace
 
@@ -402,9 +387,6 @@ init_mode_word
  FNLDR R1,mode_bastxt,VC
  ADRVC R3,bastxt$l
  BLVC sub$l
- FNLDR R1,mode_taskwindow,VC
- ADRVC R3,taskwind$l
- BLVC sub$l
  FNRTS
 
 sub$l				; R1=mode number R3=data block
@@ -453,11 +435,6 @@ bastxt$l
  DCD 77				; 6=Bastxt
  DCD &97070077
  DCD &B
-taskwind$l
- DCD 2
- DCD 80				; 12=taskwindow
- DCD &97070077
- DCD &0000EBC9
 
  LOCAL
 
@@ -1474,13 +1451,6 @@ gracefully_do_nothing
  SUBS R14,R14,R14
  FNRTS
 
- DCD 7				; can be called from main menu
-Taskwindow
- FNJSR
- BL get_workspace
- MOV R10,#0
- BL create_task_window
- FNRTS
 
 ; DCD 0 ; +(3<<3)+(1<<6)+(1<<10)
 ;Findfunction
@@ -1536,11 +1506,6 @@ key_command_table
  FNcom "BASIC_UNREMARKSEL",BASIC_UNREMARKSEL
  FNcom "DELWORDLEFT",DELWORDLEFT
  FNcom "DELWORDRIGHT",DELWORDRIGHT
-
-; FNcom "FINDFUNCTION",Findfunction
- FNcom "TASKWINDOW",Taskwindow
- FNcom "TASKWINDOW_CONTROL",TaskWindow_Control
- FNcom "TASKWINDOW_FLAGSTOGGLE",Cmdtaskwindowflagstoggle
  DCD 0				; end
 
 ; Imported code from ZapUtils
