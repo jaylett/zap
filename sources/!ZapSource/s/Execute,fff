@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Execute,fff,v 2.6 2002/11/10 14:09:55 christian Exp $
+; $Id: Execute,fff,v 2.7 2002/11/10 21:15:55 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -95,8 +95,9 @@ find_key_command
 ;   being loaded twice!
 
 validate_command
+	CLC
 	TST	R7,#1
-	BICEQS	PC,R14,#Cbit		; not the bit 0 set form + CC	; !!! ARM32 FIXME
+	MOVEQ	PC,R14			; not the bit 0 set form + CC
 	FNJSR
 	BIC	R7,R7,#3		; get the address
 	MOV	R0,R7
@@ -534,7 +535,7 @@ nullstr$l ; take advantage of zero byte in following instruction
  TST R3,#1<<27			; no argument strictly necessary...?
  ADRNE R1,anullstr$l		; um, /where/ exactly !?!?
  MOVNE R6,#3			; string
- FNRTSS				; clv...???
+ FNRTS
 anullstr$l
  DCD 0
 
@@ -1197,7 +1198,7 @@ exec_command
 	TEQNE	R9,#0
 	TEQNE	R10,#0
 	BLNE	call_mode		; make sure the caret is in ok posn
-	FNRTS	VS ; FNRTS	VS
+	FNRTS	VS
 	AND	R0,R3,#15<<24
 	TEQ	R0,#8<<24
 	BEQ	execint$l
@@ -1206,7 +1207,7 @@ exec_command
 	MOV	R0,R6			; set up the data pointer
 	MOVS	R14,PC			; return address
 	MOV	PC,R7			; call command
-	FNRTS ; hmm?
+	FNRTS
 execint$l
 	MOV	R0,R6
 	PUSH	"R1"
@@ -1238,16 +1239,18 @@ execstr$l
 	MOV	R1,R2
 	MOV	R2,#12
 	SWI	XOS_ConvertCardinal4
-isstr$l	LDMFD	R13!,{R1,R2}
+isstr$l	PULL	"R1,R2"
 	PUSH	"R0"
 	MOVS	R14,PC			; return address
 	MOV	PC,R7			; call command
 	PUSH	"R0,R1"
-	MOV	R1,PC
+	MOVVC	R1,#0
+	ADDVSS	R1,R0,#0		; keep error pointer and clv
 	LDR	R0,[R13,#8]
-	BL	heap_free		; free block, preserving R0+flags
-	TEQP	R1,#0	; !!! ARM32 FIXME
-	MOV	R0,R0
+	BL	heap_free		; free block, preserving R0
+	MOVS	R0,R1
+	PULL	"R0,R1,R14,PC",EQ
+	SEV
 	PULL	"R0,R1,R14,PC"
 
 
@@ -1338,14 +1341,14 @@ command_string
  ORRVC R2,R2,R6,LSL #24
  BLVC process_key_command
 err$l
- MOV R2,R0
- MOV R3,PC
+ MOVVC R2,#0
+ ADDVSS R2,R0,#0		; keep error pointer and clv
  CMP R6,#3
  MOVGE R0,R1
  BLGE heap_free			; free arg, error or not, if string/block
- TEQP R3,#0	; !!! ARM32 FIXME
- MOV R0,R2
- FNRTS
+ MOVS R0,R2
+ FNRTS EQ
+ FNRTV
 
  LOCAL
 
@@ -1571,25 +1574,6 @@ badeval_any$l
 	&	484
 	=	"Expression result too long",0
 	ALIGN
-separator$l
-	SUB	R10,R10,#1			; compensate
-a$l	LDRB	R0,[R10,#1]!
-	TEQ	R0,#32
-	BEQ	skip$l
-	CMP	R0,#'0'
-	RSBHSS	R1,R0,#'z'
-	MOVLOS	PC,R14	; !!! ARM32 FIXME
-	CMP	R0,#'9'
-	RSBHSS	R1,R0,#'A'
-	MOVHIS	PC,R14	; !!! ARM32 FIXME
-	CMP	R0,#'Z'
-	RSBHSS	R1,R0,#'a'
-	BLS	a$l
-	MOVS	PC,R14	; !!! ARM32 FIXME
-skip$l	LDRB	R0,[R10,#1]!
-	TEQ	R0,#32
-	BEQ	skip$l
-	MOVS	PC,R14	; !!! ARM32 FIXME
 
 
 	LOCAL
@@ -1712,6 +1696,7 @@ end$l	SUB	R0,R0,#1
 	TEQ	R0,R2
 	FNRTS
 
+var_prefix =	"Zap$Var_"	; 8 characters
 
 	LOCAL
 
@@ -1772,7 +1757,6 @@ cp$l	LDRB	R14,[R2],#1
 	MOV	R14,#0
 	STRB	R14,[R3]
 	FNRTS
-var_prefix =	"Zap$Var_"	; 8 characters
 
 
 ;E R0->message string (for error box)
