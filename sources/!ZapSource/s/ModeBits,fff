@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.11 2002/11/17 20:42:16 christian Exp $
+; $Id: ModeBits,fff,v 2.12 2002/11/17 22:27:24 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -872,25 +872,26 @@ setaddr$l
 	MOVVC	R11,#e_start
 	BLVC	call_mode		; set up w_format for this mode
 	BLVC	checkforautosoftwrap	; check the file
-	BLVC	ensure_bitmap_fonts	; make sure bitmap fonts are available.
 	MOVVC	R0,R10			; modelist block (containing the command)
 	FNRTS
 
 
 	LOCAL
 
-;E R0=load address (containing filetype)
-; R1=filename / 0 if none to test
-;    b31 flag which indicates whether the mode is needed or not
+; finds the mode to load a given file in using filetype and path matches
+;E R0 = load address (containing filetype)
+;  R1 = filename / 0 if none to test
+;  R2 = flag which indicates whether the mode is needed or not
 ;X R0 = wimp_modelist block for this file
-; If b31 clear then
-;  R10 = mode num used for this filetype (loaded if needed) #
-; If b31 set then
-;  R10 = pointer to the mode name (mode may not be loaded)
+;  If R2 on entry == 0
+;    R10 = mode num used for this filetype (loaded if needed) #
+;  If R2 on entry != 0
+;    R10 = pointer to the mode name (mode may not be loaded)
 ; (see rk_mode for format of wimp_modelist) #
 	FNAME	find_file_mode
 find_file_mode
-	FNJSR	"R1-R9"
+	FNJSR	"R1-R9,R11"
+	MOV	R11,R2
 	MOV	R7,R1			; keep a copy of filename ptr + flags
 	FNLDR	R14,opt_format
 	TST	R14,#1<<31
@@ -899,7 +900,7 @@ find_file_mode
 	MOVCC	R0,#&1000		; untyped file
 	MOV	R2,R0			; save the file type
 	FNLDR	R10,wimp_modelist	; start of the list
-	BICS	R9,R1,#1<<31		; filename / 0 if none
+	MOVS	R9,R1			; filename / 0 if none
 	BEQ	type$l			; none
 	MOV	R0,R9
 	BL	str_len			; find length of the file name
@@ -925,7 +926,7 @@ matched$l				; block R10 matches
 	BL	str_len
 	ADD	R1,R10,#17
 	ADD	R0,R1,R0		; start of mode name to use
-	TST	R7,#1<<31
+	TEQ	R11,#0
 	BNE	end$l			; just wanted mode name
 	BL	find_mode_number	; get the mode number (loading if needed)
 	FNRTS	VS
@@ -939,7 +940,7 @@ end$l					; R0=mode pointer or mode name
 default$l				; file type forced or no match found
 	ADR	R0,defblk$l		; default block
 	FNLDRB  R10,opt_format		; default mode
-	TST	R7,#1<<31
+	TEQ	R11,#0
 	ADRNE	R10,deftxt$l		; default mode name
 	FNRTS
 fname$l					; check filename matches
@@ -979,18 +980,18 @@ deftxt$l
 	=	"Text",0
 	ALIGN
 
-
-;E R0 b31 clear for mode number, set for mode name R8/R9
+; as above, but also uses FileID matching
+;E R0 == 0 for mode number, != 0 for mode name R8/R9
 ;X as for find_file_mode
 	FNAME	get_file_mode
 get_file_mode
 	FNJSR	"R1-R7"
-	AND	R6,R0,#1<<31		; R6 != 0 if caller wants mode name
+	MOV	R6,R0			; R6 != 0 if caller wants mode name
 	TEQ	R9,#0
 	BEQ	nomatch$l
 	LDR	R0,[R9,#f_load]
 	LDR	R1,[R9,#f_name]
-	ORR	R1,R1,R6
+	MOV	R2,R6
 	BL	find_file_mode
 	FNRTS	VS
 	FNLDR	R14,opt_format
@@ -1000,7 +1001,7 @@ get_file_mode
 	ADR	R1,deftxt$l
 	TEQNE	R10,R1			; if text mode is indicated,
 	BEQ	is_text_mode$l		;   we're interested
-	TST	R0,#1<<31
+	TEQ	R6,#0
 	FNRTS	EQ
 	PUSH	"R0"
 	MOV	R0,R10
@@ -1065,7 +1066,7 @@ trynext$l
 foundmode$l
 	PULL	"r14"			; unstack/discard the search pos
 	ADD	r0,r7,#8
-	TST	r6,#1<<31
+	TEQ	R6,#0
 	BLEQ	find_mode_number	; get the mode number (if req)
 	FNRTS	VS
 	MOVS	r10,r0
@@ -1073,7 +1074,7 @@ foundmode$l
 	FNRTS	PL
 nomatch$l
 	ADR	r0,defblk$l
-	TST	r6,#1<<31
+	TEQ	R6,#0
 	FNLDRB  r10,opt_format,EQ	; default mode
 	ADDNE	r10,r0,#deftxt$l-defblk$l ; or text mode
 	FNRTS
@@ -1274,12 +1275,10 @@ change_anyway$l
 	BLVC	new_window_status	; recreate window
 	FNRTS
 
-ensure_bitmap_fonts
-
 
 ;E R1=mode number R8=window/0
 ;X R0=mode word
-
+	FNAME	get_mode_word
 get_mode_word
 	FNJSR
 	TEQ	R8,#0
@@ -1901,7 +1900,7 @@ create_modedata_block
 	BL	heap_claim
 	STRVC	R0,[R2]			; save the destination block
 	MOVVC	R2,R0
-	SWIVC	XZapRedraw_MoveBytes	; BLVC move_bytes			; copy the block
+	SWIVC	XZapRedraw_MoveBytes	; copy the block
 	FNRTS
 
 
@@ -2069,7 +2068,7 @@ c$l
 	LOCAL
 
 ;E R1 => 0=file just loaded 1=after a save R8/R9
-; First checks for DOS/SPOOL type file etc then calls mode's e_postload
+;  First checks for DOS/SPOOL type file etc then calls mode's e_postload
 	FNAME	post_load
 post_load
 	FNJSR	"R1-R2,R11"		; Beware - explicit pull of R1
@@ -2273,13 +2272,13 @@ a$l
 	SUB	R3,R4,R1
 	SUB	R3,R3,#1		; length excluding CR
 	ADD	R6,R6,R3		; new dest
-	SWI	XZapRedraw_MoveBytes	; BL move_bytes			; shift the line
+	SWI	XZapRedraw_MoveBytes	; shift the line
 	B	newline$l
 end$l
 	MOV	R2,R6			; dest
 	SUBS	R3,R5,R1		; length to move
 	ADDNE	R6,R6,R3		; new dest
-	SWINE	XZapRedraw_MoveBytes	; BLNE move_bytes		; shift the last bit of file
+	SWINE	XZapRedraw_MoveBytes	; shift the last bit of file
 	LDR	R0,[R9,#f_ptr]
 	SUB	R6,R6,R0
 	STR	R6,[R9,#f_len]
