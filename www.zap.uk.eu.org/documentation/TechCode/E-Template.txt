@@ -1,0 +1,491 @@
+REM E-Template
+REM
+REM Template program for creating Zap modes.
+REM The module will be saved to work_directory$
+REM You should run Zap first to ensure Zap$Dir and ZapWork$Dir
+REM are set up.
+
+REM directory to save module
+work_directory$="$"
+
+REM name of mode
+mode_name$="Test"
+
+REM authors name
+mode_author$="Joe Bloggs"
+
+REM version number of module
+ver$="0.01"
+
+REM mode number you want to be
+REM you MUST not hard wire this in as I may have allocated it
+REM to someone else!
+mode_number=15
+
+REM mode to base this mode on (text)
+mode_basemode=0
+
+REM define a proc error to print line number even if running
+REM under wimp.
+ON ERROR PROCerror
+
+REM reserve space for code / workspace
+REM default of 64k
+code_size%=&10000 
+DIM code% code_size%
+L%=code%+code_size%
+
+REM load the library defineing zap's variables
+LIBRARY "<Zap$Dir>.Docs.TechCode.E-Library"
+
+REM define zaps constants (call E-Library)
+PROCdefine_zap_variables
+
+REM define any variables in our workspace
+PROCset_up_variables
+
+REM assemble the code
+PROCassemble_code
+
+REM save the module
+SYS "OS_File",&0A,work_directory$+".Zap"+mode_name$,&FFA,0,code%,code%+length%
+PRINT "Zap";mode_name$+" module created and saved"
+
+END
+
+REM define any variables we want to store in the module workspace
+
+DEF PROCset_up_variables
+FOR pass=%1100 TO %1110 STEP 2:P%=0:O%=code%:[OPTpass
+
+.test_0             EQUD 0
+.test_1             EQUD 0
+.test_2             EQUD 0
+.test_3             EQUD 0
+
+]:NEXT
+variable_size%=P%
+ENDPROC
+
+REM assemble the main code
+
+DEF PROCassemble_code
+
+REM define flags
+
+Iflag%=1<<27
+Vflag%=1<<28
+Cflag%=1<<29
+
+REM define register numbers (for macros)
+
+R0=0:R1=1:R2=2:R3=3:R4=4:R5=5:R6=6:R7=7:R8=8:R9=9:R10=10
+R11=11:R12=12:R13=13:R14=14:R15=15:PC=15
+
+FOR pass=%1100 TO %1110 STEP 2:P%=0:O%=code%
+[OPTpass
+
+.Module_header
+.Start_code           EQUD 0
+.Initialisation_code  EQUD initialise_code
+.Finalisation_code    EQUD finalise_code
+.Service_call_handler EQUD 0
+.Title_string         EQUD title_string
+.Help_string          EQUD help_string
+.Command_keyword_tab  EQUD 0
+.SWI_chunk_number     EQUD 0
+.SWI_handler_code     EQUD 0
+.SWI_decoding_table   EQUD 0
+.SWI_decoding_code    EQUD 0
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ TITLES AND COMMAND TABLES                                    \
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+.help_string
+FNS("Zap"+mode_name$+CHR$9+ver$+" ("+FNdate+") © "+mode_author$)
+
+.title_string
+FNS("Zap"+mode_name$)
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ INITIALISE AND FINALISE                                      \
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+.initialise_code
+FNJSR
+MOV R0,#6
+MOV R3,#variable_size%
+SWI "XOS_Module"              \ claim varable workspace
+FNRTSVS
+MOV R11,R2                    \ claimed block (R11 from now on)
+STR R11,[R12]                 \ save as my workspace pointer
+STR R11,workspace_address     \ save it in the module for
+MOV R0,#18                    \ accessing commands.
+ADR R1,zap_title
+SWI "XOS_Module"              \ find zap
+FNRTSVS                       \ not found
+MOV R12,R4                    \ zap workspace
+FNADR(R0,mode_table)
+FNcall(Zap_AddMode)           \ add this mode to zap
+FNRTSVS
+FNADR(R0,key_command_table)   \ add table of commands
+FNcall(Zap_AddCommands)       \ remove this if you're not
+FNRTSVS                       \ using commands
+MOV R1,#0
+MOV R2,R11
+MOV R3,#variable_size%
+FNcall(Zap_FillWords)         \ clear workspace to zeros
+FNRTS
+
+.zap_title
+FNS("Zap")
+
+.workspace_address
+EQUD 0
+
+\X R11=module workspace |
+
+.get_workspace
+LDR R11,workspace_address
+MOV PC,R14
+
+.finalise_code
+FNJSR
+MOV R0,#7
+LDR R2,[R12]
+SWI "XOS_Module"              \ free workspace
+FNRTSVS
+MOV R0,#0
+STR R0,[R12]                  \ null private word
+FNRTS
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Mode Table                                                   \
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+.mode_table
+EQUD mode_table               \ offset of mode table
+EQUD mode_title               \ mode title string
+EQUD mode_author              \ author string
+EQUD mode_basemode            \ base mode number
+EQUD mode_number              \ mode you want to be
+EQUD mode_init                \ offset of initialisation code
+EQUD 0                        \ offset of your menu
+EQUD mode_table_end-mode_table \ length of table
+
+EQUD 0                        \ mode_postload
+EQUD 0                        \ mode_presave
+EQUD 0                        \ mode_loading
+EQUD mode_start
+EQUD mode_end
+EQUD 0                        \ mode_width
+EQUD 0                        \ mode_linecol
+EQUD 0                        \ mode_lineoff
+EQUD 0                        \ mode_clnlog
+EQUD 0                        \ mode_clnphy
+EQUD 0                        \ mode_clnoff
+EQUD 0                        \ mode_nextline
+EQUD 0                        \ mode_minus
+EQUD 0                        \ mode_plus
+EQUD 0                        \ mode_sminus
+EQUD 0                        \ mode_splus
+EQUD 0                        \ mode_cminus
+EQUD 0                        \ mode_cplus
+EQUD 0                        \ mode_redrawline
+EQUD 0                        \ mode_redrawlnum
+EQUD 0                        \ mode_char
+EQUD 0                        \ mode_delete
+EQUD 0                        \ mode_tab
+EQUD 0                        \ mode_return
+EQUD 0                        \ mode_renumber
+EQUD 0                        \ mode_saveandrun
+EQUD 0                        \ mode_linestart
+EQUD 0                        \ mode_lineend
+EQUD 0                        \ mode_linenext
+EQUD 0                        \ mode_lineprev
+EQUD 0                        \ mode_copy
+EQUD 0                        \ mode_joinline
+EQUD 0                        \ mode_splitline
+EQUD 0                        \ mode_aligncaret
+EQUD 0                        \ mode_command
+EQUD 0                        \ mode_compile
+EQUD 0                        \ mode_formattext
+EQUD 0                        \ mode_run
+EQUD 0                        \ mode_runandquit
+EQUD 0                        \ mode_basic
+EQUD 0                        \ mode_search
+EQUD 0                        \ mode_replace
+EQUD 0                        \ mode_selection
+EQUD 0                        \ mode_click
+EQUD 0                        \ mode_message
+EQUD 0                        \ mode_setwidth
+EQUD 0                        \ mode_listfns
+EQUD 0                        \ mode_prevline
+EQUD 0                        \ mode_openwindow
+EQUD 0                        \ mode_interrogate
+EQUD 0                        \ mode_returnword
+EQUD 0                        \ mode_help
+.mode_table_end
+
+.mode_title                   \ mode title
+FNS(mode_name$)
+
+.mode_author                  \ mode author
+FNS(mode_author$)
+
+.Null                         \ offset to send entry points you
+MOV PC,R14                    \ don't want to do anything
+
+.mode_start
+FNJSR
+BL get_mode_number
+FNcall(Zap_RestoreModeWord)
+FNRTS
+
+.mode_end
+FNJSR
+BL get_mode_number
+FNcall(Zap_SaveModeWord)
+FNRTS
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Initialise buffers                                           \
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+.mode_init                    \ initialise entry point
+TEQ R1,#1
+BEQ store_mode_number
+TEQ R1,#2
+BEQ zap_starting
+MOV PC,R14
+
+.zap_starting                 \ initialise the mode word if 0
+STMFD R13!,{R1,R2,R8,R14}
+MOV R8,#0                     \ options word
+BL get_mode_number
+MOV R1,R0                     \ R1 = our mode's number
+FNcall(Zap_GetModeWord)
+LDMVSFD R13!,{R1,R2,R8,PC}
+TEQ R0,#0                     \ have any options been set for
+LDMNEFD R13!,{R1,R2,R8,PC}    \ this mode - return if so
+\ We need to do two things here - firstly, we set the Zap-handled options
+\ words.
+\ R8=0, R1=mode number; R2=variable number, R0=new value/-1 to read
+LDR R0,default_mode_word0
+MOV R2,#0
+FNcall(Zap_ModeData)
+LDR R0,default_mode_word1
+MOV R2,#1
+FNcall(Zap_ModeData)
+\ We don't set mode variable #2, because it's currently (v1.40) only used
+\ for the basemap number, and there's a sensible user-defined default for
+\ this anyway.
+
+\ Now we set our mode's private options. Note that these options don't do
+\ anything in this example; say you wrote a mode where the user types 's
+\ and the mode automatically turns them into matched single quotes - you
+\ might have an option bit to determine whether this option was on or off.
+\ Be wary of ending up with an options word that is totally zero, because
+\ that can cause you to reset your ModeData (above) to defaults when you
+\ get loaded.
+LDR R0,default_mode_options_word
+FNcall(Zap_PutModeWord)
+LDMFD R13!,{R1,R2,R8,PC}
+
+.default_mode_word0 EQUD &30010050                \ 80 cols+auto indent+tabs ----|
+.default_mode_word1 EQUD &0E00000F                \ line numbers 8+colon,
+\ smart shift-cursor, window wrap, soft wrap
+.default_mode_options_word
+  EQUD &1 \ We've been set up correctly; this doesn't do anything
+
+\E R0=mode number
+\X -
+
+.store_mode_number
+STR R0,actual_mode_number
+MOV PC,R14
+
+\E -
+\X R0=mode number
+
+.get_mode_number
+LDR R0,actual_mode_number
+MOV PC,R14
+
+.actual_mode_number
+EQUD 0
+
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Command table                                             \
+\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+.key_command_table
+EQUD key_command_table
+EQUD 0                        \ flags
+FNcom("BEEPBEEP",beepbeep)
+EQUD 0                        \ end
+
+EQUD 7
+.beepbeep
+FNJSR
+SWI &107
+SWI &107
+FNRTS
+
+\\\\\\\\\\ End Of Assembly \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+]
+
+NEXT pass
+length%=P%
+ENDPROC
+
+DEF FNS(A$)    :[OPTpass:EQUS A$+CHR$0:ALIGN:]:=""
+DEF FNSS(A$)   :[OPTpass:SWI "XOS_WriteS":EQUS A$+CHR$0:ALIGN:]:=""
+DEF FNJSR      :[OPTpass:STMFD   R13!,{R14}:]:=""
+DEF FNRTV      :[OPTpass:LDMFD   R13!,{R14}:ORRS PC,R14,#Vflag%:]:=""
+DEF FNRTC      :[OPTpass:LDMFD   R13!,{R14}:BICS PC,R14,#Vflag%:]:=""
+DEF FNRTS      :[OPTpass:LDMFD   R13!,{PC} :]:=""
+DEF FNRTSNE    :[OPTpass:LDMNEFD R13!,{PC}:]:=""
+DEF FNRTSEQ    :[OPTpass:LDMEQFD R13!,{PC}:]:=""
+DEF FNRTSCS    :[OPTpass:LDMCSFD R13!,{PC}:]:=""
+DEF FNRTSCC    :[OPTpass:LDMCCFD R13!,{PC}:]:=""
+DEF FNRTSVS    :[OPTpass:LDMVSFD R13!,{PC}:]:=""
+DEF FNRTSVC    :[OPTpass:LDMVCFD R13!,{PC}:]:=""
+DEF FNRTSLS    :[OPTpass:LDMLSFD R13!,{PC}:]:=""
+DEF FNRTSHI    :[OPTpass:LDMHIFD R13!,{PC}:]:=""
+DEF FNRTSMI    :[OPTpass:LDMMIFD R13!,{PC}:]:=""
+DEF FNRTSLE    :[OPTpass:LDMLEFD R13!,{PC}:]:=""
+DEF FNRTSGE    :[OPTpass:LDMGEFD R13!,{PC}:]:=""
+DEF FNRTSLT    :[OPTpass:LDMLTFD R13!,{PC}:]:=""
+DEF FNRTSS     :[OPTpass:LDMFD   R13!,{PC}^:]:=""
+DEF FNRTSSNE   :[OPTpass:LDMNEFD R13!,{PC}^:]:=""
+DEF FNRTSSEQ   :[OPTpass:LDMEQFD R13!,{PC}^:]:=""
+DEF FNRTSSCC   :[OPTpass:LDMCCFD R13!,{PC}^:]:=""
+DEF FNRTSSCS   :[OPTpass:LDMCSFD R13!,{PC}^:]:=""
+DEF FNmem(x%)  :w%=O%-code%:P%=P%+x%:O%=O%+x%:[OPTpass:ALIGN:]:=w%
+DEF FNnewl     :[OPTpass:SWI "XOS_NewLine":]:=""
+
+DEF FNdate      DIM date% 64:?date%=3:SYS "OS_Word",&0E,date%
+SYS "OS_ConvertDateAndTime",date%,date%+16,32,"%DY %M3 19%YR" TO A%,B%
+?B%=13:=$A%
+
+REM This modules workspace is at R11!!
+
+DEF FNLDR(s%,x%)  :[OPTpass:LDR   s%,[R11,#x%]:]:=""
+DEF FNLDREQ(s%,x%):[OPTpass:LDREQ s%,[R11,#x%]:]:=""
+DEF FNLDRNE(s%,x%):[OPTpass:LDRNE s%,[R11,#x%]:]:=""
+DEF FNLDRCS(s%,x%):[OPTpass:LDRCS s%,[R11,#x%]:]:=""
+DEF FNLDRCC(s%,x%):[OPTpass:LDRCC s%,[R11,#x%]:]:=""
+DEF FNSTR(s%,x%)  :[OPTpass:STR   s%,[R11,#x%]:]:=""
+DEF FNSTREQ(s%,x%):[OPTpass:STREQ s%,[R11,#x%]:]:=""
+DEF FNSTRNE(s%,x%):[OPTpass:STRNE s%,[R11,#x%]:]:=""
+DEF FNSTRVS(s%,x%):[OPTpass:STRVS s%,[R11,#x%]:]:=""
+
+REM Menu creation functions
+
+DEF FNnew_menu(T$,w%,c%)
+a%=P%
+menu_num%=0
+[OPTpass
+EQUS T$+STRING$(12-LENT$,CHR$0)         \ title
+EQUD w%<<4                              \ width in os
+EQUD c%                                 \ offset of sub to create this
+]
+=a%
+
+DEF FNnme(T$,f%,s%,k%,i%)
+IF s%=-1 AND pass=14 THEN f%=(f% OR 8):s%=mw_window
+IF i%=1 AND pass=14 THEN i%=sub_kcommand
+IF i%=2 AND pass=14 THEN i%=sub_call
+[OPTpass
+EQUD f%                       \ flags
+EQUD s%                       \ submenu pointer
+EQUD k%                       \ key
+EQUD i%                       \ interprate
+FNS(T$)                       \ menu text
+]
+menu_num%+=1
+=menu_num%-1
+
+DEF FNend_menu
+IF menu_num%=0 THEN PRINT"Menu NULL!":END
+[OPTpass
+EQUD -1                       \ terminator
+]
+=menu_num%
+
+DEF FNw_leaf(T$,w%,c%,i%)
+b%=FNnew_menu(T$,10,c%)
+a%=FNnme("",4+(w%<<8),0,0,i%)
+a%=FNend_menu
+=b%
+
+DEF FNADR(s%,x%)
+REM The instruction sequence must be of FIXED length
+a%=x%-P%-8
+IF a%>=0 THEN
+ [OPTpass:ADD s%,PC,#(a% AND &000003FF):ADD s%,s%,#(a% AND &FFFFFC00):]
+ELSE
+ a%=-a%
+ [OPTpass:SUB s%,PC,#(a% AND &000003FF):SUB s%,s%,#(a% AND &FFFFFC00):]
+ENDIF
+=""
+
+DEF FNMOV(s%,x%)
+REM perform MOV s%,#x% on second pass only (variable may not exist)
+IF (pass AND 2)<>0 THEN
+ [OPTpass:MOV s%,#x%:]
+ELSE
+ [OPTpass:MOV s%,#0:]
+ENDIF
+=""
+
+DEF FNTEQ(s%,x%)
+REM perform TEQ s%,#x% on second pass only (variable may not exist)
+IF (pass AND 2)<>0 THEN
+ [OPTpass:TEQ s%,#x%:]
+ELSE
+ [OPTpass:TEQ s%,#0:]
+ENDIF
+=""
+
+DEF FNtickeq(s%,x%)
+[OPTpass
+LDR R0,[s%,#(28+24*x%)]
+ORREQ R0,R0,#1
+BICNE R0,R0,#1
+STR R0,[s%,#(28+24*x%)]
+]:=""
+
+DEF FNtickne(s%,x%)
+[OPTpass
+LDR R0,[s%,#(28+24*x%)]
+ORRNE R0,R0,#1
+BICEQ R0,R0,#1
+STR R0,[s%,#(28+24*x%)]
+]:=""
+
+DEF PROCerror
+REPORT:PRINT" at line ";ERL
+END
+
+DEF FNerr(a%,T$)
+[OPTpass:ADD R0,PC,#0:ORRS PC,R14,#Vflag%:EQUD a%:FNS(T$):]:=""
+
+DEF FNcom(T$,a%)
+[OPTpass:EQUS T$:EQUB 0:]
+!O%=0     :REM zero next four bytes
+[OPTpass:ALIGN:EQUD a%:]:=""
+
+REM Call zap at entry offset a% Entry R0-R11=args R12=zap workspace
+DEF FNcall(a%)
+[OPTpass
+LDR R14,[R12]                 \ get start of zap table
+ADD R14,R14,#a%               \ get address of sub
+STMFD R13!,{R14}              \ save address on stack
+MOV R14,PC                    \ return address (with flags)
+LDMFD R13!,{PC}               \ call the sub
+]:=""
+
