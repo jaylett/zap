@@ -40,7 +40,7 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
 		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
-		  o/ModuleBits o/TMFs
+		  o/ModuleBits o/TMFs o/LineEditor
 
 # You may need to change some of the following if your system is different
 # to mine. (Link and Asm need to point to as_ro and link_ro, whatever
@@ -49,7 +49,7 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -upper -pedantic -o $@
+asmflags	= -objasm -nolocal -upper -pedantic -DASSEMBLER=AS -o $@
 linkflags	= -o o/tmplink -B 0 -bin
 
 # Bits we use to grab the build parameter to make ...
