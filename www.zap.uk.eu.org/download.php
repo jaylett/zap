@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.7 2002/08/21 23:35:22 ds Exp $
+  // $Id: download.php,v 1.8 2002/09/11 10:23:43 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -46,7 +46,7 @@ Development release sites
 <?php
   $release='1.44';
   $beta=9;
-  $betadir='test9';
+  $betadir='test10';
 
   function href ($leaf)
   {
@@ -256,5 +256,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/08/21 23:35:22 $');
+  zap_body_end ('$Date: 2002/09/11 10:23:43 $');
 ?>
