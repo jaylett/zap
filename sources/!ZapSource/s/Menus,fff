@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.38 2004/04/12 18:55:47 christian Exp $
+; $Id: Menus,fff,v 2.39 2004/04/15 12:13:02 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -21,6 +21,7 @@
  GET h.StartCode
  GET h.TMTVars
  GET h.Messages
+ GET h.Fonts
 
  IMPORT create_ColourBox
  IMPORT Bitmapfont
@@ -62,7 +63,7 @@
  EXPORT Getdynamicarea
  EXPORT Savelist
  EXPORT Closelist
-
+ EXPORT EncodingList
 
 ; new menu entry flags word [menu entry buffer, #-16]
 mef_ExecCommand	  *	1<<31		; exec code is a Zap Command
@@ -844,6 +845,75 @@ execsub$l
 
 
 	LOCAL
+
+; list of encodings which can be applied
+	&	7+(1<<16)
+EncodingList
+	TEQ	R2,#16
+	MOVNE	PC,R14
+
+	FNJSR
+	ADR	R0,name$l
+	ADR	R1,sub$l
+	MOV	R2,#0
+	ADR	R3,interpret$l
+	MOV	R4,#20
+	ADR	R5,mhelp$l
+	MOV	R6,#0
+	LDR	R9,[R8,#w_encoding]	; idfn to tick
+	MOV	R8,#(1<<16)+(1<<17)+(1<<22)
+	BL	build_menu_with_help
+	FNRTS
+
+name$l	=	27,"zap_m_encodings",0
+mhelp$l	=	27,"zap_mh_encodings",0
+	ALIGN
+
+sub$l	FNJSR	"R2-R7"
+	CMP	R8,#-1			; return if no more
+	MOVEQ	R0,#-1			;
+	FNRTS	EQ			;
+
+	ADD	R1,R0,#24		; buffer for idfn (what you give to ZapRedraw)
+	MOV	R2,R8			; counter / flags
+	MOV	R3,#24			; size of R1
+	MOV	R4,R0			; buffer for name (what you see in the menu)
+	MOV	R5,#24			; size of R4
+	MOV	R6,R9			; idfn to tick
+	SWI	XZapRedraw_ListFonts
+	FNRTS	VS
+
+	PUSH	"R2"
+	TEQ	R9,#0
+	BEQ	none$l
+
+	MOV	R2,R9			; idfn
+	BL	strCMP
+	LDREQ	R6,[R13,#5*4]		; recover R6
+	LDREQ	R0,[R6]
+	ORREQ	R0,R0,#1		; tick it
+	STREQ	R0,[R6]
+
+none$l	BIC	R0,R8,#(1<<17)		; index for this entry (= counter)
+	PULL	"R8"			; new counter
+	ADR	R1,mhelp$l
+	FNRTS
+
+interpret$l
+	FNJSR
+	SUB	R13,R13,#32
+	MOV	R2,R1
+	MOV	R1,R13
+	MOV	R3,#32
+	SWI	XZapRedraw_ListFonts
+	MOV	R0,R13
+	MOV	R2,#0
+	BL	Encoding
+	ADD	R13,R13,#32
+	FNRTS
+
+	LOCAL
+
 
 ; List of modes which are already loaded
 	&	7+(1<<16)

@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.14 2003/08/24 18:28:26 christian Exp $
+; $Id: CreateWind,fff,v 2.15 2004/04/15 12:13:02 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -136,6 +136,12 @@ ne2	FNLDR	R0,wind_list
 	MOV	R3,#wind_blk		; number of bytes in block
 	SWI	XZapRedraw_MoveBytes	; BL move_bytes		; copy block
 	BL	claim_window_buffers
+	FNRTS	VS
+	LDR	R1,[R8,#w_encoding]	; copy the encoding
+	TEQ	R1,#0
+	MOVEQ	R0,R1
+	BLNE	strdup
+	STRVC	R0,[R8,#w_encoding]
 	MOVVC	R0,#0			; we don't have a font yet -
 	STRVC	R0,[R8,#w_font]		; correct_wind_blk will find it.
 	STRVC	R0,[R8,#w_tabstops]	; ditto
@@ -268,7 +274,11 @@ create_window_block
 	STRVC	R3,[R8,#w_pline]
 	MOVVC	R0,#0
 	BLVC	insert_marker		; add marker for this window
-	FNRTS	VS
+
+	ADRVC	R1,l1$l			; default to Latin1
+	BLVC	strdup			;
+	STRVC	R0,[R8,#w_encoding]	;
+	FNRTS	VS			;
 
 	LDR	R0,[R8,#w_info]		; load the Buttons extension if
 	TST	R0,#info_ButtonsEnabled	; required by executing BUTTONS_START -
@@ -287,6 +297,7 @@ ext1$l  DCD	wflags_mask
 ext2$l  DCD	wformat_mask:OR:(1<<31) ; allow mode forcing here
 ext3$l  DCD	winfo_mask		; allow mode forcing here
 com$l	=	"BUTTONS_START",0
+l1$l	=	"Latin1",0
 	ALIGN
 
 
@@ -1350,6 +1361,8 @@ free_window
 	BLVC	heap_free
 	LDRVC	R0,[R8,#w_tabstring]
 	BLVC	heap_free
+	LDRVC	R0,[R8,#w_encoding]
+	BLVC	heap_free
 	BLVC	free_modedata
 	FNRTS
 
@@ -2028,7 +2041,7 @@ unchanged$l
 	MOV	R4,R1			; save string posn
 	MOV	R1,#einit_TitleMode
 	MOV	R11,#e_init
-	BL	call_mode   		; ask mode to add a string
+	BL	call_mode		; ask mode to add a string
 	TEQ	R1,#einit_TitleMode
 	MOVNE	R2,R1
 	MOV	R1,R3
@@ -2041,7 +2054,7 @@ unchanged$l
 	LDR	R10,[R9,#f_cmode]
 	CMP	R10,#-1
 	MOVNE	R11,#e_init
-	BLNE	call_given_mode  	; ask owner to add a string
+	BLNE	call_given_mode		; ask owner to add a string
 	TEQ	R1,#einit_TitleCMode
 	MOVNE	R2,R1
 	MOV	R1,R3

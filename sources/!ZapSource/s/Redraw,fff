@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.10 2004/03/21 15:17:08 christian Exp $
+; $Id: Redraw,fff,v 2.11 2004/04/15 12:13:02 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -137,7 +137,10 @@ redraw_area
 	LDR	R0,[R8,#w_font]
 	FNSTR	R0,red_caddr
 
-	MOV	R1,#0 ; rf_realvdu	; temporarily disabled for Iyonix ; init r_flags
+	LDR	R0,[R8,#w_encoding]
+	FNSTR	R0,red_encoding
+
+	MOV	R1,#rf_extend ; rf_realvdu	; temporarily disabled for Iyonix ; init r_flags
 	LDR	R0,[R8,#w_flags]
 	AND	R0,R0,#redraw_font_mask
 
@@ -790,9 +793,9 @@ invert_caret
 	MVN	R0,#0
 	ADD	R1,R11,R5		; address of first line
 	SUB	R9,R1,#2		; save start-2
-	PUSH	"R4"
+	PUSH	"R4,R5"
 	SWI	XZapRedraw_FindCharacter
-	PULL	"R4"
+	PULL	"R4,R5"
 	FNRTS	VS
 	SUB	R0,R1,R9		; length of the line + 0,2 term
 	LDR	R3,[R10,#c_width]
@@ -930,15 +933,15 @@ create_redraw_data
 	BVS	error$l
 	ADD	R6,R6,R10,LSL#2		; move to start of area to redraw
 	MOV	R4,#0			; number of current line
-	MOV	R3,R5,LSL #2
-	MOV	R3,R3,LSL#1		; R3=6*R5
+	ADD	R3,R5,R5,LSL #2
+	MOV	R3,R3,LSL#1		; R3=10*R5
 	ADD	R1,R12,#red_flags	; redraw block
 	MOV	R9,#&20			; largest character
 	SUBS	R10,R10,#1
 	BLE	cr18			; subtract the terminating line
 cr17	SUB	R0,R6,R11		; current offset
 	STR	R0,[R11,R4,LSL#2]	; save offset of line
-	ADD	R0,R3,#16		; need 6*R5+16 bytes free
+	ADD	R0,R3,#16		; need 10*R5+16 bytes free
 	BL	ensure_red_data		; make sure enough room free
 	BVS	error$l
 	PUSH	"R3-R5,R7"
@@ -947,21 +950,26 @@ cr17	SUB	R0,R6,R11		; current offset
 	ADD	R4,R3,R5
 	ADD	R7,R4,R5
 
+	LDR	R14,[R8,#w_encoding]	; add the encoding
+	FNSTR	R14,red_encoding
+
 	LDR	R14,[R8,#w_info]	; for enable ss bit
 	TST	R14,#bit_nosubstyles
 	FNLDR	R14,red_flags
 	BICNE	R14,R14,#8
 	ORREQ	R14,R14,#8
+	ORR	R14,R14,#rf_extend
 	FNSTR	R14,red_flags
 
 	SWI	XZapRedraw_PrepareDataLine
+	PULL	"R3-R5,R7",VS
+	BVS	error$l
 
 	CMP	R0,R9
 	MOVCS	R9,R0			; new largest character
 	ADD	R6,R6,R5		; new buffer position
 	PULL	"R3-R5,R7"
-	BVS	error$l
-	ADD	R2,R2,R3,LSR#1		; all 3*R5 to get to next line
+	ADD	R2,R2,R5,LSL #2		; add 4*R5 to get to next line
 	ADD	R4,R4,#1		; increment line number
 	CMP	R4,R10
 	BCC	cr17
@@ -2268,7 +2276,7 @@ print_rectangle
 	FNAME	print_area_font
 print_area_font
 	FNJSR	"R1,R8"
-	MOV	R14,#9			; vdu redraw + sub-styles + |vdu background|
+	MOV	R14,#9+rf_extend		; vdu redraw + sub-styles + |vdu background|
 	FNSTR	R14,red_flags
 	FNLDR	R14,pnt_font
 	FNSTR	R14,red_caddr
