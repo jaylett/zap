@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.1 2002/01/23 20:27:02 ds Exp $
+  // $Id: download.php,v 1.2 2002/01/25 19:57:20 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -38,54 +38,79 @@
 
 Development release sites
 <uL>
- <li><a href="/ftp/pub/ds/">Darren Salt</a>
- <li><a href="/ftp/pub/james/">James Aylett</a>
+ <li><a class="dir" href="/ftp/pub/ds/">Darren Salt</a>
+ <li><a class="dir" href="/ftp/pub/james/">James Aylett</a>
 </ul>
 
 <hr>
 
 <h2><a name="144">v1.44</a></H2>
+<?php
+  $release='1.44';
+  $beta=8;
+  $betadir='test8';
 
-<p>Version 1.44 of Zap is a public beta phase. We believe it to be fairly stable, and are currently working on getting remaining important bugs fixed prior to a stable release. The current release is beta 7. Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts.</p>
+  function href ($leaf)
+  {
+    global $release, $betadir;
+    echo (func_num_args () > 1 ? '<a '.func_get_arg (1) : '<a'),
+	 ' href="/ftp/pub/', $release, '/', $betadir, '/', $leaf, '">';
+  }
+?>
+<p>Version 1.44 of Zap is a public beta phase. We believe it to be fairly stable, and are currently working on getting remaining important bugs fixed prior to a stable release. The current release is beta <?php echo $beta; ?>. Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts.</p>
 
-<p>To decide what you need to download, please consult the <a href="/ftp/pub/1.44/test7/.message">list of which extensions are in which group</a>. Alternatively, you can download them <a class="dir" href="/ftp/pub/1.44/test7/individual_modes/">individually</a>.</p>
+<p>To decide what you need to download, please consult the <? href ('.message', 'class="file"'); ?>list of which extensions are in which group</a>. Alternatively, you can download them <? href ('individual_modes', 'class="dir"'); ?>individually</a>.</p>
 
 <ul>
 <?php
-  function zapfile ($url, $label, $contact, $size, $sig)
+  function zapfile ($url, $label, $contact, $sig)
   {
+    global $ftproot;
     $li = (substr ($label, 0, 1) != '~');
     if (!$li)
       $label = substr ($label, 1);
-    echo '<li><a class="file" href="/ftp/pub/', $url, '">', $label, '</a> ';
-    if ($contact > '')
-      echo '(<a href="contact#', $contact, '">', $contact, '</a>) ';
-    if ($size > 4095)
-      echo '[', round ($size / 1024, 1), ' Kbytes] ';
+    $stat = @stat ($ftproot.$url);
+    if (false === $stat)
+      echo '<li><span class="file">', $label, '</span> &nbsp;[missing!] ';
     else
-      echo '[', $size, ' bytes] ';
+      echo '<li><a class="file" href="/ftp/pub/', $url, '">', $label, '</a> ';
+    if ($contact > '')
+      echo '(<a href="contact#', $contact, '">', $contact, '</a>) &nbsp;';
+    if (false !== $stat)
+    {
+      if ($stat[7] > 4095)
+        echo '[', round ($stat[7] / 1024, 1), ' Kbytes] ';
+      else
+        echo '[', $stat[7], ' bytes] ';
+    }
     if ($sig > '')
-      echo '(<a href="/ftp/pub/', ereg_replace ('\.[^\./]+$', '.asc', $url), '">detached ', $sig, ' signature</a>) ';
-    print func_num_args () > 5 ? func_get_arg (5) : "</li>\n";
+    {
+      if (false === $stat)
+        echo '<span class="sig">(detached ', $sig, ' signature)</span> ';
+      else
+        echo '<span class="sig">(<a href="/ftp/pub/', ereg_replace ('\.[^\./]+$', '.asc', $url), '">detached ', $sig, ' signature</a>)</span> ';
+    }
+    print func_num_args () > 4 ? func_get_arg (4) : "</li>\n";
   }
 
   function zapdir ($url, $label)
   {
-    echo '<li><a class="dir" href="/ftp/pub/', $url, '">', $label, "</a></li>\n";
+    echo '<li><a class="dir" href="/ftp/pub/', $url, '/">', $label, "</a></li>\n";
   }
 
-  zapfile ('1.44/test7/zap.zip', 'Core', 'sja', 668348, '');
-  zapfile ('1.44/test7/intl.zip', 'Core - international edition', 'sja', 770729, '');
-  zapfile ('1.44/test7/devel.zip', 'Core - developers\' edition', 'sja', 790236, '');
-  zapfile ('1.44/test7/mainmods.zip', 'Main modules group', 'sja', 389882, '');
-  zapfile ('1.44/test7/develmods.zip', 'Devel modules group', 'sja', 144648, '');
-  zapfile ('1.44/test7/devel+mods.zip', 'Second devel modules group', 'sja', 99375, '');
-  zapfile ('1.44/test7/riscosmods.zip', 'RISC OS modules group', 'sja', 76837, '');
-  zapfile ('1.44/test7/webmods.zip', 'Web modules group', 'sja', 67543, '');
-  zapfile ('1.44/test7/descmods.zip', 'Desc modules group', 'sja', 48978, '');
-  zapfile ('1.44/test7/zapfonts.zip', 'ZapFonts', 'sja', 944580, '');
-  zapdir ('1.44/test7/updates/', 'Updates from previous beta releases');
-  zapdir ('1.44/test7/', 'Directory');
+  zapfile ($release.'/'.$betadir.'/zap.zip', 'Core', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/intl.zip', 'Core - international edition', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/devel.zip', 'Core - developers\' edition', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/mainmods.zip', 'Main modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/develmods.zip', 'Devel modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/devel+mods.zip', 'Second devel modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/riscosmods.zip', 'RISC OS modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/webmods.zip', 'Web modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/descmods.zip', 'Desc modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/zapfonts.zip', 'ZapFonts', 'sja', '');
+  zapdir ($release.'/'.$betadir.'/updates', 'Updates from previous beta releases');
+  zapdir ($release.'/'.$betadir, 'Directory');
+  zapdir ($release, 'Previous beta releases and other related archives');
 ?>
 </ul>
 
@@ -101,10 +126,10 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/zap.zip', 'Core (patch 9)', 'ds', 655267, '');
-  zapfile ('1.40/core.zip', 'Update from v1.40 initial release to patch-9', '', 214562, '');
-  zapfile ('1.40/core.zip', 'Update from v1.40 initial release to patch-9', '', 214562, '');
-  zapdir ('1.40/', 'Directory');
+  zapfile ('1.40/zap.zip', 'Core (patch 9)', 'ds', '');
+  zapfile ('1.40/core.zip', 'Update from v1.40 initial release to patch-9', '', '');
+  zapfile ('1.40/core.zip', 'Update from v1.40 initial release to patch-9', '', '');
+  zapdir ('1.40', 'Directory');
 ?>
 </ul>
 
@@ -112,8 +137,8 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/zfonts.zip', 'ZapFonts', 'sja', 668567, '');
-  zapfile ('1.40/zmods1.zip', '~Extension modules group 1', 'ds', 573719, '', "<br>This archive contains:\n");
+  zapfile ('1.40/zfonts.zip', 'ZapFonts', 'sja', '');
+  zapfile ('1.40/zmods1.zip', '~Extension modules group 1', 'ds', '', "<br>This archive contains:\n");
 ?>
   <ul>
    <li>Programming modes: C, C++, Java, Assembler, Pascal, BASIC, Obey, MessageTrans, FrontEnd Desc, SAsm, Perl, StrongHelp, BasAsm</li>
@@ -135,7 +160,7 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/zmods2.zip', '~Extension modules group 2', 'tmt', 172628, '', "<br>This archive contains:\n");
+  zapfile ('1.40/zmods2.zip', '~Extension modules group 2', 'tmt', '', "<br>This archive contains:\n");
 ?>
   <ul>
    <li>Programming modes: Makefile, Ada, Asm, PostScript, Inform
@@ -145,7 +170,7 @@ Development release sites
   </ul>
  </li>
 <?php
-  zapfile ('1.40/zapres.zip', 'Additional resources', 'tmt', 118608, '');
+  zapfile ('1.40/zapres.zip', 'Additional resources', 'tmt', '');
 ?>
 </ul>
 
@@ -153,9 +178,9 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/zmods1_update.zip', 'Update from initial release to current extension modules group 1', '', 138784, '');
-  zapfile ('1.40/zapconfig.zip', 'ZapConfig', 'sja', 64615, '');
-  zapfile ('1.40/ZapEmail023.zip', 'ZapEmail', 'ds', 63578, 'PGP');
+  zapfile ('1.40/zmods1_update.zip', 'Update from initial release to current extension modules group 1', '', '');
+  zapfile ('1.40/zapconfig.zip', 'ZapConfig', 'sja', '');
+  zapfile ('1.40/ZapEmail023.zip', 'ZapEmail', 'ds', 'PGP');
 ?>
 </ul>
 
@@ -163,14 +188,14 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/src/zapsrc.zip', 'Core', 'sja', 476755, '');
-  zapfile ('1.40/src/zrdsrc.zip', 'ZapRedraw', 'ds', 50630, '');
-  zapfile ('1.40/src/zbsrc.zip', 'ZapBASIC', 'tmt', 107351, '');
-  zapfile ('1.40/src/tmtsrc.zip', 'Tim\'s modes', 'tmt', 650449, '');
-  zapfile ('1.40/src/mjesrc.zip', 'ZapMJE', 'tmt', 234557, '');
-  zapfile ('1.40/src/ZEmailSrc.zip', 'ZapEmail', 'ds', 62072, 'PGP');
-  zapfile ('1.40/src/extssrc.zip', 'Combined command extensions', 'sja', 96253, '');
-  zapdir ('1.40/src/', 'Directory');
+  zapfile ('1.40/src/zapsrc.zip', 'Core', 'sja', '');
+  zapfile ('1.40/src/zrdsrc.zip', 'ZapRedraw', 'ds', '');
+  zapfile ('1.40/src/zbsrc.zip', 'ZapBASIC', 'tmt', '');
+  zapfile ('1.40/src/tmtsrc.zip', 'Tim\'s modes', 'tmt', '');
+  zapfile ('1.40/src/mjesrc.zip', 'ZapMJE', 'tmt', '');
+  zapfile ('1.40/src/ZEmailSrc.zip', 'ZapEmail', 'ds', 'PGP');
+  zapfile ('1.40/src/extssrc.zip', 'Combined command extensions', 'sja', '');
+  zapdir ('1.40/src', 'Directory');
 ?>
 </ul>
 
@@ -195,8 +220,8 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.35/zap.zip', 'Core', '', 961305, '');
-  zapdir ('1.35/', 'Directory');
+  zapfile ('1.35/zap.zip', 'Core', '', '');
+  zapdir ('1.35', 'Directory');
 ?>
 </ul>
 
@@ -204,12 +229,12 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.35/zapconfig.zip', 'ZapConfig', '', 71240, '');
-  zapfile ('1.35/zapds.zip', 'ZapDS', '', 36175, '');
-  zapfile ('1.35/zapemail.zip', 'zapemail.zip', '', 104986, '');
-  zapfile ('1.35/zapenh.zip', 'zapenh.zip', '', 7306, '');
-  zapfile ('1.35/zapextern.zip', 'zapextern.zip', '', 6027, '');
-  zapfile ('1.35/zapole.zip', 'zapole.zip', '', 3534, '');
+  zapfile ('1.35/zapconfig.zip', 'ZapConfig', '', '');
+  zapfile ('1.35/zapds.zip', 'ZapDS', '', '');
+  zapfile ('1.35/zapemail.zip', 'zapemail.zip', '', '');
+  zapfile ('1.35/zapenh.zip', 'zapenh.zip', '', '');
+  zapfile ('1.35/zapextern.zip', 'zapextern.zip', '', '');
+  zapfile ('1.35/zapole.zip', 'zapole.zip', '', '');
 ?>
 </ul>
 
@@ -219,19 +244,19 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.30/zap.zip', 'v1.30 core', '', 647581, '');
-  zapfile ('1.30/wagenaar.zip', 'SoftWrap and DWExt updates for v1.30', '', 48085, '');
+  zapfile ('1.30/zap.zip', 'v1.30 core', '', '');
+  zapfile ('1.30/wagenaar.zip', 'SoftWrap and DWExt updates for v1.30', '', '');
 ?>
 </ul>
 
 <ul>
 <?php
-  zapfile ('1.20/zap.arc', 'v1.20', '', 489531, '');
-  zapfile ('1.10/zap.zip', 'v1.10', '', 296200, '');
-  zapfile ('0.70/zap.zip', 'v0.70', '', 48847, '');
+  zapfile ('1.20/zap.arc', 'v1.20', '', '');
+  zapfile ('1.10/zap.zip', 'v1.10', '', '');
+  zapfile ('0.70/zap.zip', 'v0.70', '', '');
 ?>
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:02 $');
+  zap_body_end ('$Date: 2002/01/25 19:57:20 $');
 ?>
