@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.45 2000/01/27 16:34:50 james Exp $
+; $Id: Commands,fff,v 1.1.2.46 2000/02/15 19:49:46 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -318,6 +318,7 @@ key_command_table
 	FNcom	"OSCLI",Oscli
 	FNcom	"OUTDENT",Outdent
 	FNcom	"OUTLINEFONT",Outlinefont
+	FNcom	"OWNEDBY",OwnedBy
 	FNcom	"PASTE",PasteGC
 	FNcom	"PASSTHROUGH",Passthrough
 ; FNcom "PASTEGC",PasteGC
@@ -453,6 +454,7 @@ key_command_table
 	FNcom	"FILENAME",Filename
 	FNcom	"GREYED",Greyed
 	FNcom	"IN",In
+	FNcom	"MATCH",Match
 	FNcom	"MENU",Menu
 	FNcom	"MODET",ModeT
 	FNcom	"MODIFIED",Modified
@@ -3930,6 +3932,20 @@ Openprinter
 op_s1
  FNS ("Filer_OpenDir Printer:$")
 
+	LOCAL
+
+	DCD	c_Param_String+c_OmitParameter+c_TickableMenuEntry
+OwnedBy
+	TEQ	R2,#15
+	MOVNE	PC,R14
+	FNJSR
+	BL	test_mode_name
+	LDR	R14,[R9,#f_cmode]
+	TEQ	R0,R14
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	FNRTS
+
  LOCAL
 
  DCD 0
@@ -6456,6 +6472,56 @@ Filename
 	MOV	R1,#3
 	FNRTS
 anull$l	 DCD	0
+
+	LOCAL
+
+	&	7+c_Function+c_FunctionParam_String
+Match	FNJSR	"R2-R5"
+	MOV	R5,#zsearch_MatchAtCursor+zsearch_DontBeep
+	ORR	R5,R5,#zsearch_NoMacros+zsearch_NoHourglass
+	LDRB	R1,[R0]
+	TEQ	R1,#'¤'
+	BLEQ	flags$l
+	MOV	R1,#zsearch_NoOutput
+	BL	search_data
+	MVN	R0,R0,ASR #31 ; all bits = ~(top bit)
+	MOV	R1,#2
+	FNRTS
+flags$l	ADD	R0,R0,#1
+	MOV	R2,#0
+loop$l	LDRB	R1,[R0],#1
+	CMP	R1,#'¤'
+	CMPNE	R1,#31
+	MOVLS	PC,R14
+	; Controls
+	TEQ	R1,#'~' ; toggle
+	MOVEQ	R2,#0
+	TEQ	R1,#'+' ; set
+	MOVEQ	R2,#1
+	TEQ	R1,#'-' ; clear
+	MOVEQ	R2,#2
+	MOV	R4,#0
+	; Modifiers
+	TEQ	R1,#92 ; '\'
+	MOVEQ	R3,#zsearch_NoCommands
+	MOVEQ	R4,#3
+	BIC	R1,R1,#32
+	TEQ	R1,#'C'
+	MOVEQ	R3,#zsearch_CaseSensitive
+	TEQ	R1,#'M'
+	MOVEQ	R3,#zsearch_NoMacros
+	MOVEQ	R4,#3
+	TEQ	R1,#'R'
+	MOVEQ	R3,#zsearch_RawSearch
+	; Application of modifiers
+	EOR	R4,R4,R2
+	TEQ	R4,#1
+	ORREQ	R5,R5,R3
+	BEQ	loop$l
+	TEQ	R4,#2
+	BICEQ	R5,R5,R3
+	EORNE	R5,R5,R3
+	B	loop$l
 
 	&	7+c_Function
 True	MVN	R0,#0
