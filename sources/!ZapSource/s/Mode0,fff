@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 2.5 2001/01/13 13:15:00 james Exp $
+; $Id: Mode0,fff,v 2.6 2001/06/02 21:33:40 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -296,7 +296,7 @@ width$l				; b0-b15 of R0 is the width
  FNRTS
 
 mode0_setwidth
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R3"
  MOV R3,R0			; save mode width
  MVN R0,#0			; read
  TEQ R8,#0
@@ -317,24 +317,18 @@ mode0_setwidth
  LDRNEB R1,[R8,#w_format]	; mode number
  MOV R2,#0
  BL mode_data			; write the word
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 ms10
  MOV R0,R0,LSL#16
  MOV R0,R0,LSR#16		; isolate the mode width
- LDMFD R13!,{R1-R3,PC}
-
-call_redrawlnum
- BL modesw_redrawlnum
- LDMFD R13!,{PC}
+ FNRTS
 
 mode0_redrawlnum
- STMFD R13!,{R14}
+ FNJSR
  LDR R14,[R8,#w_format]
  ANDS R14,R14,#bit_softwrap
- BNE call_redrawlnum
- LDMFD R13!,{R14}
-
- FNJSR
+ FNPULL NE
+ BNE modesw_redrawlnum
  SUBS R0,R7,#1			; file off of char before start of line
  BMI mo1
  BL cln_readc			; get char
@@ -507,17 +501,12 @@ logical_line_number
 
 ; subs:
 
-call_mode_clnphy		; call sw mode...
-	BL	modesw_clnphy ;  call_mode_clnphy
-	LDMFD	R13 !,{PC}
-
 mode0_clnphy
-	STMFD	R13 !,{R14}
+	FNJSR	"R2-R11"
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
-	BNE	call_mode_clnphy
-
- STMFD R13!,{R2-R11}
+	FNPULL	NE
+	BNE	modesw_clnphy
  MOV R2,R9			; file block
  LDR R3,[R8,#w_bpl]
  LDR R4,[R8,#w_tabc]
@@ -543,28 +532,23 @@ cln_phy_1
 cln_phy_end
  MOV R0,R9
  MOV R1,R6
- LDMFD R13!,{R2-R11,PC}^	; returns with no error
+ FNRTSS				; returns with no error
 cln_phy_backward
  BL cln_BACKWARD
  BVC cln_phy_2
 cln_phy_vs
  BLVC err$l
- LDMFD R13!,{R2-R11,PC}		; return with error
+ FNRTS				; return with error
 err$l ERRlit "Internal error: cln_phy"
 
  LOCAL
 
-call_mode_clnlog		; call sw mode...
-	BL	modesw_clnlog ; call_mode_clnlog
-	LDMFD	R13 !,{PC}
-
 mode0_clnlog
-	STMFD	R13 !,{R14}
+	FNJSR	"R2-R11"
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
-	BNE	call_mode_clnlog
-
- STMFD R13!,{R2-R11}
+	FNPULL	NE
+	BNE	modesw_clnlog
  MOV R2,R9			; file block
  LDR R3,[R8,#w_bpl]
  LDR R4,[R8,#w_tabc]
@@ -591,30 +575,25 @@ cln_log_1
 cln_log_end
  MOV R0,R9
  MOV R1,R7
- LDMFD R13!,{R2-R11,PC}^	; returns with no error
+ FNRTSS				; returns with no error
 cln_log_backward
  BL cln_BACKWARD
  BVC cln_log_2
 cln_log_vs
  BLVC err$l
- LDMFD R13!,{R2-R11,PC}		; return with error
+ FNRTS				; return with error
 err$l ERRlit "Internal error: cln_log"
 
 
-call_mode_clnoff		; call sw mode...
-	BL	modesw_clnoff
-	LDMFD	R13 !,{PC}
-
 mode0_clnoff
-	STMFD	R13 !,{R14}
+	FNJSR	"R3-R11"
 ; STMFD R13!,{R0}
 ; BL zephyr
 ; LDMFD R13!,{R0}
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
-	BNE	call_mode_clnoff	; TEST TEST TEST TEST
-
- STMFD R13!,{R3-R11}
+	FNPULL	NE
+	BNE	modesw_clnoff
  LDR R1,[R9,#f_len]
  TEQ R1,#0			; null length file special case
  BEQ cln_off_0
@@ -650,11 +629,11 @@ cln_off_end
  MOV R0,R7			; phy line
  MOV R1,R9			; start offset of line
  MOV R2,R6			; log line
- LDMFD R13!,{R3-R11,PC}^	; returns with no error
+ FNRTSS				; returns with no error
 cln_off_backward
  BL cln_BACKWARD
  BVC cln_off_2
- LDMFD R13!,{R3-R11,PC}		; return with error
+ FNRTS				; return with error
 cln_off_blk
  DCD 0
  DCD 0
@@ -667,7 +646,7 @@ cln_off_0
  MOV R0,#0
  MOV R1,#0
  MOV R2,#0
- LDMFD R13!,{R3-R11,PC}		; null file
+ FNRTS				; null file
 
 ;;;; middle level forward/backward subs & split buffer handling ;;;;
 
@@ -678,7 +657,7 @@ cln_off_0
 ;  this line. Saves R10-R11.
 
 cln_FORWARD
- STMFD R13!,{R10-R11,R14}
+ FNJSR "R10-R11"
  MOV R8,#0			; current column offset
  LDR R10,[R2,#f_ptr]
  LDR R11,[R2,#f_splito]
@@ -688,7 +667,7 @@ cln_FORWARD
  ADD R11,R10,R11
  BL cln_forward			; first half of buffer
  SUBVC R9,R9,R10
- LDMVCFD R13!,{R10-R11,PC}
+ FNRTS VC
 cln_FO_1
  LDR R0,[R2,#f_bufl]
  ADD R11,R10,R0
@@ -697,12 +676,10 @@ cln_FO_1
  ADD R9,R9,R0
  BL cln_forward			; second half of buffer
  SUB R9,R9,R10			; file offset
- LDMVCFD R13!,{R10-R11,PC}
+ FNRTS VC
  CMP R8,R3			; is the last line full
 ; ADDCS R7,R7,#1			; if so inc phy line (but not log line)
- LDMFD R13!,{R10-R11,R14}	; and return
- ;MOVCS PC,R14			; return VC if could do this line
- ORRS PC,R14,#Vbit
+ FNRTV
 
  LOCAL
 
@@ -711,9 +688,9 @@ cln_FO_1
 ;X vals updated to _A_ previous phy line, VS if error R10-R11 saved
 
 cln_BACKWARD
- STMFD R13!,{R10-R11,R14}
+ FNJSR "R10-R11"
  MOV R11,R9			; save current start of phy line
- STMFD R13!,{R6,R7}		; save line counts
+ PUSH "R6,R7"		; save line counts
  LDR R8,[R2,#f_ptr]		; start of first half
  LDR R7,[R2,#f_splito]		; len of first half
  CMP R9,R7
@@ -741,14 +718,14 @@ cln_BA_3
  BLT cln_BA_3			; not reached start pos yet
  BHI cln_BA_vs			; no match = error
  MOV R9,R10			; new offset
- LDMFD R13!,{R0,R1}		; origional line vals
+ PULL "R0,R1"		; origional line vals
  SUB R6,R0,R6
  SUB R7,R1,R7			; new line vals
- LDMFD R13!,{R10-R11,PC}
+ FNRTS
 cln_BA_vs
- LDMFD R13!,{R0,R1}		; restore stack
+ PULL "R0,R1"		; restore stack
  BL err$l			; internal error
- LDMFD R13!,{R10-R11,PC}	; ret with error
+ FNRTS	; ret with error
 err$l ERRlit "Internal error: cln_BACKWARD"
 
 ;;;;;;;;;;;;;;;; low level forward/backward subs ;;;;;;;;;;;;;;;;;;;
@@ -878,7 +855,7 @@ cln_ba_a
  BHI cln_ba_a			; still some chars left
 cln_ba_vs
  MOV R9,R10
- ORRS PC,R14,#Vbit	      ; return start of buffer error
+ ORRS PC,R14,#Vbit	      ; return start of buffer error	; !!! ARM32 FIXME
 cln_ba_m
  TST   R0,#&FF000000
  ADDEQ R9,R9,#1
@@ -959,44 +936,14 @@ end$l
  MOV R1,#1			; caret width
  FNRTS
 
-call_mode_linecol		; *don't* call sw mode...
- ; \E r0 = sophysl offset
- ;    r1 = column #
- ;    r8-r10
- ; \X r0 = offset corresp. to column #
-;.mode_linecol
-; stmfd r13!,{r14}
-; bl mode_clever_linecol
-; ldmfd r13!,{pc}^
-; .mode_clever_linecol
- ; main routine for mode_linecol
- ; \X CS if at eol, CC if not
- ;    OTHER FLAGS CORRUPT, INCL. V!!!
- STMFD r13!,{r0-r11}
- LDR R11,[r8,#w_info]		; sufficient.
- ORR R14,R11,#bit_strongsw	; clear is not relevant here...!
- STR R14,[r8,#w_info]
- BL mode0_lineend
- STR R11,[r8,#w_info]
- MOV r3,r0
- ; r3 = lineend offset
- LDMFD r13!,{r0}
- BL default_mode0_linecol
- ;SWI &107
- CMP r0,r3
- MOVCS r0,r3
- LDMFD r13!,{r1-r11}
- LDMFD R13 !,{PC}^
-
 mode0_linecol
- STMFD	 R13 !,{R14}
+ FNJSR
  LDR	 R14,[R8,#w_format]
  ANDS	 R14,R14,#bit_softwrap
+ FNPULL
  BNE	 call_mode_linecol
- LDMFD	 R13 !,{R14}
 default_mode0_linecol
-
- STMFD R13!,{R1-R10,R14}
+ FNJSR "R1-R10"
  LDRB R5,[R8,#w_cr]
  LDRB R4,[R8,#w_tabc]
  LDR R3,[R9,#f_len]
@@ -1023,47 +970,48 @@ cln_lc_2
  MOV R0,R7
  CMP R0,R3
  MOVCS R0,R3
- LDMFD R13!,{R1-R10,PC}
+ FNRTS
+
+call_mode_linecol		; *don't* call sw mode...
+ ; \E r0 = sophysl offset
+ ;    r1 = column #
+ ;    r8-r10
+ ; \X r0 = offset corresp. to column #
+;.mode_linecol
+; stmfd r13!,{r14}
+; bl mode_clever_linecol
+; ldmfd r13!,{pc}^
+; .mode_clever_linecol
+ ; main routine for mode_linecol
+ ; \X CS if at eol, CC if not
+ ;    OTHER FLAGS CORRUPT, INCL. V!!!
+ FNJSR "r1-r11"
+ PUSH "R0"
+ LDR R11,[r8,#w_info]		; sufficient.
+ ORR R14,R11,#bit_strongsw	; clear is not relevant here...!
+ STR R14,[r8,#w_info]
+ BL mode0_lineend
+ STR R11,[r8,#w_info]
+ MOV r3,r0
+ ; r3 = lineend offset
+ PULL "r0"
+ BL default_mode0_linecol
+ ;SWI &107
+ CMP r0,r3
+ MOVCS r0,r3
+ FNRTSS
 
 ;E R0=line off R1=caret off R2=caret col R8/R9
 ;X R1/R2 new posn after / R2=-1 and R1=new file offset #
 
-call_mode_plus
- STMFD R13!,{R0,R1,R7,R14}
- LDR R14,[R8,#w_format]
- ANDS R14,R14,#bit_confinehorizontal
- BNE assw_normal
- MOV R7,R1			; save caret offset
- LDR R1,[R9,#f_len]
- CMP R7,R1
- BCS assw_normal		; off end of file so *stop* if needed
- MOV R0,R7
- BL cln_readc			; get char currently on
- LDRB R1,[R8,#w_cr]
- TEQ R0,R1
- BEQ tocln_p1			; a return
-assw_normal
- LDMFD R13!,{R0,R1,R7,R14}
- BL modesw_plus
- LDMFD	 R13 !,{PC}
-
-;tomodesw_plus
-; BL modesw_plus
-; LDMFD R13 !,{R7,PC}
-
-tocln_p1
- LDMFD R13!,{R0,R1,R7,R14}
- LDMFD R13!,{R14}
- B mode0_normalplus
-
 mode0_plus
- STMFD	 R13 !,{R14}
+ FNJSR
  LDR	 R14,[R8,#w_format]
  ANDS	 R14,R14,#bit_softwrap
+ FNPULL
  BNE	 call_mode_plus
- LDMFD	 R13 !,{R14}
 mode0_normalplus
- STMFD R13!,{R7,R14}
+ FNJSR "R7"
  MOV R7,R1			; save caret offset
  LDR R14,[R8,#w_format]
  ANDS R14,R14,#bit_confinehorizontal
@@ -1087,45 +1035,64 @@ mode0_normalplus
  ADD R7,R7,#1			; new offset
  LDR R1,[R9,#f_len]
  CMP R7,R1
- LDMCSFD R13!,{R7,PC}		; at end of file (so return f_len)
+ FNRTS CS		; at end of file (so return f_len)
  MOV R0,R7
  BL cln_readc
  LDRB R1,[R8,#w_cr]
  TEQ R0,R1
  MOVEQ R1,R7
- LDMEQFD R13!,{R7,PC}
+ FNRTS EQ
  LDR R1,[R8,#w_bpl]
  CMP R2,R1
  SUBCS R7,R7,#1			; compensate for the no return
  BCS cln_p2			; next line
  MOV R1,R7			; new offset
- LDMFD R13!,{R7,PC}
+ FNRTS
 
 cln_p1
  ADD R2,R2,#1			; next column
  LDR R1,[R8,#w_bpl]
  CMP R2,R1
  MOVCC R1,R7
- LDMCCFD R13!,{R7,PC}
+ FNRTS CC
 ; fall through...
 
 cln_p2
  ADD R1,R7,#1			; offset
  MVN R2,#0
- LDMFD R13!,{R7,PC}
+ FNRTS
 
 cln_p3
  ADD R2,R2,#1			; next column
  LDR R1,[R8,#w_bpl]
  CMP R2,R1
  MOVCC R1,R7
- LDMCCFD R13!,{R7,PC}
+ FNRTS CC
 ; fall through...
 
 cln_p4
  SUB R2,R2,#1			; TT
  SUB R1,R7,#0			; TT
- LDMFD R13!,{R7,PC}
+ FNRTS
+
+call_mode_plus
+ FNJSR "R0,R1,R7"
+ LDR R14,[R8,#w_format]
+ ANDS R14,R14,#bit_confinehorizontal
+ BNE assw_normal
+ MOV R7,R1			; save caret offset
+ LDR R1,[R9,#f_len]
+ CMP R7,R1
+ BCS assw_normal		; off end of file so *stop* if needed
+ MOV R0,R7
+ BL cln_readc			; get char currently on
+ LDRB R1,[R8,#w_cr]
+ TEQ R0,R1
+ FNPULL EQ
+ BEQ mode0_normalplus
+assw_normal
+ FNPULL
+ B modesw_plus
 
  LOCAL
 
@@ -1384,7 +1351,8 @@ co23
  BL command_primative
  BLVS stop_operation
  FNRTS VS
- STMFD R13!,{R1-R3}
+ FNPULL
+ FNJSR "R1-R3"
  ADD R3,R1,R2			; last altered offset
  MOV R0,R1			; first file offset
  BL mode0_linestart		; start of the logical line
@@ -1408,7 +1376,7 @@ co22
  ORR R14,R14,R2
  STR R14,[R9,#f_flags]		; restore linked state
  BL stop_operation
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;X NE if insert as normal.  EQ if changes needed...
 adjust_ins_pt_if_needed
@@ -1461,104 +1429,85 @@ changeposn$l
 ;  Move to line start/end					  ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-call_mode_lineend		; call sw mode...
- LDMFD	R13 !,{R14}
- B	modesw_lineend
 
 mode0_lineend
- STMFD	R13 !,{R14}
+ FNJSR	"R1-R2"
  LDR	R14,[R8,#w_format]
  TST	R14,#bit_softwrap
  BEQ	asnormal$l
  LDR	R14,[R8,#w_info]
  TST	R14,#bit_strongsw
- BNE	call_mode_lineend
+ FNPULL	NE
+ BNE	modesw_lineend
 asnormal$l
- STMFD	R13!,{R1-R2}
  MOV	R1,R0
  BL	mode0_cplus
  MOV	R0,R1
- LDMFD	R13!,{R1-R2,PC}
+ FNRTS
 
  LOCAL
 
-call_mode_lineprev		; call sw mode...
- LDMFD	R13 !,{R14}
- B	modesw_lineprev
-; LDMFD	  R13 !,{PC}
-
 mode0_lineprev
- STMFD R13 !,{R14}
+ FNJSR "R1-R2"
  LDR R14,[R8,#w_format];
  ANDS R14,R14,#bit_softwrap
  BEQ basemode_linestart
-
- ;;;!!!
-; B basemode_linestart
-
  LDR R14,[R8,#w_info]
  TST R14,#bit_strongsw
- BNE call_mode_lineprev
- B basemode_linestart
-
-call_mode_linestart		; call sw mode...
- LDMFD R13 !,{R14}
- B modesw_linestart ;  call_mode_linestart
-; LDMFD R13 !,{PC}
+ BEQ basemode_linestart
+ FNPULL
+ B modesw_lineprev
 
  LOCAL
 
 mode0_linestart
- STMFD R13 !,{R14}
+ FNJSR "R1-R2"
  LDR R14,[R8,#w_format];
  TST R14,#bit_softwrap
  BEQ basemode_linestart
  LDR R14,[R8,#w_info]
  TST R14,#bit_strongsw
- BNE call_mode_linestart
+ BNE modesw_linestart
+ FNPULL NE
+ BNE modesw_linestart
 basemode_linestart
- STMFD R13!,{R1-R2}
  MOV R1,R0
  BL mode0_cminus
  MOV R0,R1
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
  LOCAL
 
-call_mode_linenext		; call sw mode...
- LDMFD R13 !,{R14}
- B modesw_linenext ; call_mode_linenext
-
 mode0_linenext
- STMFD R13!,{R14}
+ FNJSR "R1-R2"
  LDR R14,[R8,#w_format];
  TST R14,#bit_softwrap
  BEQ asnormal$l
  LDR R14,[R8,#w_info]
  TST R14,#bit_strongsw
- BNE call_mode_linenext
+ FNPULL NE
+ BNE modesw_linenext
 asnormal$l
- STMFD R13!,{R1-R2}
  MOV R1,R0
  BL mode0_cplus
  ADD R0,R1,#1
  LDR R1,[R9,#f_len]
  CMP R0,R1
  MOVCS R0,R1
- LDMFD R13!,{R1-R2,PC}
+ FNRTS
 
  LOCAL
 
 mode0_cplus
- STMFD R13 !,{R14}
+ FNJSR "R3-R7"
  LDR R14,[R8,#w_format];
  TST R14,#bit_softwrap
  BEQ asnormal$l
  LDR R14,[R8,#w_info]
  TST R14,#bit_strongsw
+ FNPULL NE
  BNE modesw_cplus
 asnormal$l
- STMFD R13!,{R3-R7}
  LDRB R5,[R8,#w_cr]
  LDR R6,[R9,#f_len]
  MOV R7,R1			; save offset
@@ -1566,65 +1515,59 @@ asnormal$l
 cln_l1
  CMP R7,R6
  MOVCS R1,R6			; end of file
- LDMCSFD R13!,{R3-R7,PC}
+ FNRTS CS
  MOV R0,R7
  BL cln_readc
  TEQ R0,R5
  ADD R7,R7,#1
  BNE cln_l1
  SUB R1,R7,#1			; end of line
- LDMFD R13!,{R3-R7,PC}
+ FNRTS
 
  LOCAL
 
-call_mode_cminus
- MOV R2,#0
- MOV R1,R0
- LDMFD R13!,{PC}
-
 mode0_cminus
- STMFD R13!,{R14}
+ FNJSR "R3-R7"
  LDR R14,[R8,#w_format];
  ANDS R14,R14,#bit_softwrap
  BEQ asnormal$l
  LDR R14,[R8,#w_info]
  TST R14,#bit_strongsw
- BNE call_mode_cminus
+ MOVNE R2,#0
+ MOVNE R1,R0
+ FNRTS NE
 asnormal$l
- STMFD R13!,{R3-R7}
-; LDMFD R13!,{R14}
-; STMFD R13!,{R3-R7,R14}
  LDRB R5,[R8,#w_cr]
  MOV R7,R1			; save offset
  MVN R2,#0			; returning offset
 cln_l2
  CMP R7,#0
  MOVLE R1,#0			; start of file
- LDMLEFD R13!,{R3-R7,PC}
+ FNRTS LE
  SUB R0,R7,#1
  BL cln_readc
  TEQ R0,R5
  SUB R7,R7,#1
  BNE cln_l2
  ADD R1,R7,#1
- LDMFD R13!,{R3-R7,PC}
+ FNRTS
 
 ;E R0=offset R8/R9
 ;X R0=start of word |
 
 mode0_wordminus_whole
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  LDR R6,[R9,#f_len]
  LDRB R5,[R8,#w_cr]
  LDRB R4,[R8,#w_tabc]
  MOV R7,R0
  CMP R7,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}
+ FNRTS CS
 wo1a
  CMP R7,#0
  MOVLE R0,#0
- LDMLEFD R13!,{R1-R7,PC}
+ FNRTS LE
  SUB R0,R7,#1
  BL cln_readc
  TEQ   R0,R5
@@ -1633,24 +1576,24 @@ wo1a
  SUBNE R7,R7,#1
  BNE wo1a
  MOV R0,R7
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;E R0=offset R8/R9
 ;X R0=start of word |
 
 mode0_wordplus_whole
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  LDR R6,[R9,#f_len]
  LDRB R5,[R8,#w_cr]
  LDRB R4,[R8,#w_tabc]
  MOV R7,R0
  CMP R7,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}
+ FNRTS CS
 wo1b
  CMP R7,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}
+ FNRTS CS
  MOV R0,R7
  BL cln_readc
  TEQ   R0,R5
@@ -1659,20 +1602,20 @@ wo1b
  ADDNE R7,R7,#1
  BNE wo1b
  MOV R0,R7
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;E R0=offset R8/R9
 ;X R0=start of word |
 
 mode0_wordminus
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  LDR R6,[R9,#f_len]
  LDRB R5,[R8,#w_cr]
  LDRB R4,[R8,#w_tabc]
  MOV R7,R0
  CMP R7,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}
+ FNRTS CS
  MVN R3,#0
  BL ask_mode_about_this_word
 wo1
@@ -1685,7 +1628,7 @@ wo1
 woon1a
  CMP R7,#0
  MOVLE R0,#0
- LDMLEFD R13!,{R1-R7,PC}
+ FNRTS LE
  SUB R0,R7,#1
  BL cln_readc
  CMP R0,R5
@@ -1694,12 +1637,12 @@ woon1a
  CMP R0,R2
  ADDEQ R7,R7,R3
  BEQ woon1a
- STMFD R13!,{R1,R8-R11}	; stack
+ PUSH "R1,R8-R11"	; stack
  MOV R0,#19
  MOV R11,#e_interrogate
  SUB R1,R7,#1
  BL call_mode
- LDMFD R13!,{R1,R8-R11}	; unstack
+ PULL "R1,R8-R11"	; unstack
  CMP R0,#19
  ADDNE R7,R7,R3
  BNE woon1a
@@ -1709,7 +1652,7 @@ woon1a
 ;X R0=end of word |
 
 mode0_wordplus
- STMFD R13!,{R1-R7,R14}
+ FNJSR "R1-R7"
  LDRB R5,[R8,#w_cr]
  LDRB R4,[R8,#w_tabc]
  LDR R6,[R9,#f_len]
@@ -1720,7 +1663,7 @@ wo2
  MOV R0,R7
  CMP R0,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}	; new beyond eof check...
+ FNRTS CS	; new beyond eof check...
  BL cln_readc
  CMP R0,R5
  BEQ endoflinewnoncr ; endoflinewordcr
@@ -1730,7 +1673,7 @@ wo2
 woon1
  CMP R7,R6
  MOVCS R0,R6
- LDMCSFD R13!,{R1-R7,PC}
+ FNRTS CS
  MOV R0,R7
  BL cln_readc
  CMP R0,R5
@@ -1739,33 +1682,33 @@ woon1
  CMP R0,R2
  ADDEQ R7,R7,R3
  BEQ woon1
- STMFD R13!,{R1,R8-R11}	; stack
+ PUSH "R1,R8-R11"	; stack
  MOV R0,#19
  MOV R11,#e_interrogate
  MOV R1,R7
  BL call_mode
- LDMFD R13!,{R1,R8-R11}	; unstack
+ PULL "R1,R8-R11"	; unstack
  CMP R0,#19
  ADDNE R7,R7,R3
  BNE woon1
 
 endoflinewnoncr
  MOV R0,R7
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 endoflinewordcr
  ADD R0,R7,#1
- LDMFD R13!,{R1-R7,PC}
+ FNRTS
 
 ;E R0=offset R8/R9
 ;X paragraph start |
 
 mode0_parastart
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
 pa2
  CMP R0,#0
  MOVLE R0,#0
- LDMLEFD R13!,{R1,PC}
+ FNRTS LE
  BL mode0_linestart
  MOV R1,R0
  BL mode0_wordplus
@@ -1777,18 +1720,14 @@ pa2
  TEQ R0,R1
  ADDEQ R0,R1,#1			; null line
  MOVNE R0,R1			; line not null
- LDMFD R13!,{R1,PC}
-
-call_mode_nextline		; call sw mode...
- BL	modesw_nextline	; call_mode_nextline
- LDMFD	R13!,{PC}
+ FNRTS
 
 mode0_nextline
- STMFD	R13!,{R14}
+ FNJSR	"R2-R11"
  LDR	R14,[R8,#w_format];
  ANDS	R14,R14,#bit_softwrap
- BNE	call_mode_nextline
- STMFD	R13!,{R2-R11}
+ FNPULL	NE
+ BNE	modesw_nextline
  MOV	R10,R0
  MOV	R2,R9			; file block
  LDR	R3,[R8,#w_bpl]
@@ -1829,34 +1768,34 @@ cln_nex_end
  BCS	cln_nex_3		; off end of file (may not have had a VS)
  MOV	R0,R9			; offset of line
  MOV	R1,R7			; phy line
- LDMFD	R13!,{R2-R11,PC}^	; returns with no error
+ LDMFD	R13!,{R2-R11,PC}^	; returns with no error	; !!! Unmatched return LDM
 cln_nex_backward
  BL	cln_BACKWARD
  BVC	cln_nex_2
- LDMFD	R13!,{R2-R11,PC}		; return with error
+ FNRTS				; return with error
 cln_nex_3
  ADDS	R1,R7,#0			; phy line and clv
  LDR	R0,[R2,#f_len]		; end of file
- LDMFD	R13!,{R2-R11,PC}
+ FNRTS
 
 ;call_mode_prevline		; call sw mode...
 ; BL	  modesw_prevline ; call_mode_prevline
 ; LDMFD	  R13 !,{PC}
 
 mode0_prevline
- STMFD	R13 !,{R14}
+ FNJSR
  LDR	R14,[R8,#w_format];
  ANDS	R14,R14,#bit_softwrap
  BLNE	modesw_prevline ; call_mode_prevline
  ;BNE	  call_mode_prevline
- LDMFD	R13!,{PC}
+ FNRTS
  ;MOV	  PC,R14 ; 's OK...
 
 ;E R0=file offset R9=file
 ;X R0=first non white space char offset |
 
 mode0_autoplus
- STMFD	R13!,{R1-R7,R14}
+ FNJSR	"R1-R7"
  MOV	R7,R0			; save offset
  LDR	R6,[R9,#f_len]		; length of file
  LDRB	R5,[R8,#w_cr]
@@ -1864,18 +1803,18 @@ mode0_autoplus
 au1
  CMP	R7,R6
  MOVCS	R0,R6			; end of file
- LDMCSFD	R13!,{R1-R7,PC}
+ FNRTS	CS
  MOV	R0,R7
  BL	cln_readc
  TEQ	R0,R5
  MOVEQ	R0,R7			; hit a return character
- LDMEQFD R13!,{R1-R7,PC}
+ FNRTS EQ
  TEQ	R0,#' '
  TEQNE	R0,R4
  ADDEQ	R7,R7,#1
  BEQ	au1			; on a white space
  MOV	R0,R7
- LDMFD	R13!,{R1-R7,PC}
+ FNRTS
 
 mode0_selection
  TEQ	R0,#0
@@ -1893,7 +1832,7 @@ se46
  FNLDR	R0,wimp_dragdepth
  CMP	R0,#2
  MOVLT	PC,R14			; no need to alter
- STMFD	R13!,{R1-R3,R14}
+ FNJSR	"R1-R3"
  MOV	R2,R0			; save the depth
  ADRL	R3,mode0_linestart	; default sub (lines)
  TEQ	R2,#2			; words
@@ -1905,13 +1844,13 @@ se46
  LDR	R0,[R10,#c_owidth]		; current offset
  MOVS	R14,PC
  MOV	PC,R3			; call the sub
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  STR	R0,[R10,#c_owidth]		; new offset
  BL	offset_line_column
- LDMVSFD R13!,{R1-R3,PC}
+ FNRTS VS
  STR	R2,[R10,#c_ocol]
  STR	R3,[R10,#c_oline]		; new coords
- LDMFD	R13!,{R1-R3,PC}
+ FNRTS
 
 mode0_copy
  TEQ R0,#2
@@ -1923,7 +1862,7 @@ mode0_copy
 ; As for e_copy but R0=2 been taken care of
 
 modes_copy
- STMFD R13!,{R1,R4-R7,R10,R14}
+ FNJSR "R1,R4-R7,R10"
 ; BL scrub_input_carets
  ;all_on_this_file ; remove_carets2 ; scrub_caret			; scrub it here?
  ; multiple views problems...
@@ -1950,7 +1889,7 @@ co20
 ; BL reflect_caret
  ;FNLDR R10,car_input
  ;BL reflect_caret
- LDMFD R13!,{R1,R4-R7,R10,PC}
+ FNRTS
 
 fake_right$l
  FNJSR "R1-R11"			; overkill
@@ -2391,12 +2330,12 @@ endofcharinsertion
 mode0_delete
 	ADR	R3,mode0_delete_doit
 	ORR	R3,R3,#1<<31		; it's a deletion
-	STMFD	R13!,{R4,R6,R14}
+	FNJSR	"R4,R6"
 	LDR	R4,[R8,#w_flags]
 	LDR	R6,[R8,#w_format]
 	ORR	R6,R6,#1<<14		; set line edit
 	BL	char_del_dispatch
-	LDMFD	R13!,{R4,R6,PC}
+	FNRTS
 
 mode0_delete_doit
  FNJSR
@@ -2437,9 +2376,9 @@ de12
  FNRTS VS
  SUB R5,R5,#1
 de9
- STMFD R13!,{R5}
+ PUSH "R5"
  BL call_mode1_delete
- LDMVCFD R13!,{R0}		; return nun bytes deleted
+ PULL "R0",VC			; return nun bytes deleted
  ADDVS R13,R13,#4
  FNRTS
 
@@ -2803,7 +2742,7 @@ seeif_ins_pt_if_needed
 ;  = " -",0,0
 
 splus_smart
- STMFD	 R13!,{R3,R14}
+ FNJSR	 "R3"
  LDR	 R2,[R9,#f_ptr]
  LDR	 R3,[R9,#f_splito]
  CMP	 R1,R3
@@ -2837,7 +2776,7 @@ SPlusBrD
  LDRCS	 R0,[R9,#f_splits]
  SUBCS	 R1,R1,R0
  MVN	 R2,#0
- LDMFD	 R13!,{R3,PC}
+ FNRTS
 
 SPlusBrE
  BL	 SPlusBrF
@@ -2861,13 +2800,13 @@ SPlusBrG
  LDR	 R3,[R9,#f_len]
  ADD	 R3,R3,R0
 
- STMFD	 R13!,{R14}
+ FNJSR
  LDR	 R14,[R9,#f_bufl]
  SUB	 R14,R14,#1
  CMP	 R1,R14
  LDRCCB  R0,[R2,R1]
  ANDCS	 R0,R1,#&FF
- LDMFD	 R13!,{R14}
+ FNPULL
  B	 CursorPriority
 
  LOCAL
@@ -2880,7 +2819,7 @@ sminus_smart
  MVN	 R2,#0
  MOV	 PC,R14
 SMinusBrA
- STMFD	 R13!,{R3,R14}
+ FNJSR	 "R3"
  LDR	 R2,[R9,#f_ptr]
  LDR	 R0,[R9,#f_splito]
  CMP	 R1,R0
@@ -2907,7 +2846,7 @@ SMinusBrD
  LDRCS	 R0,[R9,#f_splits]
  SUBCS	 R1,R1,R0
  MVN	 R2,#0
- LDMFD	 R13!,{R3,PC}
+ FNRTS
 
 SMinusBrE
  BL	 SMinusBrF
@@ -2923,7 +2862,7 @@ SMinusBrF
  BCS	 SMinusBrG
  TEQ	 R1,#0
  MVNEQ	 R2,#0
- LDMEQFD R13!,{R3,PC}
+ FNRTS EQ
  LDR	 R0,[R9,#f_splits]
  SUB	 R1,R1,R0
  MOV	 R3,#0
@@ -2935,41 +2874,41 @@ SMinusBrG
  ;B	  CursorPriority		; fall through...
 
 CursorPriority
- STMFD	 R13!,{R1}
+ PUSH	 "R1"
  LDRB	 R1,[R8,#w_cr] ; lf char
  TEQ	 R0,R1
- LDMFD	 R13!,{R1}
- ORREQS  PC,R14,#Cbit
+ PULL	 "R1"
+ ORREQS  PC,R14,#Cbit	; !!! ARM32 FIXME
  BIC	 R14,R14,#Cbit
  CMP	 R0,#&30
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&3A
  MOVCC	 PC,R14
  CMP	 R0,#&40			; @...
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&5B
  MOVCC	 PC,R14
  CMP	 R0,#&61
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&7B
  MOVCC	 PC,R14
  CMP	 R0,#&81
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&83
  MOVCC	 PC,R14
  CMP	 R0,#&85
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&87
  MOVCC	 PC,R14
  CMP	 R0,#&9E
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
  CMP	 R0,#&A0
  MOVCC	 PC,R14
  CMP	 R0,#&C0
- ORRCCS  PC,R14,#Zbit
+ ORRCCS  PC,R14,#Zbit	; !!! ARM32 FIXME
 ; CMP	  R0,#&100
 ; MOVS	 PC,R14
- BICS	 PC,R14,#Cbit		; accented characters are normal...
+ BICS	 PC,R14,#Cbit		; accented characters are normal...	; !!! ARM32 FIXME
 
 CursorPriority2
  CMP	 R0,#&20
@@ -3044,13 +2983,13 @@ getnextoneback
  FNRTS
 
 ask_mode_about_this_word
- STMFD R13!,{R1,R8-R11,R14}	; stack (exception...!)
+ FNJSR "R1,R8-R11"	; stack (exception...!)
  MOV R1,R7
  MOV R0,#20
  MOV R11,#e_interrogate
  BL call_mode
  MOV R7,R1
- LDMFD R13!,{R1,R8-R11,PC}	; unstack
+ FNRTS	; unstack
 
 ; ***********************
 ; * Join and Split subs *
@@ -3099,7 +3038,7 @@ mode0_click
 	CMP R1,#2
 	BCC default_click		; drag/place cursor
 
-	STMFD R13!,{R1-R11,R14}
+	FNJSR "R1-R11"
 cl17
 	CMP R1,#6
 	SUBCS R1,R1,#4
@@ -3108,7 +3047,7 @@ cl17
 	BNE cl20			; multidrag?
 	SUB R11,R1,#2			; R11 = number of clicks - 2
 	BL find_offset			; R0=file offset
-	LDMVSFD R13!,{R1-R11,PC}
+	FNRTS VS
 	MOV R10,R0			; save file offset
 	CMP R11,#1
 	BLO cl_select_word
@@ -3116,18 +3055,18 @@ cl17
 	CMP R11,#3
 	BLO cl_select_para
 	BEQ cl_select_all
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 cl20
 	FNSTR R1,wimp_dragdepth
 ;	SWI &107
 	MOV R1,#0			; normal drag
 	MOV R4,#1			; pretend adjust pressed
 	BL default_click		; start drag as normal
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 clearselandreturn
 	BL clear_selection
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 cl_select_word
 	BL test_shiftctrl
@@ -3138,12 +3077,12 @@ cl_select_word
 	MOVVC R3,R0			; end of word
 	MOVVC R0,R10
 	BLVC mode0_wordminus
-	LDMVSFD R13!,{R1-R11,PC}
+	FNRTS VS
 ;	CMP R0,R3
 ;	BEQ clearselandreturn
 	MOV R2,R0			; start of word
 	BL select_region
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 cl_select_big_word
 	MOV R0,R10
@@ -3151,12 +3090,12 @@ cl_select_big_word
 	MOVVC R3,R0			; end of word
 	MOVVC R0,R10
 	BLVC mode0_wordminus_whole
-	LDMVSFD R13!,{R1-R11,PC}
+	FNRTS VS
 ;	CMP R0,R3
 ;	BEQ clearselandreturn
 	MOV R2,R0			; start of word
 	BL select_region
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 cl_select_line
 	MOV R0,R10
@@ -3164,12 +3103,12 @@ cl_select_line
 	MOVVC R3,R0			; end of word
 	MOVVC R0,R10
 	BLVC mode0_linestart
-	LDMVSFD R13!,{R1-R11,PC}
+	FNRTS VS
 ;	CMP R0,R3
 ;	BEQ clearselandreturn
 	MOV R2,R0			; start of word
 	BL select_region
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 cl_select_para
 	MOV R0,R10
@@ -3177,12 +3116,12 @@ cl_select_para
 	MOVVC R3,R0			; end of para
 	MOVVC R0,R10
 	BLVC mode0_parastart
-	LDMVSFD R13!,{R1-R11,PC}
+	FNRTS VS
 ;	CMP R0,R3
 ;	BEQ clearselandreturn
 	MOV R2,R0			; start of para
 	BL select_region
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 cl_select_all
 	MOV R2,#0
@@ -3190,7 +3129,7 @@ cl_select_all
 ;	CMP R3,#0
 ;	BEQ clearselandreturn
 	BL select_region		; select all text (if any)
-	LDMFD R13!,{R1-R11,PC}
+	FNRTS
 
 ; **************
 ; * SAVEANDRUN *
@@ -3265,7 +3204,7 @@ warn$l
 ;X paragraph end |
 
 mode0_paraend
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
 pa1
  BL mode0_linenext		; move to start of next line
  MOV R1,R0			; save offset
@@ -3273,6 +3212,6 @@ pa1
  CMP R0,R1
  MOV R0,R1			; restore line start
  BGT pa1			; don't match
- LDMFD R13!,{R1,PC}
+ FNRTS
 
  END
