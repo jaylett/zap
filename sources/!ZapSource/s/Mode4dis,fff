@@ -1,5 +1,5 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 2.4 2001/05/30 17:21:26 ds Exp $
+; $Id: Mode4dis,fff,v 2.5 2003/02/24 21:51:28 christian Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
@@ -870,25 +870,26 @@ scl_total_count		& num1+num2	; total number of entries
    LOCAL
 dec_swinv
    FNJSR   "r0,r1"
-   AND     R14,R0,#&FF                   ; leave just the back len
+   ANDS    R14,R0,#&FF                   ; leave just the back len
+   BEQ     notfunc$l
    TST     R14,#3                        ; is it aligned ?
    BNE     notfunc$l                     ; nope, so not a function
    SUBS    R3,R3,R14                     ; go back that far
    BMI     notfunc$l                     ; went -ve, so not ours
-   PULL   "R0,R1"                 ; restore old regs
-     [ NEW_DISASM = 0
-   SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
-     |
-   BL      disassemble                   ; disassemble it (R1-> string)
-     ]
-   MOVVS   r0,#1                         ; if failed, mark as such
-   LDRVS   pc,[r13],#4                   ;            and return safely
+   PULL    "R0,R1"                 ; restore old regs
+   ;  [ NEW_DISASM = 0
+   ;SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+   ;  |
+   ;BL      disassemble                   ; disassemble it (R1-> string)
+   ;  ]
+   ;MOVVS   r0,#1                         ; if failed, mark as such
+   ;LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,#4                         ; explicit string in the file
    SUB     r3,r3,#4                      ; right place !
    ADR     r4,funcdef$l                  ; the string to use
    MOV     r6,#0                         ; no indirection
    LDR     r14,[r13],#4                  ; restore link for tail continue
-   B       copytoendofdebugger           ; and copy string
+   B       replacedebugger               ; and copy string
 
 notfunc$l
    MOV     r0,#1                         ; mark us as having failed
@@ -950,7 +951,8 @@ copystring$l
    MOV     r2,#3                         ; absolute string
    B       copytoendofdebugger
 
-; copy a set of strings onto the end of the debugger string
+; copytoendofdebugger: copy a set of strings onto the end of the debugger string
+;     replacedebugger: replace debugger string
 ; it'll also cut off any other comments that are there for brevity
 ; => R1-> debugger string
 ;    R2 = type of data in r3 :
@@ -973,6 +975,12 @@ copystring$l
 ; <prefix> must therefore contain a trailing space if it requires one
 ;
    LOCAL
+replacedebugger
+	FNJSR	"R0,r1,r2,R3-R4"
+	FNLDR	R2,wimp_buffer
+	ADD	R2,R2,#128
+	B	replace$l
+
 copytoendofdebugger
    FNJSR   "R0,r1,r2,R3-R4"    ; Stack registers
    CMN     r2,#1                         ; is the code -1 ?
@@ -1014,6 +1022,7 @@ skipspaces$l
    BL      addsomeextraspaces            ; r2-> next char
 
 ; put our comment marker in
+replace$l
    MOV     r0,#';'
    STRB    r0,[r2],#1                    ; store and inc
    MOV     r0,#' '
