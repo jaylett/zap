@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 2.3 2000/03/18 14:22:13 ds Exp $
+; $Id: Mode0,fff,v 2.4 2000/12/03 14:24:46 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -1981,7 +1981,7 @@ fake_right$l
   ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
 mode0_char
-	ADR	R3,mode0_char_doit
+	ADRL	R3,mode0_char_doit
 
 ; R3=routine to call (top bit set if deleting) R4-R10=as above
 ; Routine called with R0=0 if not in block or not block editing, else R0=1
@@ -2075,7 +2075,16 @@ char_del_dispatch
 	BL	insert_approved_space
 	; Minor redraw problem which shows up in read-only mode:
 	; we're not deleting the caret
-loop$l	MOV	R0,R6
+loop$l
+	BL	altesc
+	BCC	notesc$l
+	TST	R3,#1<<31
+	ADREQ	R0,escins$l
+	ADRNE	R0,escdel$l
+	BL	query_abort
+	BEQ	exitloop$l
+notesc$l
+	MOV	R0,R6
 	BL	logical_line_number
 	BLVC	find_line_start		;** avoid softwrap problems
 	STRVC	R0,[R10,#c_loff]	; fiddle line start
@@ -2131,7 +2140,7 @@ outside_sel$l
 	SUB	R6,R6,#1
 	CMP	R6,R5			; any more lines in selection?
 	BGE	loop$l
-
+exitloop$l
 	LDR	R5,[R9,#f_mark]
 	LDR	R4,[R9,#f_mptr]
 	SUB	R5,R5,#8
@@ -2161,6 +2170,11 @@ err1$l	LDR	R4,local_wflags$l	; restore w_flags
 	FNRTS
 call_r3	MOV	R0,#1
 	MOV	PC,R3
+
+escins$l &	0
+	FNS	("zap_q_insrep")
+escdel$l &	0
+	FNS	("zap_q_delrep")
 
 local_wflags$l	& 0
 local_wformat$l	& 0
