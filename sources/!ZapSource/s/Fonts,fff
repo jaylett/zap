@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 2.9 2005/02/14 11:58:20 christian Exp $
+; $Id: Fonts,fff,v 2.10 2005/02/16 13:51:48 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -17,6 +17,7 @@
  EXPORT	read_dsa_font_name
  EXPORT	read_vdu_font_name
  EXPORT is_UTF8
+ EXPORT free_fonts
 
  EXPORT Bitmapfont
  EXPORT Outlinefont
@@ -33,7 +34,10 @@
 find_font	FNJSR	"R11"
 
 		MOV	R0,#0
-		STR	R0,[R8,#w_encodinghandle]	; clear this in case of error
+		STR	R0,[R8,#w_encodinghandle]	; clear these in case of error
+		STR	R0,[R8,#w_encodingtable]	;
+		MOV	R0,#-1				;
+		STR	R0,[R8,#w_alphabet]		;
 
 		LDR	R11,[R8,#w_flags]		; get redraw flags
 		AND	R11,R11,#redraw_font_mask
@@ -90,7 +94,11 @@ notvdu$l	SWI	XZapRedraw_FindFont
 		STR	R0,[R8,#w_flags]
 
 		; find the encoding
-encoding$l	LDR	R0,[R8,#w_encoding]
+encoding$l	LDR	R1,[R8,#w_info]			; clear w_info UTF8 flag
+		BIC	R1,R1,#info_UTF8		;
+		STR	R1,[R8,#w_info]			;
+
+		LDR	R0,[R8,#w_encoding]
 		BL	is_UTF8				; setup w_info UTF8 flag
 		BNE	notutf8$l
 
@@ -98,7 +106,7 @@ encoding$l	LDR	R0,[R8,#w_encoding]
 		MOV	R11,#e_interrogate		;
 		BL	call_mode			;
 		TEQ	R0,#0				;
-		MOVNE	R0,#0				;
+		ADRNE	R0,latin1$l			; not allowed - default to Latin1
 		BNE	noutf8$l			;
 
 		LDR	R0,[R8,#w_info]			;
@@ -106,23 +114,42 @@ encoding$l	LDR	R0,[R8,#w_encoding]
 		STR	R0,[R8,#w_info]			;
 		MOV	R0,#(1<<30)+1			; fake ZapRedraw UTF-8 encoding handle
 		STR	R0,[R8,#w_encodinghandle]	; FIXME: this is lazy
+		MOV	R0,#111				;
+		STR	R0,[R8,#w_alphabet]		;
+		MOV	R0,#0				;
+		STR	R0,[R8,#w_encodingtable]	;
 		FNRTS					; we'll decode UTF-8 ourselves
 
-notutf8$l	LDR	R1,[R8,#w_encoding]
-		TEQ	R1,#0
-		MOV	R0,#0
-		SWINE	XZapRedraw_Encoding
-noutf8$l	STRVC	R0,[R8,#w_encodinghandle]
-		LDR	R1,[R8,#w_info]			; clear w_info UTF8 flag
-		BIC	R1,R1,#info_UTF8		;
-		STR	R1,[R8,#w_info]			;
-		FNRTS	VC
+notutf8$l	LDR	R1,[R8,#w_encoding]		; find the encoding
+		TEQ	R1,#0				;
+		ADREQ	R1,latin1$l			; default to Latin1
+noutf8$l	MOV	R0,#0				;
+		PUSH	"R0"
+		SWINE	XZapRedraw_Encoding		;
+		STRVC	R0,[R8,#w_encodinghandle]	;
+		MOVVC	R1,R0				; find the conversion table
+		MOVVC	R0,#2				;
+		SWIVC	XZapRedraw_Encoding		;
+		STRVC	R0,[R8,#w_encodingtable]	;
+		PULL	"R3"				;
+		BVS	warn$l				;
 
-		ADDS	R0,R0,#4			; point to message and clv
+		MOV	R1,#&43				; try to read the alphabet number
+		MOV	R2,#1				;
+		SWI	XOS_ServiceCall			;
+		BVS	warn$l				;
+		TEQ	R1,#0				;
+		MOVNE	R4,#-1				;
+		STR	R4,[R8,#w_alphabet]		;
+		FNRTS
+
+warn$l		ADDS	R0,R0,#4			; point to message and clv
 		MOV	R1,#0
 		BL	warn_user
 		FNRTS
 
+latin1$l	=	"Latin1",0
+		ALIGN
 
 		LOCAL
 
@@ -387,6 +414,19 @@ prompt$l	ADR	R0,p$l
 p$l		FNS	("zap_p_encoding")
 
 
+; free the global ZapRedraw resources
+; E
+; X
+		FNAME	free_fonts
+free_fonts	FNLDR	R1,alphabet_handle
+		TEQ	R1,#0
+		MOVNE	R0,#1
+		SWINE	XZapRedraw_Encoding
+		MOV	R0,#0
+		FNSTR	R0,alphabet_handle
+		MOV	PC,R14
+
+
 ; E R0 -> encoding name
 ; X EQ if UTF-8
 		FNAME	is_UTF8
@@ -395,10 +435,13 @@ is_UTF8		FNJSR	"R1-R2"
 		MOV	R2,#'E'
 		SWI	XFont_FindField
 		LDRB	R0,[R1],#1
+		BIC	R0,R0,#&20
 		TEQ	R0,#'U'
 		LDREQB	R0,[R1],#1
+		BICEQ	R0,R0,#&20
 		TEQEQ	R0,#'T'
 		LDREQB	R0,[R1],#1
+		BICEQ	R0,R0,#&20
 		TEQEQ	R0,#'F'
 		LDREQB	R0,[R1],#1
 		TEQEQ	R0,#'8'

@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 2.13 2005/02/14 11:58:20 christian Exp $
+; $Id: AlterTxt,fff,v 2.14 2005/02/16 13:51:48 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -53,6 +53,7 @@
  EXPORT cln_readc_auto
  EXPORT cln_readc_addr_utf8
  EXPORT cln_readc_addr_auto
+ EXPORT convert_charsets
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1958,6 +1959,227 @@ clip_cache
 	STRVC	R2,[R8,#w_clogl]	; new logical line
 	FNRTS
 
+
+	LOCAL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Character set conversion					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; convert character data from RISC OS's character set into the window's
+; E R0 -> characters (0-ff or UTF-8)  R1 = number of bytes  R8
+; X R0 -> new data  R1 = number of bytes
+convert_charsets
+	FNJSR	"R2-R7,R10-R11"
+	MOV	R7,R0
+	MOV	R5,R1
+
+	MOV	R0,#71			; read the current alphabet number
+	MOV	R1,#127			;   need to do this every time :(
+	SWI	XOS_Byte		;
+
+	LDR	R0,[R8,#w_alphabet]	; if window in same alphabet nothing to do
+	TEQ	R0,R1			;
+	BEQ	none$l			;
+
+	TEQ	R1,#111			; UTF-8?
+	MOVEQ	R6,#-1			;
+	BEQ	notbl$l			;
+
+	FNLDR	R0,alphabet_number	; get the encoding table for the input
+	TEQ	R0,R1			;
+	FNLDR	R0,alphabet_table,EQ	;
+	BLNE	gettable$l		;
+	MOVS	R6,R0			;
+	BEQ	none$l			; don't change anything if no input table
+
+notbl$l	LDR	R4,[R8,#w_alphabet]	;
+	TEQ	R4,#111			;
+	MOVEQ	R4,#-1
+	LDRNE	R4,[R8,#w_encodingtable]; and for the window
+
+	ADD	R5,R7,R5		; point to the end of the input
+
+	FNLDR	R10,char_buffer
+	FNLDR	R11,char_buf_size
+
+	; convert the characters
+loop$l	CMP	R7,R5
+	BHS	done$l			;
+					;
+	CMP	R6,#-1
+	LDRNEB	R0,[R7],#1		; load the input
+	LDRNE	R0,[R6,R0,LSL #2]	; get the UCS char
+	BLEQ	cln_readc_addr_utf8	;
+	CMP	R4,#-1			;
+	BEQ	to_utf8$l		;
+	MOV	R2,#0			;
+l1$l	LDR	R1,[R4,R2,LSL #2]	; painfully search for it in the target encoding
+	TEQ	R0,R1			;
+	BEQ	found$l			;
+	ADD	R2,R2,#1		;
+	CMP	R2,#256			;
+	BLO	l1$l			;
+
+warn$l	ADR	R0,wmsg$l		; not found
+	MOV	R1,#0			;
+	BL	warn_user_token		;
+	B	loop$l			;
+
+found$l	STRB	R2,[R10],#1		; store the new character
+	SUBS	R11,R11,#1		;
+	BNE	loop$l			;
+
+	BL	embiggen$l		;
+	B	loop$l			;
+
+	; convert into UTF-8
+to_utf8$l
+	CMP	R11,#5
+	BLLO	embiggen$l
+
+	CMP	R0,#&80
+	BLO	one$l
+	CMP	R0,#&800
+	BLO	two$l
+	CMP	R0,#&10000
+	BLO	three$l
+	CMP	R0,#&200000
+	BLO	four$l			; I think this shouldn't happen, because the system won't
+	B	warn$l			; generate keypresses that aren't in the system encoding
+
+one$l	STRB	R0,[R10],#1
+	SUB	R11,R11,#1
+	B	loop$l
+
+two$l	MOV	R1,R0,LSR #6
+	ORR	R1,R1,#&c0
+	STRB	R1,[R10],#1
+	AND	R1,R0,#&3f
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	SUB	R11,R11,#2
+	B	loop$l
+
+three$l	MOV	R1,R0,LSR #12
+	ORR	R1,R1,#&E0
+	STRB	R1,[R10],#1
+	MOV	R1,R0,LSR #6
+	AND	R1,R1,#&3F
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	AND	R1,R0,#&3f
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	SUB	R11,R11,#3
+	B	loop$l
+
+four$l	MOV	R1,R0,LSR #18
+	ORR	R1,R1,#&F0
+	STRB	R1,[R10],#1
+	MOV	R1,R0,LSR #12
+	AND	R1,R1,#&3F
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	MOV	R1,R0,LSR #6
+	AND	R1,R1,#&3F
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	AND	R1,R0,#&3f
+	ORR	R1,R1,#&80
+	STRB	R1,[R10],#1
+	SUB	R11,R11,#4
+	B	loop$l
+
+	; exit
+done$l	FNLDR	R0,char_buffer		; all finished
+	FNLDR	R1,char_buf_size	;
+	SUB	R1,R1,R11		;
+	FNRTS				;
+
+none$l	MOV	R0,R7			; restore input values
+	MOV	R1,R5			;
+	FNRTS				;
+
+embiggen$l
+	FNJSR	"R0,R1"			;
+	FNLDR	R0,char_buffer		; embiggen the output buffer
+	FNLDR	R1,char_buf_size	;
+	SUB	R11,R10,R0		;
+	ADD	R1,R1,#32		;
+	BL	heap_ensure		;
+	FNSTR	R0,char_buffer		;
+	FNSTR	R1,char_buf_size	;
+	ADD	R10,R0,R11		;
+	SUB	R11,R1,R11		;
+	FNRTS
+
+	; find the input translation table
+gettable$l
+	FNSTR	R1,alphabet_number
+
+	FNLDR	R1,alphabet_handle	; free any existing alphabet handle
+	TEQ	R1,#0			;
+	MOVNE	R0,#1			;
+	SWINE	XZapRedraw_Encoding	;
+	MOV	R0,#0			;
+	FNSTR	R0,alphabet_handle	;
+
+	MOV	R1,#&43			; try getting the table from the OS
+	MOV	R2,#8			;
+	FNLDR	R3,alphabet_number	;
+	SWI	XOS_ServiceCall		;
+	TEQ	R1,#0			;
+	MOV	R0,R4			;
+	FNSTR	R4,alphabet_table,EQ	;
+	MOVEQ	PC,R14			;
+
+	FNJSR	"R4-R5"
+
+	SUB	R13,R13,#32		; get the alphabet name from its number
+	MOV	R2,#3			;
+	FNLDR	R3,alphabet_number	;
+	MOV	R4,R13			;
+	MOV	R5,#32			;
+	MOV	R1,#&43			;
+	SWI	XOS_ServiceCall		;
+	BVS	er$l			;
+
+	TEQ	R1,#0			;
+	BNE	er$l			;
+
+	CMP	R5,#32			; make sure it's terminated
+	MOVHS	R5,#31			;
+	MOVLO	R0,#0			;
+	STRLOB	R0,[R4,R5]		;
+
+	MOV	R0,#0			; try to load its encoding
+	MOV	R1,R13			;
+	SWI	XZapRedraw_Encoding	;
+	BVS	er$l			;
+
+	FNSTR	R0,alphabet_handle	; get its translation table
+	MOV	R1,R0			;
+	MOV	R0,#2			;
+	SWI	XZapRedraw_Encoding	;
+	FNSTR	R0,alphabet_table,VC	;
+
+	ADDVC	R13,R13,#32
+	FNRTS	VC
+
+er$l	ADD	R13,R13,#32		; couldn't find a suitable table
+	ADR	R0,emsg$l		;
+	MOV	R1,#0			;
+	BL	warn_user_token		;
+	MOV	R0,#0			;
+	FNSTR	R0,alphabet_table	;
+	FNRTS
+
+emsg$l	=	"zap_NoAlphabetTable",0
+wmsg$l	=	"zap_NoCharacter",0
+	ALIGN
 
 
 

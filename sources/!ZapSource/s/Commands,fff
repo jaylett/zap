@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.36 2004/04/15 12:13:02 christian Exp $
+; $Id: Commands,fff,v 2.37 2005/02/16 13:51:48 christian Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -856,6 +856,13 @@ Cdown	FNJSR
 Char	TEQ	R2,#23
 	BEQ	Char_fn
 	FNJSR
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R12,#(mode_store+4):AND:&FF00
+	ADD	R14,R14,#(mode_store+4):AND:&00FF
+	LDR	R2,[R14,R2,LSL#3]	; table pointer for this mode
+	LDR	R2,[R2,#2*e_mode]	; flags word
+	TST	R2,#3<<8		; raw / taskwindow input
+	BLEQ	convert_charsets	; no - convert to target encoding
 	MOV	R7,R0			; save address of data
 	PUSH	"R0"
 	MOV	R5,R1			; save number of bytes
@@ -870,6 +877,8 @@ Char	TEQ	R2,#23
 problemexit
 	PULL	"R14"
 	FNRTS
+
+; FIXME: this should all be replaced with mode post-filters
 tellzapspell				; expects R0, pointer to char, R5 = 1
 	FNJSR				;  "R10"
 	LDR	R14,[R8,#w_info]
