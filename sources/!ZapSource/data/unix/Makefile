@@ -40,7 +40,7 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
 		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
-		  o/ModuleBits 
+		  o/ModuleBits o/TMFs
 
 # You may need to change some of the following if your system is different
 # to mine. (Link and Asm need to point to as_ro and link_ro, whatever
@@ -84,8 +84,8 @@ Zap:		objdirs tmplink
 		$(timestamp) < o/tmplink > Zap,ffa
 
 objdirs:
-		mkdir o
-		mkdir t
+		mkdir -p o
+		mkdir -p t
 
 tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
 		$(link) $(linkflags) $(OBJECTS)
