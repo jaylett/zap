@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.11 2003/02/05 18:22:02 christian Exp $
+; $Id: Template,fff,v 2.12 2004/05/22 15:11:39 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -124,6 +124,8 @@
 ; Show mode authors					    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+	LOCAL
+
 ;X Produce buffer containing list of authors. WB #
 	FNAME	show_authors
 show_authors
@@ -171,17 +173,42 @@ au10	ADD	R6,R6,#1
 	TEQ	R0,R6
 	BEQ	au00
 	BL	read_mode
-	MOV	R0,#'-'
-	STRB	R0,[R4,#16]
-	MOV	R0,#'>'
-	STRB	R0,[R4,#17]
-	MOV	R0,#' '
-	STRB	R0,[R4,#18]
+	LDR	r0,arrow$l
+	STR	r0,[r4,#16]
 	LDR	R2,[R1,#2*e_title]
 	ADD	R1,R4,#19
 	B	au01
+arrow$l	=	"-> "
+core$l	=	"core",0
+	ALIGN
 
-au00	ADD	R1,R4,#16
+au00	LDR	r2,[r5,#2*e_module]
+	FNLDR	r1,env_modstart
+	TEQ	r1,r2
+	ADREQ	r2,core$l
+	BEQ	gocp$l
+	LDR	r1,[r2,#20]
+	ADD	r2,r2,r1		; module help text address
+	MOV	r1,#0
+tab$l	LDRB	r0,[r2],#1		; find the version number
+	TEQ	r0,#0
+	BEQ	nover$l
+	TEQ	r0,#9
+	ADDNE	r1,r1,#1
+	ADDEQ	r1,r1,#8
+	BICEQ	r1,r1,#7
+	CMP	r1,#16			; assume 16 characters (expand tabs)
+	BLO	tab$l			; preceding the version number
+gocp$l	ADD	r1,r4,#16
+	MOV	r14,#0
+cp$l	LDRB	r0,[r2],#1		; copy the version no. (max 6 chars)
+	CMP	r0,#'('
+	CMPNE	r0,#31
+	SUBHI	r14,r14,#1		; counting down so that we can use
+	CMNHI	r14,#6			; the same cond. code for both tests
+	STRHIB	r0,[r1],#1
+	BHI	cp$l
+nover$l	ADD	r1,r4,#24
 	LDR	R2,[R5,#2*e_author]
 
 au01	BL	strcpy			; author
