@@ -1,9 +1,12 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 2.10 2002/11/14 20:33:44 christian Exp $
+; $Id: Macros,fff,v 2.11 2002/11/26 13:46:10 christian Exp $
 
 ; count in-core storage
 	GBLA InCoreTotal
 InCoreTotal SETA 0
+
+; Result from INSTR macro
+	GBLL	InStr
 
 	MACRO
 $la	INCORE $a
@@ -16,8 +19,10 @@ $la
 
 	GBLA LocalCount
 	GBLS l
+	GBLS L
 LocalCount SETA 1
 l	SETS "x$LocalCount"
+L	SETS "y$LocalCount"
 
 ; increment local variable number
 
@@ -25,6 +30,7 @@ l	SETS "x$LocalCount"
 	LOCAL
 LocalCount SETA LocalCount+1
 l	SETS "x$LocalCount"
+L	SETS "y$LocalCount"
 	MEND
 
 ; start of sub. If you specify a list of registers then these are stored as
@@ -37,7 +43,7 @@ $la	FNJSR $a
 StackedRegs SETS "$a"
 $la
 	[ StackedRegs=""
-	STMFD R13!,{R14}
+	STR R14,[R13,#-4]!
 	|
 	STMFD R13!,{$StackedRegs,R14}
 	]
@@ -49,7 +55,7 @@ $la
 $la	FNRTS $cc
 $la
 	[ StackedRegs=""
-	LDM$cc.FD R13!,{PC}
+	LDR$cc PC,[R13],#4
 	|
 	LDM$cc.FD R13!,{$StackedRegs,PC}
 	]
@@ -61,7 +67,7 @@ $la
 $la	FNPULL $cc
 $la
 	[ StackedRegs=""
-	LDM$cc.FD R13!,{R14}
+	LDR$cc R14,[R13],#4
 	|
 	LDM$cc.FD R13!,{$StackedRegs,R14}
 	]
@@ -285,9 +291,9 @@ $la	LDR $r,[R12]
  |
 $la	LDR R14,[R12]
 	ADD R14,R14,#$a
-	STMFD R13!,{R14}
+	STR R14,[R13,#-4]
 	MOV R14,PC
-	LDMFD R13!,{PC}
+	LDR PC,[R13,#-4]
  ]
 	MEND
 
@@ -300,9 +306,9 @@ $la	LDR$cc $r,[R12]
  |
 $la	LDR$cc R14,[R12]
 	ADD$cc R14,R14,#$a
-	STM$cc.FD R13!,{R14}
+	STR$cc R14,[R13,#-4]
 	MOV$cc R14,PC
-	LDM$cc.FD R13!,{PC}
+	LDR$cc PC,[R13,#-4]
  ]
 	MEND
 
@@ -346,21 +352,62 @@ $la	ADD R0,PC,#8			; address of the error message
 
 	MACRO
 $la	PUSH $a,$cc
-$la	STM$cc.FD R13!,{$a}
+	[ ASSEMBLER = "OBJASM"
+	 INSTR "$a",","
+	 [ :LNOT: InStr
+	  INSTR "$a","-"
+	 ]
+	|
+InStr	 SETL	{TRUE}
+	]
+
+	[ InStr
+$la	 STM$cc.FD R13!,{$a}
+	|
+$la	 STR$cc	$a,[R13,#-4]!
+	]
 	MEND
+
 
 ; Pull a register list $a from the stack
 
 	MACRO
 $la	PULL $a,$cc
-$la	LDM$cc.FD R13!,{$a}
+	[ ASSEMBLER = "OBJASM"
+	 INSTR "$a",","
+	 [ :LNOT: InStr
+	  INSTR "$a","-"
+	 ]
+	|
+InStr	 SETL {TRUE}
+	]
+
+	[ InStr
+$la	 LDM$cc.FD R13!,{$a}
+	|
+$la	 LDR$cc	$a,[R13],#4
+	]
 	MEND
+
 
 ; Pulls a register list $a from the stack, leaving the SP alone...
 
 	MACRO
 $la	PULLS $a,$cc
-$la	LDM$cc.FD R13,{$a}
+	[ ASSEMBLER = "OBJASM"
+	 INSTR "$a",","
+	 [ :LNOT: InStr
+	  INSTR "$a","-"
+	 ]
+	|
+InStr	 SETL {TRUE}
+	]
+
+	[ InStr
+$la	 LDM$cc.FD R13,{$a}
+	|
+$la	 LDR$cc	$a,[R13]
+	]
 	MEND
 
 ; Divide...
@@ -432,6 +479,29 @@ e$EmbedLocalS
 	]
 $la
 	MEND
+
+; test if a string is inside another string
+; returns result in GBLA InStr
+	MACRO
+	INSTR	$str, $substr
+	LCLA	SubLen
+	LCLA	Pos
+	LCLS	TempStr
+SubLen	SETA	:LEN:"$substr"
+Pos	SETA	:LEN:"$str"
+InStr	SETL	{FALSE}
+
+	WHILE	(Pos >= SubLen) :LAND::LNOT: InStr
+TempStr	SETS	("$str" :LEFT: Pos) :RIGHT: SubLen
+	[	"$TempStr" = "$substr"
+InStr	SETL	{TRUE}
+	]
+Pos	SETA	Pos-1
+	WEND
+
+	MEND
+
+
 
 ;-----------------------------------------
 ;   manupilation of PSR flags
