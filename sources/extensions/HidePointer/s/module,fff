@@ -1,0 +1,194 @@
+; HidePointer
+; Written by Martin Ebourne
+; Reverse-engineered back into source form and 32 bit conversion by Christian Ludlam
+; $Id: module,fff,v 1.1 2002/11/26 20:10:27 christian Exp $
+
+	GET h.System
+	GET h.Macros
+
+		AREA	|Default|,CODE,READONLY
+
+		ENTRY
+
+		DCD	0				; start code
+		DCD	init				; initialisation
+		DCD	final				; finalisation
+		DCD	service				; servce calls
+		DCD	title				; title string
+		DCD	help				; help string
+		DCD	0				; command table
+		DCD	0				; the 4 SWI ones
+		DCD	0				;
+		DCD	0				;
+		DCD	0				;
+		DCD	0				; messages filename
+		DCD	flags				; module flags
+
+flags		DCD	1				; 32 bit compatible
+
+title		=	"HidePointer",0
+help		=	"Hide Pointer",9,"0.20 (00 Jan 0000) © Zap developers",0
+		ALIGN
+
+; init code
+init		FNJSR
+		MOV	R0,#&6A				; read pointer shape and linkage flag
+		MVN	R1,#0
+		SWI	XOS_Byte
+		FNRTS	VS
+		STR	R1,mouse_shape_old
+		STR	R1,mouse_shape
+
+		MOV	R0,#9
+		ADR	R1,ticker
+		MOV	R2,#0
+		SWI	XOS_CallEvery
+
+		MOVVC	R0,#&14				; InsV
+		ADRVC	R1,insv
+		MOVVC	R2,#0
+		SWIVC	XOS_Claim
+
+		MOVVC	R0,#6				; ByteV
+		ADRVC	R1,bytev
+		MOVVC	R2,#0
+		SWIVC	XOS_Claim
+
+		FNRTS	VC
+		BL	final
+		FNRTV
+
+; finalisation code
+final		FNJSR	"R0"
+		MOV	R0,#6				; ByteV
+		ADR	R1,bytev
+		MOV	R2,#0
+		SWI	XOS_Release
+
+		MOV	R0,#&14				; InsV
+		ADR	R1,insv
+		MOV	R2,#0
+		SWI	XOS_Release
+
+		ADR	R0,ticker
+		MOV	R1,#0
+		SWI	XOS_RemoveTickerEvent
+		FNRTS
+
+
+; ticker code - called every 9cs
+ticker		FNJSR	"R0-R2"
+		LDR	R1,ptr_state
+		CMN	R1,#1
+		BNE	ticker_inactive
+		MOV	R0,#&15				; read unbuffered mouse position
+		ADR	R1,word_param
+		SWI	XOS_Word
+		ADR	R0,mouse_pos
+		LDMIA	R0,{R0,R1}			; load new and old positions
+		TEQ	R0,R1
+		STR	R0,mouse_pos_old
+		FNRTS	EQ
+		ADR	R0,mouse_shape_old	   ; -> -> # 266338304 (&FE00000)
+		LDMIA	R0,{R1,R2}
+		TST	R2,#&7F		   ; =127
+		FNRTS	NE
+		TST	R1,#&7F		   ; =127
+		FNRTS	EQ
+ticker_inactive	STR	R1,mouse_shape
+		ORR	R1,R1,#1<<31
+		MOV	R0,#&6A		   ; ="j" (106)
+		SWI	XOS_Byte
+		FNRTS
+
+; InsV interception
+insv		TEQ	R1,#9				; check for Mouse buffer
+		TEQNE	R1,#9 + 1<<31			;
+		BEQ	insv_mouse
+
+		TEQ	R1,#0				; check for Keyboard buffer
+		TEQNE	R1,#0 + 1<<31			;
+		MOVNE	PC,R14
+
+		FNJSR
+		LDR	R14,mouse_shape
+		TST	R14,#&7F			; mouse turned off
+		FNRTS	EQ				;
+		LDR	R14,mouse_shape_old
+		TST	R14,#&80			;
+		FNRTS	NE				; unlinked
+		TST	R14,#&7F	   ; =127
+		BIC	R14,R14,#&7F	   ; =127
+		STR	R14,ptr_state
+		FNRTS
+
+insv_mouse	FNJSR
+		LDR	R14,mouse_shape
+		TST	R14,#&7F	   ; =127
+		FNRTS	NE
+		LDR	R14,mouse_shape_old
+		TST	R14,#&7F	   ; =127
+		STRNE	R14,ptr_state
+		FNRTS
+
+		=	0,0,0
+word_param	=	4
+mouse_pos
+mouse_pos_new	DCD	0
+mouse_pos_old	DCD	0
+
+mouse_shape_old	DCD	0
+mouse_shape	DCD	0
+
+ptr_state	DCD	-1
+
+
+; bytev interception
+bytev		FNJSR					; I'm fairly sure that some OS_Bytes take
+		MRS	R12,CPSR			; flags as inputs
+
+		TEQ	R0,#&6A				; select pointer shape
+		BNE	bytev_done
+		AND	R2,R1,#&7F			; mask shape number
+		CMP	R2,#4
+		LDRHI	R1,mouse_shape_old		; invalid
+		BHI	bytev_done
+
+		LDR	R2,mouse_shape_old
+		PUSH	"R2"
+		AND	R2,R1,#&FF
+		TST	R1,#1<<31
+		STREQ	R2,mouse_shape_old
+		STREQ	R2,mouse_shape
+		BIC	R1,R1,#1<<31
+		MVN	R2,#0
+		STR	R2,ptr_state
+		MOV	R2,R14
+		BL	bytev_callothers
+		PULL	"R1"
+
+bytev_done	MSR	CPSR_f,R12
+		FNRTS
+
+; call other bytev claimants
+; E r2 = previous routines  r12 = flags
+bytev_callothers
+		STMFD	R13!,{R14}
+		MSR	CPSR_f,R12
+		MOV	PC,R2
+
+
+; service handler
+service		TEQ	R1,#&27				; reset
+		BEQ	init
+		TEQ	R1,#&46				; post mode change
+		MOVNE	PC,R14
+		MOV	R1,#0
+		STR	R1,mouse_shape_old
+		STR	R1,mouse_shape
+		STR	R1,ptr_state
+		MOV	R1,#&46				; resotre service number
+		MOV	PC,R14
+
+
+ END
