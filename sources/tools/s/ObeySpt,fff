@@ -1,0 +1,239 @@
+	MACRO
+$l	ZA	$t
+$l	=	"$t", 0
+	ALIGN
+	MEND
+
+XOS_CLI				*	&20005
+XOS_File			*	&20008
+XOS_Module			*	&2001E
+XOS_ReadVarVal			*	&20023
+XTaskManager_EnumerateTasks	*	&62681
+XTaskWindow_TaskInfo		*	&63380
+
+	AREA	|Module|, CODE, READONLY
+
+	&	0
+	&	0
+	&	0
+	&	0
+
+	&	title
+	&	help
+	&	commands
+	&	0
+
+	&	0
+	&	0
+	&	0
+	&	0
+
+	&	flags
+
+flags	&	1
+
+title	=	"ObeySupport", 0
+help	=	"Obey support", 9, "0.05 (21 Nov 2002)", 0
+
+IfInTW_help
+	=	"*", 27, 0, " conditionally executes another command "
+	=	"depending on whether the current task is running in a "
+	=	"taskwindow.", 13
+IfInTW_syntax
+	=	27, 1, " Then <command> [Else <command>]", 0
+
+IfRunning_help
+	=	"*" , 27, 0, " conditionally executes another command "
+	=	"depending on whether the named task is running.", 13
+IfRunning_syntax
+	=	27, 14, "task name> Then <command> [Else <command>]", 0
+
+IfVarSet_help
+	=	"*", 27, 0, " conditionally executes another command "
+	=	"depending on whether a variable is defined.", 13
+IfVarSet_syntax
+	=	 27, 14, "variable> Then <command> [Else <command>]", 0
+
+IfWrite_help
+	=	"*", 27, 0, " conditionally executes another command "
+	=	"depending on whether a file or directory is currently "
+	=	"writable.", 13
+IfWrite_syntax
+	=	27, 14, "file|directory> Then <command> [Else <command>]", 0
+
+commands
+	ZA	"IfInTW"
+	&	IfInTW
+	&	&FF0001
+	&	IfInTW_syntax
+	&	IfInTW_help
+
+	ZA	"IfRunning"
+	&	IfRunning
+	&	&FF0002
+	&	IfRunning_syntax
+	&	IfRunning_help
+
+	ZA	"IfVarSet"
+	&	IfVarSet
+	&	&FF0002
+	&	IfVarSet_syntax
+	&	IfVarSet_help
+
+	ZA	"IfWrite"
+	&	IfWrite
+	&	&FF0002
+	&	IfWrite_syntax
+	&	IfWrite_help
+
+	&	0
+
+
+IfInTW
+	STMFD	r13!,{r14}
+	MOV	r6,r0		; save args string
+	SWI	XTaskWindow_TaskInfo
+	MOVVS	r0,#0
+	MOVS	r5,r0
+	MOVNE	r5,#1		; R5 non-zero if we're in a taskwindow
+
+make_if	ROUT
+	MOV	r3,#0
+0	LDRB	r14,[r6,r3]	; get the length of args string
+	ADD	r3,r3,#1
+	CMP	r14,#" "	; (ctrl-terminated)
+	BHS	%BT0
+	MOV	r0,#6		; claim buffer for a *If command plus args
+	ADD	r3,r3,#5
+	SWI	XOS_Module
+	LDMVSFD	r13!,{pc}
+	MOV	r0,r2
+	MOV	r14,#"I"	; write "If " into the buffer
+	STRB	r14,[r0],#1
+	MOV	r14,#"f"
+	STRB	r14,[r0],#1
+	MOV	r1,#" "
+	STRB	r1,[r0],#1
+	ADD	r14,r5,#"0"
+	STRB	r14,[r0],#1
+	STRB	r1,[r0],#1
+1	LDRB	r14,[r6],#1	; copy the args string into the buffer
+	CMP	r14,#" "
+	MOVLO	r14,#0		; with NUL termination (from ctrl-term)
+	STRB	r14,[r0],#1
+	BHS	%BT1
+	MOV	r0,r2
+	SWI	XOS_CLI		; execute the *If command
+	MOVVC	r5,#0
+	MOVVS	r5,r0		; save the error message or 0
+	MOV	r0,#7		; release the buffer
+	SWI	XOS_Module
+	ADDS	r0,r5,#0	; was there an error? (also clear V)
+	LDMEQFD	r13!,{pc}
+	CMP	pc,#1<<31	; set V (26-bit)
+	MSRVC	CPSR_f, #1<<28	; set V (32-bit)
+	LDMFD	r13!,{pc}
+
+
+IfRunning ROUT
+	STMFD	r13!,{r14}
+	MOV	r6,r0		; save args string
+	MOV	r0,#0
+	MOV	r5,#0
+	SUB	r13,r13,#&10	; temporary workspace for task enumeration
+0	MOV	r1,r13
+	MOV	r2,#&10
+	SWI	XTaskManager_EnumerateTasks
+	ADDVS	r13,r13,#&10
+	LDMVSFD	r13!,{pc}	; abort on error
+	CMP	r0,#0		; no more tasks? execute 'false' part
+	ADDLT	r13,r13,#&10
+	BLT	lose_leading_spaces_for_if
+	LDR	r1,[r13,#4]
+	MOV	r4,r6
+	LDRB	r2,[r4,#0]
+	TEQ	r2,#&22		; use alternate compare if quoted string
+	BEQ	quoted_cmp
+1	LDRB	r2,[r4],#1	; compare, stopping at space/ctrl/failed
+	LDRB	r3,[r1],#1
+	CMP	r2,#" "
+	MOVLS	r2,#0
+	CMP	r3,#" "
+	MOVLO	r3,#0
+	TEQ	r2,r3
+	BNE	%BT0
+	TEQ	r2,#0
+	BNE	%BT1
+	ADD	r13,r13,#&10	; right, got a matching task name...
+	MOV	r5,#1
+	B	lose_leading_spaces_for_if
+quoted_cmp
+	ADD	r4,r6,#1
+2	LDRB	r2,[r4],#1
+	LDRB	r3,[r1],#1
+	TEQ	r2,#&22
+	BLEQ	is_next_a_quote
+	CMP	r2,#" "
+	MOVLO	r2,#0
+	CMP	r3,#" "
+	MOVLO	r3,#0
+	TEQ	r2,r3
+	BNE	%BT0
+	TEQ	r2,#0
+	BNE	%BT2
+	ADD	r13,r13,#&10	; right, got a matching task name...
+	MOV	r5,#1
+	SUB	r6,r4,#1
+3	LDRB	r14,[r6,#1]!	; skip any spaces
+	TEQ	r14,#&20
+	BEQ	%BT3
+	B	make_if
+is_next_a_quote
+	LDRB	r2,[r4],#1
+	TEQ	r2,#&22
+	MOVNE	r2,#0		; ... if not, we're at end-of-string
+	MOV	pc,r14
+
+
+IfVarSet ROUT
+	STMFD	r13!,{r14}
+	MOV	r6,r0
+	MOV	r1,#0
+	MVN	r2,#0
+	MOV	r3,#0
+	MOV	r4,#4
+	SWI	XOS_ReadVarVal
+	MOVS	r5,r2
+	MOVNE	r5,#1
+lose_leading_spaces_for_if
+	SUB	r6,r6,#1
+0	LDRB	r14,[r6,#1]!
+	CMP	r14,#&20
+	BHI	%BT0
+	SUB	r6,r6,#1
+1	LDRB	r14,[r6,#1]!
+	TEQ	r14,#&20
+	BEQ	%BT1
+	B	make_if
+
+
+IfWrite	ROUT
+	STMFD	r13!,{r14}
+	MOV	r6,r0
+	MOV	r1,r0
+	MOV	r0,#17
+	SWI	XOS_File
+	LDMVSFD	r13!,{pc}
+	TEQ	r0,#0		; error if the named object doesn't exist
+	MOVEQ	r0,#19
+	MOVEQ	r2,#0
+	SWIEQ	XOS_File
+	LDMVSFD	r13!,{pc}
+	MOV	r0,#1
+	MOV	r1,r6		; try to update object's catalogue info
+	SWI	XOS_File	; (using its existing info)
+	MOVVS	r5,#0
+	MOVVC	r5,#1
+	B	lose_leading_spaces_for_if
+
+	END
