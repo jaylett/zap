@@ -1,5 +1,5 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.15 2004/11/08 00:39:18 christian Exp $
+; $Id: VDURedraw,fff,v 1.16 2004/11/10 13:04:48 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -48,6 +48,22 @@ redraw_area_vdu
  BLVC get_vdu_fonts		; get handles
  BVS bad$l
  STR R1,[R11,#a_ext2]		; store them
+
+ LDR R9,[R10,#r_flags]
+
+ MOV R0,#0
+ TEQ R8,#0			; init sysf cache if sys font (& R0 non zero if not)
+ BLEQ sysf_init
+ BVS bad$l
+ TEQ R0,#0
+ ORRNE R9,R9,#rf_newfm		; cache usable
+
+ TEQ R8,#0
+ SWINE XFont_CacheAddr		; test for UCS FontManager
+ CMP R0,#340
+ ORRHI R9,R9,#rf_newfm		; UCS available
+
+ STR R9,[R10,#r_flags]
 
  LDR R0,[R11,#a_x1]		; preserve font size
  PUSH "R0"
@@ -146,6 +162,7 @@ bad$l
  MOVNE R11,#0
  MOVS R0,R11
  BLNE cache_free		; free workarea if in cache and we have some
+ BL sysf_flush			; restore system font definitions
  MOVS R0,R9			; restore error pointer, if any
  FNRTS EQ
  FNRTV
@@ -444,15 +461,13 @@ vdu_redraw_line
  LDR R0,[R11,#a_stack4]		; start bac colour
  STR R0,[R11,#a_spr2]		; Hmm...
 
- MOV R1,R3
- MOV R12,#0			; start off with zero flags
- SWI XFont_CacheAddr		; test for UCS FontManager
- CMP R0,#340
- ORRHI R12,R12,#1<<31
- MOV R3,R1
-
  LDR R0,[R11,#a_x1]		; keep starting chunk
  PUSH "R0"
+
+ MOV R12,#0
+ LDR R0,[R10,#r_flags]
+ TST R0,#rf_newfm
+ ORRNE R12,R12,#1<<31
 
  BL vdu_set_colours		; set init for/bac
  LDRVC R2,[R10,#r_flags]
@@ -633,7 +648,7 @@ vrlc_2
 ;	     b2 => Doing merge characters pass
 ;	     b3 => Set to indicate we need to do a merges
 ;	     b4 => Operation has been started
-;           b31 => New FontManager present
+;	    b31 => New FontManager present
 ;X R0=next character number to draw (>=0)
 ;     or -1 if it was a merge
 ;     or -2 if it was the end of the line
@@ -1178,8 +1193,7 @@ vdu_given_one_for
 ; (not to be called directly due to no stacked R14)...
 
 vdu_redraw_char
- TEQ R8,#0
- TSTNE R12,#1<<31
+ TST R12,#1<<31
  BNE newfm$l
 
  ; old FontManager
@@ -1257,6 +1271,9 @@ newfm$l
  TEQ R0,#&7F			; check for cursor chars
  BEQ vrc_2
 
+ TEQ R8,#0
+ BEQ vrc_1n
+
 ; PUSH "R0,R1,R2"		; replace with null glyph if non-existant
 ; MOV R1,R0
 ; MOV R0,#0
@@ -1313,6 +1330,22 @@ vrc_1
  MOVVC R0,R7			; temporarily
  SWIVC XOS_WriteC
  LDMFD R13!,{R1,R2,R7,PC}
+
+vrc_1n
+ PUSH "R1-R2,R7"		; use os_writec
+ MOV R7,R0			; temporarily
+ MOV R0,#4
+ MOV R1,R3
+ MOV R2,R4
+ SWI XOS_Plot			; move to the coordinates
+ MOV R0,R7			; temporarily
+ PULL "R1-R2,R7"
+ CMP R0,#&80
+ BLHS sysf_lookup
+ CMP R0,#256
+ BHS vrc_2
+ SWI XOS_WriteC
+ PULL "PC"
 
 
 vrc_2

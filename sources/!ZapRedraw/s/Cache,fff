@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.25 2004/11/08 21:18:42 christian Exp $
+; $Id: Cache,fff,v 1.26 2004/11/10 13:04:48 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -40,6 +40,10 @@
  EXPORT get_encoding
 
  EXPORT printable_font_name
+
+ EXPORT sysf_init
+ EXPORT sysf_lookup
+ EXPORT sysf_flush
 
 
 ; the cache memory allocate/free routines are based on the first-fit method
@@ -3016,6 +3020,185 @@ loop$l		MOVS	R0,R11
 		LDR	R11,[R11,#enc_next]
 		BL	free_encoding
 		B	loop$l
+
+
+		LOCAL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;      Cache of UCS characters in system font VDU mode		;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; init the system font cache
+; E
+; X R0 = 0 if cache cannot be used, non-zero ow
+sysf_init	FNJSR	"R1-R6"
+		BL	get_r12
+
+		MOV	R1,#&43				; see if we can define ANY UCS characters
+		MOV	R2,#7				;
+		MOV	R3,#&C0				;
+		MOV	R4,#&C0				;
+		SWI	XOS_ServiceCall			;
+		TEQ	R1,#0				; not claimed, so not usable
+		MOVNE	R0,#0				;
+		FNRTS	NE				;
+
+		LDR	R0,[R12,#sysfont_cache]		; allocate the cache
+		TEQ	R0,#0				;
+		MOVEQ	R0,#vc_length			;
+		BLEQ	cache_alloc			;
+		FNRTS	VS				;
+		STR	R0,[R12,#sysfont_cache]		;
+		MOV	R6,R0
+
+		ASSERT	vc_length:MOD:16 = 0
+		MOV	R5,#vc_length			; 16 bytes at a time
+loop$l		MOV	R1,#0
+		MOV	R2,#0
+		MOV	R3,#0
+		MOV	R4,#0
+		STMIA	R0!,{R1-R4}
+		SUBS	R5,R5,#16
+		BNE	loop$l
+
+		ADD	R0,R6,#vc_defs			; init defs pointer
+		STR	R0,[R6,#vc_defs_ptr]
+		FNRTS
+
+
+		LOCAL
+
+
+; flush the cache, restoring char defns
+; E
+; X
+sysf_flush	FNJSR
+		BL	get_r12
+
+		LDR	R2,[R12,#sysfont_cache]		;
+		TEQ	R2,#0				; no cache to clear
+		FNRTS	EQ				;
+
+		LDR	R3,[R2,#vc_defs_ptr]		; end of list marker
+		ADD	R0,R2,#vc_defs
+		MOV	R1,#9
+
+		CMP	R0,R3				; check for any characters at all
+		BHS	none$l
+
+loop$l		SWI	XOS_WriteI+23			; redefine each character
+		SWI	XOS_WriteN			;
+		ADD	R0,R0,#9			;
+		CMP	R0,R3				;
+		BLO	loop$l				;
+
+none$l		MOV	R0,R2				; remove the block
+		BL	cache_free			;
+
+		MOV	R0,#0				; mark as gone
+		STR	R0,[R12,#sysfont_cache]		;
+		FNRTS
+
+
+		LOCAL
+
+
+; get a character from the cache
+; E R0 = UCS character (> &80)
+; X R0 = byte to send to VDU / &106 if not found
+sysf_lookup	FNJSR	"R1-R5,R12"
+		BL	get_r12
+		LDR	R12,[R12,#sysfont_cache]
+
+		CMP	R0,#&A0
+		ADRLO	R1,table$l-(&80*4)		; translate 80-9f into proper UCS space
+		LDRLO	R0,[R1,R0,LSL #2]		;
+
+		MOV	R4,R0				; keep character to look for
+		AND	R1,R0,#&F			; use bottom 4 bits as index
+		ORR	R0,R1,#&80			; character we're looking at
+		MOV	R0,R0,LSL #24
+		MOV	R5,R12
+		SUB	R5,R5,#&80*4
+
+search$l
+		LDR	R2,[R5,R0,LSR #22]
+		TEQ	R2,R4
+		BEQ	found$l				; it was in the cache
+		ADDS	R0,R0,#&10<<24
+		BCC	search$l
+
+		; it wasn't in the cache
+		ADD	R2,R12,#vc_count
+		LDRB	R3,[R2,R1]			; load round-robin counter
+		ADD	R0,R1,R3,LSL #4			; add into top bits
+		ADD	R3,R3,#1
+		STRB	R3,[R2,R1]			; inc counter
+		AND	R0,R0,#&7F
+		ORR	R0,R0,#&80			; target char number
+
+		ADD	R2,R12,#vc_saved-&80
+		LDRB	R3,[R2,R0]
+		TEQ	R3,#0
+		BNE	saved$l
+		STRB	R0,[R2,R0]			; nice non-zero number
+
+		LDR	R1,[R12,#vc_defs_ptr]		;
+		STRB	R0,[R1]				;
+		MOV	R0,#10				;
+		SWI	XOS_Word			;
+		LDRB	R0,[R1],#9			;
+		STR	R1,[R12,#vc_defs_ptr]		;
+
+saved$l		MOV	R3,R0
+		MOV	R2,#7
+		MOV	R1,#&43
+		MOV	R0,R4				; buggy International module
+		SWI	XOS_ServiceCall
+		TEQ	R1,#0				; claimed
+		STREQ	R0,[R5,R3,LSL #2]		; store current char
+		MOVEQ	R0,R3
+		MOVNE	R0,#&100
+		ORRNE	R0,R0,#6
+		FNRTS
+
+found$l		MOV	R0,R0,LSR #24
+		FNRTS
+
+
+table$l		DCD	&20AC				; euro
+		DCD	&174				; Wcircumflex
+		DCD	&175				; wcircumflex
+		DCD	&25F0				; adjust size
+		DCD	&2717				; close
+		DCD	&176				; Ycircumflex
+		DCD	&177				; ycircumflex
+		DCD	&FFFF				; &87
+		DCD	&21E6				; left
+		DCD	&21E8				; right
+		DCD	&21E7				; up
+		DCD	&21E9				; down
+		DCD	&2026				; ellipsis
+		DCD	&2122				; trademark
+		DCD	&2030				; perthousand
+		DCD	&2022				; bullet
+		DCD	&2018				; quoteleft
+		DCD	&2019				; quoteright
+		DCD	&2039				; guilsinglleft
+		DCD	&203a				; guilsinglright
+		DCD	&201c				; quotedblleft
+		DCD	&201d				; quotedblright
+		DCD	&201e				; quotedblbase
+		DCD	&2013				; endash
+		DCD	&2014				; emdash
+		DCD	&2212				; minus
+		DCD	&152				; OE
+		DCD	&153				; oe
+		DCD	&2020				; dagger
+		DCD	&2021				; daggerdbl
+		DCD	&fb01				; fi
+		DCD	&fb02				; fl
 
 
 
