@@ -1,72 +1,55 @@
-# Make file for ZapBits extension
-# using Acorn tools amu, objasm, link
+# Zap Bits Command Extension
+# Copyright (C) 1999 Zap Developers
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+# Make file for Zap Bits Extension
 
-# For the standard build name:
-#	amu
-# For alternative build names:
-#	amu BUILD=foo
-#	amu BUILD=foo-42
-#    "-<n>" is automatically appended if you omit it.
-# BTW, give 'make' lots of memory ;-)
+Linkflags	= -o $@ -B 0x0 -bin -s @.Labels
 
-# To build for Zap 1.40, append "INTL=no" to the command line
+ExtHdrs		= <ZapExtSource$Dir>.h.Macros <ZapExtSource$Dir>.h.RegNames
 
-# Targets:
-#	ZapBits		Assemble .s, build .h, and link. This is the default
-#	ZapBitsHdrs	Remake the automatically-created header files
-#	Clean		Wipe the .o and .t (header marker) files
-
-OBJECTS		= o.module o.commands o.dscomms o.tmtcomms o.utils
-HEADERS		= t.module t.commands t.dscomms t.tmtcomms t.utils
-
-TARGET		= ZapBits
-ZapS		= <ZapSource$Dir>
-as		= objasm
-asflags		= -o $@ -depend !Depend -throwback -stamp -quit
-link		= link
-linkPartFlags	= -aof
-linkFlags	= -bin -B &00000000
+BitsHdrs	= t.module t.commands t.dscomms t.tmtcomms t.utils
+BitsObjs	= o.module o.commands o.dscomms o.tmtcomms o.utils
 
 __BUILD		= -PD "BUILD SETS \"$(BUILD)\""
-__INTL		= -PD "INTL SETS \"$(INTL)"\""
+__INTL		= -PD "INTL SETS \"$(INTL)\""
+__TMFS		= -PD "TMFS SETS \"$(TMFS)\""
 
-ZapBits:	$(OBJECTS) ZapBitsHdrs
-		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
-		Settype $(TARGET) Module
-		Run $(ZapS).data.MCopy $(TARGET) ZapModules:!ZapBits.ZapBits
-		@Echo Finished
+# had -depend !Depend
+Objasmflags	= -I <ZapExtSource$Dir> -o $@ -stamp -Throwback
+Zap		= <Zap$Dir>
+ZapS		= <ZapSource$Dir>
+ZapBits		= <ZapBits$Dir>
+ZapBitsExt	= <ZapExtSource$Dir>.Bits
 
-ZapBitsHdrs:	$(HEADERS)
-		@Echo Made headers
+.SUFFIXES: .s .o .h .t
+.s.t:;		@Run $(ZapS).data.StoH $(ZapBitsExt).s.$* $(ZapBitsExt).h.$*
+		Create $(ZapBitsExt).t.$* 0
 
-Clean:
-		IfThere o.* Then Wipe o.* ~CF~R~V
-		IfThere t.* Then Wipe t.* ~CF~R~V
+.s.o:;		objasm $(Objasmflags) $(__BUILD) $(__TMFS) $(__INTL) $<
 
-# The .t file date gives the last time the header was created from the file.
-# This is usually not the .h date as the .h file is not stamped if the file
-# contents doesn't change.
+# Final target:
 
-.SUFFIXES: .t .s
-
-.s.t:;		@Run $(ZapS).data.StoH s.$* h.$*
-		Create t.$* 0
-
-.s.o:;		$(as) $(asflags) $(__BUILD) $(__INTL) s.$*
+ZapBits:	$(ExtHdrs) $(BitsObjs) $(BitsHdrs)
+		link $(Linkflags) $(BitsObjs)
+		Settype $(ZapBitsExt).$@ Module
+		Run $(ZapS).data.MCopy $(ZapBitsExt).$@ $(ZapBits).ZapBits
+		Run $(Zap).Code.MakeExtern.MakeExtern -ext ZapBits
+		@Echo Made ZapBits
 
 # Dependencies:
 
-t.module: s.module
-t.utils: s.utils
-t.dscomms: s.dscomms
-t.commands: s.commands
-t.tmtcomms: s.tmtcomms
-
-o.module: s.module
-o.utils: s.utils
-o.dscomms: s.dscomms
-o.commands: s.commands
-o.tmtcomms: s.tmtcomms
-
 # Dynamic dependencies:
-

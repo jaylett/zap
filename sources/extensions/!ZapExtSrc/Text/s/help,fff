@@ -1,5 +1,5 @@
 ; Zap Text Command Extension
-; $Id: help,fff,v 1.4 1999/02/26 13:02:11 james Exp $
+; $Id: help,fff,v 1.5 1999/03/02 14:12:12 james Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -290,7 +290,10 @@ help_setupblock
 		FNRTS
 
 		LOCAL
-;help_tmf	=	"HelpSearchPath"
+ [ TMFS = ""
+help_tmf	=	"HelpSearchPath"
+		ALIGN
+ ]
 ; \E r0 termination, r3 initial block
 ; \X r0 updated, r1, r3 preserved
 help_path
@@ -298,13 +301,13 @@ help_path
 		FNJSP	"r1,r3", "r0"			; push r0 as well
 
 ; Start: of simple TMF code ...
-;		ADR	r0,help_tmf
-;		FNcall	Zap_LookupVariable
-;		FNRTP	"r0",EQ				; couldn't find it ...
-;		MOV	r1,r0				; to where the code expects it to be
-
+ [ TMFS = ""
+		ADR	r0,help_tmf
+		FNcall	Zap_ReadVariable
+		FNRTP	"r0",EQ				; couldn't find it ...
+		MOV	r1,r0				; to where the code expects it to be
+ |
 ; Start: of section which will be replaced by simple TMF code ...
-; (Remember to get rid of help_zhpath at the same time)
 		LDRB	r0,[windptr,#w_format]		; mode number
 		FNcall	Zap_ReadMode
 		CMP	r1,#0
@@ -339,6 +342,7 @@ help_path
 		STRB	r0,[r1,r2]			; terminate properly
 
 ; End: of section which will be replaced by simple TMF code ...
+ ]
 		PULL	"r0"				; r1 preserved
 
 		PUSH	"r1"				; value of variable buffer
@@ -350,6 +354,7 @@ help_path
 		B	end$l				; clear up
 
 ; This section will go with TMFs ...
+ [ TMFS > ""
 fail$l		MOV	r0,r5
 		FNcall	Zap_Free
 		FNRTPS	"r0"
@@ -358,8 +363,11 @@ stop$l		PULL	"r3"				; something went wrong ...
 end$l		MOV	r0,r5
 		FNcall	Zap_Free
 ; ... down to here
+ |
+end$l
+ ]
 		MOV	r0,r1
-		FNcall	Zap_Free
+		FNcall	Zap_Free			; free variable value (it's been copied ...)
 		MOV	r0,r3				; restore r0
 		FNRTSS					; no error to be returned
 
