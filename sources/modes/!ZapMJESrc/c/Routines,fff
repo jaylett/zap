@@ -206,13 +206,14 @@ __swi (0x02) void os_write0(const char *);
 __swi (0x00) void os_writec(char);
 __swi (0x03) void os_newline(void);
 void INIT_PRINT(void) { os_writec(4); }
-void PRINT(int i) {
-  char x[12]; os_write0(os_converthex8(i, x, 12)); os_writec(32);
+void PRINT(char c, int i) {
+  char x[12];
+  os_writec(c); os_write0(os_converthex8(i, x, 12)); os_writec(32);
 }
 typedef void (*func)(void);
 #else
 # define INIT_PRINT()
-# define PRINT(x)
+# define PRINT(c,x)
 # define os_newline()
 #endif
 
@@ -236,18 +237,38 @@ static int findpreviousrealline(int offset)
 }
 
 
+static int findprevstatementend(int i)
+{
+  // work back to one of ';' '{' '}', allowing for ()
+  char c;
+  if (!i) return 0;
+  do {
+    do {
+      c = getc(--i);
+      if (c == ')' && !ischarinquoted(i)) {
+        i = findbracketmatch(c, i);
+      if (i < 0)
+        i = 0;
+      }
+    } while (i && c != ';' && c != '{' && c != '}');
+  } while (i && ischarinquoted(i));
+  return zap_basemode_e_linestart(i);
+}
+
+
 static int findstartlineofstatement(int offset)
 {
   int i, j, k;
   char c;
 
-  i = findpreviousrealline(offset);
+  i = findprevstatementend(offset);
+//  i = findpreviousrealline(offset);
   if (i < 1)
     return 0;
   j = i; // record this line for later
 
   INIT_PRINT();
-  PRINT(j);
+  PRINT('j', j);
 
   // work forward to one of ';' '{' '}', counting ()
   i--;
@@ -262,17 +283,8 @@ static int findstartlineofstatement(int offset)
       }
     }
   } while (i < file->len && ischarinquoted(i));
-  // work back to one of ';' '{' '}', counting ()
-  do {
-    do {
-      c = getc(--i);
-      if (c == ')' && !ischarinquoted(i)) {
-        i = findbracketmatch(c, i);
-        if (i < 0)
-          i = 0;
-      }
-    } while (i && c != ';' && c != '{' && c != '}');
-  } while (i && ischarinquoted(i));
+  i = findprevstatementend(i);
+  PRINT('i',i);
   // found one - find start of next non-blank non-comment line
   do {
     do {
@@ -281,26 +293,38 @@ static int findstartlineofstatement(int offset)
       i++;
     } while (i < file->len && escaped(i - 1));
   } while (i < j && (lineisblank(i) || lineisacomment(i)));
-  PRINT(i);
+  PRINT('i',i);
   k = i - 1;
   while (++k < file->len && ((c = getc(k)) == ' ' || c == window->tabchar.byte))
     ;
-  PRINT(k);
+  PRINT('k',k);
   if (chkforwds1(c, k)) {
     // return i if offset in ()
     while (++k < file->len &&
            ((c = getc(k)) == ' ' || c == window->tabchar.byte || alphanum(c)))
       ; // skip any following spaces; k, hopefully, points at '('
-#ifdef DEBUG
-    if (k >= file->len || c != '(') { PRINT(i); os_newline(); }
-#endif
-    if (k >= file->len || c != '(')
+    PRINT('k', k);
+    if (k >= file->len) {
+      PRINT('I',i); os_newline();
       return i;
-    k = findbracketmatch('(', k);
-    PRINT((k < 0 || k >= offset) ? i : j);
-    return (k < 0 || k >= offset) ? i : j;
+    }
+    if (c == '(') {
+      int l = findbracketmatch('(', k);
+      if (l != -1)
+        k = l;
+    }
+    while (k < file->len && getc(k) != window->cr.byte)
+      k++;
+    k++;
+    PRINT('k', k);
+    if (k < 0 || k >= offset)
+      PRINT('I', i);
+    else
+      PRINT('K', k);
+    os_newline();
+    return (k < 0 || k >= offset) ? i : k;
   }
-  PRINT(j);
+  PRINT('J',j);
   os_newline();
   return j;
 //*/
@@ -328,7 +352,7 @@ static char firstcharofline(int offset)
 // Returns true if line is a preprocessor directive...
 static bool preprodirective(int offset)
 {
-  return (firstcharofline(offset) == '#');
+  return ((mode->c.flags1 & 2 == 0) && firstcharofline(offset) == '#');
 }
 
 
@@ -625,7 +649,9 @@ static int findprevnocommentline(int offset)
       ipo = i + 1;
       if (ipo > file->len) ipo = file->len;
       if (i   > file->len) i   = file->len;
-      if (i <= (file->len) && (c == '#' || c == window->cr.byte || (ischarincomment(i) && ischarincomment(ipo)))) {
+      if (i <= (file->len) &&
+          (c == window->cr.byte || (c == '#' && (mode->c.flags1 & 2)) ||
+           (ischarincomment(i) && ischarincomment(ipo)))) {
         start=zap_basemode_e_linestart(start - 1);
       } else fin=true;
     } else fin=true;
@@ -633,6 +659,7 @@ static int findprevnocommentline(int offset)
 
   return start;
 }
+
 
 
 /*
@@ -1497,7 +1524,7 @@ void C_reindent(const char *data,   /* Pointer to string parameter */
     return;
   }
 
-  if (lineisacomment(cursor->off) && (mode->shared.sharedflags1 & 2))
+  if (lineisacomment(cursor->off) && (mode->c.flags1 & 1))
     /* personally want my comments to follow */
   {
     unlearntzap_commandstring("CRIGHT");

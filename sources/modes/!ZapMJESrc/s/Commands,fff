@@ -59,6 +59,7 @@ extracmdtable	DCD	extracmdtable		;  Offset of table from start of module
 		CMD	"MJE_INDENT",indent
 		CMD	"MJE_COMMENTSET",commentset
 		CMD	"MJE_INDENTCOMMENTSET",indentcmntset
+		CMD	"MJE_SHOWPREPROSET",preprocessorset
 
 ;  Help commands
 
@@ -771,18 +772,21 @@ maybe_grey	STMFD	sp!,{r0-r4,lr}
 
 		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable ;  Flags for command
 
-commentset	SAVE
+commentset	MOV	R5,#1
+setshared	MOV	R6,#:INDEX:m_sharedflags1
+setcommon	SAVE
 		MOV	R4,R0
 		MOV	r0,#0
 		BL	checkmode
 		MOVNE	R3,#0
 		BNE	checkforgrey$L
 		RTS	NE
-		LDR	r0,m_sharedflags1
+		LDR	r0,[modeblk,R6]
 		TEQ	r2,#0
-		EOREQ	r0,r0,#1
-		STREQ	r0,m_sharedflags1
-		AND	r3,r0,#1
+		EOREQ	r0,r0,R5
+		STREQ	r0,[modeblk,R6]
+		ANDS	r3,r0,r5
+		MOVNE	r3,#1
 		MOV	R0,R4
 checkforgrey$L	BL	maybe_grey
 		MOVEQ	r0,#0
@@ -790,33 +794,22 @@ checkforgrey$L	BL	maybe_grey
 		ORR	r0,r0,r3
 
 		RTS
-
-		LOCAL
 
 ;  Menu entry for indent comment set
 
-		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable ;  Flags for command
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable
 
-indentcmntset	SAVE
-		MOV	R4,R0
-		MOV	r0,#0
-		BL	checkmode
-		MOVNE	R3,#0
-		BNE	checkforgrey$L
-		RTS	NE
-		LDR	r0,m_sharedflags1
-		TEQ	r2,#0
-		EOREQ	r0,r0,#2
-		STREQ	r0,m_sharedflags1
-		AND	r3,r0,#2
-		MOV	r3,r3,LSR #1
-		MOV	R0,R4
-checkforgrey$L	BL	maybe_grey
-		MOVEQ	r0,#0
-		MOVNE	r0,#2
-		ORR	r0,r0,r3
+indentcmntset	MOV	R5,#1
+		MOV	R6,#:INDEX:m_flags1$C
+		B	setcommon
 
-		RTS
+;  Menu entry for show preprocessor set
+
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable
+
+preprocessorset	MOV	R5,#2
+		MOV	R6,#:INDEX:m_flags1$C
+		B	setcommon
 
 		LOCAL
 
