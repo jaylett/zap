@@ -1,0 +1,316 @@
+; Diff colouring mode
+; $Id: module,fff,v 1.1 2001/04/23 13:51:45 james Exp $
+; 
+; (c) Zap Developers 2001
+	
+	GET	h.Diff
+	GET	h.Version
+	
+	AREA	|!!!Module_Header_Area|,CODE,READONLY
+	ENTRY
+	
+	DCD	0x00
+	DCD	init_code
+	DCD	finalise_code
+	DCD	0x00
+	DCD	title_string
+	DCD	help_string
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+
+help_string = "ZapDiff",9
+	    = version,"(00 Jan 0000)"
+ [ BUILD > ""
+		= " ",BUILD
+  [ (BUILD:RIGHT:1 < "0" :LOR: BUILD:RIGHT:1 > "9") :LAND: patch_level <> ""
+		= "-",patch_level
+  ]
+ |
+  [ test_flag
+		= " [TEST"
+   [ patch_level <> ""
+		= " ",patch_level
+   ]
+		= "]"
+  |
+   [ patch_level <> ""
+		= " patch-",patch_level
+   ]
+  ]
+ ]
+	FNS (" © Zap Developers")
+
+title_string FNS ("ZapDiff")
+
+ws_store	DCD	0
+zap_modulename	=	"Zap", 0
+
+get_workspace
+	LDR	r11, ws_store
+	MOV	pc, lr
+			
+init_code
+	FNJSR
+	LDR	r2, [r12, #0]
+	CMP	r2, #0
+	BNE	module_init
+	MOV	r0, #6
+	MOV	r3, #ws_size
+	SWI	XOS_Module
+	FNRTS	VS
+	STR	r2, [r12, #0]
+	ADRL	r0, ws_store
+	STR	r2, [r0, #0]
+	MOV	r0, #-1
+	STR	r0, [r2, #ws_modenumber]
+	MOV	r0, #0
+	STR	r0, [r2, #ws_menudata]
+module_init
+	MOV	r0, #18
+	ADR	r1, zap_modulename
+	SWI	XOS_Module
+	FNRTS	VS
+	MOV	r12, r4		;  Zap workspace
+	ADR	r0, mode_table
+	FNcall	Zap_AddMode
+	FNRTS
+
+finalise_code
+	FNJSR
+	MOV	r0,#7
+	LDR	r2,[r12]
+	SWI	XOS_Module
+	FNRTS	VS
+	MOV	r0,#0
+	STR	r0,[r12]
+	FNRTS
+
+mode_name
+	=	"Diff", 0
+mode_author
+	=	"James Aylett", 0
+	ALIGN
+		
+mode_table
+	DCD	mode_table
+	DCD	mode_name
+	DCD	mode_author
+	DCD	0		;  basemode = text
+	DCD	emode_UsesMessageTrans :OR: emode_MayBeCloned :OR: emode_ModeWordIsBlock
+	DCD	mode_init
+	DCD	0
+	DCD	mode_table_end - mode_table
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	mode_start
+	DCD	mode_end
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	0
+	DCD	mode_redrawline
+mode_table_end
+
+	LOCAL
+mode_init
+	CMP	r1, #einit_ModeMenu
+	BEQ	init_modemenu
+	CMP	r1, #einit_ModeStarting
+	BEQ	init_modestarting
+
+	CMP	r1, #einit_ColoursSubmenu
+	ADREQ	r1, colsmenu$l
+	MOVEQ	pc, lr
+
+	TEQ	r1, #einit_ModeStarted
+	MOVNE	pc, lr
+
+	FNJSR	"r1-r3, r7, r8"
+
+	MOV	r8, #0
+	LDR	r1, [r11, #ws_modenumber]
+	BL	init_colours
+	FNRTS	VS
+
+	FNcall	Zap_GetModeWord
+	TEQ	r0, #0
+	BEQ	init_config
+
+	LDR	r7, [r0, #0]
+	CMP	r7, #mb_size
+	FNRTS	EQ
+	; Config block is wrong size!
+	; Note that currently this is irrelevant ...
+	MOV	r1, #mb_size
+	FNcall	Zap_Ensure
+	FNRTS	VS
+	MOV	r7, #mb_size
+	STR	r7, [r0, #mb_sizestore]
+	FNcall	Zap_PutModeWord
+	FNRTS
+colsmenu$l
+	=	"diff_colours", 0
+	ALIGN
+
+init_config
+	MOV	r0, #mb_size
+	FNcall	Zap_Claim
+	FNRTS	VS
+	MOV	r7, #mb_size
+	STR	r7, [r0, #mb_sizestore]
+	MOV	r7, #0
+	STR	r7, [r0, #mb_flags]
+	FNcall	Zap_PutModeWord
+	
+	ADR	r3, vardata$l
+	MOV	r2, #0
+	LDR	r7, [r3], #4
+setupvars$l
+	LDR	r0, [r3], #4
+	FNcall	Zap_ModeData
+	ADD	r2, r2, #1
+	CMP	r2, r7
+	BLT	setupvars$l
+	FNRTS
+
+vardata$l
+	DCD	2		; total vars to write
+	DCD	0x77 :OR: (tab_DisplayAsSpaces :SHL: tab_DisplayFormat_config_shift)
+	DCD	0x7 :OR: modeconfig_LineNumberColon :OR: modeconfig_CursorSmart
+	
+init_modestarting
+	LDR	r1, [r11, #ws_modenumber]
+	CMP	r1, #-1
+	STREQ	r0, [r11, #ws_modenumber]
+	MOV	pc, lr
+	
+	LOCAL
+init_modemenu
+	FNJSR
+	BL	load$l
+	LDRVC	r1, [r0, #4]
+	FNRTS
+load$l
+	FNJSR
+	LDR	r0, [r11, #ws_menudata]
+	CMP	r0, #0
+	FNRTS	NE
+
+	ADR	r0, menu_path$l
+	FNcall	Zap_LoadMenu
+	STRVC	r0, [r11, #ws_menudata]
+	FNRTS
+menu_path$l
+	=	"<ZapDiff$Menus>", 0
+	ALIGN
+
+	LOCAL
+init_colours
+	FNJSR	"r1-r5"
+	MOV	r0, #-1
+	FNcall	Zap_ModeColourNum
+	CMP	r0, #colour_max
+	FNRTS	GE
+
+	MOV	r0, #colour_max
+	FNcall	Zap_ModeColourNum
+	MOV	r2, #colour_base
+	ADR	r3, cols$l
+set_col$l
+	LDR	r0, [r3], #4
+	FNcall	Zap_ModeColour
+	ADD	r2, r2, #1
+	CMP	r2, #colour_max
+	BLT	set_col$l
+	FNRTS	
+cols$l
+	DCD	0xbbefef10	; beige
+	DCD	0x0000dd10	; red
+	DCD	0x00cc0010	; green
+
+mode_start
+	FNJSR
+	LDRB	r0, [r8, #w_format] ; mode number
+	FNcall	Zap_RestoreModeWord
+	FNRTS
+
+mode_end
+	FNJSR
+	LDRB	r0, [r8, #w_format] ; mode number
+	FNcall	Zap_SaveModeWord
+	FNRTS
+
+	LOCAL
+mode_redrawline
+	FNJSR
+
+	LDRB	r0, [r7, #0]	; first char of line
+	PUSH	"r0, r6, r9"
+	; Can't use Zap_BaseMode because r11 is a parameter to e_redrawline :-(
+	MOV	r0, #0
+	FNcall	Zap_ReadMode
+	MOV	lr, pc
+	LDR	pc, [r1, #(2*e_redrawline)]
+
+	PULL	"r4, r6, r9"	; r4 = first char of line
+	LDR	r0, [r9, #f_splito]
+	CMP	r0, #0
+	LDREQ	r0, [r9, #f_splite]
+	MOVNE	r0, #0
+	LDR	r1, [r9, #f_ptr]
+	LDRB	r0, [r0, r1]		; first byte of file
+
+	CMP	r0, #'-'	; => unified, else normal
+	BEQ	unified$l
+normal$l
+	; add start '>', remove start '<'
+	; control lines are everything else
+	CMP	r4, #'>'
+	MOVEQ	r1, #colour_add
+	BEQ	drawline$l
+
+	CMP	r4, #'<'
+	MOVEQ	r1, #colour_remove
+	BEQ	drawline$l
+
+	MOV	r1, #colour_control
+	B	drawline$l
+unified$l
+	; add start '+', remove start '-'
+	; control start '@', ignore everything else
+	CMP	r4, #'+'
+	MOVEQ	r1, #colour_add
+	BEQ	drawline$l
+
+	CMP	r4, #'-'
+	MOVEQ	r1, #colour_remove
+	BEQ	drawline$l
+
+	CMP	r4, #'@'
+	MOVEQ	r1, #colour_control
+	BEQ	drawline$l
+	FNRTS	NE
+
+drawline$l
+	LDR	r0, [r8, #w_txtw]
+	ADD	r6, r6, r0
+loop$l	STRB	r1, [r6],#1
+	SUBS	r0, r0, #1
+	BNE	loop$l
+	
+	FNRTS
+		
+	END
