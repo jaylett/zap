@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.8 1999/01/30 00:30:20 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.9 1999/02/02 00:53:33 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -31,8 +31,12 @@
  EXPORT check_object_type
  EXPORT generate_error
  EXPORT init_external
+ EXPORT init_clones
  EXPORT remove_external_object
  EXPORT get_pointer_to_code_cols
+ EXPORT	add_clone_mode_entry
+ EXPORT find_clone_mode_entry
+ EXPORT remove_clone_mode_entry
 
 stack_size		* &800		; stack size
 initial_wimpslot	* 96*1024	; 96K initial wimpslot
@@ -172,6 +176,7 @@ list$l
  DCD &20,ext_modes	; &40
  DCD &20,ext_comms	; &80
  DCD &10,ext_messages
+ DCD &20,ext_clones
  DCD 4,ext_comm_flags
  DCD 0,wimp_clicksend
  DCD 0,startup_command
@@ -602,6 +607,9 @@ write_config_block
  BL read_mode			; R1=linked mode table
  CMP R1,#0			; was this a valid mode?
  FNRTS LE			; Mode not valid so exits
+ LDR R0,[R1,#e_basemode*2+4]	; get clone base mode number
+ TST R0,#1<<31			; is the clone marked as deleted?
+ FNRTS NE			; return if so
  ADD R0,R12,#opt_mode0
  LDR R4,[R0,R8,LSL#2]		; mode word contents
  LDR R10,[R1,#e_mode*2]		; mode flags
@@ -1061,8 +1069,9 @@ start$l				; load the module and do a command
 ; in the file, then &80000000 is used to indicate this.
 
 ;E R10=pointer to mode/command name/message number string
-;  R3=object type (0=mode 1=command 2=message)
+;  R3=object type (0=mode 1=command 2=message 3=clone mode)
 ;  R4=pointer to name of module to load to deal with this command/mode/mess
+;     or the clone base mode (if R3=3)
 ;X Object added #
 
 add_external_object
@@ -1166,6 +1175,8 @@ remove_external_object
  BL sub$l
  FNLDR R1,ext_comms		; remove from external commands
  BL sub$l
+ FNLDR R1,ext_clones		; remove from clones list
+ BL sub$l
  FNLDR R1,ext_messages
 a$l
  LDMIA R1!,{R0,R14}
@@ -1194,5 +1205,143 @@ b$l
  MOVEQ R14,#0
  STREQ R14,[R1,#-4]
  B b$l
+
+	LOCAL
+
+;X Clone modes added to external list
+
+init_clones
+	FNJSR	"R1-R5"
+	FNLDR	R5,wimp_config
+	MOV	R0,#4
+loop$l	LDR	R0,[R5,R0]!
+	TEQ	R0,#0
+	FNRTS	EQ			; return if no more blocks
+	TEQ	R0,#3
+	BNE	next$l			; not type 3
+	ADD	R1,R5,#8
+skip$l	LDRB	R0,[R1],#1		; find clone base name
+	TEQ	R0,#0
+	BNE	skip$l
+	ADD	R2,R5,#8		; mode name
+	BL	strCMP
+	ADDNE	R1,R5,#8
+	BLNE	add_clone_mode_entry	; if names differ, add to list
+	FNRTS	VS
+next$l	LDR	R0,[R5,#4]		; block length
+	B	loop$l
+
+	LOCAL
+
+;E R1 -> mode name, \0, clone base name
+;X clone mode entry added
+
+add_clone_mode_entry
+	FNJSR	"R1-R5"
+	FNLDR	R2,ext_clones
+findend$l
+	LDR	R3,[R2],#4
+	TEQ	R3,#0
+	BNE	findend$l
+	FNLDR	R0,ext_clones
+	SUB	R2,R2,R0
+	ADD	R1,R2,#4
+	BL	heap_ensure
+	FNRTS	VS
+	FNSTR	R0,ext_clones
+	MOV	R1,#0
+	STR	R1,[R2,R0]!
+	MOV	R0,R1
+	BL	str_len
+	ADD	R3,R0,#1
+	ADD	R0,R1,R3
+	BL	str_len
+	ADD	R3,R3,R0
+	ADD	R3,R3,#1
+	MOV	R0,R3
+	BL	heap_claim
+	FNRTS	VS
+	STR	R0,[R2,#-4]
+	MOV	R1,R0
+	LDR	R2,[R13]
+	BL	strcopy
+	BL	strcopy
+	FNRTS
+
+	LOCAL
+
+;E R1 -> mode name
+;X R0 -> clone base mode name / 0 if not found
+;  R1 -> mode name (in list)
+
+find_clone_mode_entry
+	FNJSR	"R1-R3"
+	FNLDR	R3,ext_clones
+loop$l	LDR	R1,[R3],#4
+	TEQ	R1,#0
+	FNRTS	EQ
+	LDR	R2,[R13]
+	BL	strCMP
+	BNE	loop$l
+	LDR	R0,[R3,#-4]
+	MOV	R1,R0
+skip$l	LDRB	R2,[R0],#1
+	TEQ	R2,#0
+	BNE	skip$l
+	STR	R1,[R13]
+	FNRTS
+
+	LOCAL
+
+;E R1 -> mode name
+;X if found in the clones list:
+;    mode removed from clones list, config block deleted if not already read
+;    if instantiated then mode is marked as deleted (but remains available)
+
+remove_clone_mode_entry
+	FNJSR	"R1-R7"
+	BL	find_clone_mode_entry
+	TEQ	R0,#0
+	FNRTS	EQ
+	FNLDR	R3,ext_clones
+	MOV	R4,R3
+loop$l	LDR	R2,[R3],#4
+	TEQ	R2,R1
+	STRNE	R2,[R4],#4
+	TEQ	R2,#0
+	BNE	loop$l
+	LDR	R0,[R13]
+	BL	test_mode_name
+	TEQ	R0,#0
+	BMI	notinstantiated$l
+	BL	read_mode
+	LDR	R0,[R1,#2*e_basemode+4]!
+	ORR	R0,R0,#1<<31
+	STR	R0,[R1]
+notinstantiated$l
+	FNLDR	R5,wimp_config
+	MOV	R0,#4
+loop2$l	LDR	R0,[R5,R0]!
+	TEQ	R0,#0
+	FNRTS	EQ			; return if no more blocks
+	TEQ	R0,#3
+	BNE	loop$l			; not type 3
+	ADD	R1,R5,#8		; mode name
+	LDR	R2,[R13]
+	BL	strCMP
+	BNE	loop2$l
+	FNLDR	R6,wimp_config
+	FNLDR	R7,wimp_conlen
+	LDR	R4,[R5,#4]
+	ADD	R4,R5,R4		; next block
+	MOV	R1,R4
+	MOV	R2,R5
+	SUB	R3,R4,R6
+	SUB	R3,R7,R3
+	BL	move_bytes
+	SUB	R0,R4,R5		; amount deleted
+	SUB	R7,R7,R0
+	FNSTR	R7,wimp_conlen
+	FNRTS
 
  END

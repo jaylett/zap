@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.7 1999/01/30 00:30:16 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.8 1999/02/02 00:53:30 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -16,6 +16,7 @@
  GET h.TMTVars
  GET h.Mode4
  GET h.Version
+ GET h.StartUp
 
  IMPORT err23
  IMPORT read_given_config_block
@@ -487,9 +488,7 @@ load_mode_module
  LDRB R14,[R0]
  CMP R14,#&20
  BLE load$l
-; PUSH "R1-R12"			; needed?
  SWI XWimp_StartTask		; execute it (non null) ('s OK...)
-; PULL "R1-R12"			; needed?
 load$l
  FNLDR R2,com_number		; save current number of command tables
  MOV R0,#1
@@ -1320,8 +1319,7 @@ find_mode_number
 loop$l
  LDR R0,[R4]
  TEQ R0,#0
- MOVEQ R0,#-1			; not found
- FNRTS EQ			; reached the end of the list
+ BEQ tryclones$l		; reached end of ext_modes list
  MOV R0,R4
  BL str_len			; get length of string
  MOV R1,R4			; string pointer
@@ -1339,6 +1337,63 @@ loop$l
  MOVVC R0,R10
  BLVC test_mode_name		; try again!
  FNRTS
+tryclones$l ; warning: horrible
+ SWI 256+4
+ SWI 256+26
+ SWI 256+'A'
+	MOV	R1,R10
+	BL	find_clone_mode_entry
+	TEQ	R0,#0
+	MOVEQ	R0,#-1		; return if not found
+	FNRTS	EQ
+	MOV	R10,R1		; case-correct name
+	BL	find_mode_number ; load the clone base mode (recursion!)
+	FNRTS	VS
+	TEQ	R0,#0
+	FNRTS	MI		; return if failed to load the base mode
+	MOV	R4,R0		; save base mode number
+	BL	read_mode
+	MOV	R3,R0		; unlinked table address
+	MOV	R0,R10
+	BL	str_len
+	LDR	R1,[R3,#e_len]
+	ADD	R0,R0,R1
+	ADD	R0,R0,#1
+	BL	heap_claim
+	FNRTS	VS
+ MOV R14,#&8000
+ STR R0,[R14]
+	LDR	R1,[R3,#e_len]
+copy$l	SUBS	R1,R1,#4	; copy the unlinked table
+	LDR	R14,[R3,R1]
+	STRNE	R14,[R0,R1]
+	BNE	copy$l
+	ADD	R14,R14,R0	; fiddle e_module
+	SUB	R14,R14,R3
+	STR	R14,[R0,#e_module]
+	LDR	R1,[R0,#e_len]
+	MOV	R2,R10
+	ADD	R14,R14,R1
+	ADD	R1,R1,R0
+	STR	R14,[R0,#e_title] ; fiddle e_title
+	PUSH	"R0"
+	BL	strcopy		; copy the name
+	PULL	"R0"
+	BL	add_new_mode
+	BLVC	init_modes
+	FNRTS	VS
+ SWI 256+'B'
+	MOV	R0,R10
+	BL	test_mode_name
+	CMP	R0,#0
+	MOVLT	R0,R4
+	FNRTS	LT		; not initialised? return base mode (erk!)
+	MOV	R3,R0
+	BL	read_mode
+ SWI 256+'C'
+	STR	R4,[R1,#2*e_basemode+4] ; write the clone base mode number
+	MOV	R0,R3		; return clone mode number
+	FNRTS
 
  LOCAL
 
