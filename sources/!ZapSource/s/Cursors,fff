@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.11 1999/04/20 17:51:12 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.12 1999/04/24 01:24:07 ds Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -80,6 +80,7 @@
 	EXPORT set_caret
 	EXPORT indent_selection
 	EXPORT word_align_caret
+	EXPORT word_align_caret_variable
 	EXPORT offset_line_column
 	EXPORT plot_caret
 	EXPORT caret_writable
@@ -2341,22 +2342,29 @@ gi1
  ADD R0,R0,R14,LSL#w_shift
  FNRTS
 
+ LOCAL
+
 ;E R10=caret
 ;X caret word aligned if window in mode 2/4 #
 
 word_align_caret
- STMFD R13!,{R8-R9,R14}
+ MOV R0,#3
+;E R0 = 2^n-1 (alignment to 2^n byte boundary)
+word_align_caret_variable
+ STMFD R13!,{R0,R8-R9,R14}
  LDR R0,[R10,#c_wind]
  BL conv_wind_off
  TEQ R8,#0
- LDMEQFD R13!,{R8-R9,PC}
- LDRB R0,[R8,#w_format]		; get draw type
- TEQ R0,#2
- TEQNE R0,#4
- LDMNEFD R13!,{R8-R9,PC}
+ LDMEQFD R13!,{R0,R8-R9,PC}
+ MOV R0,#2			; word mode or clone?
+ BL isthisaclonebase
+ MOVNE R0,#4			; code mode or clone?
+ BLNE isthisaclonebase
+ LDMNEFD R13!,{R0,R8-R9,PC}
  LDR R0,[R10,#c_off]
- TST R0,#3
- BICNE R0,R0,#3
+ LDMFD R13!,{R14}
+ TST R0,R14
+ BICNE R0,R0,R14
  STRNE R0,[R10,#c_off]
  BLNE reflect_caret
  LDMFD R13!,{R8-R9,PC}
