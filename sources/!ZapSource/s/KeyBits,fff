@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.12 1999/02/22 18:49:32 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.13 1999/05/24 23:27:17 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -14,6 +14,7 @@
  GET h.Template
  GET h.TMTVars
  GET h.Messages
+ GET h.TMFs
 
  IMPORT err41
  IMPORT get_MacroBox
@@ -1057,8 +1058,14 @@ rk_keymap
 	SUB	R3,R3,#&400	; variable number
 	TEQ	R3,#0
 	BNE	declare$l
+	PUSH	"R10"
 	BL	str_readnum
 	FNSTR	R0,key_default,VC
+	PULL	"R14",VC
+	FNRTS	VC
+	PULL	"R10"		; not a number? must be a name
+	BL	rk_keymap_getname
+	FNSTR	R14,key_default,VC
 	FNRTS
 declare$l
 	BL	str_readnum
@@ -1837,6 +1844,17 @@ notfound$l
  MOV R0,#0
  FNRTS
 
+;E R0->table name or =table number
+;X R0=table number or -ve if no match (nonexistent)
+
+find_key_table_maybe_name
+	CMP	R0,#256
+	BHS	find_key_table_by_name
+	FNJSR
+	BL	find_key_table
+	LDRPL	R0,[R0]
+	FNRTS
+
  LOCAL
 
 ;E R0=table number
@@ -1882,47 +1900,38 @@ loop$l	LDR	R0,[R4],#20
 ;X Base map, current map, help map, default map set up for current mode
 
 init_basemap
- STMFD R13!,{R0-R2,R14}
- MOV R0,#-1
- LDRB R1,[R8,#w_format]
- MOV R2,#2
- BL mode_data			; mode's base map
- MOV R1,R0
- AND R0,R0,#255
- BL find_key_table
- BLMI whoops$l
- STRB R1,[R8,#w_basemap]
- STRB R1,[R8,#w_currentmap]
- STRB R1,[R8,#w_helpmap]
- STRB R1,[R8,#w_defaultmap]
- LDMFD R13!,{R0-R2,PC}^
-whoops$l
- STMFD R13!,{R14}		; badly configured basemap...
- FNLDR R1,key_default
- BL find_key_table
- MOVPL R0,R1			; set it to the global basemap,
- MOVMI R0,#0			; or 0 if that's bad
- STMFD R13!,{R0}
- MOV R0,#-1
- LDRB R1,[R8,#w_format]
- MOV R2,#2
- LDMFD R13,{R14}
- BIC R0,R0,#255
- ORR R0,R0,R14
- LDRB R1,[R8,#w_format]
- MOV R2,#2
- BL mode_data
+ FNJSR "R0-R2"
+ ADR R0,basemap$l
+ BL get_mode_variable
+ BEQ nomap$l			; no basemap variable - use default
+ BL find_key_table_by_name
+ BVC setmap$l
+nomap$l
+ MOVVC R1,#0			; 0 if no map name
+ MOVVS R1,#1			; 1 if error
+ FNLDR R0,key_default
+ BL find_key_table_maybe_name
+ MOVMI R0,#0			; set to 0 if default basemap is bad
+ MOVMI R1,#1
+ TEQ R1,#0
+ BEQ setmap$l
  MVN R1,#0
  ADR R2,warn$l
  MOV R3,R8
  BL call_back
- MOV R1,#0
- LDMFD R13!,{R1,PC}^
+ MOV R0,#0
+setmap$l
+ STRB R0,[R8,#w_basemap]
+ STRB R0,[R8,#w_currentmap]
+ STRB R0,[R8,#w_helpmap]
+ STRB R0,[R8,#w_defaultmap]
+ FNRTSS
 warn$l
  FNJSR "R8-R10"
  MOV R8,R11
  BL bad_keymap
  FNRTS
+basemap$l =	"Basemap",0
 
 ;X R0,R1 corrupt; warning displayed
 

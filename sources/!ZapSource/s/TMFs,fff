@@ -1,5 +1,5 @@
 ; Contains TMF (configuration) variable code.
-; $Id: TMFs,fff,v 1.1.2.1 1999/02/17 18:00:42 dj Exp $
+; $Id: TMFs,fff,v 1.1.2.2 1999/05/24 23:27:18 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Strings
@@ -109,9 +109,8 @@ get_mode_variable
 
 	CMP	r8,#0
 	MOVEQS	r0,#0			; no way of getting a result
-	FNRTS	EQ
 
-	BL	get_var_from_mode
+	BLNE	get_var_from_mode
 
 	FNRTS
 
@@ -176,8 +175,8 @@ vt_loop$l
 	CMP	r2,#0
 	BEQ	nomatch$l
 	BL	strcmp			; r0-r2 corrupted, Z => equality
-	BEQ	match$l
-	B	vt_loop$l
+	BNE	vt_loop$l
+	B	match$l
 
 ; \E r4-r6 stacked
 ; Must call other routines with:
@@ -203,9 +202,12 @@ nope$l	MOVS	r0,#0			; SEZ
 ; \E r1 mode dispatch table, r2 variable name, !!! return r1-r3,lr stacked
 ; Call get_var_from_given_mode$l with r0 the basemode.
 get_from_parent
+	LDR	r0,[r1,#d_clonebasemode]; clone base mode number
+	LDRB	r14,[r1,#2*e_mode]	; this mode number (hope!)
+	CMP	r0,r14
+	BNE	get_var_from_given_mode$l
 	LDR	r0,[r1,#2*e_basemode]	; basemode number
-	LDRB	r1,[r1,#2*e_mode]	; this mode number (hope!)
-	CMP	r0,r1
+	CMP	r0,r14
 	MOVEQ	r0,#0			; reached top of inheritance table
 	FNRTS	EQ			; so just return "shrug"
 	B	get_var_from_given_mode$l
@@ -566,10 +568,9 @@ increase_vartable$l
 	FNJSR	"r1"
 	ADD	r1,r3,#vartable_pagesize_BYTES
 	BL	heap_ensure
-	FNRTS	VS
-	ADD	r3,r3,#vartable_pagesize_BYTES
-	STR	r3,[r0,#vartable_table_size]
-	STR	r0,[r9,#d_variabletable]
+	ADDVC	r3,r3,#vartable_pagesize_BYTES
+	STRVC	r3,[r0,#vartable_table_size]
+	STRVC	r0,[r9,#d_variabletable]
 	FNRTS
 
 ; \E r1 mode dispatch table, r4 mode number
@@ -597,9 +598,9 @@ load_tmf$l
 	MOV	r3,r2			; store in case we need to free it
 	MOV	r2,#0			; use RMA
 	SWI	XMessageTrans_OpenFile
-	BVS	free_notmf$l		; didn't work
+;	BVS	free_notmf$l		; didn't work
 ;	MOV	r3,r0			; block to store & return -- unnecessary
-	B	return$l
+	BVC	return$l
 
 free_notmf$l
 	MOV	r0,#7
@@ -653,9 +654,8 @@ get_mode_tmf
 	MOV	r4,#0
 	SWI	XOS_ReadVarVal
 	MOVVS	r1,#0
-	FNRTS	VS			; error
-	MOV	r0,#0
-	STRB	r0,[r1,r2]		; ensure there's a terminator
+	MOVVC	r0,#0
+	STRVCB	r0,[r1,r2]		; ensure that there's a terminator
 	FNRTS
 
 sysvar_start
