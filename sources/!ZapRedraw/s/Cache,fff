@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.32 2004/11/22 17:15:32 christian Exp $
+; $Id: Cache,fff,v 1.33 2005/01/04 00:10:49 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -1096,8 +1096,8 @@ loop$l		CMP	R6,#256				;
 		MLA	R4,R6,R3,R10			; get address
 		MOV	R0,#6				; null glyph
 		BL	adb_create_sub			;
-		ADD	R6,R6,#1                        ;
-		B	loop$l                          ;
+		ADD	R6,R6,#1			;
+		B	loop$l				;
 
 err$l		PUSH	"R0"
 		MOV	R0,R10
@@ -2218,7 +2218,6 @@ search$l	LDR	R2,[R1,#4]			; search for a free block
 		SUBS	R3,R3,R0
 		CMPNE	R3,#cache_min
 		MOVLSS	R3,#0
-;		STRNE	R3,[R2]
 		LDREQ	R4,[R2,#4]			; remove now 0 size free area from
 		STREQ	R4,[R1,#4]			; the list
 
@@ -2227,7 +2226,6 @@ search$l	LDR	R2,[R1,#4]			; search for a free block
 		STRNE	R3,[R4]				; allocate from the bottom to
 		LDRNE	R3,[R2,#4]			; merge with new space from
 		STRNE	R3,[R4,#4]			; cache_grow)
-;		MOVNE	R4,R5
 		STR	R0,[R2]
 		ADD	R0,R2,#4
 		FNRTS
@@ -2322,8 +2320,6 @@ cache_grow	FNJSR	"R0"				; svc mode
 		ADD	R0,R0,R2			; store size of new space
 		STR	R1,[R0],#4
 		BL	cache_free			; add it to the free list
-		;FNLDR	R0,cache_freespace
-		;ADD	R1,R0,R1
 		FNRTS
 
 		LOCAL
@@ -2401,17 +2397,6 @@ loop$l		LDR	R0,[R4,#4]!			; must leave r4 pointing to pointer
 
 		SUBS	R5,R5,#1
 		BNE	loop$l
-
-		;ADD	R4,R12,#encodings		; fix the encodings list
-		;LDR	R0,[R4]				;
-		;BL	check_pointer			;
-							;
-encs$l		;TEQ	R0,#0				;
-		;FNRTS	EQ				;
-		;LDR	R4,[R0,#enc_next]		;
-		;BL	correct_encoding		;
-		;MOV	R0,R4				;
-		;B	encs$l				;
 		FNRTS
 
 		LOCAL
@@ -2421,7 +2406,7 @@ encs$l		;TEQ	R0,#0				;
 ; E r0 -> block  r1-r3 as above
 ; X pointers corrected
 correct_font_block
-		FNJSR	"R4-R5"
+		FNJSR	"R4-R10"
 		ADD	R4,R0,#fb_name
 		BL	check_pointer
 
@@ -2429,14 +2414,28 @@ correct_font_block
 		TST	R5,#ff_vdu
 		MOVEQ	R5,#substyles			; VDU fonts only have 2 'substyles' -
 		MOVNE	R5,#2				; antialiased and not
+		MOV	R7,R0
 		ADD	R4,R0,#fb_data-4
 
-loop$l		LDR	R0,[R4,#4]!
-		BL	check_pointer
-		CMP	R0,#0
-		CMPNE	R0,#-1
-		BLNE	correct_font_data
-		SUBS	R5,R5,#1
+loop$l		LDR	R0,[R4,#4]!			; load uncorrected pointer
+		CMP	R0,#0                           ;
+		CMPNE	R0,#-1                          ;
+		BEQ	ok$l                            ;
+
+		BL	check_pointer			;
+		LDR	R10,[R4]			; load corrected pointer
+
+		ADD	R8,R7,#fb_data-4		; check if this is a shared substyle
+loop2$l		LDR	R9,[R8,#4]!			;  which has already been corrected
+		CMP	R8,R4				;
+		BHS	fix$l				;
+		TEQ	R9,R10				;
+		BEQ	ok$l				;
+		B	loop2$l				;
+
+fix$l		BL	correct_font_data		; check block at uncorrected pointer
+
+ok$l		SUBS	R5,R5,#1
 		BNE	loop$l
 		FNRTS
 
@@ -3226,11 +3225,11 @@ sysf_init	FNJSR	"R1-R6"
 
 		ASSERT	vc_length:MOD:16 = 0
 		MOV	R5,#vc_length			; 16 bytes at a time
-loop$l		MOV	R1,#0
+		MOV	R1,#0
 		MOV	R2,#0
 		MOV	R3,#0
 		MOV	R4,#0
-		STMIA	R0!,{R1-R4}
+loop$l		STMIA	R0!,{R1-R4}
 		SUBS	R5,R5,#16
 		BNE	loop$l
 
