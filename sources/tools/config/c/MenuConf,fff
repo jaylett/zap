@@ -1,5 +1,5 @@
 /*
- * $Id: MenuConf,fff,v 1.2 1999/10/01 09:52:39 james Exp $
+ * $Id: MenuConf,fff,v 1.3 1999/10/22 11:00:08 james Exp $
  * -*- c -*-
  * MenuConf
  * Configure which options to use in building the Menus file, and then build it.
@@ -29,10 +29,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
 
 #include "coopt.h"
 
-#define VERSION_STRING "v0.2 (c) James Aylett 1999"
+#define VERSION_STRING "v0.3 (c) James Aylett 1999"
 
 struct option
 {
@@ -249,29 +250,38 @@ main(int argc, char const * const * argv)
   while (interactive && bogey)
   {
     int i;
-    int opt_input, store_input;
+    long opt_input, store_input;
     opt = list_head->next;
     i=1;
     while (opt!=list_head)
     {
-      printf("%4i: %s%s\n        %s\n", i, opt->option,
-                                       (opt->flags.data.selected)?(" [selected]"):(""),
-                                       opt->help);
+      printf("%s%4i: %s\n        %s\n",
+             (opt->flags.data.selected)?(" *"):("  "),
+             i, opt->option,
+             opt->help);
       opt = opt->next;
       i++;
     };
     do
     {
+      char tempbuf[10];
       opt_input=-1;
-      printf("\nSelect an option to toggle, or 0 to generate using these options: ");
-      /* We can't drain properly in a portable way, so let's do the following
-       * evil thing ...
-       */
-      if (scanf("%i", &opt_input)!=1)
-      {
-/*        char *temp=NULL;*/
-        while (scanf("%*1c")==1);
+      printf("\nSelect an option to toggle, or Q to generate using these options: ");
+      if (fgets(tempbuf, 10, stdin)==NULL)
         opt_input=-1;
+      else
+      {
+        /* remember that fgets() reads the '\n' as well */
+        if (strcmp(tempbuf,"Q\n")==0 || strcmp(tempbuf,"q\n")==0)
+        {
+          opt_input=0;
+        }
+        else
+        {
+          opt_input = strtol(tempbuf, NULL, 10);
+          if (opt_input==0 || opt_input==LONG_MAX || opt_input==LONG_MIN)
+            opt_input=-1;
+        }
       }
     } while (opt_input==-1);
     if (opt_input==0)
@@ -287,17 +297,17 @@ main(int argc, char const * const * argv)
       }
       if (opt==list_head)
       {
-        printf("%i isn't a valid option!\n\n", store_input);
+        printf("%li isn't a valid option!\n\n", store_input);
       }
       else
       {
         opt->flags.data.selected = 1 - opt->flags.data.selected;
-        printf("Toggled option %i.\n\n", store_input);
+        printf("Toggled option %li.\n\n", store_input);
       }
     }
   }
 
-  /* FIXME: and generate! */
+  /* and generate! */
   offset=0;
   if (generator==NULL)
     generator = "ZapCode:Tools.MakeMenus.MakeMenus";
