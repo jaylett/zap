@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.32 1999/06/05 17:24:45 ds Exp $
+; $Id: Commands,fff,v 1.1.2.33 1999/06/06 22:36:22 ds Exp $
 
 c_Conditional	* (1<<21)
 
@@ -623,9 +623,13 @@ a$l	MOV	R0,R6
 	CMP	R0,#0			; has it been closed?
 	FNRTS	PL			; ... yes - return
 ok$l	MOV	R0,R5
+	BL	read_mode
+	TEQ	R0,#0
+	BEQ	next$l
+	MOV	R0,R5
 	BL	mode$l
 	BL	callallroutine2$l
-	ADD	R5,R5,#1
+next$l	ADD	R5,R5,#1
 	CMP	R5,#max_mode
 	BCC	a$l
 	MOV	R0,R11
@@ -3145,24 +3149,39 @@ tochangeibmode
  BL new_mode
  FNRTS
 
- DCD 1
+	DCD	1:OR:c_Param_Words
 Makedefault
- FNJSR
- FNLDR R11,opt_format
- LDRB R0,[R8,#w_format]		; the mode whose options we're interested in
- BL tochangeibmode		; change mode from IB first!!!
+	FNJSR
+	LDR	R0,[R0]
+	FNLDRB	R11,opt_format
+	TEQ	R0,#0
+	BEQ	makedefault$l
+	MOV	R6,R8
+	MOV	R5,#0
+	FNLDRB	R4,opt_format
+loop$l	MOV	R0,R5
+	BL	read_mode
+	TEQ	R0,#0
+	BEQ	next$l
+	MOV	R1,R5
+	BL	make_default_mode
+	MOVVC	R0,R5
+	BLVC	copy_back_a_mode_buffer
+	FNRTS	VS
+	TEQ	R5,R4
+	MOV	R8,#0
+	BLEQ	modes_start		; fiddle it for the default mode
+	MOV	R8,R6
+next$l	ADD	R5,R5,#1
+	CMP	R5,#max_mode
+	BLO	loop$l
 
- ; suspicious code to deal with *other modes.*..!?
-;  MOV R1,#0			; start mode
-; a$l
-;  BL make_default_mode
-;  FNRTS VS
-;  ADD R1,R1,#1
-;  CMP R1,#max_mode
-;  BCC a$l
-
- LDRB R1,[R8,#w_format]		; the mode whose options we're interested in
- BL make_default_mode
+makedefault$l
+ LDRB R0,[R8,#w_format]
+ BL tochangeibmode
+ LDRVCB R1,[R8,#w_format]
+ BLVC make_default_mode
+ FNRTS VS
 
  FNLDR R2,opt_flags
  LDR R0,[R8,#w_flags]
@@ -3170,6 +3189,7 @@ Makedefault
  BIC R2,R2,R1
  AND R0,R0,R1
  ORR R2,R2,R0
+  [ (fflags_mask :AND: :NOT: &11F) != 0
  LDR R0,[R9,#f_flags]
  LDR R1,fmask$l
  BIC R1,R1,#&0F			; don't copy the 'Undo' flag for the file...
@@ -3177,6 +3197,7 @@ Makedefault
  AND R0,R0,R1
  BIC R2,R2,R1
  ORR R2,R2,R0
+  ]
  BIC R2,R2,#&110		; *not* the read-only flags &c...
  FNSTR R2,opt_flags		; this works
 
@@ -3191,7 +3212,6 @@ Makedefault
  FNSTR R2,opt_format ; this doesn't work...?
 
  FNLDR R2,opt_info
- ;LDR R2,[R8,#w_info]
  LDR R0,[R8,#w_info]
  LDR R1,winfo$l
  AND R0,R0,R1
@@ -3213,24 +3233,26 @@ Makedefault
  FNSTR R0,opt_stline
  LDR R0,[R8,#w_wrapwidth]
  FNSTR R0,opt_wrapwidth ; this works!
+ LDRB R0,[R8,#w_format]
  BL copy_back_a_mode_buffer
  AND R0,R11,#&FF
  BL tochangeibmode		; back to how it was before...
  FNRTS
 
 wmask$l DCD wflags_mask
+  [ (fflags_mask :AND: :NOT: &11F) != 0
 fmask$l DCD fflags_mask
+  ]
 wform$l DCD (wformat_mask:AND:&FFFFFF00)	; don't copy the mode
 winfo$l DCD winfo_mask
 
  LOCAL
 
-;E R8=window to copy from.
+;E R0=mode, R8=window from which to copy
 ;X If mode valid then block copied #
 
 copy_back_a_mode_buffer
  FNJSR "R1-R5,R11"
- LDRB R0,[R8,#w_format]
  ADD R1,R12,#opt_modebase
  ADD R4,R1,R0,LSL #2 ; LDR R4,[R1,R0,LSL#2]	; mode word
  ADD R5,R8,#w_mode0
@@ -4840,10 +4862,10 @@ s$l FNS ("zap_m_tabchr")
  DCD 7+c_Param_Words+c_TickableMenuEntry
 Tabdisplay
  LDR R3,[R0]
- MOV R0,#flags_TabMode		; mask
+ MOV R0,#format_TabDisplayFormat; mask
  CMP R3,#4
  MOVCS R3,#0
- MOV R1,R3,LSL#12
+ MOV R1,R3,LSL#tab_DisplayFormat_shift
  B new_format_select
 
  DCD 7+c_Param_Words+c_TickableMenuEntry
