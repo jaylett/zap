@@ -36,7 +36,7 @@
 
 OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/CreateWind o/AlterTxt o/Search o/Commands o/Execute \
-		  o/Update o/Mode0 o/Mode1 o/Mode2 o/Mode3 o/Mode4 o/Mode4dis \
+		  o/Update o/Mode0 o/Mode1+2 o/Mode3 o/Mode4 o/Mode4dis \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
 		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
