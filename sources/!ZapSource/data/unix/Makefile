@@ -98,5 +98,11 @@ clean:
 # Run $(ZapS).data.BasicToAsm <Zap$Dir>.Docs.TechCode.E-Library RAM:ZapTemp
 # COPY RAM:ZapTemp $(ZapS).h.ZapLibrary ~C~VNSFD
 
+# This target relies on sources/tools/ being checked out as part of the
+# sources hierarchy (of which this is sources/!ZapSource/), and that
+# asmtobasic has been built within it
+E-Library,ffb:	h/ZapLibrary,fff
+		../tools/asmtobasic h/ZapLibrary,fff E-Library,ffb
+
 o/ModuleBits:	h/Version,fff
 
