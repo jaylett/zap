@@ -355,7 +355,7 @@ hourcount$L	RN	r4				;  Chars per hourglass %
 cache$L		RN	r10				;  Current pointer into state cache
 toptr$L		RN	r11				;  Offset to scan to
 
-scanto$C	FNJSR	"hourcount$L,r7,toptr$L"
+scanto$C	FNJSR	"hourcount$L,r7,toptr$L,r12"
 		BL	checkmode
 		FNRTS	NE
 		LDR	toptr$L,[sp,#4*2]		;  Restore toptr
@@ -386,7 +386,9 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 		STRMI	lwidth,[cache$L,#8]
 		STR	cache$L,[sp,#4]			;  Save cache on stack
 		MOV	output,#1<<31			;  Scan file to calculate state
-		BL	scanfile$C
+		MRS	R12,CPSR			; we need to preserve the flags here because
+		BL	scanfile$C			; by the time we could repeat the compare
+		MSR	CPSR_f,R12			; we've corrupted the registers :-/
 		LDMIB	sp,{cache$L,toptr$L}		;  Restore cache and toptr from stack
 		STMHSIA	cache$L!,{ptr,state}		;  Update cache entry if on 1k boundary
 		ADD	rangeend,ptr,#128 ; 1024	;  Get next 1k boundary
