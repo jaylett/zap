@@ -464,13 +464,19 @@ extitfrombroza$L
 ;  Auto-generate header file
 
 handle$L	RN	r1
+start$L		RN	r6				; where to add declarations
+buflen$L	RN	r10				; length of text after declarations
+buf$L		RN	r11				; text after declarations
 
 		DCD	x_noparams			;  Flags for command
 
 		EXPORT	autoheader$C
-autoheader$C	FNJSR
+autoheader$C	FNJSR					; DO NOT CHANGE - see function 'nofile'
 		BL	checkmode
 		FNRTS	NE
+		LDR	R0,f_len
+		MOV	R1,#0
+		CALL	Zap_SplitBuffer			; coagulate :-) the buffer
 		LDR	r1,f_name
 		BL	count
 		CALL	Zap_Claim
@@ -498,6 +504,7 @@ finddotloop$L	LDRB	r4,[r0,#-1]!
 		SUB	r0,r3,#2
 		CALL	Zap_Free
 		FNRTS	VS
+		MOV	buf$L,#0			; no buffer yet
 		ADR	r2,autotext$L
 findautoloop$L	MOV	r3,#0
 autonextchar$L	SWI	XOS_BGet
@@ -510,61 +517,107 @@ autonextchar$L	SWI	XOS_BGet
 		BLO	autonextchar$L
 		MOV	r0,#0				;  Read PTR#
 		SWI	XOS_Args
-		MOV	r0,#3				;  Set EXT#
+		MOV	start$L,R2
+
+		ADR	r2,autotextend$L		; search for End auto comment
+findendloop$L	MOV	r3,#0
+autoendchar$L	SWI	XOS_BGet
+		BCS	noautoend$L
+		LDRB	r4,[r2,r3]
+		TEQ	r0,r4
+		BNE	findendloop$L
+		ADD	r3,r3,#1
+		CMP	r3,#?autotextend$L
+		BLO	autoendchar$L
+		MOV	r0,#0				; Read PTR#
+		SWI	XOS_Args
+		MOV	R7,R2
+		MOV	R0,#2				; Read EXT#
+		SWI	XOS_Args
+		SUBS	buflen$L,R2,R7
+		MOVMIS	buflen$L,#0
+		ADD	R0,buflen$L,#4
+		CALL	Zap_Claim,R2,NE
+		BVS	finished$L
+		MOV	buf$L,R0
+
+		MOV	R0,#4				; read bytes from current pointer
+		MOV	R2,buf$L
+		MOV	R3,buflen$L
+		SWI	XOS_GBPB
+
+noautoend$L	MOV	r0,#3				; Set EXT#, thus removing the auto decls
+		MOV	R2,start$L
 		SWI	XOS_Args
 		B	autofound$L
+
+autotext$L	=	"/* Auto */"
+autotextend$L	=	"/* End auto */",10
+externtext$L	=	"extern "
+		ALIGN
+
 autonotfound$L	MOV	r2,#?autotext$L
 		ADR	r3,autotext$L
 		BL	appendtext$L
 autofound$L	MOV	r0,#10
 		SWI	XOS_BPut
 		SWI	XOS_BPut
-		PUSH	"handle$L"
+		PUSH	"handle$L,buflen$L"
 		MOV	r4,#-1
 		LDR	r5,f_len
 		BL	initfindfunc$C
 loop$L		MOV	r4,r1
 		BL	findfunc$C
-		BCS	finished$L
+		BCS	finishedfuncs$L
 		PUSH	"r1-r6"
 		LDR	handle$L,[sp,#6*4]
-		MOV	r2,#?externtext$L
-		ADR	r3,externtext$L
-		BL	appendtext$L
 		LDR	r4,f_ptr
-		LDR	r5,f_splito
+		LDR	r5,f_len
+		ADD	r5,r5,r4
 		MOV	r2,#0
 		ADD	r3,r4,r7
-		SUB	r5,r5,r7
 lengthloop1$L	LDRB	r0,[r3,r2]
 		TEQ	r0,#'{'
 		BEQ	foundend$L
 		ADD	r2,r2,#1
 		CMP	r2,r5
 		BLO	lengthloop1$L
+foundend$L	BL	is_static$L
+		BEQ	next$L
+		PUSH	"R2,R3"
+		MOV	r2,#?externtext$L
+		ADR	r3,externtext$L
 		BL	appendtext$L
-		LDR	r5,f_splite
-		ADD	r3,r4,r5
-		MOV	r2,#0
-lengthloop2$L	LDRB	r0,[r3,r2]
-		LDRB	lr,w_cr
-		TEQ	r0,#'{'
-		ADDNE	r2,r2,#1
-		BNE	lengthloop2$L
-foundend$L	BL	appendtext$L
+		PULL	"R2,R3"
+rloop$L		SUB	R2,R2,#1			; remove trailing LFs
+		LDRB	R0,[R3,R2]
+		TEQ	R0,#10
+		BEQ	rloop$L
+		ADD	R2,R2,#1
+		BL	appendtext$L
 		MOV	r0,#';'
 		SWI	XOS_BPut
 		MOV	r0,#10
 		SWI	XOS_BPut
-		LDMFD	sp!,{r1-r6}
+next$L		PULL	"r1-r6"
 		B	loop$L
 
-autotext$L	=	"/* Auto */"
-externtext$L	=	"extern "
-		ALIGN
+finishedfuncs$L	PULL	"handle$L,buflen$L"
+		MOV	R0,#10
+		SWI	XOS_BPut
+		ADR	R3,autotextend$L		; write out the end comment
+		MOV	R2,#?autotextend$L
+		BL	appendtext$L
 
-finished$L	LDMFD	sp!,{r1}
-		MOV	r0,#0
+		MOV	R0,#2				; write bytes to current pointer
+		MOVS	R2,buf$L			; write the data that was after the end
+		MOVNE	R3,buflen$L			;  comment
+		SWINE	XOS_GBPB
+
+finished$L	MOVS	R0,buf$L
+		CALL	Zap_Free,R2,NE
+
+		MOV	R0,#0
 		SWI	XOS_Find
 		FNPULL
 		B	stoplongop
@@ -578,6 +631,28 @@ appendtext$L	SUBS	r2,r2,#1
 		SWI	OS_BPut
 		B	appendtext$L
 
+; checks if the line starts with 'static'
+; E R3 -> text
+; X Z set if static, R1-R3 preserved
+is_static$L	MOV	R6,#0
+		ADR	R5,statictext$L
+sloop$L		LDRB	R0,[R3,R6]
+		LDRB	R4,[R5,R6]
+		TEQ	R0,R4
+		MOVNE	PC,R14
+
+		ADD	R6,R6,#1
+		CMP	R6,#(?statictext$L)
+		BLO	sloop$L
+
+		LDRB	R0,[R3,R6]
+		TEQ	R0,#' '
+		TEQNE	R0,#9
+		TEQNE	R0,#10
+		MOV	PC,R14
+
+statictext$L	=	"static"
+		ALIGN
 
 		LOCAL
 
