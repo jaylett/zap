@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.22 2004/11/03 21:18:36 christian Exp $
+; $Id: Cache,fff,v 1.23 2004/11/03 23:15:47 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -18,7 +18,6 @@
  EXPORT lose_font
 
  EXPORT cache_free
- ;EXPORT cache_describe
  EXPORT cache_compact
 
  EXPORT handle_to_caddr
@@ -39,6 +38,9 @@
  EXPORT read_font_info
 
  EXPORT get_encoding
+
+ EXPORT printable_font_name
+
 
 ; the cache memory allocate/free routines are based on the first-fit method
 ; routines described in Knuth, vol.1 p.437. The modification is that we
@@ -1490,8 +1492,9 @@ notfound$l	MOV	R0,R9
 
 
 ; E r0 -> font identifier  r2 = 'E' if encodings error
-; X r0 -> not found error block
-error_notfound	FNJSR	"R1-R4,R10-R11"
+; X r0 -> printable font name (in buffer)
+printable_font_name
+		FNJSR	"R1-R4,R10-R11"
 		MOV	R10,R0
 		MOV	R11,R2
 
@@ -1532,8 +1535,16 @@ igotc$l		LDRB	R3,[R1],#1			;
 		MOV	R3,#0				;
 		STRB	R3,[R0,#-1]			;
 
-		ADD	R4,R12,#buffer			; make the error
-		TEQ	R11,#'E'			;
+		ADD	R0,R12,#buffer
+		FNRTS
+
+
+; E r0 -> font identifier  r2 = 'E' if encodings error
+; X r0 -> not found error block
+error_notfound	FNJSR
+		BL	printable_font_name		; get the name
+		MOV	R4,R0				; make the error
+		TEQ	R2,#'E'				;
 		ADRNE	R0,err$l			;
 		ADREQ	R0,erre$l			;
 		BL	messages_error			;
