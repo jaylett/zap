@@ -1,0 +1,172 @@
+LineEditor SWIs
+
+-----------------------------------------------------------------------------
+
+LineEditor_SetOptions					&83880
+
+ Entry: R0 = buffer size (in kilobytes), or 0 for default
+	R1 = flag bits
+		Bit  Meaning if set
+		0    TaskWindows have local buffers
+		1    Trailing dots will be appended to directory completions
+		2    Default to overtype mode
+		3    Keep duplicate lines in history
+		4    Don't do ~ expansion
+		5    Don't de !-type events (eg !!)
+		6    Don't do ^two^three type replacements
+	R2 = minimum length to record
+	R3 = maximum length to record (0 for no maximum)
+	R4 = cursor shapes
+		Byte 0 controls the normal cursor shape
+		Byte 1 controls the overtype cursor shape
+		   Bit	 When clear   When set
+		   0	 underline    block
+		   1	 flashing     steady
+
+ Exit:  -
+
+ Use:	Sets the global options.
+
+ Flag bits:
+
+ Cursor shapes:
+
+-----------------------------------------------------------------------------
+
+LineEditor_GetOptions					&83881
+
+ Entry: -
+
+ Exit:  R0 = buffer size (in kilobytes), or 0 for default
+	R1 = flag bits
+	     (see LineEditor_SetOptions)
+	R2 = minimum length to record
+	R3 = maximum length to record (0 for no maximum)
+	R4 = cursor shapes
+	     (see LineEditor_SetOptions)
+
+ Use:	Reads the global options.
+
+
+-----------------------------------------------------------------------------
+
+LineEditor_CreateBuffer					&83882
+
+ Entry: R0 = buffer size, or 0 for default
+	R1 = expansion word (0) / task handle / -1
+	R2 = expansion word if R1 is taskhandle / unused
+
+ Exit:  R0 = history buffer ID / 0 if can't create
+
+ Use:	Creates a new private history buffer. If R1 is a task handle, then
+	the buffer will be deleted automatically when that task quits.
+
+-----------------------------------------------------------------------------
+
+LineEditor_DeleteBuffer					&83883
+
+ Entry: R0 = history buffer ID
+
+ Exit:	-
+
+ Use:	Deletes the given private history buffer.
+
+-----------------------------------------------------------------------------
+
+LineEditor_SetPos					&83884
+
+ Entry:	R0 = history buffer ID
+	R1 = line number / special code
+
+ Exit:	-
+
+ Use:	Sets the position in the specified history buffer. (The first line is
+	line number 0; the last line is always blank.)
+
+ Special codes:
+	Value	   Position
+	negative   number of lines from the end of the history buffer
+	&7FFFFFFF  last line (end of buffer)
+	&80000000  previous line, wrapping to end
+	&80000001  previous line, stopping at start
+	&80000002  next line, stopping at end
+	&80000003  next line, wrapping to start
+
+-----------------------------------------------------------------------------
+
+LineEditor_GetPos					&83885
+
+ Entry:	R0 = history buffer ID
+
+ Exit:	R1 = line number / special code
+
+ Use:	Reads the position in the specified history buffer.
+
+-----------------------------------------------------------------------------
+
+LineEditor_GetLine					&83886
+
+ Entry:	R0 = history buffer ID
+	R1 -> text buffer
+	R2 = text buffer length
+
+ Exit:  R2 = the length of the text in the buffer (excluding the terminator)
+
+ Use:	Reads the line at the current position in the specified history
+	buffer. The line will be NUL-terminated.
+
+-----------------------------------------------------------------------------
+
+LineEditor_AppendLine					&83887
+
+ Entry: R0 = history buffer ID
+	R1 -> text, ctrl terminated
+
+ Exit:	-
+
+ Use:	Appends a line of text to the history; this line becomes the new last
+	line.
+
+-----------------------------------------------------------------------------
+
+LineEditor_DeleteLine					&83888
+
+ Entry:	R0 = history buffer ID
+
+ Exit:	-
+
+ Use:	Deletes the last line from the specified history.
+
+-----------------------------------------------------------------------------
+
+LineEditor_ReadInfo					&83889	 from 2.73
+
+ Entry:	R0 = task handle (of a taskwindow)
+ Exit:  R0 = length of line currently being edited in that taskwindow
+	     / -2 if that is not a known task
+	     / -1 if that is a known task but no edit is in progress
+	R1 = cursor position
+
+ Use:	Returns information about a given LineEditor edit-in-progress. This
+	is of use to text editors so that the cursor position is properly
+	reflected.
+
+-----------------------------------------------------------------------------
+
+LineEditor_ReadLine					&8388A	 from 2.74
+
+ Entry: R0 -> text buffer
+	R1 = text buffer size
+	R2 = lowest character allowed
+	R3 = highest character allowed
+	R4 = password character (if password bit set)
+	R5 = flags
+		Bit   Meaning if set
+		0     Password-style display
+		1     Don't echo control characters
+		2-31  (reserved)
+	R6 = history buffer
+
+ Exit:  R0 corrupt
+	R1 = chars read, excluding terminator
+	C set if Escape was pressed

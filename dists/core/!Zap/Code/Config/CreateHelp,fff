@@ -1,0 +1,316 @@
+CreateConf version 0.51 help file
+© Martin Ebourne, 1997
+
+This program may only be distributed with Zap. The copyright conditions are
+as for Zap.
+
+Introduction
+============
+
+CreateConf is designed to make installation of new Zap modules considerably
+easier, and the configuration files of Zap more logical. It takes the form of
+a specialised simple script language to allow complete user flexibility,
+allowing for instance the user to make a choice of maximum speed or maximum
+automation. Because it is a separate program Zap's executable is not
+increased in size with code that is only ever used once at startup.
+
+
+Invoking
+========
+
+CreateConf script commands can be supplied on the command line, in a script
+file, or both. All options are valid from both sources, and most options can
+be specified more than once to override previous settings. The options and
+constructs available are listed below.
+
+
+Options
+-------
+
+-help
+  Display a brief reminder of the available options, and the version number.
+
+-time
+  Cause the total execution time to be displayed when finished.
+
+-debug
+  Enable verbose listings explaining what actions are being taken.
+
+-pretend
+  Proceed as normal but do not actually execute or change any files. Useful
+to see what a script does without changing anything.
+
+-script <file>
+  Take the remainder of the commands from the given script file. All
+remaining commands following the -script are ignored.
+
+-cache <file>
+  Use the given file as a status cache to speed things up. The state of all
+the files combined to create a generated file is remembered and saved. Then
+in future the files are only regenerated if any of the source files have
+changed, or the output file has become corrupted or is missing.
+
+-in <dir>
+  Use the given directory as the location of any <leaf> filenames that do not
+begin with '@.'.
+
+-out <dir>
+  Use the given directory as the location of generated files.
+
+-modules <dir>
+  Use the given directory as the location of the module applications, all of
+which are scanned for <leaf> filenames that begin with '@.'. The modules
+directory is scanned as this command is parsed so it is advisable to keep it
+within any conditional sections when possible.
+
+-exec <leaf>
+  Execute given file(s). See <leaf> below.
+
+( <leaf> ... ) <name> <type>
+  Use the given <leaf> file(s) to create a file called <name> with filetype
+<type>.
+
+-obey
+  Used before a <leaf> within ( ... ) to indicate that a line to set Obey$Dir
+as appropriate should be written out to the file. This is required if
+combining obey files to ensure that Obey$Dir is set as they expect it. Its
+effect applies to the next <leaf> parameter only.
+
+-at
+  As for obey, except indicates that all occurences of '@' within the file
+should be translated to the fill path name of the directory. This is used for
+Zap's External files.
+
+-ifkey <keynum> ... [-else ...] [-endif]
+  Conditional 'if' statement which bases its decision on whether or not the
+supplied key is currently pressed. -ifkey does not nest, but instead behaves
+as for BASIC's IF statement on a single line. Hence consecutive -ifkey's
+behave as an 'and' operator, a subsequent -else inverts all of them, and
+similarly a -endif cancels them all.
+
+
+Parameter types:
+--------- -----
+
+<file>
+  Full pathname to a file.
+
+<dir>
+  Full pathname to a directory, path variable directories (eg. ZapConfig:)
+acceptable.
+
+<leaf>
+  Leaf name for an input file. If prefixed with '@.' then indicates the set
+of all files with this leaf name in any of the module applications. Without a
+prefix, indicates a file with this leaf name in the specified input
+directory, if it exists.
+
+<name>
+  Leaf name for an output file, relative to the specified output directory.
+
+<type>
+  Filetype number in hex.
+
+<keynum>
+  Internal key number as listed on pages 1-849 and 1-850 of the RISC OS 3 PRM
+and used with OS_Byte 121, or in its 2's complement form with BASIC's INKEY.
+
+
+Comments
+--------
+
+Comments are only recognised in script files (ie. not on the command line),
+and run from a single '|' character to the end of the line. The '|' must be
+preceded by white space or be at the start of a line to be recognised.
+
+
+Standard files
+======== =====
+
+The following files are the ones used for a standard implementation of Zap.
+None of these are built into CreateConf, but they are detailed here because
+of their relevance.
+
+
+Input
+-----
+
+The input directory is <Zap$Dir>.Config
+
+External     - Basic Zap External as previously in External
+HelpData     - Basic Zap HelpData as previously in HelpData
+Keys         - Key definitions, as previously in Keys
+Menus        - Menus as previously in Menus
+Settings     - Config settings, as previously in Keys
+TypesHigh    - Zap type mappings which need to override all others, including
+               modules. Currently empty but useful for user customisation
+TypesLow     - Basic Zap type mappings, as previously in Keys. These have the
+               lowest precedence when working out which mode a file should be
+               loaded in
+
+
+Output
+------
+
+The output directory is <Zap$Dir>.Generated
+
+!ZapBoot     - Merged !ZapBoot files from all of the modules. Used in
+               semi-automatic configuration
+!ZapRun      - Merged !ZapRun files from all of the modules. Used in
+               semi-automatic configuration
+Keys         - Merged Keys file
+HelpData     - Merged HelpData file
+Menus        - Zap menus file
+External     - Merged External file
+
+It is also normal to use a cache file of <Zap$Dir>.Generated.Cache
+
+
+Module application
+------ -----------
+
+The modules directory is <ZapModules$Dir>, normally <Zap$Dir>.Modules
+
+A module application typically contains combinations of the following files:
+
+!Boot        - Normal boot use
+!Help        - Normal help use, plus executed by Zap if user requests
+               detailed mode help (NOT YET!!!)
+!Run         - Normal run use. Not actually used when the module is executed,
+               and should report an error if the user tries it. Should reset
+               paths etc. though so the user can easily force a given
+               instantiation to be used
+!Setup       - Setup file for module, executed from the External file if
+               required
+!Sprites     - Normal sprites use
+!ZapBoot     - Obey file executed when Zap itself is booted
+!ZapRun      - Obey file executed when Zap is loading
+External     - Combined into main External file and should contain the usual
+               External file entries. Any '@' symbol is re-written as a
+               reference to the module's actual directory, so use @.Module
+               and @.!Setup to refer to the files in the directory
+HelpData     - Combined into main HelpData file and should contain the usual
+               HelpData file entries
+Types        - Combined into main Keys file and should contain the usual file
+               type and file name to mode mappings
+Menus        - Menus definition file which the module loads itself (via Zap)
+<ModuleName> - The actual module under its usual name
+
+For speed reasons it is advisable not to include unnecessary files.
+
+
+Examples
+========
+
+There are two typical configurations of CreateConf for Zap. The first is the
+default and gives a good speed while retaining full automation. The second is
+an alternative for people who desire absolute maximum speed and are prepared
+to invoke manual file generation as required. As listed the files will be
+regenerated with the second version if and only if both Ctrl and Alt on the
+left hand side of the keyboard are held down while Zap loads.
+
+
+Automatic
+---------
+
+*** !Zap.!Boot:
+...
+| Boot extension modules as appropriate
+Run <Zap$Dir>.Code.CreateConf -modules ZapModules: -exec @.!ZapBoot
+***
+
+*** !Zap.!Run:
+...
+| Generate config files as appropriate
+CDir ZapGenerated:
+Run ZapCode:CreateConf -script ZapConfig:RunScript
+...
+***
+
+*** !Zap.Config.RunScript
+| Fully automatic start up config script for Zap. Executes @.!ZapRun and
+| creates Keys, HelpData, Menus, and External
+| © Martin Ebourne, 1997. Only for distribution with Zap
+
+-cache ZapGenerated:Cache
+-in ZapConfig:
+-out ZapGenerated:
+-modules ZapModules:
+-exec @.!ZapRun
+
+( Keys
+  Settings
+  TypesHigh
+  @.Types
+  TypesLow
+) Keys fff
+
+( HelpData
+  @.HelpData
+) HelpData fff
+
+( External
+  -at @.External
+) External fff
+***
+
+
+Semi-automatic
+---- ---------
+
+*** !Zap.!Boot:
+...
+| Boot extension modules as appropriate
+Run <Zap$Dir>.Code.CreateConf -in ZapGenerated: -exec !ZapBoot
+***
+
+*** !Zap.!Run:
+...
+| Generate config files as appropriate
+CDir ZapGenerated:
+Run ZapCode:CreateConf -script ZapConfig:RunScriptS
+...
+***
+
+*** !Zap.Code.RunScriptS
+| Manually invoked start up config script for Zap. If left Ctrl & left Alt
+| held down, creates !ZapBoot, !ZapRun, Keys, HelpData, Menus, and External.
+| Always executes !ZapRun
+| Martin Ebourne, 1997. Only for distribution with Zap
+
+-ifkey 4 -ifkey 5
+  -in ZapConfig:
+  -out ZapGenerated:
+  -modules ZapModules:
+
+  ( -obey @.!ZapBoot
+  ) !ZapBoot feb
+
+  ( -obey @.!ZapRun
+  ) !ZapRun feb
+
+  ( Keys
+    Settings
+    TypesHigh
+    @.Types
+    TypesLow
+  ) Keys fff
+
+  ( HelpData
+    @.HelpData
+  ) HelpData fff
+
+  ( External
+    -at @.External
+  ) External fff
+-endif
+
+-in ZapGenerated:
+-exec !ZapRun
+***
+
+
+Contacting
+==========
+
+See the help file for ZapMJE for details of contacting me.

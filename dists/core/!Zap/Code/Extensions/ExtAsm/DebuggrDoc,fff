@@ -1,0 +1,358 @@
+=============
+Debugger Plus
+=============
+
+Version 2.08, 5 July 2000
+by Darren Salt <ds@youmustbejoking.demon.co.uk>
+
+
+
+Introduction
+============
+
+This module provides a complete replacement for the standard Debugger module.
+It contains a much extended disassembler, and improved and extended
+*commands.
+
+It is aware of all ARMs up to ARM8 and StrongARM SA-110; it knows of all
+instructions up to ARM7, and the sign-extend and half-word load/store
+extensions. It also has a few extras thrown in (see below). It can also
+auto-detect which cache type is in use, since this is indicated by the ARM
+ID.
+
+The module may be loaded using an *RMEnsure - which is why version numbering
+was started at 2.00 and not 0.xx or 1.xx. It is best loaded from
+!Boot.Choices.PreDesk; the standard distribution assumes this, and provides a
+directory to be placed in there. If your !Boot looks different, then you'll
+have to find somewhere else to put it; ideally, before the Desktop is started
+up.
+
+It is possible to initialise the flags by appending them to the load command.
+For example:
+  *RMLoad <Obey$Dir>.Debugger -FDwithR13 Y -QuoteSWIs Y (If a flag is not
+specified, it defaults to OFF.)
+
+
+** Note that the SWI interface has changed since version 2.04. This is to
+   provide compatibility with versions of the standard Debugger module which
+   can disassemble Thumb instructions.
+
+
+Commands supported
+==================
+
+The commands in this module try to avoid causing data aborts or address
+exceptions; the behaviour on encountering non-existent memory, unless
+otherwise specified, is to simply complain that there's no readable or
+writable (whichever is appropriate) memory at this address.
+
+[Note: untested with StrongARM memory protection of zero-page vectors;
+comments welcome.]
+
+
+BreakSet, BreakClr, BreakList
+--------  --------  ---------
+
+These work as standard.
+
+Most PC-reading instructions (eg. LDR R0,[PC,#28]) when breakpointed, are not
+specially handled by *Continue, and it is therefore recommended that you do
+not place breakpoints on these instructions.
+
+It is, however, safe to place breakpoints on the following instructions even
+when R15 is being read from:
+	B, BL
+	ADD, SUB
+	MOV
+	MUL, MLA
+	AND, EOR, RSB, ADC, ORR, BIC, SBC, RSC, MVN
+
+This is mainly with the intention of supporting ADR and jump tables.
+
+(The standard Debugger only supports B instructions.)
+
+
+Continue, InitStore
+--------  ---------
+
+As standard.
+
+
+Memory
+------
+
+Has an extra mode, A, which displays memory as plain ASCII (64 columns wide);
+displays the 'contents' non-existent memory as strings of dots.
+
+
+MemoryI
+-------
+
+Uses the extended disassembler, and displays the 'contents' non-existent
+memory as strings of dots (and doesn't disassemble it).
+
+
+MemoryA
+-------
+
+In interactive mode, it won't cross over into non-existent memory.
+
+
+ShowRegs
+--------
+
+Is affected by the APCS-R registers flag (see below).
+
+
+DisassemblerFlags
+-----------------
+
+Allows you to set various MemoryI and Debugger_Disassemble features.
+Available switches:
+    -FDwithR13	  use FD with R13, eg. STMDB R13 -> STMFD R13
+    -APCS	  use APCS-R register set and recognise C function entry
+    -LFMstack	  use stack notation with LFM & SFM where possible
+    -LFS	  use LFS and SFS in preference to LFM & SFM
+    -QuoteSWIs	  put quotes around SWI names
+    -UseDCD	  use DCD instead of 'Undefined instruction', and BRK where
+		    DCD &x6000010 would be used
+    -UseVDU	  use VDU x instead of SWI OS_WriteI+x
+    -ANDEQasDCD	  use DCD instead of ANDEQ, MOV Rn,Rn (same register) etc.
+    -UseADRL	  use ADRL/ADRX instead of ADR then ADD/SUB on same reg
+    -UseADRW	  use ADRW instead of ADD/SUB Rn,R12,#m and LDRW, STRW,
+		    LDRBW, STRBW instead of xxxx Rn,[R12,#m]
+    -LongMul	  append L to UMUL, UMLA, SMUL, SMLA (thus using the
+		    'official' forms)
+    -UseLDRL	  use LDRL instead of ADD/SUB Rn,Rm,#o + LDR Rn,[Rn,#p] and
+		    ADD/SUB Rm,Ra,#o + LDR Rn,[Ra,#p]! and STR instead of
+		    equivalent STRs.
+		    (The LDRWL form is enabled by this *and* UseADRW)
+    -UseNOP	  use NOP instead of MOV R0,R0
+    -OldPSR	  use the old PSR suffixes _ctl, _flg, _all
+    -Wide	  disassemble for wide display
+    -HSLO	  use HS and LO instead of CS and CC
+    -Shift	  use x<<y comments where possible for numbers >= 8192.
+		    This affects arithmetic and logic instructions. y is
+		    restricted to multiples of 4 if possible, unless x=1
+    -Lower	  force all register names to lower case
+
+All the switches take a single character parameter: "0" or "N" (off), or "1"
+or "Y" (on). To leave a switch unchanged, don't include it in the command.
+
+Use *DisassemblerFlags on its own to display the current state.
+
+
+
+The SWI interface
+=================
+
+Debugger_Disassemble
+--------------------
+
+Replaces the 'standard' version. Use it in exactly the same way.
+
+
+Debugger_DisassembleThumb
+-------------------------
+
+Not implemented.
+
+
+Debugger_Flags
+--------------
+
+(Also known as Debugger_63 for backward compatibility with Disassembler.)
+
+Used to alter the Debugger_Disassemble flags (listed above).
+
+Input  : R0 = BIC mask, R1 = EOR mask
+Process: new_flags = (old_flags AND NOT R0) EOR R1
+Output : R0 = old_flags, R1 = new_flags
+
+Bits in R0 and R1 are:
+ 0 = FDwithR13	4 = QuoteSWIs	 8 = UseADRL	12 = UseNOP	16 = Shift
+ 1 = APCS	5 = UseDCD	 9 = UseADRW	13 = OldPSR	17 = Lower
+ 2 = LFMstack	6 = UseVDU	10 = LongMul	14 = Wide
+ 3 = LFS	7 = ANDEQasDCD	11 = UseLDRL	15 = HSLO
+
+Bits 18 to 22 are currently unused (reserved for future expansion); bit 23 is
+reserved for use by Zap and other syntax-colouring editors (lower case
+condition codes). Bits 24 to 31 are used internally and cannot be altered.
+
+
+Debugger_CPU
+------------
+
+Read or write the CPU type (for disassembly purposes).
+
+In:  R0 = -1 to read
+	  0 for the default (the installed CPU)
+	 >0 to set the CPU type:
+		2, 250		ARM2, ARM250
+		3		ARM3
+		6, 610		ARM610
+		7, 700, 710	ARM700, ARM710
+		&5A		SA110
+
+Out: R0 = CPU type (2, 3, 6, 7 or &5A) if reading, else corrupt
+
+
+Debugger_DisassemblePlus
+------------------------
+
+An extended version of Debugger_Disassemble.
+
+In:  R2 = flags (b0-23) and CPU type (b24-31, as read using Debugger_CPU).
+          The CPU type may be 0; if so, the installed CPU type is used.
+
+
+
+Disassembly extensions and changes
+==================================
+
+MOV R0,R0	Optionally disassembled as NOP
+
+MOV PC,PC	Always disassembled as MOV PC,PC
+		Sometimes used instead of a branch instruction:
+			LDR	R0,data
+			MOV	PC,PC
+		.data	DCD	&123456		; this is ignored
+			LDR	R1,[R0]
+
+SWP		Now listed as 'ARMv2a and later'
+
+STM		Warning if base register second or later in register list and
+		writeback enabled: 'Base not first in list'
+
+ADRL		ADR followed by ADD/SUB with same condition on same register.
+		For example,
+			00010000	ADRLS	R0,&00010100
+			00010004	ADDLS	R0,R0,#&A000
+		becomes
+			00010000	ADRLS	R0,&00010100
+			00010004	ADRLSL	R0,&0001A100
+
+ADRX		ADR followed by two ADD/SUBs with same condition on same
+		register.
+
+ADRW		R12 relative: ADD/SUB Rn,R12,#m
+
+LDRW, LDRBW,	R12 relative: LDR/LDRB/STRB/STRB Rn,[R12,#m]
+STRW, STRBW
+
+LDRL, LDRBL	Without writeback:
+		    Normal:
+			ADD/SUB		Rn,Rm,#o
+			LDR/LDRB	Rn,[Rn,#p]
+		    ->	ADD/SUB		Rn,Rm,#o
+			LDRL/LDRBL	Rn,[Rm,#o+p]
+		    PC relative:
+			ADR		Rn,a
+			LDR/LDRB	Rn,[Rn,#p]
+		    ->	ADR		Rn,a
+			LDRL/LDRBL	Rn,a+p
+		With writeback:
+			ADD/SUB		Rm,Rm,#o
+			LDR/LDRB	Rn,[Rm,#p]!
+		    ->	ADD/SUB		Rm,Rm,#o
+			LDRL/LDRBL	Rn,[Rm,#o+p]!
+		Store address in third register:
+		    Normal:
+			ADD/SUB		Ra,Rm,#o
+			LDR/LDRB	Rn,[Ra,#p]!
+		    ->	ADD/SUB		Ra,Rm,#o
+			LDRL/LDRBL	Rn,{Ra},[Rm,#o+p]
+		    PC relative:
+			ADR		Ra,a
+			LDR/LDRB	Rn,[Ra,#p]
+		    ->	ADR		Ra,a
+			LDRL/LDRBL	Rn,{Ra},a+p
+
+STRL, STRBL	Without writeback:
+		    Normal:
+			ADD/SUB		Rm,Rm,#o
+			STR/STRB	Rn,[Rm,#p]
+		    ->	ADD/SUB		Rn,Rm,#o
+			STRL/STRBL	Rn,[Rm,#o+p]
+			(followed by a cancelling SUB/ADD)
+		    PC relative:
+			Is not practical
+		With writeback:
+			ADD/SUB		Rm,Rm,#o
+			STR/STRB	Rn,[Rm,#p]!
+		    ->	ADD/SUB		Rm,Rm,#o
+			STRL/STRBL	Rn,[Rm,#o+p]!
+		Store address in third register:
+		    similar to LDRL/LDRBL
+
+LDRWL,		R12 relative:
+LDRBWL,			ADD/SUB		Rn,R12,#o
+STRWL,			LDR/LDRB	Rn,[R12,#p]
+STRBWL		->	ADD/SUB		Rn,R12,#o
+			LDRWL/LDRBWL	Rn,o+p
+		& similar for 3rd register variants (see LDRL)
+
+MCR, MRC	Constant (following first comma) now displayed correctly
+
+MRS, MSR	Added for ARMv3 and later
+
+UMUL, SMUL,	Added for ARMv3M and later
+UMLA, SMLA	(Long 'official' forms supported)
+
+LDFxW, STFxW	R12 relative LDF/STF ('x' = precision code)
+
+LFM, SFM	Extended format - for example,
+			LFM	F1,3,[R13],#&024	; =36
+		may be shown 'as is' or as any of
+			LFMIA	F1,3,[R13]!
+			LFMFD	F1,3,[R13]!
+			LFSIA	R13!,{F1-F3}
+			LFSFD	R13!,{F1-F3}
+
+FLT		Registers shown correct way round - Fx,Ry instead of Ry,Fx
+
+LDC, STC	L and T flags shown in order TL to avoid confusion with the
+		LT condition. The T flag is not supported in current versions
+		of FPEmulator; it is always used as the writeback bit, and
+		must therefore be set for the post-indexed forms.
+		(This also affects LDF, STF, LFM and SFM.)
+
+VDU, VDUX	Equivalent to SWI OS_WriteI and XOS_WriteI respectively
+
+LDR, STR	H, SH, SB forms added for ARMv4 and later
+		W (R12-relative) forms supported, eg. LDRSBW R0,&40
+
+Instructions which rely on PC plus implied offset, because of the possibly
+different values of this offset for different ARM implementations, are
+flagged as "*** Offset not guaranteed". With APCS support enabled, this
+comment will not be appended to STMFD instructions which are part of C
+function entry sequences.
+(comp.sys.arm <47kr75$hpc@doc.armltd.co.uk>, David Seal, "Re: Storing PC")
+
+The APCS support cannot distinguish between the R and M variants;
+fortunately, there appears to be no need to do so.
+
+LDRs and STRs which are PC-relative always appear in the standard form. For
+an instruction pair in which the first is of the form "[Rm],#d" and the
+second is an ADD or SUB modifying (and storing in) Rm, a comment "Rm+=x" will
+be shown.
+
+Comments of the form '="x"' now contain the character code: '="x" (120)".
+
+Constants which the BASIC assembler won't get right (eg. 256 stored as 4 ROR
+#26, rather than 1 ROR #24) are flagged as such.
+
+
+
+Known 'features'
+================
+
+None (at the time of writing).
+
+
+
+And finally
+===========
+
+As with all good software, there may be undocumented features... let me know
+and I'll try to fix them.

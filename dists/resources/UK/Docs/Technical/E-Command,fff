@@ -1,0 +1,644 @@
+*************************************************************************
+* >E-Command	Documents how to add commands to Zap			*
+*************************************************************************
+
+As mentioned in the ReadMe file, commands are added to Zap by registering a
+table of commands when the module providing the extra commands initialises.
+You should use the call Zap_AddCommands to register the table. The table has
+the format below. All offsets are from your module start unless otherwise
+indicated.
+
+	#0	Offset of table from start of module (so Zap can convert the
+		offsets below into addresses).
+	#4	Offset from module start of 'Zap service call code' or 0
+		if none. Zap calls this entry point to tell you about
+		various things - see the section below.
+	#8	List of commands, terminated by a zero word. Each element
+		of the list has the format:
+
+		<command name>+<0 byte terminator>+
+		<ZERO bytes padding until word aligned>+
+		<word giving command offset from module start>
+
+The command name must be in UPPER CASE in this table. In general, command
+names are not case sensitive, but they are converted to upper case in order
+to search for them in the command tables. The characters padding to the next
+word alignment MUST be ZEROs as the table is searched through in words not
+in bytes.
+
+When a command is found in the table, its address is calculated, and
+henceforth the command is referred to by its address. This unfortunately
+means that I cannot pass the command your module workspace when the command
+is called as I do not know which module the command lies in. This is not
+usually a problem however as you may claim workspace from Zap's heap. If this
+is not sufficient, then you will just have to store the address of your
+workspace in the module itself and read it when you are called (until I work
+out a better method).
+
+The address of the command is of course the address called when the command
+is executed. However, at offset -4, the word before the first instruction of
+the command, some flags are stored. These flags determine what type of
+parameter the command takes and how the command interacts with the
+minibuffer and menus. This word must be filled in. It's meaning is summarised
+below. Greater detail is given further down the file.
+
+b0	Set if the command doesn't need R10 on entry (eg called from a menu,
+b1	Set if the command doesn't need R8 on entry   otherwise called with
+b2	Set if the command doesn't need R9 on entry   Rx = 0.)
+b3-b5	Argument type for the command:
+	0 = Command takes no parameters
+	1 = Command takes a list of bytes as parameter
+	2 = Command takes a list of words as parameter
+	3 = Command takes a string as parameter
+	4 = Command takes a block of data as parameter
+	5-7 reserved
+b6	Set if you wished to be called before minibuffer opened
+b7	Set if you wish to be called after every minibuffer update
+b8	Set if you wish to be called before a key is inserted into
+	the minibuffer (and possibly alter it).
+b9	Set if you want TAB to complete file names in the minibuffer
+b10	Set if you may want to kill the minibuffer when it starts up.
+b11	Set if you may want minibuffer to remain open when command finished.
+b12	Set if Universal arg should multiply R1 by the number of times to do.
+b13	Set if command should be called repeatedly with R1 smaller.
+b14	Set if the command should not be executed when loading a file.
+b15	Set if the command is 'tickable' when on a menu entry.
+b16	Set if the command can create a submenu or leaf window.
+b17	Set if the command can provide a default string for a menu entry.
+b18	Set if the command wishes to provide the menu entry text.
+b19	Set if the command wishes to specify the submenu.
+b20	Set if the command may wish to remove the menu entry.
+b21	Reserved for Zap internal use.
+b22	Set if the command cannot be executed.
+b23	Set if the command may be called as a function.
+	Note that b22 set and b23 clear is illegal.
+b24-26	If a function, these determine what type of data the function takes.
+b27	Set if parameter may be omitted in multicommands.
+b28	Set if the command may move the input focus or alter the current
+	keymap number.
+b29-b31	Reserved - set to 0
+
+Bits concerned with the minibuffer are not relevant to functions.
+
+The entry/exit conditions of your command depend on your flags word as I will
+detail below. When the command is called the registers have the meaning:
+
+ R0 = input data for the command (dependent on R2 & command type - see below)
+ R1 = length of input data	 (dependent on R2 & command type - see below)
+ R2 = action code		 (details below)
+
+ R8 = window of the input caret (see E-Windows) (unless flags b1 set)
+ R9 = file block associated with R8 (see E-File) (unless flags b2 set)
+ R10 = cursor block pointer of input cursor (see E-Cursors)
+       (unless flags b3 set) (This is car_cursor if the cursors are combined
+       and car_input if they are split - see E-Vars).
+ R11 = undefined
+ R12 = Zap's workspace
+ R13 = small FD stack
+
+ALL calls to your command have these registers set up. The descriptions of R0
+and R1 given above are for action code R2=0 (execute the command). In general
+their meaning will be dependent on R2 and are undefined otherwise. Note that
+you are only called with the action codes you request via your flags word so
+do not need to test for all possible action codes.
+
+On exit from a command you may corrupt the registers R0-R11 and the flags.
+You should return V flag set and R0=error block on error. Some of the calls
+with R2<>0 require you to return a result in R0. To detail the actual meaning
+of R0-R2 I have partitioned into cases below. Registers not mentioned are
+undefined.
+
+If you want to call a command yourself, then please use the call
+Zap_ProcessCommand or Zap_CommandString. All calls from Zap are made by this
+method. See the file 'Commands' for the syntax used when typing a command
+into the keys file, or sending it to Zap_CommandString.
+
+NB Only command calls with R2=0 or R2=1 are learnt. All other calls are
+regarded as 'setup' calls and are not learnt.
+
+************************
+* Details of flag bits *
+************************
+
+Bit 0
+-----
+
+If this bit is set then R10 is undefined on entry. If it is clear then the
+current position of the input cursor will be read if R10 is not specified (ie
+is 0) when Zap_ProcessCommand is called. Note that reading the current
+input cursor position may change R8 and R9 as well.
+
+This is useful when the command is called from a menu. The menu may not be on
+the window with the input focus. If this bit is set then the command can act
+on the menu the window is on, where as if it is clear then it will always act
+on the window with the input focus. Thus it should be set for any command
+which only affects the window state and doesn't need to know the cursor
+position.
+
+Bit 1
+-----
+
+If this bit is set then R8 either points to a window or is 0 on entry. If 0
+then the command is being called from the options menu to change the default
+state. If the bit is clear and Zap_ProcessCommand is called with R8=0 then an
+error is given.
+
+Thus this bit should be set for commands which don't need to know where the
+cursor is and can change the default options as well as the current window
+state. If this bit is set then you should also set Bit 0.
+
+Bit 2
+-----
+
+As for Bit 1 except that the file pointer R9 is checked instead of R8. If the
+command is called from the options menu then both R8 and R9 will be 0.
+
+Bits 3-5
+--------
+
+These determine what type of data the command takes. (Function calls use bits
+24 to 26 instead.)  When the command is executed it is called with R2=0.
+In general the meaning of R2>0 is documented under the Bit with value R2.
+Note that Bits 12 and 13 are used in deciding which value is passed in R1.
+When the command is called with R2=0 additional information is passed in R3:
+
+ R3 =	b0 Set => This command was executed as the last command as well.
+		  (eg to spot cumulative ctrl K's/Yanks).
+	b1-b27 => Reserved
+	b28-b31=> Top bits of R2 when command called via Zap_ProcessCommand.
+
+ Data type None (0) is called with:
+
+  R0=undefined
+  R1=number of times the key has been pressed (depends on flags bits):
+     Suppose the key has been buffered a total of m times. Suppose also that
+     Universal argument (^U) is active and that the user has requested a
+     repetition of n times. (n=1 if universal argument not active).
+     Ie, Zap_ProcessCommand has been called with R1=m. Then:
+	b12=0 & b13=0 => Command is called n times with R1=m
+	b12=1 & b13=0 => Command is called once with R1=m*n
+	b12=0 & b13=1 => Command is called m*n times with R1=1
+	b12=1 & b13=1 => Command is called m times with R1=n
+	ie b12=1 => R1 is multiplied by n (the universal argument)
+	   b13=1 => Called an extra m times with R1 divided by m.
+  R2=0 to execute the command.
+
+ Data type Byte list (1):
+
+  If the command takes a byte parameter, then when the keyboard input is
+  buffered, the bytes are buffered in a list as well. Hence the sequence
+  of keypresses: CHAR 65,CHAR 66,CHAR 67 will cause the command CHAR to be
+  called once with data list 65,66,67 (if b13=0).
+
+  R0=pointer to a list of the bytes
+  R1=number of bytes in the list (depends on flag bits):
+     If m,n are as above (ie Zap_ProcessCommand has been called with R1=m,
+     R0 pointing to a list of m bytes, and universal command repeat=n) then:
+	b12=0 & b13=0 => Command is called n times with R1=m and the list of
+			 bytes pointed to by R0 is m long.
+	b12=1 & b13=0 => Command is called once with R1=m*n and the list
+			 of bytes pointed to by R0 is m*n long. Ie, the
+			 list passed to Zap_ProcessCommand has been
+			 duplicated n times.
+	b12=0 & b13=1 => Command is called m*n times with R1=1 and
+			 R0 pointing to the single byte argument. (R0
+			 incremented between command calls and wraps round).
+	b12=1 & b13=1 => Command is called m times with R1=n and R0 pointing
+			 to the single byte argument. (R0 is incremented by
+			 1 byte on each command call so it covers the list
+			 of m bytes passed to Zap_ProcessCommand).
+  R2=0 to execute the command.
+
+ Data type Word list (2):
+
+  The details are the same as for Byte list typed data except that R0 points
+  to a list of words and R1 is the number of words (not bytes) in the list.
+
+ Data type String (3) is called with:
+
+  R0=pointer to the string (zero terminated)
+  R1=number of times key pressed (as for data type None above)
+  R2=0 if the string was specified (eg INSERT "Wibble")
+     1 if the string wasn't specified (eg INSERT) but has been typed into
+       the minibuffer (R0 points to the minibuffer contents in this case)
+       and then RETURN has been pressed.
+
+  You can control the minibuffer, and the way the string is entered by using
+  bits 6-11 as documented below. Please set bit 6 and add a prompt where
+  possible. Your command should end up taking the same action regardless of
+  whether R2=0,1 for when learnt sequences are played back you are always
+  called with R2=0.
+
+ Data type Block (4) is called with:
+
+  R0=pointer to a data block (of command dependant format)
+  R1=number of times key pressed (as for data type None above)
+  R2=0 to execute the command.
+
+  This is used by the command MULTICOMMAND which is used internally within
+  Zap to execute a compiled list of other commands. You cannot use this type
+  of command in the Keys file as there is no way to specify a parameter.
+
+Bit 6
+-----
+
+This bit is only used if the command takes a string parameter and it has not
+been supplied. The minibuffer is opened in this case and, if this bit is set,
+you are called to supply a prompt and add a default string after the prompt
+if you like, and to select the history buffer.
+You are called with R2=6 (R0,R1 undefined). See also bit 10.
+
+The default buffer is selected and the minibuffer is cleared before you are
+called; it is opened on screen AFTER you return. Use Zap_MiniPrompt to add
+the prompt, Zap_MiniWrite to alter the contents of the rest of the
+minibuffer, and Zap_SelectHistoryBuffer to select which history buffer is to
+be used.
+
+Bit 7
+-----
+
+This bit is only used if the command takes a string parameter and the
+minibuffer has been opened. If this bit is set then you are called AFTER each
+key has been inserted into the minibuffer so you can examine its contents.
+You are called with:
+
+ R0=pointer to minibuffer contents (after the prompt)
+ R1=undefined
+ R2=7
+
+The minibuffer is updated on screen after you return.
+
+Bit 8
+-----
+
+This bit is only used if the command takes a string parameter and the
+minibuffer has been opened. If this bit is set then you are called BEFORE
+each key has been inserted into the minibuffer. You are called with:
+
+ R0=pointer to minibuffer contents (after the prompt)
+ R1=undefined
+ R2=&8000+Zaps internal key number of the key about to be inserted into
+    the minibuffer.
+
+and you should return:
+
+ R0=-1 => leave the minibuffer unaltered - key not inserted (but you will
+       be called again if b7 is set).
+    0-&1FF => insert that key (Zap internal key number). Hence you will
+       usually exit via SUB R0,R2,#&8000. Returning &1B (Escape) will cause
+       the minibuffer to be closed.
+    &8000+key number => The minibuffer is quitted as if return had been
+       pressed (ie you are called with R2=1 etc) and the the indicated key
+       is acted on as if typed in the editing window.
+
+You should use this call to trap insertions of TAB and make it act as a
+completion key. Filename completion can be done automatically - see b9.
+
+Bit 9
+-----
+
+If set then the TAB key automatically acts a 'filename completion' in the
+minibuffer.
+
+Bit 10
+------
+
+This bit is only used if the command takes a string parameter. It has two
+different meanings, depending on bit 6.
+
+When bit 6 is clear, bit 10 controls whether the minibuffer can be used to
+accept a string; if set, it cannot, and the string *must* instead be supplied
+with the command, or an error will be produced.
+
+When bit 6 is set, then when you are called with R2=6 in order to set the
+minibuffer prompt string, if bit 10 is also set you should return with:
+
+ R0=0 => continue as usual - ie open the minibuffer.
+    1 => total abort - you are opening your own window or something.
+    >1 => abort the minibuffer and execute the command as normal with R2=0
+	  and with parameter the string pointed to by this R0.
+
+NB Do not execute the command on this call - it will not be learnt. This is
+why you should pass the argument back in R0.
+
+Bit 11
+------
+
+This bit is only used if the command takes a string parameter and the
+minibuffer has been opened. When the user presses return the minibuffer is
+usually closed after you have been called with R2=1 to execute the command.
+If this bit is set then you can return a value in R0 (from being called with
+R2=1) to stop this:
+
+ R0=0 => close the minibuffer as usual.
+    1 => leave the minibuffer open.
+
+Bit 12-13
+---------
+
+These control the value of R1 when your command is called with R2=0. See Bits
+3-5 for more details.
+
+Bit 14
+------
+
+If set then the command is regarded as 'unsafe'. Ie, it could possibly be
+used in a Trojan and should not be executed automatically on the loading of a
+text file by specifying it in the first few lines of the file. The OSCLI
+command is a good example of this.
+
+Bit 15
+------
+
+This bit is only used if the command is used on a menu entry. If set then
+you are asked whether the menu item should be ticked or shaded. You are
+called when the menu entry is opened with:
+
+ R0=command data (pointer to byte/word/string)
+ R2=15
+ R10 need not be valid even if b1 is clear (R10=0 if not valid)
+
+ and you should return
+
+ R0 = b0 set => menu item should be ticked
+      b1 set => menu item should be shaded
+      b2+ reserved - set to 0
+
+Bit 16
+------
+
+This bit is only used if the command is used on a menu entry. If set then it
+indicates that the command can be used as a submenu pointer. The submenu
+warning bit is set and when the user tries to open the submenu you are called
+with R2=16 and should return:
+
+ R0 = window handle of a leaf window to open off the menu
+      OR pointer to a wimp menu structure to open with Zap data at
+      negative offsets (see E-Menu).
+
+For example the command 'Save' opens the 'Save dialogue box' and returns the
+window handle of it. This is compatible with the normal action of the same
+command when executed which is to open the box.
+
+If bit 16 is clear and your command is used as a submenu then instead a
+writable icon is produced and the contents sent to the command when the user
+clicks on it. See bit 17.
+
+Bit 17
+------
+
+This bit is only used when the command is used as a submenu pointer in the
+'menus' file and bit 16 is clear. In this case a writable menu icon is
+provided for the user to type in the command argument. It this bit is set
+then you are asked to provided (1) a title for the menu containing the
+writable icon (2) a default string to place in the icon when the menu is
+created (usually a default value) (3) the size of the buffer in the writable
+icon. You are called with R2=17 and
+
+ R0=0 => Return R0 as a pointer to the title string to use for the menu
+	 (a maximum of 12 characters long and zero terminated).
+ R0=1 => If your command is of type 3 (string) then:
+	  Return R0 as a pointer to the string to insert in the buffer
+	   OR 0 to clear the buffer
+	   OR -1 to leave the buffer as it currently is.
+	   OR bit 31 set and +ve integer to insert in b0-b30
+	 If your command is of type 1/2 (byte/word) then:
+	  Return R0 as a pointer to the number to insert in the buffer
+	   OR 0 to clear the buffer
+	   OR -1 to leave the buffer unaltered.
+	  Set b31 of R0 if you want the number inserted in hex.
+ R0=2 => Return R0 as the size in characters the buffer should be.
+ R0>2 => Ignore - I may add further reason codes in future.
+
+(R8 is only valid when R0=1.)
+
+If bit 17 is clear then this call is handled for you and the default values
+used are:
+
+ (1) The title string is set to the name of the command as appearing in the
+     menus file.
+ (2) Buffer is left unchanged when the menu is updated.
+ (3) Buffer is made 16 characters wide if command takes a string argument
+     or 8 if it takes a numerical argument.
+
+Bit 18
+------
+
+This is only used when the command is used on a menu. If set then you are
+called to provide replacement text for the menu entry, overwriting what is
+already in the buffer. The number of characters in the menu entry text
+defines the size of the buffer reserved for the string. This is called
+whenever the menu is opened so the menu can change dynamically. You are
+called with:
+
+ R0=pointer to command data (byte/word/string)
+ R2=18
+
+and should return
+
+ R0=pointer to text for the menu item (which may be clipped by Zap if it
+    doesn't fit in the buffer) / 0 if none (menu left as it is).
+
+Bit 19
+------
+
+This is only used when the command is used on a menu. If set then you are
+called to provide a submenu to appear off this command. This is called every
+time the menu is opened, but not called if an alternative submenu is
+provided in the Menus file. You are called with:
+
+ R0=pointer to command data (byte/word/string)
+ R2=19
+
+and should return
+
+ R0=pointer to submenu (in Zap-Wimp format) or 0 for none.
+
+Bit 20
+------
+
+This is only used when the command is used on a menu. If set then you are
+asked whether the menu item should be omitted from the menu (for example the
+mode it accesses doesn't exist). This is called whenever the menu is opened
+so the menu entry can appear and disappear dynamically. It doubles memory
+used by the menu so don't use if unnecessary. You are called with:
+
+ R0=pointer to command data (byte/word/string)
+ R2=20
+
+and should return
+
+ R0=b0 set to remove the menu item
+    b1-31 reserved (set to 0)
+
+Bit 21
+------
+
+This is reserved for internal Zap use. It is used to make a command
+unconditional; the commands IF, ELSE and ENDIF have this bit set.
+
+Bits 22-23
+----------
+
+These control how the command may be called. If callable as a command, it may
+be used outside IF's condition string; if callable as a function, it may be
+used within.
+
+Bit 22	Bit 23	Description
+   0	   0	Only callable as a command
+   1	   0	Invalid (not callable at all)
+   0	   1	Callable as either command or function
+   1	   1	Only callable as a function
+
+When a function call is made, the following entry and exit conditions apply:
+
+ Entry:	R0=undefined / byte literal / word literal / string pointer
+	   (depending on bits 3-5) (function must AND byte literals with 255)
+	R2=23
+
+ Exit:	if V set
+	  R0=pointer to error block
+	if V clear
+	  R1=1, R0=byte literal;
+	  R1=2, R0=word literal;
+	  R1=3, R0=pointer to string
+
+If both bits 22 and 23 are set, then the 'command' is only ever called with
+reason code 23.
+
+Incorrect parameter types are reported.
+
+Bits 24-26
+----------
+
+These determine what type of data the function takes. When the function is
+executed, it is called with R2=23.
+
+ Data type	R0 contains
+ None (0)	undefined
+ Byte (1)	byte literal
+ Word (2)	word literal
+ String (3)	pointer to a zero-terminated string
+
+Bit 27
+------
+Allow use in MULTICOMMANDs without reporting an error.
+
+Bit 28
+------
+
+This bit should be set if the command may move the input focus to another
+window (be it editing, dialogue or minibuffer) or alter keymap information,
+eg. the keymap number.
+
+It comes into effect when several keypresses are being buffered by Zap, and
+causes immediate execution of all buffered commands (including this one),
+thus ensuring that the following keypress is in the correct context.
+
+Bit 29-31
+---------
+
+Reserved - must be 0.
+
+************
+* EXAMPLE  *
+************
+
+The code below implements a simple command which asks you to enter a number
+into the minibuffer and then switches to that display mode. FNcall is a macro
+which calls the named Zap entry point (see E-Zapcalls for its definition).
+
+	EQUD (3<<3)+(1<<6)		\ string argument + ask for prompt
+	.command_start
+	STMFD R13!,{R14}
+	TEQ R2,#6			\ is the minibuffer about to open
+	BEQ add_prompt
+	FNcall(Zap_MiniEval)		\ find the number typed
+	LDMVSFD R13!,{PC}		\ error
+	LDMCSFD R13!,{PC}		\ wasn't a valid number
+	FNcall(Zap_NewMode)		\ change mode
+	LDMFD R13!,{PC}			\ finished
+	.add_prompt
+	ADR R0,prompt_string
+	FNcall(Zap_MiniPrompt)		\ insert the prompt string
+	LDMFD R13!,{PC}
+	.prompt_string
+	EQUS "New mode: "+CHR$0
+	ALIGN
+
+It is the offset of command_start that you must place in your command table,
+not the offset of the EQUD flags word before it. Note that the command
+performs the same action regardless of whether R2=0 or R2=1.
+
+*********************
+* Zap service calls *
+*********************
+
+If the second word in your command table is non zero then it gives the
+module offset of a 'Zap service call handler'. This code is called at
+various points to tell you about things. In general the entry/exit
+conditions are:
+
+	\E	R1=reason code and other registers may hold data.
+		R11=undefined
+		R12=Zaps workspace pointer as usual.
+	\X	You should preserve R1-R13 unless otherwise stated.
+		R0 and flags may be corrupted.
+
+The (current) service calls are listed below. You should ignore unrecognised
+values in R1 so I can add more if necessary.
+
+R1=0
+Zap is quitting and about to kill your module. Return R0=-1 to stop it.
+Your module will NOT be automatically killed if have no service call handler
+(for backwards compatibility).
+
+R1=1
+Zap is just about to start up your command table.
+
+R1=2
+Zap has started up your command table. You should use this call to claim any
+workspace via Zap_Claim. (This is usually called directly after R1=1).
+
+R1=3
+Zap is deleting a file. R9=file block of file being deleted.
+
+R1=4
+Zap is deleting a window. R8=window block of window being deleted.
+
+R1=5
+Input focus has been gained by a Zap window. R8=window block of that window.
+
+R1=6
+A window is being opened.  R8=window block of that window.
+
+R1=7
+Input focus has been lost from a Zap window. R8=window block of that window.
+
+R1>=&8000
+Zap has received an unrecognised wimp message that you may want to act on.
+The message is broadcast to all modes and command tables. Please IGNORE (ie
+return) unless you understand the message number and the window handle!! Use
+this to enable moving (via Wimp_OpenWindow) of your own windows!
+	\E R1=message block pointer (as sent by wimp)
+	   R2=R1!16=message number if R3=17 or 19
+	   R3=message type
+	      (Null requests are scheduled - use Zap_CallBack)
+	      1=redraw window request for unrecognised window
+	      2=open window request for unrecognised window
+	      3=close window request for unrecognised window
+	      4=pointer leaving unrecognised window
+	      5=pointer entering unrecognised window
+	      6=mouse click on unrecognised window
+	      (Drags dealt with by Zap - use Zap_DragBox)
+	      8=key press for unrecognised window
+	      (Menu clicks handled automatically - use Zap_OpenMenu)
+	      10=scroll request for unrecognised window
+	      11=lose caret for unrecognised window
+	      12=gain caret for unrecognised window
+	      13-16=passed straight on (not recognised by Zap)
+	      17=unrecognised user message (or recognised message applying
+		 to unrecognised window)
+	      (type 18 gets passed on as 17 as well)
+	      19=unrecognised bounced message
+	      20+=passed straight on (not recognised by Zap)

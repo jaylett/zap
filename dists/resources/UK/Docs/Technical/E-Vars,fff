@@ -1,0 +1,251 @@
+*************************************************************************
+* >E-Vars	Documents the variable numbers used by Zap_ReadVar	*
+*************************************************************************
+
+This documents the variable numbers used by the Zap_ReadVar and Zap_WriteVar
+calls. It also documents the Config file format. Please note that the
+variables with names beginning 'opt_' are stored in the !Config file and thus
+saved when the user clicks 'Options.Save'.
+
+The options for a given mode are also stored in the !Config file. See below.
+
+Number:	Variable name:	Contents:
+
+0	scn_xos		Screen horizontal size (in os coords).
+1	scn_yos		Screen vertical size (in os coords).
+2	opt_flags	Config file flags word  (see E-Flags).
+3	opt_format	Config file format word (see E-Flags again).
+4	wimp_task	Zap's task handle.
+5	car_cursor	Cursor caret block pointer (see E-Cursors).
+6	car_input	Input caret block pointer (see E-Cursors).
+7	car_selection	Selection caret block pointer (see E-Cursors).
+8	wind_num	Number of window blocks (see E-Windows).
+9	file_num	Number of file blocks (see E-File).
+10	car_mode	Current cursor editing mode (see E-Cursors).
+11	wimp_version	Version number Zap logged on as (200/300/350).
+12	key_default	(R8=0) Default key map number or, if >255, name.
+	w_defaultmap	(R8<>0) This mode's default keymap number.
+13	w_basemap	Basemap number (see note below).
+14	key_last	Zap key code of last key processed.
+15	key_lastcom	Address of last key command executed.
+16	mini_ptr	Address of minibuffer.
+17	mini_bufl	Size of minibuffer.
+18	mini_len	Size of data in minibuffer.
+19	mini_off	Offset of cursor in minibuffer.
+20	mini_mark	Offset of mark in minibuffer (see Zap_MiniWrite).
+21	yank_ptr	Address of kill ring buffer.
+22	yank_len	Size of data in kill ring buffer.
+23	w_currentmap	Current keymap number (see note below).
+24	reserved	(was control character set number).
+25	opt_tab		Default column tab for windows.
+26	opt_addr	Default address of first byte of file.
+27	opt_stline	Default number of first line of file.
+28	opt_linesp	Default line spacing in 1/8ths char.
+29	env_start	Bottom of Zap's stack (&8000 except in test modes).
+30	env_top		Start of free memory.
+31	wimp_iconbar	Handle of iconbar icon.
+32	wimp_timeformat	Standard time format string.
+33	wimp_dateformat	Standard date format string.
+34	key_flags	Flags which indicated quoted keys, etc.
+35	wimp_kbdbuf	Keyboard buffer, &200 bytes long.
+
+NOTE: Variables 13 and 23 (w_basemap and w_currentmap) are deprecated. For
+backward compatibility, Zap_ReadVar will read from them if R8 is non-zero,
+else will read key_default, and Zap_WriteVar will write to them if R8 is
+non-zero, doing nothing otherwise.
+
+Setting & reading default mode options
+--------------------------------------
+
+Each mode has a word of workspace in a window block called w_moden (see
+E-Windows). When a window is created, the default settings (stored in the
+!Config file) for that mode is used. These default settings are stored in
+memory, and saved when the user clicks on the 'save options' menu entry.
+The variable number &100+n accesses the default mode word for mode numbered
+n. Ie,
+
+&100	opt_mode0	Text mode word
+&101	opt_mode1	Byte mode word
+&102	opt_mode2	Word mode word
+... etc ...
+
+If there was no information about the mode in the !Config file then the mode
+word is set to 0. In this case, the mode should note this on startup (see
+e_init with R1=2) and write some sensible default values to it. If the mode
+has b10 set in it's e_mode word, then the mode word points to a block of
+data, the first word in the block giving the total length of the block. The
+mode can resize this block at any time using the standard heap calls. If the
+mode word was 0 then the mode should claim a block at startup and set it up
+with default values (and save the address of it's block in the mode word via
+Zap_WriteVar).
+
+If your mode word is zero when you start up then you should also define
+sensible colours for your mode using Zap_ModeColours and a sensible width etc
+using Zap_ModeData.
+
+!Config file format (Version 1.10+)
+-----------------------------------
+
+The first word must be the bytes for the letters "Conf". Then the !Config
+file consists of a list of blocks, terminated by a zero word. Each block has
+the following format:
+
+ #0	Block type:	0	End of list
+ 			-1	Version info (new 1.41)
+ 			1	Zap global options storage block
+ 			2	Mode dependent storage block (deprecated)
+ 			3	Mode/clone dependent storage block (new 1.41)
+ 			4+	Reserved
+ #4	Total block length (offset from start of block to next block)
+ #8 ...	Block data
+ 
+Block type 1 is version dependent (see below).
+
+If the block type is 2 then the block data has the following format
+
+	#0	Mode name, zero terminated then align to next word.
+		Length of Zap handled data for this mode (see below)
+		Zap handled data for this mode (version dependent)
+		Length of Mode handled data for this mode (0 if none).
+		Mode handled data for the mode (mode dependant).
+
+If the block type is 3 then the block data has the following format
+
+	#0	Mode name, zero terminated.
+		Clone base name, zero terminated then align to next word.
+		Length of Zap handled data for this mode (see below)
+		Zap handled data for this mode (version dependent)
+		Length of Mode handled data for this mode (0 if none).
+		Mode handled data for the mode (mode dependent).
+
+NB. If b10 of e_mode is set then the last two entries are written into a heap
+block whose address is stored in opt_moden where n is the mode number which
+is assigned to the mode. If not, the the first word of the data is put
+in opt_moden
+
+Version 1.10
+------------
+
+The format of the Zap handled bits for version 1.1 is:
+
+Block type 1 data: (total block length 8+&54=&5C)
+
+		#&00	Reserved (set to 0).
+		#&04	Reserved.
+		#&08	Reserved.
+		#&0C	Reserved.
+		#&10	Reserved.
+		#&14	character set to use for control characters (0-3).
+		#&18	column tab width.
+		#&1C	opt_flags value (see E-Flags).
+		#&20	opt_format value (see E-Flags).
+		#&24	address of first byte of file (for line numbers).
+		#&28	line number of first line of file.
+		#&2C	line spacing.
+		#&30	margin width.
+		#&34	cursor types byte0=normal cursor byte1=split1 cursor.
+			byte2=split2 cursor byte3=mark position cursor;
+			0=block 1=square 2=underscore 3=bar 4=none;
+			5+=undefined.
+		#&38	Code of end of line x4 (eg &0a0a0a0a).
+		#&3C	Code of tab character x4 (eg &09090909).
+		#&40	Wordwrap width.
+		#&44	Minibuffer colours byte0=background wimp col;
+			byte1=foreground wimp colour.
+		#&48	Switches flags word:
+			b0 set for flashing cursor;
+			b2 set for date checking on file saving;
+			b3 set for clear search window automatically;
+			b6 set for confine cursor to window;
+			b8 set for trap CR/LFs;
+			b9-b14 various search window bits (raw search);
+			b15 minibuffer status bits stuff...;
+			b16 set for autoload LineEditor;
+			b17 set for autoload Disassembler;
+			b18 set for autoload Asm;
+			b19 set for autoload HidePtr;
+			b20 set to inhibit beeping;
+			b21 set to be tolerant of poor WIMP messages;
+			b22 set to supress anti-aliased DSA character redraw;
+			b23 set for autoload IClear;
+			b24 Zap's got the global clipboard (internal);
+			b25 reply to clipboard request received (internal);
+			b26 allow deletions with no undo memory (internal);
+			b27 Use Wimp_TextOp in the minibuffer if available;
+			b28 Autoload FlashCar;
+			b29 No horizontal scroll bar;
+			b30 Autoload KeyExtend;
+			b31 Execute startup command even when loading a file
+			    on init;
+			other bits must be 0.
+		#&4C	Reserved.
+		#&50	Reserved.
+
+Block type 2 data:
+
+The Zap handled bit of it is 12 bytes long and documented below. The format
+may change with future versions and should be read via Zap calls
+Zap_ModeColour and Zap_ModeData if you are a Zap extension mode.
+
+	#0	Mode data variable 0 - see Zap_ModeData call.
+	#4 &#8	The current palette for this mode. The 16 nibbles give
+		the wimp colours of the 16 colours with nibble0=background
+		colour 1, nibble1=background colour 2 etc.
+		See Zap_ModeColour.
+
+Version 1.20
+------------
+
+Block type 1 data:
+
+The block has the same length and general format but the following offsets
+are changed.
+
+	#&44 Reserved - should be set to 0 (if non zero then old format).
+	#&4C Minibuffer background palette entry word.
+	#&50 Minibuffer foreground palette entry word.
+
+Block type 2 data:
+
+The Zap handled bit is now of variable length and of the format:
+
+	#0	Mode data variable 0 - see Zap_ModeData.
+	#4	Mode data variable 1.
+		...
+		-1 (to terminate mode data variable list);
+		Colour 0 (24 bit of form &BBGGRRZZ where ZZ is the style...
+		Colour 1  ...bits = %UIB10000 - i.e set bit 5 for Bold...
+		Colour 2  ...bit 6 for Italic and bit 7 for Underlined)...
+		... until end of block (length of block determines number
+		    of colours).
+
+Version 1.30
+------------
+
+Block type 1 data:
+
+The following changes have been made:
+	#&14	Now reserved, no longer the control character set.
+
+Version 1.41
+------------
+
+Block type -1 data:
+
+	#0	Major revision number (1 for v1.41)
+	#4	Major revision number (41 for v1.41)
+	#8	Config file format revision number (0)
+
+Block type 3 data:
+
+The Zap handled bit is of the format:
+
+	#0	Mode data variables (see Zap_ModeData)
+		w2  b0-7: reserved (was basemap number)
+		   b8-15: display colour block no. (default 0) (fallback 0)
+		  b16-23: printer colour block no. (d. 1) (f. 1 then 0)
+		  b24-31: number of colours, exc. extra system colours
+		-1 (list terminator)
+		Colour block 0 (as for block type 2)
+		Colour block 1 (if defined) etc.
+		  (length of block determines number of colour blocks)

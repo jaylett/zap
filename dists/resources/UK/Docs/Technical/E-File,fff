@@ -1,0 +1,289 @@
+*************************************************************************
+* >E-File	Documents a file block format				*
+*************************************************************************
+
+By convention, file blocks are pointed to by R9. However, whenever a file is
+created, the file block pointers of the other files may change. Hence these
+pointers are not preserved across calls to Wimp_Poll. Thus they must be
+converted to file block 'offsets' (ie 0=first file,1=second etc) for storing
+as pointers or links. The calls Zap_ConvFileOff and Zap_GetFileOff can be
+used to do this. The number of valid file block offsets may be got by
+Zap_ReadVar. (Then valid offsets are 0 1 ... n-1)
+
+The length of a file block is not fixed and varies across versions of zap.
+Thus you must not assume a fixed length. If you must know the length then
+convert file offsets 0,1 to pointers and then subtract them. The offsets from
+the file block start are given names beginning with 'f_'.
+
+See the E-Library file for a list of the 'f_' names. You should use code of
+the form:
+
+	LDR R0,[R9,#f_ptr]		\ set R0 to start of file buffer.
+	
+to read these variables.
+
+The files themselves are stored in SPLIT BUFFER format. This means that the
+file data is split in two, with a gap in the middle. The diagram below should
+illustrate this.
+
+		------------------------ f_ptr+f_bufl
+		| top half of file     |
+		------------------------ f_ptr+f_splite
+		| file gap	       |
+		------------------------ f_ptr+f_splito
+		| bottom half of file  |
+		------------------------ f_ptr
+		
+NB For all Zap data structures block_start=first byte of data, block_end=
+last byte of data+1, block_length=block_end-block_start.
+
+Note that f_ptr may change on any heap block claim, or file insert/delete.
+Thus all the other variables are stored as offsets from this. You should use
+the call Zap_SplitBuffer to change the buffer length or split position. You
+should use the call Zap_Command to insert/delete data. Inserting data
+manually and keeping all the variables/undo buffer/screen updated requires a
+lot of code if you want to do it yourself (the only exception to this is the
+e_postload/e_presave calls where it is quicker to manipulate the file
+directly).
+
+For most subs in Zap, a position in the file is given as an offset from the
+file start (in the range 0 to the length of the file). These file offsets
+should not be confused with the file block offsets described in the first
+paragraph. When I say 'file offset', it should be clear from the context what
+I mean.
+
+To read the byte at offset R0 you should use code of the form:
+
+	REM R0=file offset R9=file
+	REM On exit R1 corrupted and R0=byte read.
+
+	LDR R1,[R9,#f_splito]		\ find the split offset in the buffer
+	CMP R0,R1			\ are we in the bottom or top half?
+	LDRCS R1,[R9,#f_splits]
+	ADDCS R0,R0,R1			\ if in the top half, skip the split
+	LDR R1,[R9,#f_ptr]		\ start address of file
+	LDRB R0,[R1,R0]			\ read the byte
+
+To read multiple bytes you should obviously use more efficient code! If
+you are doing a very intensive operation then you may want to coagulate
+the text via Zap_SplitBuffer. The file variables are detailed below. Use
+E-Library to set them up.
+
+f_ptr
+Address of file buffer/-1 if file is dead (has been deleted). If you scan
+through the file blocks, you should always check this word to check the file
+is not dead.
+
+f_bufl
+Length of file buffer (multiple of 4). See pic above.
+
+f_len
+Length of file stored in the buffer (=f_bufl-f_splits).
+
+f_name
+Pointer to name of the file.
+
+f_load
+Load address of the file.
+
+f_exec
+Execution address of the file.
+
+f_flags
+File flags. See E-Flags for the meaning of the bits in this word.
+
+f_uptr
+Pointer to the undo buffer. The undo buffer consists of a list of blocks of
+variable length. The start of a block is indicated by bit 31 of that word
+being set. In general the first word of the block has format:
+	b31 =1 (Set to indicate block start).
+	b30 Set if the command should be undone in one go. (as opposed to one
+	    character at a time for concatenated blocks).
+	b29 Set if the data pointed to by the command need not be freed.
+	(This is used on an undo when blocks are pointed to twice).
+	b26-b28 Command number. As for R0 in Zap_Command with additions:
+		0 = fast undo pointer (fast redo if b30 set)
+		7 = startop pointer (stopop pointer if b30 set)
+	b0-b27 Gives the command's first parameter, usually a file offset
+		This corresponds to register R1 in Zap_Command.
+The other words correspond to registers R2 onwards when calling Zap_Command.
+
+f_ubufl
+Total length of the undo buffer.
+
+f_ulen
+Length of valid data in the undo buffer.
+
+f_undo
+Offset of the undo pointer in the undo buffer.
+
+f_undop
+Offset of the undo subpointer in the block pointer to by f_undo. Ie it gives
+the number of characters left to undo in the operation currently being
+undone.
+
+f_blklen
+This gives the total length of the file buffer followed by the undo data
+which is tagged onto it in later versions of Zap. (Ie, it is >=f_bufl).
+
+f_splito
+Offset in the file buffer of the current split position. See pic.
+
+f_splite
+Offset in the file buffer of the end of the current split. See pic.
+
+f_splits
+Size of the file split (=f_splite-f_splito). See pic.
+
+f_mptr
+Pointer to the marker buffer. The marker buffer is a list of entries, each
+two words longs of the format:
+	#0	File offset of the mark
+	#4	Window offset of the window mark was place in or -1 if the
+		window has been deleted (or is unspecified).
+
+f_mbufl
+Length of the marker buffer.
+
+f_mlen
+Length of valid data in the marker buffer.
+
+f_mark
+Current offset in the marker buffer.
+
+f_docom
+Used by Zap_SaveTxtStatus: stores the current action (as for Zap_DoCommand
+bits 0-2) ie, 1=insert text 2=delete text 3/4=replacement of text.
+
+f_source
+This word is for the use of the mode 'owning' this file. See f_cmode. It
+usually points to a data block of info that mode wants to hold for this file.
+Current formats used are:
+ f_cmode	f_source meaning
+ None (-1)	No mode owns this file so f_source undefined.
+ Text (0)	Text mode owns external edit and OLE files and handles them.
+		f_source points to the block:
+		#0	Protocol type (0 => EE, 1 => OLE)
+
+		For EE:
+		#4	External edit JOB handle (Zap's part of the job
+			handle is the file block offset+1)
+		#8	Task handle of client task
+		#12	Flags passed by client when job started
+		#16	Offset in window block of associated window.
+
+		For OLE:
+		#4	Session number
+		#8	Task handle of client task
+ Byte (1)	Byte mode owns 'read disc' files. f_source is the disc
+		address the file was read from.
+ Word (2)	Word mode may own 'read memory' created files in the future.
+ Throwback (11) Task handle of task that sent throwback data.
+ Taskwindow(12) Taskwindow mode owns taskwindow files. f_source points to
+		a block of the format:
+		#0	Task handle of child task
+		#4	Cursor x posn (chars)
+		#8	Cursor y posn (chars)
+		#12	Height of emulated screen (chars)
+		#16	Text window min x (chars)
+		#20	Text window min y (chars)
+		#24	Text window max x (chars)
+		#28	Text window max y (chars)
+		#32	Number of bytes stored in the VDU queue.
+		#36	12 byte buffer to store the VDU queue in.
+		#48	Offset in window block of associated window.
+		#52	Flags:	b0	Set if task suspended
+				b1	internal use
+		#56	Line offset from work area start of emulated screen.
+		w_bpl stores the width of the emulated screen.
+
+f_dolen
+Used by Zap_SaveTxtStatus: Stores the size of the data being inserted/
+deleted/replaced.
+
+f_dodata
+Used by Zap_SaveTxtStatus: Stores the address of the data being inserted/
+replaced.
+
+f_altered
+Used by Zap_DoCommand: First altered offset in file / -1
+
+f_shiftable
+Used by Zap_DoCommand: First unaltered offset in file / -1
+
+f_change
+Used by Zap_DoCommand: Signed change in size of data.
+
+f_depth
+Used by Zap_StartOp: Current StartOp/StopOp nested depth.
+
+f_links
+Links list buffer pointer. This is most used by 'throwback' though may
+have other uses. The idea is that this block stores references to offsets
+in other files. When these files are updated, the offsets are updated too
+so you can keep track of that point in the file. Use Zap_NewLinkEntry to add
+a new link. f_links points to a list of 16 byte blocks terminated by -1. The
+block format is
+	#0	Pointer to file name of associated file (with match/error)
+		(Eg this is the C source file corresponding to this throwback
+		file).
+	#4	Pointer to a list of search/error, offsets/line numbers.
+		The list is terminated by -1.
+		(These are the offsets to be updated when changes are made
+		to the file with name #0 and file block offset in #8).
+	#8	Offset of file (name given in #0) if already loaded into Zap.
+		-1 if file has not been looked for. If the file is loaded
+		then any changes to the file cause the list in #4 to be
+		updated.
+	#12	Flags:	b0	Set if #4 points to line nums, not offsets.
+				The line numbers are converted to offsets
+				when throwback mode loads the file.
+			b1	Set to call SPELL after double-click.
+			b2	/Was/ 'attempt to suppress blank space when
+				displaying the throwback'.  Now reserved.
+			b3-b7	reserved.
+			b8-b15	Number of lines heading each block.
+				The format of the throwback buffer must
+				be <file header para> <list of matches para>
+				<next file header para> etc. This details
+				the number of lines of heading/info that the
+				<list of matches para> starts off with
+				before listing the matches (at one match
+				per line corresponding to the offsets
+				pointed to by #4).
+			b16-b23	Source: (for info purposes)
+				0=Search throwback (F7)
+				1=Throwback (Eg !CC)
+				2=Info (Eg !Find).
+				3=Scratch for ins/del selecting subs...
+			b24-b31 reserved
+
+f_cmode
+This gives the mode number of the mode 'owning' this file (-1 if none). The
+mode is called when the file is deleted (eg a taskwindow). The mode may use
+the word f_source to store parameters about the file. (Eg f_source will
+usually be set by the extension mode to point to a data block). To claim the
+file, simply check that this word is -1 and then poke your mode number in.
+Use the entry point e_init with reason code 3 to free any data you have
+stored associated with this file (and pointed to by f_source). This mode is
+NOT necessarily the mode the file is displayed in. See f_source for more
+information on which modes own which types of file.
+
+f_attr
+This gives the file attributes word - see the RISC OS PRM.
+
+f_chklen
+Initial length of the file.
+
+f_chksum
+Initial checksum of the file.  This is used to update the 'file modified'
+flag.
+
+f_oflags
+Internal use only. (Used by Zap_StartOp and Zap_StopOp to determine whether a
+file's 'modified' flag has changed during the long op.)
+
+f_proposed_name
+Internal use only. (Used by save_to_file and its subroutines to store the
+filename that we are saving to without overwriting the current one, in case
+something goes wrong.)

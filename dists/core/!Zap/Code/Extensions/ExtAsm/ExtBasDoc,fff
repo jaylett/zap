@@ -1,0 +1,672 @@
+Extended BASIC Assembler
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+Version 2.01,         12 June 2000   (BASIC 1.05-1.16)
+        2.01 patch 2, 14 August 2000 (BASIC 1.20)
+by Darren Salt <ds@youmustbejoking.demon.co.uk>
+AOF code by Paul Clifford <paul@plasma.demon.co.uk>
+Contains code from v1.00 and v1.30 by Adrian Lees
+
+(This is a beta version.)
+
+
+Licence
+˜˜˜˜˜˜˜
+
+ExtBASICasm is freeware. No restrictions are placed on its use; what you do
+with it is your own responsibility.
+
+Release versions of ExtBASICasm may be freely distributed in unchanged form;
+patched versions may not be distributed unless the patches are *clearly*
+documented; such documentation must be distributed with the patched module.
+
+Beta versions of ExtBASICasm must not be redistributed.
+
+
+Intro
+˜˜˜˜˜
+
+It is recommended that you read through this document before first using this
+version of ExtBASICasm, and check through it quickly when upgrading. It's
+entirely possible that one of the extras the module provides may cause a
+clash with existing programs, for example the APCS-R register names clashing
+with variables used as register names.
+
+Note also that APCS-R register names are disabled by default.
+
+
+The module ExtBASICasm provides a patch for various versions of BBC BASIC V
+to allow the direct use of the extra instructions provided by the ARM3, ARM6,
+ARM7 and StrongARM processors. The missing floating-point and general
+coprocessor instructions, and some assembler directives more familiar (and a
+few unfamiliar) to Acorn Assembler users have been added; also the APCS-R
+register names may be used. Also, AOF files may be generated.
+
+To make the necessary changes to the BASIC module it must be located in RAM.
+The ExtBASICasm module will therefore attempt to RMFaster the BASIC module
+which will require a small amount of memory in the RMA, in addition to that
+required by the ExtBASICasm module itself. Attempting to run it while BASIC
+is active and in ROM will not work - try "*RMFaster BASIC" at the BASIC
+prompt and you'll see why.
+
+  Ver	OS	Supported?
+  1.05	3.1x	Yes
+  1.06	3.5x	Yes
+  1.14	3.6x	Yes
+  1.16	3.7x	Yes
+  1.17	3.8x	Yes
+  1.18	4.00	No (1)
+  1.19	4.01	No (1)
+  1.20	4.0x	Yes
+
+(1) Support for these versions will not be added since v1.20 is available for
+    softload on RISC OS 4.
+
+
+Enabling ExtBASICasm
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+Unlike some earlier versions, this version is initialised into a dormant
+state whenever you start up the BASIC interpreter, eg. by double-clicking on
+a BASIC program or by typing BASIC at the * prompt.
+
+You can enable or disable the extensions by using the assembler pseudo-op
+	EXT n
+where n is 0 to disable and 1 to enable. (Other values are currently mapped
+to 1; do not rely on this.)
+
+Setting any of the extension OPT bits *NO* *LONGER* enables ExtBASICasm.
+
+Certain extensions remain enabled at all times: specifically, ALIGN always
+zero-fills, and the ".foo = bar" bug remains fixed. I don't think that
+this'll inconvenience anybody :-)
+
+
+ExtBASICasm uses the BASIC data word TIMEOF, which is documented as "unused"
+for all versions of BASIC V which it recognises, for its 'enabled' flag. It
+also uses the byte at &86E4 for its extended options byte.
+
+
+The instructions added by the module are as follows:
+
+
+Extensions
+˜˜˜˜˜˜˜˜˜˜
+
+	Optional parts are enclosed in []
+
+OPT	[<value>]
+	Bit 4:	ASSERT control (1 = enabled on 'second pass')
+	Bit 5:  APCS register names (1 = enabled)
+	Bit 6:	UMUL/UMULL control (0 = short forms, 1 = long forms)
+	Bit 7:	AOF control. If set, then the AOF extension is enabled.
+
+	When ExtBASICasm is disabled, these bits take on their standard
+	meanings: bit 4 allows use of, amongst others, the FP instructions.
+
+	If value is omitted, the previous setting is used.
+
+EXT	<flag>
+	<flag>,<value>
+	<flag>,
+	Initialises or disables the extensions according to flag. The second
+	form allows you to simultaneously set the OPT value; the third (a
+	side effect of the use of the OPT code) causes the previous OPT value
+	to be used.
+
+ALIGN
+	Zero-initialises the memory if required.
+
+ALIGN	<const>[,<const2>]
+	Aligns to a multiple of const bytes plus an optional offset. const
+	must be a power of 2 between 1 and 65536; const2 must be between 0
+	and const-1 (default is 0). Also zero-initialises the memory.
+	P% becomes (P%+const-1 AND const-1)+const2; O% is also updated if
+	necessary. Examples:
+		ALIGN 4
+		ALIGN 32
+		ALIGN 16,8
+
+MUL{cond}{S}	Rd,Rm,#<const>
+	variable length; Rd=Rm if <2 ADD/RSB
+	May cause 'duplicate register' if Rd=Rm and const is not simple - ie.
+	not 0, (2^x)-1, 2^x, (2^x)+(2^y)
+
+MLA{cond}{S}	Rd,Rm,#<const>,Ra
+	variable length; Rd=Rm if <2 ADD/RSB
+	Rd=Ra causes 'duplicate register' error if const is not simple, as
+	for MUL; Rd=Rm=Ra is special in that MLA Rd,Rd,#c,Rd = MUL Rd,Rd,#c+1
+	If Rd=Ra and const=0, no code is generated (none necessary).
+
+DIV		Rq,Rr,Rn,Rd,Rt [SGN Rs]
+	Integer division by register
+	Rq = quotient		Rn = numerator		Rt = temporary store
+	Rr = remainder		Rd = denominator	Rs = sign store
+	If Rs omitted then division is unsigned.
+	Rr may be same register as Rn *or* Rn may be same as Rs.
+	All other registers must be different.
+	Rt and Rs (if specified) are corrupted.
+
+DIV		Rq,Rr,Rn,#d[,[Rt]] [SGN Rs]
+	Integer division by constant
+	Registers as above
+	If Rs omitted then division is unsigned.
+	If Rt omitted and is required for this division then error given.
+	All registers must be different.
+	If specified, Rt and Rs are corrupted.
+	(Uses generator to build code - fast but may be long)
+	Notes:	Uses Fourier method. For unsigned values, this is fixed to
+		handle unsigned top-bit-set properly, *except* for div by 3
+		which works for values up to &C0000000. Ideas and code
+		gratefully received...
+
+	*** Note no conditional for DIV
+
+SQR		Rt,Rr,Rx,Ry
+SQR		Rt,Rr,{Rx,Ry}
+	Square root
+	Input	Rr = value, Rx & Ry = work registers
+	Output	Rt = square root, Rr = remainder, Rx = 0, Ry corrupt
+		In effect, Rt = INT SQR Rr and Rr' = Rr-Rt*Rt
+	If {} are used, then Rx and Ry are preserved via STMFD R13!,{Rx,Ry}
+	and restored via LDMFD R13!,{Rx,Ry}.
+
+	*** Note no conditional for SQR
+
+ADR{cond}L	Rd,<const>
+	Fixed length (two words)
+
+ADR{cond}X	Rd,<const>
+	Fixed length (three words)
+
+ADR{cond}W	Rd,<const>
+	Addressing relative to R12, one to three words
+	<const> MUST be defined before it is used
+	Adds/subtracts const to/from R12, storing result in Rd
+	Up to you to ensure that R12 correctly set up...
+
+LDR, STR
+	xxx{cond}{B}W	Rd,<offset>
+	  Load/store word/byte at [R12,#<offset>]
+
+	LDR{cond}{B}L	Rd,<address>
+	LDR{cond}{B}L	Rd,[Rm,#<offset>]{!}
+	LDR{cond}{B}WL	Rd,<offset>
+	STR equivalents
+	  Addressing range is ±1MB; some offsets outside this range are also
+	  valid. Lengths are (in words):
+	    LDR	       2  ADD/SUB Rd,Rm,#a:LDR Rd,[Rd,#b]
+	    LDR ...]!  2  ADD/SUB Rm,Rm,#a:LDR Rd,[Rm,#b]!
+	    STR	       3  ADD/SUB Rm,Rm,#a:STR Rd,[Rm,#b]:SUB/ADD Rm,Rm,#a
+	    STR ...]!  2  ADD/SUB Rm,Rm,#a:STR Rd,[Rm,#b]!
+
+	LDR{cond}{B}L	Rd,{Rn},<address>
+	LDR{cond}{B}L	Rd,{Rn},[Rm,#<offset>]
+	LDR{cond}{B}WL	Rd,{Rn},<offset>
+	STR equivalents
+	  [{Rn} is NOT optional]
+	  Equivalent to the LDR/STRs above, except that Rn (rather than Rd)
+	  is used to hold the address; always two words long. For example,
+	  ADRL R0,wibble:LDR R1,[R0] may be replaced with LDRL R1,{R0},wibble
+	  - one word shorter.
+	  Rd=Rn is not allowed.
+	  Assembles to ADD/SUB Rn,Rm,#a : LDR/STR Rd,[Rn,#b]!
+
+	LDR{cond}{B}L	Rd,[Rm],#<offset>
+	STR equivalent
+	  Addressing range is ±1MB; some offsets outside this range are also
+	  valid. Two words long.
+	  Assembles to LDR/STR Rd,[Rm],#b:ADD/SUB Rm,Rm,#a
+
+	NOTE: You should try to avoid using *sequences* of LDRLs or STRLs -
+	there is usually a more efficient way.
+
+	LDRxxH, LDRxxSH, LDRxxSB and STRxxH
+		The W forms are supported.
+		Long LDR{H|SH|SB} not yet implemented.
+
+SWAP{cond}[S]	Rd,Rn
+	Swaps Rd and Rn without using temporary store.
+	Uses EOR method, is therefore three words long.
+	If S is specified, then the flags are set according to Rn.
+
+VDU{cond}{X}	<const>
+	= SWI "OS_WriteI"+<const>
+	With X present, XOS_WriteI is used instead.
+
+NOP{cond}
+	= MOV{cond} R0,R0
+	(BASIC supports only an unconditional NOP.)
+
+BRK{cond} [#<const>]
+	Undefined instruction. If <const> is specified, then R14 is set to
+	this value before the undefined instruction trap is taken.
+
+EQUx, DCx, =
+	xxx <value>[,<value>]^
+	Extended form of EQUD, EQUW, DCB, etc.
+	Instead of, eg. DCD 0 : DCD 12 : DCD branch
+	you can now use DCD 0, 12, branch
+
+Negative constants
+	Allowed in the following instructions:
+		ADD, SUB	ADC, SBC	ADF, SUF
+		AND, BIC	MOV, MVN	MVF, MNF
+		CMP, CMN	CMF, CNF	CMFE, CNFE
+	If the constant is invalid for one of these, it is negated or
+	inverted, as appropriate, and the instruction changed to the other of
+	the pair (eg. ADC becomes SBC). If the constant is still invalid, the
+	"bad immediate constant" error is generated as normal.
+
+
+ARMv3 (ARM6) and later
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+MSR{cond}	<psr>_<f>,Rm
+	(Standard extension.)
+	<f> may, in addition to the standard combinations of 'c' 'x' 's' 'f',
+	be one of:
+		ctl	control bits only
+		flg	flag bits only
+		all	both
+	Any combination of 'cf' is equivalent to 'all'; you may also, in the
+	standard form, use '_' between letters.
+
+
+ARMv4 (ARM8, StrongARM) and later
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+UMUL, SMUL, UMLA, SMLA:
+	xxx{cond}{S}	Rl,Rh,Rm,Rn
+
+	The 'official' forms UMULL, SMULL, UMLAL, SMLAL are used *instead of*
+	the 'short' forms if extended OPT bit 6 is set.
+	Unfortunately it's not possible to allow both forms at once: how
+	would you interpret "UMULLS" - UMUL condition LS or UMULL with S bit?
+
+
+Floating-point instructions
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+Floating point coprocessor data transfer
+
+LDF, STF:
+	xxx{cond}precW	Fd,<offset>
+
+LFM{cond}{stack}	Fd,m,[Rn]{!}
+SFM{cond}{stack}	Fd,m,[Rn]{!}
+LFS{cond}{stack}	Rn{!},<fp register list>
+LFS{cond}{stack}	Rn{!},<fp register list>
+
+	LFM, SFM, LFS and SFS use extended precision. The <fp register list>
+	is much as for LDM and STM, with restrictions: you must specify a
+	register or a sequence of registers, and the list must be compatible
+	with LFM and SFM - eg.
+	LFSFD R13!,{F3}		LFMFD F3,1,[R13]!	LFM F3,1,[R13],#12
+	SFSFD R13!,{F5-F0}	SFMFD F5,4,[R13]!	SFM F5,4,[R13,#-36]!
+	LFSDB R13,{F1,F0}	LFMDB F0,2,[R13]	LFM F0,2,[R13,#-24]
+	- for each row, all the instructions have the same effect.
+	Available stack types are DB, IA, EA, FD.
+	Note that example 2 wraps around - F5, F6, F7, F0 _in that order_.
+
+
+Assembler directives
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+* Conditional - will STOP if expression is FALSE:
+
+ASSERT	<expression>
+
+	Bit 4 of the extended OPT value controls ASSERT. When it and bit 1
+	are zero, ASSERTs are ignored.
+
+* Constants
+
+=	<const|string>
+	The bug causing an error when used in the form
+		.label = "something"
+	has been fixed.
+
+EQUF, DCF
+	xxx	<const>
+
+	Synonyms for EQUFD.
+
+EQUP, DCP, P
+	xxx	<string>,<const>
+	xxx	<const>,<string>
+	Fixed-length string allocation. If the string is too short, then the
+	remaining space is padded with nulls; if it is too long, it is
+	truncated to the specified length.
+
+EQUPW, DCPW, PW
+	xxx	<pad_byte>,<string>,<const>
+	xxx	<pad_byte>,<const>,<string>
+	Like EQUP, except that you specify the padding byte.
+
+EQUZ, DCZ, Z
+	xxx	<string>
+	EQUS with automatic zero termination
+
+EQUZA, DCZA, ZA
+	xxx	<string>
+	Equivalent to EQUZ followed by ALIGN
+
+	Note: *ALL* the EQU... directives (and their equivalents) may have
+	their arguments repeated as described in the Extensions section.
+
+FILL, %
+	xxx{B|W|D}	<const>{,{<value>}}
+	Allocates <const> bytes of memory, initialised to <value> (or 0).
+	B, W and D represent data lengths as for EQU; if omitted, then byte
+	length is assumed. If the comma is present but no fill value, this is
+	equivalent to adding the constant to P% (and O% if appropriate).
+
+FILE	<filename>
+	Loads the specified file, allocating just enough space for it.
+
+^	<offset>
+	Initialises the workspace address pointer to the given value.
+	This is used and updated by #.
+	Typical use:
+		^ 0
+		...
+		# flags, 4
+		...
+		LDRW	R0,flags
+
+#	<variable>, <length>
+	Sets the variable to the current value of the workspace address
+	pointer, which is then incremented by <length>.
+	This does not alter P% or O%.
+	(Note: the variable is assigned before the length is evaluated.)
+
+COND	<cond>
+	Sets the condition code for use with = (when used as a condition
+	code). It may be supplied as a condition code literal, a number (0 to
+	15), or a string containing a condition code literal. For example,
+	all of the following are equivalent:
+		COND	7		; number
+		COND	VC		; condition code literal
+		COND	vc		; condition code literal
+		COND	"Vc"		; string containing cond. code lit.
+	Example code:
+		COND	LT		; select LT condition code
+		MOV=	R0,#2		; MOVLT  R0,#2
+		MOV=S	R1,R2		; MOVLTS R1,R2
+
+
+AOF generation
+˜˜˜˜˜˜˜˜˜˜˜˜˜˜
+
+AREA	"name", "attributes"
+
+	An area is a named block of code or data that can be manipulated by a
+	linker, such as drlink, to form the final program image. Typically, a
+	program will be divided into two main areas; one for code and the
+	other for data. For example, Acorn's C compiler uses areas named
+	"C$$code" and "C$$data".
+
+	Each area has a set of attributes which provide extra information to
+	the linker. The attributes recognised by ExtBASICasm are listed below
+	(the case is ignored):
+
+	32BIT	    The code complies to the 32-bit variant of the APCS.
+	CODE	    Contains machine code instructions.
+	DATA	    Contains data, not instructions.
+	EXTFP	    The extended floating-point instruction set is used (LFM
+		    and SFM instead of multiple LDFEs and STFEs).
+	NOCHECK	    The code complies with a variant of the APCS without
+		    software stack-limit checking.
+	PIC	    Position Independent Code; will execute where loaded
+		    without modification.
+	READONLY    This area will not be written to.
+	REENTRANT   The code complies with the reentrant APCS standard.
+
+	Each attribute should be separated from the next by a comma (spaces
+	are optional and ignored when processing the list). It is important
+	to make sure that all areas of the same name also have the same
+	attributes, otherwise the linking process will fail.
+
+	Example area definitions:
+
+	AREA	"C$$code", "CODE, READONLY"
+	AREA	"MyProgram$Data", "DATA"
+
+
+IMPORT	"symbol" ["attributes"]
+IMPORT	"symbol", "alternative name" ["attributes"]
+
+	References between areas are handled via "symbols". Each area exports
+	a list of symbols that are available for external use, eg "strlen",
+	"printf", and "fread" from the C library stubs. An area can then
+	import the symbol and use it as if it were defined locally, leaving
+	the linker to resolve the references later.
+
+	IMPORT makes an external symbol available for use within the current
+	area. It creates a variable of the same name, ending with an @, which
+	can be used with STR, LDR, EQUD, EQUW and B instructions. An
+	alternative name can be supplied, making it possible to import
+	symbols containing characters that are illegal in a BASIC variable
+	name, such as $. Example uses:
+
+	IMPORT  "strcpy"		; import strcpy as strcpy@
+	IMPORT  "an$example", "example" ; import an$example as example@
+
+	BL	strcpy@			; call the strcpy routine
+	LDR	R0, example@		; load a word from an$example
+
+	Note: The '@' variables should always be treated as read-only.
+
+	The optional attributes are as follows:
+
+	FPREG	    This is only meaningful if the imported symbol is a
+		    function entry point and indicates that floating point
+		    arguments will be passed in floating point registers.
+	INSENSITIVE The linker will ignore the case when trying to resolve
+		    the reference.
+	NOCASE	    A synonym for INSENSITIVE.
+	WEAK	    It is acceptable for the reference to remain unsatisfied.
+
+	Example:
+
+	IMPORT  "xyz", "abc" ["nocase"] ; import xyz as abc@, ignoring case
+
+
+EXPORT	"symbol" ["attributes"]
+EXPORT	"symbol", "alternative name" ["attributes"]
+
+	EXPORT makes an address within the current area available for outside
+	use. The "symbol" is the BASIC variable containing the address and,
+	if the alternative name is missing, the name under which it is
+	exported. If the variable is an integer you would probably want to
+	supply an alternative name to remove the % at the end. Example uses:
+
+	EXPORT  "compare%", "uint_cmp"  ; export compare% as uint_cmp
+	EXPORT  "value", "an$integer"	; export value as an$integer
+	EXPORT  "value"			; also export value as value
+
+	.compare%
+	CMP	R0, R1
+	MOVLO	R0, #-1
+	MOVEQ	R0, #0
+	MOVHI	R0, #1
+	MOVS	PC, R14
+	.value
+	DCD	&12345678
+
+	The optional attributes are:
+
+	DATA	This is only meaningful if the symbol occurs in a code area,
+		and indicates that the symbol defines data rather than code.
+	FPREG	This is only meaningful if the symbol defines a function
+		entry point and indicates that floating point arguments
+		should be passed in floating point registers.
+	LEAF	The symbol defines a function call that makes no calls to any
+		any other functions.
+	STRONG	This symbol should be used in preference to any other
+		non-strong symbol when resolving references in other files.
+		Any references to the symbol within the same file as the
+		strong definition resolve to the non-strong definition. This
+		allows a kind of link-time indirection.
+
+	Example:
+
+	EXPORT  "leaf_fn" ["leaf"]	; export leaf_fn as a leaf symbol
+
+
+INCLUDE	"filename"
+
+	INCLUDE will load the specified BASIC program as a library (first
+	pass only) and call the definition of FNinclude in that program, if
+	one exists. The function call ignores definitions of FNinclude
+	elsewhere, such as other INCLUDE'd files.
+
+
+END
+SAVE	"filename"
+
+	It is necessary to explicitly mark the end of an AOF file, to allow
+	the extra data to be inserted in the correct place, and to provide a
+	means of determining how many passes have been carried out. Either
+	END or SAVE "filename" can be used for this purpose; the latter will
+	automatically save the AOF output on the second pass. For example:
+
+	SAVE	"o.program"
+
+
+LDR	register, =expression
+LDF*	register, =expression
+LTORG
+
+	Literals are used to load immediate values that cannot be handled by
+	the MOV/MVN and MVF/MNF instructions. The expression is evaluated and
+	stored in the nearest following literal pool, and the instruction is
+	assembled to load from the value from this address. If the expression
+	contains an imported symbol, the necessary relocation directive will
+	be transparently added.
+
+	A literal pool is automatically added at the end of each area, but
+	extra literal pools can be created using the LTORG directive. This is
+	particularly useful when using floating point literals as the LDF
+	instruction only has a range of +-1020.
+
+	Examples:
+
+	LDR	R0, =&4b534154		; R0 = &4b534154 ("TASK")
+	LDFS	F1, =3.1415926536	; F1 = (float) 3.1415926536
+	LDR	R7, =external@ + 4	; R7 = address of external + 4
+
+
+HEAD	"function name"
+
+	This adds a function name header, used by backtraces and
+	disassemblers to name functions. For example:
+
+	EXPORT  "compare"
+	HEAD	"compare"
+	.compare
+	; ...
+	MOVS	PC, R14
+
+
+ENTRY
+
+	The ENTRY directive is used to tell the linker where program
+	execution should begin.
+
+
+ORG	address
+
+	ORG sets a base address for the current area. It should be used
+	carefully as it may cause problems for the linker, and only really
+	makes sense if the code needs to be mapped to a fixed hardware
+	location.
+
+
+ROUT
+ROUT	"routine name"
+
+	ROUT marks the beginning of a new local label block. Local labels can
+	be defined multiple times in a single source file and are
+	particularly useful in macros. For example:
+
+	DEF FNexample
+	[	OPT	pass%
+		ROUT
+		TST	R0, #1
+		BNE	@10
+		; ...
+		B	@20
+	.10
+		; ...
+	.20
+	]
+	= 0
+
+	A local label always starts with a number and can optionally be
+	followed by the routine name, as supplied to the preceding ROUT. It
+	is an error to supply differing names; local labels outside the
+	current label block are hidden. References to a local label begin
+	with an @.
+
+
+Notes
+˜˜˜˜˜
+
+* Registers are specified in the following form:
+
+	ARM registers:			R0..R15
+		using APCS-R names:	A1..A4 V1..V6 SL FP IP SP LR PC
+	Floating-point registers:	F0..F7
+	General co-processor registers:	C0..C15
+
+  To help to cope with any potential name clashes, the floating point and
+  APCS-R register names (except for PC) must be terminated with some
+  character not valid in a variable name in order to be recognised; they are
+  otherwise treated as part of a variable name.
+
+* Coprocessor numbers (CP#) may be specified using either of the following
+  forms:
+
+	P0..P15
+	CP0..CP15
+
+* Wherever a register or coprocessor number is specified, an expression may
+  be substituted in the usual manner allowed by BASIC V. This module employs
+  the routines used within BASIC to evaluate all expressions (eg. register
+  numbers, offsets and labels) and hence its interpretation of expressions is
+  guaranteed to be the same as BASIC.
+
+
+Credits
+˜˜˜˜˜˜˜
+
+  Adrian Lees (last known, AFAIK, at A.M.Lees-CSEE93@@cs.bham.ac.uk):
+  - for the original ExtBas and the EQU comma extension, and for the use of
+    some of his code
+
+  Michael Rozdoba (mroz@argonet.co.uk; remember TechForum?):
+  - for including the "General recursive method for Rb := Ra * C, C a
+    constant" from Appendix C of the manual for Acorn's desktop assembler,
+    and the late Acorn Computing (Sept 1994) for printing it;
+  - for the division code generator (Archimedes World, May 1995), which was
+    included, slightly trimmed, and debugged to handle top-bit-set unsigned
+    numbers properly... I hope!
+
+  Dominic Symes of !Zap fame (dominic.symes@armltd.co.uk):
+  - for pointing out that ANDEQ R0,R0,R0 could usefully be replaced by DCD 0
+
+  Martin Willers (m.willers@tu-bs.de):
+  - for bug hunting :-)
+
+  Reuben Thomas (rrt1001@cam.ac.uk):
+  - for pointing out it might be useful to disable the APCS register names,
+    suggesting B/W/D suffix for FILL (and %) and -ve immediate constants, and
+    bug encountering
+
+  Mohsen Alshayef (mohsen@qatar.net.qa):
+  - for some useful long MUL, STRH and [CS]PSR info
+
+  Michael Kircher (kircher@ph-cip.uni-koeln.de):
+  - for the integer square root code, and a few bug reports

@@ -1,0 +1,91 @@
+| !Run file for Zap
+| (c) Zap Developers
+
+| Check Zap isn't already running
+If "<Zap$Running>"="Yes" Then Error 0 Zap is already running
+
+| Logging options - Zap$Log must be under 16 characters including terminator
+| If you set Zap$Log here, you will enable SysLog logging (if built into Zap).
+|Set Zap$Log Zap
+| If you unset Zap$Log here, you guarantee that SysLog logging won't happen.
+Unset Zap$Log
+If ("<Zap$Log>" <> "") AND ("<SysLog$Dir>" = "") Then Error !SysLog application not seen by filer
+If "<Zap$Log>" <> "" Then RMEnsure SysLog 0.17 Run <SysLog$Dir>.!Run
+If "<Zap$Log>" <> "" Then RMEnsure SysLog 0.17 Error Zap needs SysLog 0.17 or later
+If "<Zap$Log>" <> "" Then SysLog <Zap$Log> 100 Zap booting
+
+| Set up some directory paths and load sprites
+Set Zap$Dir <Obey$Dir>
+Set ZapCode$Path <Zap$Dir>.Code.
+Set ZapExtensions$Path ZapCode:Extensions.
+Set ZapModules$Path <Zap$Dir>.Modules.
+
+| Load ObeySupport
+RMEnsure ObeySupport 0.02 RMLoad ZapCode:ObeySpt
+
+| Find operating system version
+SetEval Zap$OSVsn 400
+RMEnsure UtilityModule 4.00 SetEval Zap$OSVsn 350
+RMEnsure UtilityModule 3.50 SetEval Zap$OSVsn 300
+RMEnsure UtilityModule 3.10 SetEval Zap$OSVsn 200
+
+| Won't run on RISC OS 2 any more
+If Zap$OSVsn<300 Then Error 0 Zap v1.44 needs RISC OS 3 or later
+
+| Load sprites
+Set ZapSprites$Path <Zap$Dir>.Resources.<Zap$OSVsn>.,<Zap$Dir>.Resources.
+IconSprites ZapSprites:!Sprites
+Unset ZapSprites$Path
+
+| Boot or default ZapFonts and ZapUser if they haven't already been booted
+RMEnsure UtilityModule 3.50 If "<Alias$IfThere>"="" Then Set Alias$IfThere ZapCode:IfThere %%*0
+
+If "<ZapUser$Path>" = "" Then Else IfThere ZapUser:!Run Then Else Unset ZapUser$Path
+Set Alias$ZapBootUser IfThere Choices:!ZapUser Then Obey Choices:!ZapUser.!Boot
+If "<Choices$Write>" = "" Then Set Alias$ZapBootUser ""
+If "<ZapUser$Path>" = "" Then ZapBootUser
+Unset Alias$ZapBootUser
+If "<ZapUser$Path>" = "" Then IfThere <Zap$Dir>.!ZapUser Then Obey <Zap$Dir>.!ZapUser.!Boot
+If "<ZapUser$Path>" = "" Then Error 0 Please locate !ZapUser
+
+If "<ZapFontsSource$Path>" = "" Then Else IfThere ZapFontsSource: Then Else Unset ZapFontsSource$Path
+If "<ZapFontsSource$Path>" = "" Then IfThere BootResources:!ZapFonts Then Obey BootResources:!ZapFonts.!Boot
+If "<ZapFontsSource$Path>" = "" Then IfThere <Zap$Dir>.!ZapFonts Then Obey <Zap$Dir>.!ZapFonts.!Boot
+If ("<ZapFontsSource$Path>" = "") OR ("<Zap$Redraw>" = "") Then Error 0 Please locate !ZapFonts
+
+Set ZapFonts$Path ZapFontsSource:
+
+| Set up Zap$Country and paths dependent on it
+IfThere ZapUser:Config.Country Then Run ZapUser:Config.Country
+If "<Zap$Country>">"" Then Else If "<Sys$Country>">"" Then Set Zap$Country <Sys$Country> Else Set Zap$Country UK
+Set ZapResources$Path <Zap$Dir>.Resources.<Zap$Country>.,<Zap$Dir>.Resources.UK.
+Set ZapTemplates$Path ZapUser:Templates.<Zap$Country>.,ZapResources:Templates.<Zap$Country>.,ZapUser:Templates.,ZapResources:Templates.
+
+| Other resource paths
+Set ZapTiles$Path ZapUser:Tiles.,<Zap$Dir>.Resources.Tiles.
+
+| Default options
+Set Zap$Types     ZapGenerated:Types
+Set Zap$External  ZapGenerated:External
+Set Zap$HelpData  ZapGenerated:HelpData
+Set Zap$Messages  ZapGenerated:Messages
+
+| To turn off dynamic areas uncomment the following line
+| SetEval Zap$OSVsn 300
+
+| Generate configuration files if necessary
+Obey ZapCode:SetZapGen
+WimpSlot -min 96K
+Run ZapCode:Config.ConfigScan
+If "<Zap$Temp>" = "1" Then WimpSlot -min 256K -max 256K
+If "<Zap$Temp>" = "1" Then Run ZapCode:Config.CreateConf -script ZapCode:Config.RunScript
+WimpSlot -min 96K
+
+| Obey the !ZapRun file
+Obey ZapGenerated:!ZapRun
+
+| Load modules and start Zap task (possibly loading a file).
+RMEnsure ZapRedraw 0.39 RMLoad <Zap$Redraw>
+RMLoad ZapCode:Zap
+If "<Zap$Log>" <> "" Then SysLog <Zap$Log> 100 Running main Zap code
+Zap_Desktop %*0
