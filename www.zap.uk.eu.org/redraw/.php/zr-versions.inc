@@ -1,4 +1,6 @@
 <?php
+  # $Id: zr-versions.inc,v 1.2 2002/03/13 22:41:43 ds Exp $
+
   function zapscandir ($path)
   {
     global $ftproot;
