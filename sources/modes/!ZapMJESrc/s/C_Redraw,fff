@@ -172,14 +172,14 @@ nextline$C	FNJSR	"r2,modeblk"
 ;  Redraw line of display
 
 		EXPORT	redrawline$C
-redrawline$C	STMFD	sp!,{r6,windowblk,r11,lr}
+redrawline$C	FNJSR	"r6,windowblk,r11"
 		SWI	XHourglass_On
 ; SJA: nasty hack because r7 (modeblk) is already being used in scanfile$C.
-		STMFD	sp!,{wsblk,modeblk}
+		PUSH	"wsblk,modeblk"
 		BL	checkmode
 		LDR	modeblk,m_flags1$C
 		STR	modeblk,sja_temp_flags1
-		LDMFD	sp!,{wsblk,modeblk}
+		PULL	"wsblk,modeblk"
 ; SJA: nasty hack over. Go home.
 		SUB	r11,r7,r5
 		BL	scaninit$C
@@ -189,12 +189,12 @@ redrawline$C	STMFD	sp!,{r6,windowblk,r11,lr}
 		LDR	width,w_txtw
 		MOV	rangeend,#-1
 		BL	scanfile$C
-		LDMFD	sp!,{r6,windowblk}
+		PULL	"r6,windowblk"
 		BL	checkmode
-		LDMNEFD	sp!,{r11,pc}			; hourglass?
+		PULL	"r11,pc",NE			; hourglass?	; !!! Unmatched return LDM
 		ADD	modeblk,modeblk,#m_caddr$C-m_0$C
 		STMIA	modeblk,{ptr,state}
-		LDMFD	sp!,{r11,lr}
+		PULL	"r11,lr"	; !!! Unmatched return LDM
 		STR	state,w_res14
 		STR	ptr,w_res15
 		TEQ	r0,r5,LSR #24
@@ -244,7 +244,7 @@ scaninit$C	FNJSR	"modeblk,wsblk"
 
 ; E R0,R8,R9...
 		EXPORT	in_comment
-in_comment	STMFD	sp!,{r1-r12,lr}
+in_comment	FNJSR	"r1-r12"
 		MOV 	r11,r0
 		LDR	r3,[r10]	; !?!?
 		LDR	fileblk,[r3,#p_fileblk]
@@ -253,11 +253,11 @@ in_comment	STMFD	sp!,{r1-r12,lr}
 		LDR	r12,[r3,#p_zapwsblk]
 		MOV	r4,#comment
 		BL	asm_a_generic
-		LDMFD	sp!,{r1-r12,pc}
+		FNRTS
 
 ; E R0,R8,R9... (cloned from in_comment; one change made)
 		EXPORT	in_string
-in_string	STMFD	sp!,{r1-r12,lr}
+in_string	FNJSR	"r1-r12"
 		MOV 	r11,r0
 		LDR	r3,[r10]
 		LDR	fileblk,[r3,#p_fileblk]
@@ -266,11 +266,11 @@ in_string	STMFD	sp!,{r1-r12,lr}
 		LDR	r12,[r3,#p_zapwsblk]
 		MOV	r4,#string
 		BL	asm_a_generic
-		LDMFD	sp!,{r1-r12,pc}
+		FNRTS
 
 		EXPORT	asm_a_comment
 asm_a_comment	MOV	r4,#comment
-asm_a_generic	STMFD	sp!,{r4,lr}
+asm_a_generic	FNJSR	"r4"
 		LDR	r4,w_format
 
 		BL	scaninit$C		; sets up R5...
@@ -288,20 +288,20 @@ asm_a_generic	STMFD	sp!,{r4,lr}
 		MOVEQ	r0,#1
 		MOVNE	r0,#0
 		ADD	sp,sp,#4
-		LDMFD	sp!,{pc}
+		PULL	"pc"	; !!! Unmatched return LDM
 
 notinacomment$L	MOV	r0,#0
 		ADD	sp,sp,#4
-		LDMFD	sp!,{pc}
+		PULL	"pc"	; !!! Unmatched return LDM
 inassembler$L	MOV	R0,#2
 		ADD	sp,sp,#4
-		LDMFD	sp!,{pc}
+		PULL	"pc"	; !!! Unmatched return LDM
 
 		LOCAL
 
 ; E R0,R8,R9... (cloned from in_string)
 		EXPORT	in_quoted
-in_quoted	STMFD	sp!,{r1-r12,lr}
+in_quoted	FNJSR	"r1-r12"
 		MOV 	r11,r0
 		LDR	r3,[r10]
 		LDR	fileblk,[r3,#p_fileblk]
@@ -309,9 +309,9 @@ in_quoted	STMFD	sp!,{r1-r12,lr}
 		LDR	modeblk,[r3,#p_modeblk]
 		LDR	r12,[r3,#p_zapwsblk]
 		BL	asm_a_quoted
-		LDMFD	sp!,{r1-r12,pc}
+		FNRTS
 
-asm_a_quoted	STMFD	sp!,{lr}
+asm_a_quoted	FNJSR
 		LDR	r4,w_format
 
 		BL	scaninit$C		; sets up R5...
@@ -330,12 +330,12 @@ asm_a_quoted	STMFD	sp!,{lr}
 		TEQNE	state,#charconst	; a character constant?
 		MOVEQ	r0,#1
 		MOVNE	r0,#0
-		LDMFD	sp!,{pc}
+		FNRTS
 
 notinacomment$L	MOV	r0,#0
-		LDMFD	sp!,{pc}
+		FNRTS
 inassembler$L	MOV	R0,#2
-		LDMFD	sp!,{pc}
+		FNRTS
 
 ;  Scan source to given point, putting entry into cache buffer every k
 ;
@@ -355,20 +355,20 @@ hourcount$L	RN	r4				;  Chars per hourglass %
 cache$L		RN	r10				;  Current pointer into state cache
 toptr$L		RN	r11				;  Offset to scan to
 
-scanto$C	STMFD	sp!,{hourcount$L,r7,toptr$L,lr}
+scanto$C	FNJSR	"hourcount$L,r7,toptr$L"
 		BL	checkmode
-		LDMNEFD	sp!,{hourcount$L,r7,toptr$L,pc}
+		FNRTS	NE
 		LDR	toptr$L,[sp,#4*2]		;  Restore toptr
 		LDR	ptr,m_caddr$C			;  Check for extra cache being suitable
 		TEQ	ptr,toptr$L
 ;		CMP	ptr,toptr$L
 		LDREQ	state,m_cstate$C
-		LDMEQFD	sp!,{hourcount$L,r7,toptr$L,pc}	;  If so then already done
+		FNRTS	EQ	;  If so then already done
 		ADD	cache$L,modeblk,#m_cacheaddr$C-m_0$C
 findloop$L	LDMIA	cache$L!,{ptr,state}		;  Find next entry past toptr in cache
 		CMP	toptr$L,ptr
 		BHI	findloop$L
-		LDMEQFD	sp!,{hourcount$L,r7,toptr$L,pc}	;  Found exactly at toptr, job done
+		FNRTS	EQ	;  Found exactly at toptr, job done
 		SUB	cache$L,cache$L,#16		;  Reload entry before toptr in cache
 		LDMIA	cache$L!,{ptr,state}
 		MOV	rangeend,ptr,LSR #7 ; 10	;  Round up to next 1k boundary
@@ -398,7 +398,7 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 		CMP	ptr,toptr$L			;  Loop if toptr not reached
 		BLT	scanloop$L
 		BL	stoplongop
-		LDMFD	sp!,{hourcount$L,r7,toptr$L,pc}
+		FNRTS
 
 
 		LOCAL
@@ -426,7 +426,7 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 ;
 ;  NB. scaninit must be called before scanfile, and r5 preserved between calls
 
-scanfile$C	STMFD	sp!,{r4,lr}
+scanfile$C	FNJSR	"r4"
 		LDR	splito,f_splito
 		LDR	lr,f_splits
 		CMP	rangeend,splito
@@ -580,11 +580,11 @@ exponent$L	BL	getchar$L
 
 ;  Check for number starting with .
 
-fraction$L	STMFD	sp!,{char,ptr,splito}
+fraction$L	PUSH	"char,ptr,splito"
 		BL	getahead$L
 		CMP	char,#'9'
 		RSBLSS	lr,char,#'0'
-		LDMFD	sp!,{char,ptr,splito}
+		PULL	"char,ptr,splito"
 		BLS	number$L
 		B	mainloop$L
 
@@ -598,12 +598,12 @@ fraction$L	STMFD	sp!,{char,ptr,splito}
 ;;		ANDEQ	state,state,#whitespace ; ????
 ;		B	normal$L
 
-checkcomment$L	STMFD	sp!,{char,ptr,splito}
+checkcomment$L	PUSH	"char,ptr,splito"
 		BL	getahead$L
 		TEQ	char,#'/'
 		BEQ	cpp$L
 		TEQ	char,#'*'
-		LDMFD	sp!,{char,ptr,splito}
+		PULL	"char,ptr,splito"
 		BCS	notcomment$L
 		BNE	notcomment$L
 		TEQ	state,#preprocflag+preprocinc
@@ -626,7 +626,7 @@ commentloop$L	BL	getchar$L
 		BICNE	state,state,#endcomment:EOR:comment
 		B	commentloop$L
 
-cpp$L		LDMFD	sp!,{char,ptr,splito}
+cpp$L		PULL	"char,ptr,splito"
 		BCS	notcomment$L		; fires...? huh?
 		TST	crtab,#cext
 ;		BNE	testtoseeppon$L
@@ -740,7 +740,7 @@ checkprejava$L
 		STMDB	sp!,{lr}
 		LDR	lr,sja_temp_flags1
 		TST	lr,#2
-		LDMIA	sp!,{lr}
+		LDMIA	sp!,{lr}	; !!! Unmatched return LDM
 ; SJA: nasty hack over. Go home.
 		TSTNE	state,#whitespace
 		MOVNE	state,#preproc+preprocflag
@@ -843,19 +843,19 @@ noquiteol$L	CMP	ptr,rangeend
 		CMP	rcolumn,lwidth
 		BHS	physlineend$L
 		TEQ	char,#'\'
-		MOVNES	pc,lr
-gcbackslash$L	STMFD	sp!,{ptr,splito,lr}
+		MOVNES	pc,lr	; !!! ARM32 FIXME
+gcbackslash$L	FNJSR	"ptr,splito"
 		ADD	lr,pc,#4
-		STMFD	sp!,{lr}
+		PUSH	"lr"
 		BL	getc$L
 		TEQ	char,crtab,LSR #24
 		MOV	char,#'\'
-		LDMNEFD	sp!,{ptr,splito,pc}^
-		LDMFD	sp!,{ptr,splito,lr}
+		FNRTSS	NE	; !!! Unmatched return LDM  !!! ARM32 FIXME
+		FNPULL
 		ORR	state,state,#slasheol
 		B	getchar$L
 physlineend$L	TEQ	char,crtab,LSR #24
-		MOVEQS	pc,lr
+		MOVEQS	pc,lr	; !!! ARM32 FIXME
 		SUB	ptr,ptr,#1
 finished$L	LDR	lr,f_ptr
 		SUB	ptr,ptr,lr
@@ -863,23 +863,23 @@ finished$L	LDR	lr,f_ptr
 		CMP	ptr,splito
 		LDRHS	lr,f_splits
 		SUBHS	ptr,ptr,lr
-		LDMFD	sp!,{r4,pc}^
+		LDMFD	sp!,{r4,pc}^	; !!! Unmatched return LDM
 
 
 ;  Character look ahead, CS if reached end
 
 gabackslash$L	BIC	lr,lr,#Cbit
-		STMFD	sp!,{ptr,splito,lr}
+		FNJSR	"ptr,splito"
 		ADD	lr,pc,#4
-		STMFD	sp!,{lr}
+		FNJSR
 		BL	getc$L
 		TEQ	char,crtab,LSR #24
 		MOVNE	char,#'\'
-		LDMNEFD	sp!,{ptr,splito,pc}
+		PULL	"ptr,splito,pc",NE	; !!! Unmatched return LDM
 		ADD	sp,sp,#8
-		LDMFD	sp!,{lr}
+		FNPULL
 getahead$L	ADR	lastchar,gabackslash$L
-		STMFD	sp!,{lastchar}			; copy } aborts! :-(
+		PUSH	"lastchar"			; copy } aborts! :-(
 		; /why/ I don't know - this is the stack :-(
 getc$L		CMP	ptr,splito
 		BLO	notend$L
@@ -896,11 +896,11 @@ notend$L	LDRB	char,[ptr],#1
 		TEQ	char,#'\'
 		ADDNE	sp,sp,#4
 		MOVNE	pc,lr
-		LDMFD	sp!,{pc}
+		FNRTS
 
 ;  Long character string/char constants (eg. L"Hello" or L'!')
 
-longstring$L	STMFD	sp!,{char,ptr,splito}
+longstring$L	PUSH	"char,ptr,splito"
 		BL	getahead$L
 		MOV	lr,char
 		LDMFD	sp!,{char,ptr,splito}
@@ -915,11 +915,11 @@ longstring$L	STMFD	sp!,{char,ptr,splito}
 
 ;  Names
 
-name$L		STMFD	sp!,{char,ptr,crtab,width,splito}
+name$L		PUSH	"char,ptr,crtab,width,splito"
 		MOV	width,#0
 		MOV	lr,#0
-		STMFD	sp!,{width,lr}
-		STMFD	sp!,{width,lr}
+		FNJSR	"width"
+		FNJSR	"width"
 		MOV	width,#16
 namesearchlp$L	SUBS	width,width,#1
 		STRPLB	char,[sp,width]
@@ -1075,7 +1075,7 @@ matchedres$L	LDR	crtab,[sp,#16+2*4]		;  Keep in step with stack - gets crtab
 isreserved$L	ANDNE	state,state,#preprocflag
 		ORRNE	state,state,#builtin
 notreserved$L	ADD	sp,sp,#16
-		LDMFD	sp!,{char,ptr,crtab,width,splito}
+		PULL	"char,ptr,crtab,width,splito"
 nameloop$L	BL	getchar$L
 		AND	lr,char,#&DF
 		CMP	lr,#'Z'
@@ -1353,7 +1353,7 @@ local_prevnextflag
 
 		EXPORT	prevline$C
 prevline$C
-		STMFD	sp!,{r0-r11,lr}
+		FNJSR	"r0-r11"
 		SWI	XHourglass_On
 		MOV	r1,r0
 		LDR	r4,w_format
@@ -1367,7 +1367,7 @@ prevline$C
 		STR	modeblk,[tempblk$L,#16]
 
 
-		STMFD	sp!,{r1,r2,r3}
+		PUSH	"r1,r2,r3"
 ;		B	hardcase$L ; delnolengthcheck$L
 		LDR	R0,f_docom
 		AND	R0,R0,#7
@@ -1407,7 +1407,7 @@ easycase$L	SUBS	R0,R1,#1
 		CMP	R0,#'@'
 		BLE	notsoeasycase$L
 		MOV	R0,#17
-		LDMFD	sp!,{r1,r2,r3}
+		PULL	"r1,r2,r3"
 		B	carryon$L
 
 ;		MOV 	R3,R0
@@ -1432,7 +1432,7 @@ easycase$L	SUBS	R0,R1,#1
 ;		B 	carryon$L
 
 notsoeasycase$L
-		LDMFD	sp!,{r1,r2,r3}
+		PULL	"r1,r2,r3"
 		MOV     r0,#128
 
 carryon$L
@@ -1526,7 +1526,7 @@ findloop$L	LDMIA	r2!,{ptr,state}
 		BIC	r2,r2,#1<<31
 		ADD	r3,tempblk$L,#32
 		ADD	r6,tempblk$L,#firstsize$L ; 640
-		STMFD   sp!,{R1,R4,R5,R7,R8,R9,R10,R11,R12}
+		PUSH   "R1,R4,R5,R7,R8,R9,R10,R11,R12"
 ;scanprevloop$L	CMP	r3,r2
 ;		BHS	foundprev$L
 ;		LDR	r0,[r3],#4
@@ -1568,7 +1568,7 @@ scanprevloop$L	CMP	r3,r2
 		ADD	R6,R6,#20
 		BEQ	scanprevloop$L
 ;		SUB	r3,r3,#4
-foundprev$L	LDMFD   sp!,{R1,R4,R5,R7,R8,R9,R10,R11,R12}
+foundprev$L	PULL   "R1,R4,R5,R7,R8,R9,R10,R11,R12"
 		SUB	r3,r3,tempblk$L
 		SUB	r3,r3,#32
 		MOV	r3,r3,LSR #2
@@ -1600,17 +1600,17 @@ scanloop$L	TEQ	state,r6		; hmm problem with //<CR>/*?
 		BEQ	foundnext$L
 ;		SWI	&107			; never...
 premature$L
-		STMFD	sp!,{ptr,r6,r7}
+		PUSH	"ptr,r6,r7"
 		MOV	output,#0
 		LDR	lwidth,w_bpl
 		MOV	rangeend,#-1		; R7 = for ever?
 		BL	scanfile$C		; scan file to get status
 		STMIA	tempblk$L,{state}
-		LDMFD	sp!,{ptr,state}
+		PULL	"ptr,state"
 		BL	scanfile$C		; scan file to get status
 		MOV	r6,state
 		LDMIA	tempblk$L,{state}
-		LDMFD	sp!,{r7}
+		PULL	"r7"
 		SUBS	r7,r7,#1
 		LDR	r0,f_len
 		CMPHS	r0,ptr
@@ -1625,13 +1625,13 @@ foundnext$L	LDR	modeblk,[tempblk$L,#16]
 		MOV	r0,tempblk$L
 		CALL	Zap_Free
 attempttoe2$L	SWI	XHourglass_Off
-		LDMFD	sp!,{r0-r11,pc}
+		FNRTS
 
 attempttoexit$L MOV	R11,R0
 		SWI	XHourglass_Off
 		ADD	sp,sp,#4
 		MOV	R0,R11
-		LDMFD	sp!,{r1-r11,lr}
+		PULL	"r1-r11,lr"	; !!! Unmatched return LDM
 		ORR 	pc,lr,#&FC000000	; sec...
 ;resolver1$L	MOV 	R14,#
 

@@ -95,11 +95,11 @@ C_checkmode	FNJSR	"r6-r12"
 ;  Service code for command table
 
 		EXPORT	cmdservice
-cmdservice	STMFD	sp!,{wsblk,lr}
+cmdservice	FNJSR	"wsblk"
 		LDR	wsblk,wsblkstore
 		TEQ	r1,#0				;  Zap quitting
 		BLEQ	beingkilled
-		LDMFD	sp!,{wsblk,pc}
+		FNRTS
 
 
 		LOCAL
@@ -108,13 +108,13 @@ cmdservice	STMFD	sp!,{wsblk,lr}
 ;  Call base mode entry point in r9
 
 		EXPORT	callbasemode
-callbasemode	STMFD	sp!,{r0,r11,lr}
+callbasemode	FNJSR	"r0,r11"
 		MOV	r11,r9
 		BL	getformat
 		AND	r9,r0,#255
-		LDMFD	sp!,{r0}
+		PULL	"r0"
 		CALL	Zap_BaseMode
-		LDMFD	sp!,{r11,pc}
+		PULL	"r11,pc"	; !!! Unmatched return LDM
 
 
 		LOCAL
@@ -129,13 +129,13 @@ callbasemode	STMFD	sp!,{r0,r11,lr}
 
 		EXPORT	startlongop
 		EXPORT	startlongnoesc
-startlongop	STMFD	sp!,{r0-r2,lr}
+startlongop	FNJSR	"r0-r2"
 		MOV	r0,#229
 		MOV	r1,#0
 		MOV	r2,#0
 		SWI	XOS_Byte
-		LDMFD	sp!,{r0-r2,lr}
-startlongnoesc	STMFD	sp!,{wsblk,lr}
+		FNPULL
+startlongnoesc	FNJSR	"wsblk"
 		BL	getws
 		MOV	lr,#0
 		STR	lr,ws_percent
@@ -145,7 +145,7 @@ startlongnoesc	STMFD	sp!,{wsblk,lr}
 		STRNE	lr,ws_percount
 		MOVEQ	lr,#&7F000000
 		SWI	XHourglass_On
-		LDMFD	sp!,{wsblk,pc}^
+		FNRTSS
 
 
 		LOCAL
@@ -157,14 +157,14 @@ startlongnoesc	STMFD	sp!,{wsblk,lr}
 ;    Flags preserved
 
 		EXPORT	nextpercent
-nextpercent	STMFD	sp!,{r0,wsblk,lr}
+nextpercent	FNJSR	"r0,wsblk"
 		BL	getws
 		LDR	r0,ws_percent
 		ADD	r0,r0,#1
 		STR	r0,ws_percent
 		SWI	XHourglass_Percentage
 		LDR	lr,ws_percount
-		LDMFD	sp!,{r0,wsblk,pc}^
+		FNRTSS
 
 
 		LOCAL
@@ -178,7 +178,7 @@ nextpercent	STMFD	sp!,{r0,wsblk,lr}
 ;    Flags preserved
 
 		EXPORT	newpercent
-newpercent	STMFD	sp!,{r1,r2,wsblk,lr}
+newpercent	FNJSR	"r1,r2,wsblk"
 		BL	getws
 		LDR	r1,ws_percent
 		LDR	r2,ws_percount
@@ -190,7 +190,7 @@ loop$L		ADD	r1,r1,#1
 		MOV	r0,r1
 		SWI	XHourglass_Percentage
 		MOV	r0,r2
-		LDMFD	sp!,{r1,r2,wsblk,pc}^
+		FNRTSS
 
 
 		LOCAL
@@ -201,7 +201,7 @@ loop$L		ADD	r1,r1,#1
 ;    Flags preserved
 
 		EXPORT	stoplongop
-stoplongop	STMFD	sp!,{r0-r2,lr}
+stoplongop	FNJSR	"r0-r2"
 		SWI	XHourglass_Off
 		MOV	r0,#229
 		MOV	r1,#1
@@ -209,7 +209,7 @@ stoplongop	STMFD	sp!,{r0-r2,lr}
 		SWI	XOS_Byte
 		MOV	r0,#124
 		SWI	XOS_Byte
-		LDMFD	sp!,{r0-r2,pc}^
+		FNRTSS
 
 
 		LOCAL
@@ -251,14 +251,14 @@ getc		LDR	r3,[r10]
 		LDR	r3,[r3,#p_fileblk]
 		LDR	r1,[r3,#f_len-f_0]
 		CMP	r0,r1
-		MOVHSS	pc,lr
+		MOVHSS	pc,lr	; !!! ARM32 FIXME
 		LDR	r1,[r3,#f_splito-f_0]
 		CMP	r0,r1
 		LDRHS	r1,[r3,#f_splits-f_0]
 		ADDHSS	r0,r0,r1
 		LDR	r1,[r3,#f_ptr-f_0]
 		LDRB	r0,[r1,r0]
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -277,7 +277,7 @@ loop$L		LDRB	r2,[r1,r0]
 		ADD	r0,r0,#1
 		CMP	r2,#' '
 		BHS	loop$L
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -295,7 +295,7 @@ strcpy		LDRB	r2,[r1],#1
 		STRB	r2,[r0],#1
 		BHS	strcpy
 		SUB	r0,r0,#1
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -308,14 +308,14 @@ strcpy		LDRB	r2,[r1],#1
 
 		EXPORT	strncpy
 strncpy		SUBS	r2,r2,#1
-		MOVMIS	pc,lr
+		MOVMIS	pc,lr	; !!! ARM32 FIXME
 		LDRB	r3,[r1],#1
 		CMP	r3,#' '
 		MOVLO	r3,#0
 		STRB	r3,[r0],#1
 		BHS	strncpy
 		SUB	r0,r0,#1
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -330,7 +330,7 @@ kbhit		MOV     r0,#152
                 SWI     XOS_Byte
                 MOV     r0,#0
                 MOVCC   r0,#1
-                MOVS    pc,lr
+                MOVS    pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -359,25 +359,25 @@ kbhit		MOV     r0,#152
 ;  Exits with C set if start/end of line found, else Z set if a r0 is a 'filler' character
 
 		EXPORT	isfiller
-isfiller	STMFD	sp!,{r1}
+isfiller	PUSH	"r1"
 		LDRB	r1,w_cr
 		TEQ	r0,r1
 		LDMFD	sp!,{r1}
-		ORREQS	pc,lr,#Cbit
+		ORREQS	pc,lr,#Cbit	; !!! ARM32 FIXME
 		BIC	lr,lr,#Cbit
 		CMP	r0,#'0'
-		ORRLOS	pc,lr,#Zbit
+		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
 		CMP	r0,#'9'+1
 		MOVLO	pc,lr
 		CMP	r0,#'A'
-		ORRLOS	pc,lr,#Zbit
+		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
 		CMP	r0,#'Z'+1
 		MOVLO	pc,lr
 		CMP	r0,#'a'
-		ORRLOS	pc,lr,#Zbit
+		ORRLOS	pc,lr,#Zbit	; !!! ARM32 FIXME
 		CMP	r0,#'z'+1
 		MOVLO	pc,lr
-		ORRS	pc,lr,#Zbit
+		ORRS	pc,lr,#Zbit	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -390,7 +390,7 @@ beingkilled	LDR	r0,ws_numinit
 		SUBS	r0,r0,#1
 		STR	r0,ws_numinit
 		MOVNE	r0,#-1
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -407,7 +407,7 @@ releasekeys	MOV	r0,#202
 		SWI	XOS_Byte
 		TST	r1,#2_01001000
 		BNE	releasekeys
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 
 		LOCAL
@@ -416,15 +416,15 @@ releasekeys	MOV	r0,#202
 ;  Decode number entered into menu
 
 		EXPORT	evaluateentry
-evaluateentry	STMFD	sp!,{r1,r2,lr}
+evaluateentry	FNJSR	"r1,r2"
 		MOV	r1,#0
 		MOV	r2,#0
 		SWI	XOS_EvaluateExpression
-		LDMVSFD	sp!,{r1,r2,pc}
+		FNRTS	VS
 		CMP	r1,#0
 		MOVEQ	r0,r2
 		MOVNE	r0,#0
-		LDMFD	sp!,{r1,r2,pc}
+		FNRTS
 
 
 		LOCAL
@@ -437,13 +437,13 @@ evaluateentry	STMFD	sp!,{r1,r2,lr}
 ;         r4-r6 preserved
 
 		EXPORT	callc
-callc		STMFD	sp!,{r4-r12,lr}
+callc		FNJSR	"r4-r12"
 		ADD	r10,sp,#12
 		STR	r10,[r10,#-4]!
 		MOV	lr,pc				;  *** Put try in here somewhere!
 		MOV	pc,r6
 		ADD	sp,sp,#12
-		LDMFD	sp!,{r7-r12,pc}
+		PULL	"r7-r12,pc"	; !!! Unmatched return LDM
 
 
 		LOCAL
@@ -524,7 +524,7 @@ callzapvc	FNJSR	"r4-r11"
 		LDR	r10,[r10]
 		LDR	r12,[r10,#p_zapwsblk]
 		ADD	r10,r10,#p_windowblk
-		STMFD	sp!,{r10}
+		PUSH	"r10"
 		LDMIB	r11,{r4-r7}
 		LDMIA	r10,{r8-r10}
 		LDR	r11,[r11]
@@ -532,7 +532,7 @@ callzapvc	FNJSR	"r4-r11"
 		ADD	r11,lr,r11
 		MOV	lr,pc
 		MOV	pc,r11
-		LDMFD	sp!,{lr}
+		PULL	"lr"	; !!! Unmatched return LDM
 		STMVCIA	lr,{r8-r10}
 		FNRTS VC
 		FNPULL
@@ -614,10 +614,10 @@ throw		MOV	pc,lr
 getformat	TEQ	windowblk,#0
 		LDRNE	r0,w_format
 		MOVNE	pc,lr
-		STMFD	sp!,{r1,lr}
+		FNJSR	"r1"
 		LDR	r1,=v_optformat
 		CALL	Zap_ReadVar
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 
 		LOCAL
@@ -629,10 +629,10 @@ getformat	TEQ	windowblk,#0
 setformat	TEQ	windowblk,#0
 		STRNE	r0,w_format
 		MOVNE	pc,lr
-		STMFD	sp!,{r1,lr}
+		FNJSR	"r1"
 		LDR	r1,=v_optformat
 		CALL	Zap_WriteVar
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 
 		LOCAL
@@ -644,10 +644,10 @@ setformat	TEQ	windowblk,#0
 getflags	TEQ	windowblk,#0
 		LDRNE	r0,w_flags
 		MOVNE	pc,lr
-		STMFD	sp!,{r1,lr}
+		FNJSR	"r1"
 		LDR	r1,=v_optflags
 		CALL	Zap_ReadVar
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 
 		LOCAL
@@ -659,10 +659,10 @@ getflags	TEQ	windowblk,#0
 setflags	TEQ	windowblk,#0
 		STRNE	r0,w_flags
 		MOVNE	pc,lr
-		STMFD	sp!,{r1,lr}
+		FNJSR	"r1"
 		LDR	r1,=v_optflags
 		CALL	Zap_WriteVar
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 
 		LOCAL

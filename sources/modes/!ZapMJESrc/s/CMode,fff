@@ -85,14 +85,14 @@ intstart$C	FNJSR	"r1,modeblk"
 ;  Called when window leaves this mode
 
 		EXPORT	end$C
-end$C		STMFD	sp!,{r1,modeblk,lr}
+end$C		FNJSR	"r1,modeblk"
 		MOV	r1,#0
 		BL	ensuresize$C
 		LDRVC	r0,ws_mode$C
 		LDR	r0,m_info
 		LDR	r0,[r0,#i_mode]
 		CALL	Zap_SaveModeWord,,VC
-		LDMFD	sp!,{r1,modeblk,pc}
+		FNRTS
 
 
 		LOCAL
@@ -148,7 +148,7 @@ notcpp$L	LDR	r1,w_format
 ;  Insert return(s)
 
 		EXPORT	return$C
-return$C	STMFD	sp!,{lr}
+return$C	FNJSR
 		CMP	r0,#1
 		BEQ	returnnoindent$L
 
@@ -161,7 +161,7 @@ return$C	STMFD	sp!,{lr}
 		BL	getindent$C
 		ADD	r2,r2,r0		; new indent level
 
-		STMFD	sp!,{r1,r2,r8-r10}
+		PUSH	"r1,r2,r8-r10"
 		MOV	r1,#1
 		MOV	r0,#0
 		LDR	r9,=e_return
@@ -173,7 +173,7 @@ return$C	STMFD	sp!,{lr}
 		SUBS	r0,r2,r0		; indent change for this line
 		BLE	noindent$L
 
-		STMFD	sp!,{r1,r8-r10}
+		PUSH	"r1,r8-r10"
 		MOV	r5,r0
 		BL	getflags
 		MOV	r4,r0
@@ -189,13 +189,14 @@ noindent$L	CMP	r1,#0
 		MOV	r0,#0
 		BL	callbasemode		; do any remaining returns at same indent level
 noreturn$L	CALL	Zap_StopOp
-		LDMFD	sp!,{pc}
+		FNRTS
 returnnoindent$L
 		LDR	r9,=e_return
 		BL	callbasemode
-		LDMFD	sp!,{pc}
+		FNRTS
 
 thirtytwospaces	=	"                                ",0
+		ALIGN
 
 
 		LOCAL
@@ -204,7 +205,7 @@ thirtytwospaces	=	"                                ",0
 ;  Insert character(s)
 
 		EXPORT	char$C
-char$C		STMFD	sp!,{lr}
+char$C		FNJSR
 		CALL	Zap_StartOp
 		MOV	r1,#0
 00		CMP	r1,r5
@@ -231,17 +232,18 @@ char$C		STMFD	sp!,{lr}
 
 01		BL	%f02
 		CALL	Zap_StopOp
-		LDMFD	sp!,{pc}
+		FNRTS
 
 02		CMP	r1,#0
 		MOVLE	pc,lr
-		STMFD	sp!,{r1-r10,lr}
+		FNJSR	"r1-r10"
 		MOV	r5,r1
 		LDR	r9,=e_char
 		BL	callbasemode
-		LDMFD	sp!,{r1-r10,pc}
+		FNRTS
 
-03		STMFD	sp!,{r1-r10,lr}
+03
+		FNJSR	"r1-r10"
 		LDR	r0,c_off
 		MOV	r1,#'{'
 		MOV	r2,#'}'
@@ -256,9 +258,9 @@ char$C		STMFD	sp!,{lr}
 04		MOV	r5,#1
 		LDR	r9,=e_char
 		BL	callbasemode
-		LDMFD	sp!,{r1-r10,pc}
-
-05		STMFD	sp!,{r1-r10,lr}
+		FNRTS
+05
+		FNJSR	"r1-r10"
 		LDR	r0,c_off
 		MOV	r1,#'('
 		MOV	r2,#')'
@@ -267,9 +269,10 @@ char$C		STMFD	sp!,{lr}
 		MOV	r5,#1
 		LDR	r9,=e_char
 		BL	callbasemode
-		LDMFD	sp!,{r1-r10,pc}
+		FNRTS
 
-06		STMFD	sp!,{r1-r10,lr}
+06
+		FNJSR	"r1-r10"
 		LDR	r0,c_off
 		MOV	r1,#'['
 		MOV	r2,#']'
@@ -278,7 +281,7 @@ char$C		STMFD	sp!,{lr}
 		MOV	r5,#1
 		LDR	r9,=e_char
 		BL	callbasemode
-		LDMFD	sp!,{r1-r10,pc}
+		FNRTS
 
 
 		LTORG
@@ -299,7 +302,7 @@ nextfunc$C	LDR	r4,c_loff
 		STR	r1,c_off
 		CALL	Zap_ReflectCaret
 		CALL	Zap_ShowCursor
-exit$L		LDMFD	sp!,{lr}
+exit$L		PULL	"lr"	; !!! Unmatched return LDM
 		B	stoplongop
 
 
@@ -311,7 +314,7 @@ exit$L		LDMFD	sp!,{lr}
 		EXPORT	lastfunc$C
 lastfunc$C	MOV	r4,#-1
 		LDR	r5,c_loff
-		STMFD	sp!,{cursorblk}
+		PUSH	"cursorblk"
 		BL	initfindfunc$C
 		MOV	r0,#-1
 loop$L		BL	findfunc$C
@@ -325,7 +328,7 @@ loop$L		BL	findfunc$C
 		STR	r0,c_off
 		CALL	Zap_ReflectCaret
 		CALL	Zap_ShowCursor
-exit$L		LDMFD	sp!,{cursorblk,lr}
+exit$L		PULL	"cursorblk,lr"	; !!! Unmatched return LDM
 		B	stoplongop
 
 
@@ -333,12 +336,12 @@ exit$L		LDMFD	sp!,{cursorblk,lr}
 
 
 		EXPORT	funcbrowser$C
-funcbrowser$C	STMFD	sp!,{lr}
+funcbrowser$C	FNJSR
 		BL	checkmode
-		LDMNEFD	sp!,{pc}
+		FNRTS	NE
 		CALL	Zap_GetWindOff
 		MOV	r1,#-1
-		STMFD	sp!,{r0-r2,windowblk,fileblk}
+		PUSH	"r0-r2,windowblk,fileblk"
 		MOV	r4,#-1
 		LDR	r5,f_len
 		BL	initfindfunc$C
@@ -348,7 +351,7 @@ loop$L		LDR	r0,[sp]
 		MOV	r4,r1
 		BL	findfunc$C
 		BCS	extitfrombroza$L
-		STMFD	sp!,{r1-r7}
+		PUSH	"r1-r7"
 		LDR	r0,[sp,#8*4]
 		CMP	r0,#-1
 		BNE	addline$L
@@ -429,19 +432,19 @@ copyloop2$L	SUBS	lr,lr,#1
 		LDMFD	sp!,{r1-r7}
 		B	loop$L
 
-getkbdbuf$L	STMFD	sp!,{r1,lr}
+getkbdbuf$L	FNJSR	"r1"
 		MOV	r1,#35
 		CALL	Zap_ReadVar
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 ;  Add text pointed to by r0 onto end of file; destroys r1
 
-secndsetup$L	STMFD	sp!,{lr}
+secndsetup$L	FNJSR
 		MOV	r0,#1<<29 :OR: 3<<30
 		ADR	r1,tb_title$L
 		ADR	r2,tb_tokens$L
 		CALL	Zap_CreateThrowback
-		LDMFD	sp!,{pc}
+		FNRTS
 tb_title$L	=	"mje_tb_title",0
 		ALIGN
 tb_tokens$L	&	0, 9:OR:6<<28
@@ -453,7 +456,7 @@ tb_null$L	&	0, 0
 
 extitfrombroza$L
 		BL	stoplongop
-		LDMFD	sp!,{r0-r2,windowblk,fileblk,pc}
+		PULL	"r0-r2,windowblk,fileblk,pc"	; !!! Unmatched return LDM
 
 		LOCAL
 
@@ -465,13 +468,13 @@ handle$L	RN	r1
 		DCD	x_noparams			;  Flags for command
 
 		EXPORT	autoheader$C
-autoheader$C	STMFD	sp!,{lr}
+autoheader$C	FNJSR
 		BL	checkmode
-		LDMNEFD	sp!,{pc}
+		FNRTS	NE
 		LDR	r1,f_name
 		BL	count
 		CALL	Zap_Claim
-		LDMVSFD	sp!,{pc}
+		FNRTS	VS
 		ADD	r3,r0,#2
 		BL	strcpy
 finddotloop$L	LDRB	r4,[r0,#-1]!
@@ -494,7 +497,7 @@ finddotloop$L	LDRB	r4,[r0,#-1]!
 		BEQ	nofile
 		SUB	r0,r3,#2
 		CALL	Zap_Free
-		LDMVSFD	sp!,{pc}
+		FNRTS	VS
 		ADR	r2,autotext$L
 findautoloop$L	MOV	r3,#0
 autonextchar$L	SWI	XOS_BGet
@@ -516,14 +519,14 @@ autonotfound$L	MOV	r2,#?autotext$L
 autofound$L	MOV	r0,#10
 		SWI	XOS_BPut
 		SWI	XOS_BPut
-		STMFD	sp!,{handle$L}
+		PUSH	"handle$L"
 		MOV	r4,#-1
 		LDR	r5,f_len
 		BL	initfindfunc$C
 loop$L		MOV	r4,r1
 		BL	findfunc$C
 		BCS	finished$L
-		STMFD	sp!,{r1-r6}
+		PUSH	"r1-r6"
 		LDR	handle$L,[sp,#6*4]
 		MOV	r2,#?externtext$L
 		ADR	r3,externtext$L
@@ -558,11 +561,12 @@ foundend$L	BL	appendtext$L
 
 autotext$L	=	"/* Auto */"
 externtext$L	=	"extern "
+		ALIGN
 
 finished$L	LDMFD	sp!,{r1}
 		MOV	r0,#0
 		SWI	XOS_Find
-		LDMFD	sp!,{lr}
+		FNPULL
 		B	stoplongop
 
 ;  Add text pointed to by r3, length in r2, onto end of file whose handle is in r1
@@ -597,7 +601,7 @@ lastchar$L	RN	r8
 hourcount$L	RN	r10
 cr$L		RN	r12
 
-initfindfunc$C	STMFD	sp!,{r0,lr}
+initfindfunc$C	FNJSR	"r0"
 		LDR	r0,f_len
 		BL	startlongop
 		MOV	hourcount$L,lr
@@ -608,11 +612,11 @@ initfindfunc$C	STMFD	sp!,{r0,lr}
 		CMP	rangeend$L,splito$L
 		ADDGE	rangeend$L,rangeend$L,r1
 		MOV	ptr$L,#-1
-		LDMFD	sp!,{r0,pc}
+		FNRTS
 
 ; skip this line...
 
-prefindfunc$C	STMFD	sp!,{r0,r2-r12,lr}
+prefindfunc$C	FNJSR	"r0,r2-r12"
 		LDRB	cr$L,w_cr
 		LDR	splito$L,f_splito
 		CMP	ptr$L,splito$L
@@ -629,7 +633,7 @@ looppff$L	BL	getquick$L
 		LDRCS	splito$L,f_splits
 		SUBCS	ptr$L,r5,splito$L
 		MOVCC	ptr$L,r5
-		LDMFD	sp!,{r0,r2-r12,pc}
+		FNRTS
 
 
 ;  Search for start of function
@@ -646,7 +650,7 @@ looppff$L	BL	getquick$L
 ;    r7 lastfunc - Offset to function start, taking account of split
 ;    wsblk, windowblk, fileblk
 
-findfunc$C	STMFD	sp!,{r0,r8,r12,lr}
+findfunc$C	FNJSR	"r0,r8,r12"
 		LDRB	cr$L,w_cr
 		LDR	splito$L,f_splito
 		CMP	ptr$L,splito$L
@@ -746,7 +750,7 @@ opencurly$L	CMP	state$L,#-2
 		LDRHS	r0,f_splits
 		SUBHS	ptr$L,ptr$L,r0
 		ADDS	r0,r0,#0
-		LDMFD	sp!,{r0,r8,r12,pc}
+		FNRTS
 
 closecurly$L	CMP	state$L,#0
 		SUBGT	state$L,state$L,#1
@@ -780,21 +784,21 @@ getchar$L	ADD	ptr$L,ptr$L,#1
 		BLO	notend$L
 		LDR	splito$L,f_len
 		CMP	ptr$L,splito$L
-		LDMHSFD	sp!,{r0,r8,r12,pc}
+		FNRTS	HS
 		LDR	splito$L,f_bufl
 		LDR	ptr$L,f_splite
 notend$L	MOV	lastchar$L,char$L
 		LDRB	char$L,[fptr$L,ptr$L]
 		SUBS	hourcount$L,hourcount$L,#1
-		MOVNES	pc,lr
-		STMFD	sp!,{lr}
+		MOVNES	pc,lr	; !!! ARM32 FIXME
+		FNJSR
 		BL	nextpercent
 		MOV	hourcount$L,lr
 		SWI	XOS_ReadEscapeState
-		LDMCCFD	sp!,{pc}^
+		FNRTSS	CC
 		MOV	r1,#0
 		ADD	sp,sp,#4
-		LDMFD	sp!,{r0,r8,r12,pc}
+		PULL	"r0,r8,r12,pc"	; !!! Unmatched return LDM
 
 
 ;  Get byte for pre-function search
@@ -810,7 +814,7 @@ getquick$L	ADD	ptr$L,ptr$L,#1
 		LDR	ptr$L,f_splite
 quicknend$L	MOV	lastchar$L,char$L
 		LDRB	char$L,[fptr$L,ptr$L]
-		MOVS	pc,lr
+		MOVS	pc,lr	; !!! ARM32 FIXME
 
 		LOCAL
 
@@ -820,7 +824,7 @@ quicknend$L	MOV	lastchar$L,char$L
 until$L		RN	r3
 oldcoff$L	RN	r4
 
-moveandwait$C	STMFD	sp!,{r0-r7,lr}
+moveandwait$C	FNJSR	"r0-r7"
 		LDR	oldcoff$L,c_off
 		STR	r0,c_off
 		CALL	Zap_ReflectCaret
@@ -837,7 +841,7 @@ delayloop$L	MOV	r0,#152			;  Examine buffer status
 		BLT	delayloop$L
 keypressed$L	STR	oldcoff$L,c_off
 		CALL	Zap_ReflectCaret
-		LDMFD	sp!,{r0-r7,pc}
+		FNRTS
 
 
 		LOCAL
@@ -849,7 +853,7 @@ getindentcurr$C	LDR	r0,c_off
 
 ;  Returns size of indent of line pointed to by r0, in r0
 
-getindentline$C	STMFD	sp!,{r1-r3,lr}
+getindentline$C	FNJSR	"r1-r3"
 		MOV	r2,r0
 		LDR	r9,=e_linestart
 		BL	callbasemode
@@ -869,7 +873,7 @@ loop$L		CMP	r1,r2
 		BICEQ	r3,r3,#7
 		BEQ	loop$L
 finished$L	MOV	r0,r3
-		LDMFD	sp!,{r1-r3,pc}
+		FNRTS
 
 
 		LOCAL
@@ -877,7 +881,7 @@ finished$L	MOV	r0,r3
 
 ;  Find matching bracket, left in r1, right in r2, position in r0. Returns position in r0 or -ve
 
-findmatch$C	STMFD	sp!,{r3,r4,lr}
+findmatch$C	FNJSR	"r3,r4"
 		MOV	r3,r0
 		MOV	r4,#1
 loop$L		SUBS	r3,r3,#1
@@ -892,7 +896,7 @@ loop$L		SUBS	r3,r3,#1
 		SUBS	r4,r4,#1
 		BNE	loop$L
 finished$L	MOV	r0,r3
-		LDMFD	sp!,{r3,r4,pc}
+		FNRTS
 
 
 		LOCAL
@@ -900,26 +904,26 @@ finished$L	MOV	r0,r3
 
 ;  Adjust to left in order to line indents up
 
-adjustleft$C	STMFD	sp!,{r0,r1,lr}
+adjustleft$C	FNJSR	"r0,r1"
 		MOV	r1,r0
 loop$L		BL	getindentcurr$C
 		CMP	r0,r1
-		LDMLEFD	sp!,{r0,r1,pc}
+		FNRTS	LE
 		BL	getprevchar
 		TEQ	r0,#' '
 		LDRNEB	lr,w_tabchar
 		TEQNE	r0,lr
-		LDMNEFD	sp!,{r0,r1,pc}
+		FNRTS	NE
 		LDR	r0,c_off
 		TEQ	r0,#0
-		LDMEQFD	sp!,{r0,r1,pc}
-		STMFD	sp!,{r1-r10}
+		FNRTS	EQ
+		PUSH	"r1-r10"
 		MOV	r5,#1
 		LDR	r6,w_format
 		MOV	r7,#0
 		LDR	r9,=e_delete
 		BL	callbasemode
-		LDMFD	sp!,{r1-r10}
+		PULL	"r1-r10"
 		B	loop$L
 
 
@@ -928,12 +932,12 @@ loop$L		BL	getindentcurr$C
 
 ;  Adjust to right in order to line indents up
 
-adjustright$C	STMFD	sp!,{r0,r1,lr}
+adjustright$C	FNJSR	"r0,r1"
 		MOV	r1,r0
 loop$L		BL	getindentcurr$C
 		SUBS	r0,r1,r0
-		LDMLEFD	sp!,{r0,r1,pc}
-		STMFD	sp!,{r0-r11}
+		FNRTS	LE
+		PUSH	"r0-r11"
 		MOV	r2,r0
 		MOV	r0,#1
 		LDR	r1,c_off
@@ -941,7 +945,7 @@ loop$L		BL	getindentcurr$C
 		MOVGE	r2,#32
 		ADRL	r3,thirtytwospaces
 		CALL	Zap_Command
-		LDMFD	sp!,{r0-r11}
+		PULL	"r0-r11"
 		B	loop$L
 
 

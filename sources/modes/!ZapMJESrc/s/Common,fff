@@ -175,12 +175,12 @@ colourloop$L	SUBS	r4,r4,#1
 colnames$L	LDR	r1,[info$L,#i_colournames]
 		TEQ	r1,#0
 		FNRTS EQ
-		LDMFD	sp!,{r0,r2-r4,info$L,modeblk,windowblk,pc} ;  ** Keep in step with pushed
+		PULL	"r0,r2-r4,info$L,modeblk,windowblk,pc" ;  ** Keep in step with pushed	; !!! Unmatched return LDM
 
 menu$L		LDR	r1,[info$L,#i_menu]
-		LDMFD	sp!,{r0,r2-r4,info$L,modeblk,windowblk,pc} ;  ** Keep in step with pushed
+		PULL	"r0,r2-r4,info$L,modeblk,windowblk,pc" ;  ** Keep in step with pushed	; !!! Unmatched return LDM
 
-functionfind$L	STMFD	sp!,{r1-r11}
+functionfind$L	PUSH	"r1-r11"
 		ADR	R0,blockid$L
 		CALL	Zap_CommandString
 		ADR	R0,tldbfile$L
@@ -188,7 +188,7 @@ functionfind$L	STMFD	sp!,{r1-r11}
 		ADR	R0,clearsel$L
 		CALL	Zap_CommandString
 		MOV 	R0,#2
-		LDMFD	sp!,{r1-r11}
+		PULL	"r1-r11"
 		FNRTS
 blockid$L
 		= "BLOCKID",0
@@ -460,10 +460,10 @@ return		MOV	r2,lr
 ;  Called just before saving (ensures there is a linefeed at the end of the file)
 
 		EXPORT	presave
-presave		STMFD	sp!,{lr}
+presave		FNJSR
 		LDR	lr,f_len
 		SUBS	lr,lr,#1
-		LDMMIFD	sp!,{pc}
+		FNRTS	MI
 		LDR	r0,f_splito
 		CMP	lr,r0
 		LDRHS	r0,f_splits
@@ -472,8 +472,8 @@ presave		STMFD	sp!,{lr}
 		LDRB	lr,[lr,r0]
 		LDRB	r0,w_cr
 		TEQ	r0,lr
-		LDMEQFD	sp!,{pc}
-		STMFD	sp!,{r0-r2}
+		FNRTS	EQ
+		PUSH	"r0-r2"
 		LDR	r2,f_flags
 		ORR	r2,r2,#1<<14			;  Unlink cursor & input
 		STR	r2,f_flags
@@ -481,7 +481,7 @@ presave		STMFD	sp!,{lr}
 		CALL	Zap_InsertString,r1
 		BIC	r2,r2,#1<<14			;  Relink cursor & input
 		STR	r2,f_flags
-		LDMFD	sp!,{r0-r2,pc}
+		PULL	"r0-r2,pc"	; !!! Unmatched return LDM
 
 
 		LOCAL
@@ -491,22 +491,22 @@ presave		STMFD	sp!,{lr}
 
 		EXPORT	redrawline
 redrawline	SUB	r1,r7,r5			;  Get offset of start of line
-		STMFD	sp!,{r1,r6,lr}
-		STMFD	sp!,{modeblk,wsblk}		;  Get mode details
+		FNJSR	"r1,r6"
+		PUSH	"modeblk,wsblk"		;  Get mode details
 		BL	checkmode
 		LDR	r1,m_info
-		LDMFD	sp!,{modeblk,wsblk}
+		PULL	"modeblk,wsblk"
 		MOV	lr,pc
 		LDR	pc,[r1,#i_redrawline]		;  Redraw line
-		LDMFD	sp!,{r1,r6}
+		PULL	"r1,r6"
 		SUB	r4,r7,r5			;  Get offset of start of next line
-		STMFD	sp!,{modeblk,wsblk}		;  Get mode details
+		PUSH	"modeblk,wsblk"		;  Get mode details
 		BL	checkmode
-		LDMNEFD	sp!,{modeblk,wsblk,pc}
+		PULL	"modeblk,wsblk,pc",NE	; !!! Unmatched return LDM
 		CALL	Zap_GetWindOff,r0
 		LDR	r2,ws_oldcwind			;  Check for same window as us
 		TEQ	r0,r2
-		LDMNEFD	sp!,{modeblk,wsblk,pc}		;  Return if it isn't
+		PULL	"modeblk,wsblk,pc",NE		;  Return if it isn't	; !!! Unmatched return LDM
 		LDR	r0,ws_bracketoff1		;  Check bracket 1 on this line
 		CMP	r0,r1
 		CMPGE	r4,r0
@@ -515,9 +515,9 @@ redrawline	SUB	r1,r7,r5			;  Get offset of start of line
 		CMP	r0,r1
 		CMPGE	r4,r0
 		BLGT	highlight$L			;  Highlight if it is
-		LDMFD	sp!,{modeblk,wsblk,pc}		;  Return if it isn't
+		PULL	"modeblk,wsblk,pc"		;  Return if it isn't	; !!! Unmatched return LDM
 
-highlight$L	STMFD	sp!,{r1,lr}
+highlight$L	FNJSR	"r1"
 		CALL	Zap_OffLineCol,r3		;  Get column
 		LDR	r14,w_margin
 		SUB	r2,r2,r14
@@ -525,7 +525,7 @@ highlight$L	STMFD	sp!,{r1,lr}
 		ADD	r2,r2,r3,LSL #1
 		LDR	r3,ws_bracketclr		;  Highlight background colour
 		STRB	r3,[r6,r2]			;  Write to buffer
-		LDMFD	sp!,{r1,pc}
+		FNRTS
 
 
 		LOCAL
@@ -538,10 +538,10 @@ command		FNJSR	"r9,wsblk"
 		BL	getws
 		MOV	lr,#-1
 		STR	lr,ws_oldcoff
-		STMFD	sp!,{r0-r10}
+		PUSH	"r0-r10"
 		ADRL	r6,C_command
 		BL	callc
-		LDMFD	sp!,{r0-r10}
+		PULL	"r0-r10"
 		MOV	r9,#e_command
 		BL	callbasemode
 		FNRTS
@@ -553,17 +553,17 @@ command		FNJSR	"r9,wsblk"
 ;  Compiles program without saving source
 
 		EXPORT	run
-run		STMFD	sp!,{lr}
+run		FNJSR
 		B	nosave$L
 
 
 ;  Compiles program after saving source
 
 		EXPORT	compile
-compile		STMFD	sp!,{lr}
+compile		FNJSR
 		CALL	Zap_SaveFile
 		TEQ	r0,#0
-		LDMNEFD	sp!,{pc}
+		FNRTS	NE
 nosave$L	BL	releasekeys
 		LDR	r1,f_name
 		BL	count
@@ -571,7 +571,7 @@ nosave$L	BL	releasekeys
 		BCS	toolong$L
 		MOV	r0,#256
 		CALL	Zap_Claim
-		LDMVSFD	sp!,{pc}
+		FNRTS	VS
 		MOV	r7,r0
 		ADD	r0,r0,#44
 		LDR	r1,f_name
@@ -622,7 +622,7 @@ taskwindow$L	BL	taskwindow
 runit$L		ADD	r0,r7,#44
 		SWI	XWimp_StartTask
 exit$L		MOV	r0,r7
-		LDMFD	sp!,{lr}
+		FNPULL
 		JMP	Zap_Free,r1
 
 msgblock$L	DCD	256
@@ -630,8 +630,9 @@ msgblock$L	DCD	256
 		DCD	5
 
 makefiletext$L	=	".^.^.Makefile",0
+		ALIGN
 
-toolong$L	LDMFD	sp!,{r14}
+toolong$L	FNPULL
 		ADR	r0,toolongerr$L
 		MOV	r2,#0
 		JMP	Zap_LookupError,r1
@@ -752,7 +753,7 @@ finalopts$L	ADR	r1,taskwopttext$L
 
 amuopttext$L	=	" -desktop -k",0
 taskwopttext$L	=	""" -display -quit",0
-
+		ALIGN
 
 		LOCAL
 
@@ -767,11 +768,11 @@ message		TEQ	r3,#19
 ;		BEQ	helpbounced$H
 		TEQ	r2,#5
 		MOVNE	pc,lr
-		STMFD	sp!,{r1-r3,lr}
+		FNJSR	"r1-r3"
 		MOV	r3,#-1
 		ADD	r1,r1,#44
 		BL	taskwindow
-		LDMFD	sp!,{r1-r3,pc}
+		FNRTS
 
 
 		LOCAL
@@ -808,7 +809,7 @@ interrogate	CMP	R0,#19
 		BEQ	wherewordqst$L
 processasnorm$L	CMP	R0,#15
 		BEQ	processcolour$L
-		STMFD	R13!,{R9-R11,R14}
+		FNJSR	"R9-R11"
 ; used to do this and use Zap_CallBaseMode
 ;		LDRB	r9,w_format
 ; now do the following four lines and use Zap_BaseMode
@@ -818,29 +819,29 @@ processasnorm$L	CMP	R0,#15
 		MOV	r0,r11
 		MOV	R11,#e_interrogate
 		CALL	Zap_BaseMode
-		LDMFD	R13!,{R9-R11,PC}
+		FNRTS
 
 processcolour$L	TEQ	R1,#16
 		MOVEQ	R0,#0
 		MOV	PC,R14
 
-asmwordqueri$L  STMFD   R13!,{R14}
+asmwordqueri$L  FNJSR
 		MOVS 	R0,R1
 		BLPL    getchar
 		CMP	R0,#'&'
 		MOVEQ 	R0,#0
 		MOVNE   R0,#19
 		ADDEQ	R1,R1,#1
-		LDMFD   R13!,{PC}
+		FNRTS
 
-wordendqueri$L	STMFD   R13!,{R1,R14}
+wordendqueri$L	FNJSR   "R1"
 		MOVS 	R0,R1
 		BLPL    getchar
 		CMP	R0,#'.'
 		CMPNE	R0,#'>'
 		CMPNE	R0,#'-'
 		MOVNE   R0,#19
-		LDMNEFD R13!,{R1,PC}
+		FNRTS NE
 		CMP	R0,#'.'
 		BEQ	chkifincmt$L
 		CMP	R0,#'>'
@@ -862,7 +863,7 @@ before$L
 		BL      getchar
 		CMP	R0,#'0'
 		BCC	noexit$L
-chkifincmt$L	STMFD   R13!,{R1-R12}
+chkifincmt$L	PUSH   "R1-R12"
 		MOV     R11,R1		; offset to be queried in R11...
 		BL 	getws		; R12
 		BL	checkmode	; R7 what more can it want..!?
@@ -874,32 +875,32 @@ chkifincmt$L	STMFD   R13!,{R1-R12}
 		;MOV 	R0,R11
 		;BL	callc
 
-		LDMFD   R13!,{R1-R12}
+		PULL   "R1-R12"
 		CMP 	R0,#0		; always 0 :-(
 		BNE	noexit2$L
 		; check for in quotes...?
 		MOV	R0,#0
-		LDMFD   R13!,{R1,PC}
+		FNRTS
 
 noexit$L	MOV	R0,#19
-		LDMFD   R13!,{R1,PC}
+		FNRTS
 
 noexit2$L	SWI &107
 		MOV	R0,#19
-		LDMFD   R13!,{R1,PC}
+		FNRTS
 
 
-wherewordqst$L	STMFD   R13!,{R14}	; 19 and 20...!
+wherewordqst$L	FNJSR	; 19 and 20...!
 		BL	wordendqueri$L
 		CMP     R0,#19
-		LDMEQFD R13!,{PC}
+		FNRTS EQ
 		MOVS 	R0,R1
 		BLPL    getchar
 		CMP	R0,#'>'
 		SUBEQ	R1,R1,#1
 		SUB	R1,R1,#1
 		MOV	R0,#0
-		LDMFD	R13!,{PC}
+		FNRTS
 
 
 		LOCAL
@@ -907,7 +908,7 @@ wherewordqst$L	STMFD   R13!,{R14}	; 19 and 20...!
 		EXPORT	stripspaces$C
 stripspaces$C	CMP	r0,#1
 		MOVNE	pc,lr
-		STMFD	sp!,{r1,r2,lr}
+		FNJSR	"r1,r2"
 ;		BL	checkmode
 ;		LDMNEFD	sp!,{r1,r2,pc}
 		MOV	r2,#0
@@ -920,13 +921,13 @@ back$L		SUB	r0,r1,#1
 		BEQ	back$L
 sof$L		TEQ	r2,#0
 		MOVEQ	r0,#1
-		LDMEQFD	sp!,{r1,r2,pc}
+		FNRTS	EQ
 		MOV	r0,#&12
-		LDMFD	sp!,{r1,r2}
+		PULL	"r1,r2"
 		MOV	r0,#&12
 		SUB	r2,r2,#1
 		CALL	Zap_DoCommand
 		MOVVC	r1,#1
-		LDMFD	sp!,{pc}
+		PULL	"pc"	; !!! Unmatched return LDM
 
 		END

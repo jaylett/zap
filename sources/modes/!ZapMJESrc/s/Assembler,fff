@@ -21,11 +21,11 @@
 ;  Set up default colours for redraw
 
 		EXPORT	clnphy$ASM
-clnphy$ASM	STMFD	sp!,{modeblk,lr}
+clnphy$ASM	FNJSR	"modeblk"
 		BL	checkmode
 		MOVEQ	r1,#-1
 		STREQ	r1,m_cstate$ASM
-		LDMFD	sp!,{modeblk,lr}
+		FNPULL
 		LDR	r9,=e_clnphy
 		B	callbasemode
 
@@ -73,13 +73,13 @@ column$L	RN	r14
 ;       24-31: tabchar
 
 		EXPORT	redrawline$ASM
-redrawline$ASM	STMFD	sp!,{r6,r12,lr}
-		STMFD	sp!,{modeblk,wsblk}
+redrawline$ASM	FNJSR	"r6,r12"
+		PUSH	"modeblk,wsblk"
 		BL	checkmode
 		LDREQ	colour$L,m_cstate$ASM
 		LDREQ	r1,m_flags1$ASM
-		LDMFD	sp!,{modeblk,wsblk}
-		LDMNEFD	sp!,{r6,r12,pc}
+		PULL	"modeblk,wsblk"
+		FNRTS	NE
 		LDR	width$L,w_txtw
 		AND	format$L,format$L,#2_11<<12
 		LDRB	miscreg$L,w_cr
@@ -95,7 +95,7 @@ redrawline$ASM	STMFD	sp!,{r6,r12,lr}
 		LDR	splito$L,f_bufl
 		ADD	splito$L,splito$L,apparentfptr$L
 		TEQ	ptr$L,splito$L
-		LDMEQFD	sp!,{r6,r12,pc}
+		FNRTS	EQ
 		LDR	splito$L,f_splite
 		ADD	splito$L,splito$L,apparentfptr$L
 		CMP	ptr$L,splito$L
@@ -108,7 +108,7 @@ backloop$L	SUB	output$L,output$L,#1
 		BEQ	found$L
 		CMP	ptr$L,splito$L
 		BHS	backloop$L
-		TEQ	apparentfptr$L,splito$L
+		TEQ	apparentfptr$L,splito$L	; !!! ARM32 FIXME
 		LDRNE	splito$L,f_splits
 		SUBNE	ptr$L,ptr$L,splito$L
 		MOVNE	splito$L,apparentfptr$L
@@ -120,7 +120,7 @@ found$L		ADDS	output$L,output$L,#2
 		ADD	ptr$L,ptr$L,#2
 		SUBPL	ptr$L,ptr$L,output$L
 		LDMPLFD	sp,{output$L}
-		TEQ	apparentfptr$L,splito$L
+		TEQ	apparentfptr$L,splito$L	; !!! ARM32 FIXME
 		LDREQ	splito$L,f_splito
 		ADDEQ	splito$L,splito$L,apparentfptr$L
 		LDRNE	splito$L,f_splits
@@ -137,7 +137,7 @@ mainloop$L	CMP	ptr$L,splito$L
 		LDR	splito$L,f_len
 		ADD	splito$L,splito$L,apparentfptr$L
 		CMP	ptr$L,splito$L
-		LDMHSFD	sp!,{r6,r12,pc}
+		FNRTS	HS
 		LDR	r1,f_splits
 		ADD	ptr$L,ptr$L,r1
 		ADD	apparentfptr$L,apparentfptr$L,r1
@@ -287,7 +287,7 @@ notataneol$L	AND	r0,miscreg$L,#255<<16
 		BICNE	colour$L,colour$L,#newlflag$L
 		BNE	mainloop$L
 
-		STMFD	sp!,{apparentfptr$L,ptr$L}
+		PUSH	"apparentfptr$L,ptr$L"
 		CMP	ptr$L,splito$L
 		BLO	notend2$L
 		LDR	splito$L,f_len
@@ -302,7 +302,7 @@ notend2$L	LDRB	r0,[ptr$L]
 		AND	r1,miscreg$L,#255
 		TEQ	r0,r1
 ;		ADDEQ	logline$L,logline$L,#1
-		LDMFD	sp!,{apparentfptr$L,ptr$L}
+		PULL	"apparentfptr$L,ptr$L"
 		ADDEQ	ptr$L,ptr$L,#1
 		BEQ	specialcaseatle
 ;		SWIEQ	&107
@@ -311,11 +311,11 @@ afterllchks$L	AND	r0,miscreg$L,#255<<16
 		BICNE	colour$L,colour$L,#newlflag$L
 		AND	r0,miscreg$L,#charconstflag$L + bslashflag$L
 		ORR	colour$L,colour$L,r0
-		LDMFD	sp!,{r6,r12}
-		STMFD	sp!,{modeblk,wsblk}
+		PULL	"r6,r12"
+		PUSH	"modeblk,wsblk"
 		BL	checkmode
 		STR	colour$L,m_cstate$ASM
-		LDMFD	sp!,{modeblk,wsblk,pc}
+		PULL	"modeblk,wsblk,pc"	; !!! Unmatched return LDM
 
 checkcomment$L	TEQ	colour$L,#stringcol$L
 		TEQNE	colour$L,#charconstcol$L
