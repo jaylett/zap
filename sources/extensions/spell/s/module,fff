@@ -1,0 +1,1728 @@
+; Spell - a Zap extension
+; $Id: module,fff,v 1.1 2004/01/03 15:53:32 christian Exp $
+
+ GET ZapSource:h.ZapHeader
+ GET <ZapExtSource$Dir>.h.RegNames
+ GET <ZapExtSource$Dir>.h.Macros
+ GET h.spell
+
+
+; disable embedded functions names (saves about 1k)
+EMBED_FUNCTION_NAMES SETL {FALSE}
+
+
+word_list_spacing	*	40			; spacing between suggestions
+word_list_padding	*	16			; extra space at bottom
+word_list_indent	*	8			; indent
+
+max_word_length		*	64			; maximum word length
+
+
+TASK			*	&4B534154
+
+
+		ENTRY
+
+
+mod_header	DCD	0				; start offset
+		DCD	mod_init			; init code
+		DCD	0				; finalisation
+		DCD	0				; service handler
+		DCD	mod_title			; title
+		DCD	mod_help			; help
+		DCD	0				; commands
+		DCD	0				; the 4 SWI ones
+		DCD	0				;
+		DCD	0				;
+		DCD	0				;
+		DCD	0				; messages file
+		DCD	module_flags			; module flags
+
+mod_title	=	"ZapSpell",0
+
+mod_help	=	"ZapSpell",9,"2.00 (00 Jan 0000) © Zap Developers",0
+		ALIGN
+
+module_flags	DCD	1				; 32 bit compatible
+
+
+; ---------------------------------
+
+mod_init	FNJSR	"R11"
+
+		MOV	R0,#6				; get some workspace
+		MOV	R3,#numvars
+		SWI	XOS_Module
+		MOVVC	R11,R2
+		STRVC	R11,workspace
+		STRVC	R2,[R12]
+
+		MOVVC	R0,#18				; find Zap and add ourselves
+		ADRVC	R1,zap				;
+		SWIVC	XOS_Module			;
+		FNRTS	VS				;
+		MOV	R12,R4				;
+		ADR	R0,command_table		;
+		FNcall	Zap_AddCommands,R1		;
+
+		MOV	R1,#0				; clear our workspace
+		MOV	R2,R11				;
+		MOV	R3,#numvars			;
+		FNcall	Zap_FillWords,R0		;
+
+		MOV	R0,#-1				; no current window
+		STR	R0,[R11,#current_window]	;
+		FNRTS					; done for now
+
+zap		= "Zap",0
+
+
+get_workspace	LDR	R11,workspace
+		MOV	PC,R14
+
+workspace	DCD	0
+
+
+; ---------------------------------
+
+command_table	DCD	command_table
+		DCD	service_handler
+		FNcom	"SPELL",Spell
+		FNcom	"IMPRESSIONSPELL_BUF",	   ImpSpell_Buf
+		FNcom	"IMPRESSIONSPELL_SELBUF",  ImpSpell_SelBuf
+		FNcom	"IMPRESSIONSPELL_NEXT",	   ImpSpell_Next
+		FNcom	"IMPRESSIONSPELL_PREV",	   ImpSpell_Prev
+		FNcom	"IMPRESSIONSPELL_ADDWORD", ImpSpell_AddWord
+		FNcom	"IMPRESSIONSPELL_DELWORD", ImpSpell_DelWord
+		FNcom	"SPELL_ASYOUTYPE",	   Spell_AsYouType
+		DCD	0
+
+
+; ---------------------------------
+; command service handler
+; ---------------------------------
+
+		FNAME	service_handler
+service_handler	CMP	R1,#&8000
+		BHS	wimp_message
+
+		FNJSR	"R1-R11"
+		BL	get_workspace
+		CMP	R1,#((end$l-start$l)/4)
+		ADDLO	PC,PC,R1,LSL #2
+		FNRTS
+start$l		FNRTS					; Zap dying
+		FNRTS					; command table starting
+		B	started$l			; command table started
+		FNRTS					; deleting file
+		B	closing$l			; window closing
+		;FNRTS					; window focus gained
+		;FNRTS					; window opened
+		;FNRTS					; window focus lost
+end$l
+
+; Zap has started our command table
+started$l	LDR	R0,[R11,#w_spell]		; bug in Buttons called this entry point lots
+		TEQ	R0,#0				;
+		FNRTS	NE				;
+
+		MOV	R0,#word_list_size		; claim our suggestions array
+		FNcall	Zap_Claim,R1			;
+		STRVC	R0,[R11,#word_list]		;
+
+		MOV	R0,#max_word_length+1		; claim our word buffer
+		FNcall	Zap_Claim,R1			;
+		STRVC	R0,[R11,#word_buffer]		;
+
+		MOVVC	R0,#32				; claim buffer for user
+		FNcallc	Zap_Claim,VC,R1			;
+		STRVC	R0,[R11,#word_buffer]		;
+
+		BLVC	load_templates			; load the templates
+
+		BLVC	spell_load_dic			; load the user dictionary
+		FNRTS
+
+; a window is closing
+closing$l	FNcall	Zap_GetWindOff,R1		;
+		LDR	R1,[R11,#current_window]        ;
+		TEQ	R0,R1                           ;
+		MOVEQ	R0,#-1                          ;
+		STREQ	R0,[R11,#current_window]        ;
+		BLEQ	close_spell_win			;
+		FNRTS                                   ;
+
+
+		LOCAL
+
+
+; ---------------------------------
+; unrecognised wimp message handler
+; E R1 -> block	  r2 = R1!16   r3 = reason
+; X
+		FNAME	wimp_message
+wimp_message	FNJSR	"R1-R11"
+		BL	get_workspace
+
+		TEQ	R3,#17				; quick check for user messages
+		BEQ	user$l                          ;
+
+		CMP	R3,#(end$l-start$l)/4
+		ADDLO	PC,PC,R3,LSL #2
+		FNRTS
+start$l		FNRTS					; null
+		B	redraw$l			; redraw window
+		B	open$l				; open window
+		FNRTS					; close window (we have no close icons)
+		FNRTS					; pointer entering
+		FNRTS					; pointer leaving
+		BL	mouse_click			; click
+		FNRTS					; drag box
+		B	key$l				; key pressed
+end$l
+
+; redraw request
+redraw$l	LDR	R0,[R1]				; redraw it if its one of ours
+		LDR	R2,[R11,#w_pane]		;
+		TEQ	R0,R2				;
+		BLEQ	wlist_redraw			;
+		FNRTS					;
+
+
+; open window request
+open$l		LDR	R0,[R1,#0]			; open it if it's one of ours
+		LDR	R2,[R11,#w_spell]		;
+		TEQ	R0,R2				;
+		LDRNE	R2,[R11,#w_pane]		;
+		TEQNE	R0,R2				;
+		SWIEQ	XWimp_OpenWindow		;
+		FNRTS					;
+
+; key pressed
+key$l		LDR	R0,[R1,#0]			; check the window
+		LDR	R2,[R11,#w_spell]		;
+		TEQ	R0,R2				;
+		FNRTS	NE				;
+
+		LDR	R6,[R1,#24]			; get key code
+		ADR	R1,table$l			; call routine associated with keypress
+cloop$l		LDR	R0,[R1],#8			;
+		TEQ	R0,#0				;
+		BEQ	uk$l				; unrecognised
+		TEQ	R0,R6				;
+		BNE	cloop$l				;
+							;
+		MOV	R14,PC				;
+		SUB	PC,R1,#4			;
+		FNRTS					;
+
+uk$l		MOV	R0,R6				; get the wimp to insert it into the writable
+		SWI	XWimp_ProcessKey		;
+							;
+		MOVVC	R1,#i_spell_newword		; and update the suggestion list
+		LDRVC	R2,[R11,#w_spell]		;
+		BLVC	icon_gettext			;
+		BLVC	spell_suggest			;
+		BLVC	wlist_set_extent		;
+		BLVC	wlist_home			;
+		BLVC	wlist_invalidate		;
+		FNRTS					;
+
+table$l		DCD	1				; cA
+		B	add_click			;
+		DCD	3				; cC
+		B	close_spell_win			;
+		DCD	9				; cI
+		B	spell_ignore			;
+		DCD	18				; cR
+		B	spell_replace			;
+		DCD	27				; escape
+		B	close_spell_win			;
+		DCD	0
+
+
+; user message
+user$l		LDR	R0,=&502			; HelpRequest
+		CMP	R0,R2				;
+		FNRTS	NE				;
+
+		MOV	R6,R1				; keep wimp block
+		MOV	R3,#0                           ;
+		LDR	R0,[R6,#32]			; window handle
+		LDR	R1,[R11,#w_spell]		; check for our windows
+		TEQ	R0,R1				;
+		MOVEQ	R3,#'S'				;
+		LDR	R1,[R11,#w_pane]		;
+		TEQ	R0,R1				;
+		MOVEQ	R3,#'P'				;
+
+		TEQ	R3,#0				; window unknown
+		FNRTS	EQ				;
+
+		SUB	R13,R13,#16			; copy in token
+		ADR	R1,text$l			;
+		MOV	R0,R13				;
+		BL	strcpy				;
+
+		STRB	R3,[R0,#-1]			; overwrite terminator with window
+
+		MOV	R1,R0				;
+		LDR	R0,[R6,#36]			; icon handle
+		MOV	R2,#4				;
+		SWI	XOS_ConvertInteger1		; signed
+
+		MOVVC	R1,R13				;
+		ADDVC	R2,R6,#20			;
+		MOVVC	R3,#230				;
+		FNcallc	Zap_LookupToken,VC,R0		;
+
+		ADDVC	R3,R3,#25			; length
+		BICVC	R3,R3,#3			;
+		STRVC	R3,[R6]				;
+
+		LDRVC	R0,=&503			; HelpReply
+		MOVVC	R1,R6				;
+		FNcallc	Zap_Reply,VC,R2			;
+
+		ADD	R13,R13,#16			;
+		FNRTS					;
+
+text$l		=	"spell_h_",0
+		ALIGN
+
+		LTORG
+
+		LOCAL
+
+; mouse click
+; E r1 -> wimp block
+; X
+mouse_click	LDR	R0,[R1,#8]
+		TST	R0,#2
+		BNE	menu$l
+
+		LDR	R0,[R1,#12]
+		LDR	R2,[R11,#w_pane]
+		TEQ	R0,R2
+		BEQ	wlist_click
+		LDR	R2,[R11,#w_spell]
+		TEQ	R0,R2
+		MOVNE	PC,R14
+
+; click in spell window
+spell$l		LDR	R0,[R1,#16]
+		CMP	R0,#(end$l-start$l)/4
+		ADDLO	PC,PC,R0,LSL #2
+		MOV	PC,R14
+
+start$l		MOV	PC,R14				; new word icon
+		B	spell_replace			; replace
+		B	add_click			; add
+		B	spell_ignore			; ignore
+		B	close_spell_win			; cancel
+end$l
+
+; add click
+add_click	FNJSR					; add the word
+		MOV	R1,#i_spell_newword		;
+		BL	icon_gettext			;
+		BL	spell_add_word			;
+		FNPULL					;
+		B	spell_ignore			; and move onto the next
+
+; menu click
+menu$l		MOV	PC,R14
+
+
+
+		LOCAL
+
+; ---------------------------------
+; SPELL command
+
+		DCD	0
+Spell		FNJSR	"R1-R4,R11"
+		BL	get_workspace
+
+		SUB	R13,R13,#64			; open the window where it currently is
+		MOV	R1,R13				;
+		LDR	R0,[R11,#w_spell]		;
+		STR	R0,[R1]				;
+		SWI	XWimp_GetWindowState		;
+		BL	open_spell_win			;
+		ADD	R13,R13,#64			;
+
+		LDR	R2,[R10,#c_off]			;
+		BL	prev_word			; find the start of the word
+		BL	get_word			;
+
+		PUSH	"R0"				;
+		ADD	R3,R2,R1			; select the word (but don't move the cursor)
+		FNcall	Zap_AlterSel,R4			;
+		PULL	"R0"				;
+
+		LDR	R2,[R11,#w_spell]		; copy it into the icons
+		MOV	R1,#i_spell_badword		;
+		BL	icon_settext			;
+		MOV	R1,#i_spell_newword		;
+		BL	icon_settext			;
+
+		BLVC	spell_suggest			; do the suggestions list
+		BLVC	wlist_set_extent		;
+		BLVC	wlist_home			;
+		BLVC	wlist_invalidate		;
+
+		BLVC	spell_caret			; give it the caret
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; SPELL_ASYOUTYPE command
+
+		DCD	&10				; wordlist parameter
+Spell_AsYouType	FNJSR	"R1-R4,R11"
+		BL	get_workspace
+
+		TEQ	R8,#0
+		TEQNE	R9,#0
+		FNRTS	EQ
+
+		LDRB	R0,[R0]				; character that was inserted
+		BL	isalpha
+		FNRTS	EQ
+
+		LDR	R2,[R10,#c_off]
+		SUB	R2,R2,#2
+		BL	get_char			; get char _before_ one just inserted
+		FNRTS	CS
+		BL	isalpha
+		FNRTS	NE				; exit if no a word
+		ADD	R2,R2,#1
+
+		SWI	XHourglass_On
+
+		BL	prev_word
+		BCS	end$l
+
+		BL	get_word
+		BL	spell_check_quick		; don't ask mode
+		BLCS	Beep
+
+end$l		SWI	XHourglass_Off
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; IMPRESSIONSPELL_BUF command
+
+		DCD	1
+ImpSpell_Buf	FNJSR
+		BL	get_workspace
+
+		MOV	R0,#OP_BUF
+		BL	set_id
+
+		MOV	R2,#0
+		LDR	R3,[R9,#f_len]
+		BL	tell_mode			; let mode change R2 / R3
+		BL	spell_buf
+		FNRTS
+
+
+; ---------------------------------
+; IMPRESSIONSPELL_SELBUF command
+
+		DCD	1
+ImpSpell_SelBuf	FNJSR
+		BL	get_workspace
+
+		MOV	R0,#OP_SELBUF
+		BL	set_id
+
+		FNcall	Zap_GetSel,R1			; get selection limits
+		BCS	nosel$l				;
+		ADD	R3,R1,R2			;
+		MOV	R2,R1				;
+
+		BL	tell_mode			; let mode change R2 / R3
+		BL	spell_buf
+		FNRTS
+
+nosel$l		BL	Beep
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; IMPRESSIONSPELL_NEXT  command
+
+		DCD	0
+ImpSpell_Next	FNJSR	"R6,R7"
+		BL	get_workspace
+
+		MOV	R0,#OP_NEXT
+		BL	set_id
+
+		LDR	R2,[R10,#c_off]			; find the next word
+		BL	tell_mode			; let the mode make mods
+
+		BL	skip_word			;
+		BL	next_bad_word			;
+		BCS	none$l				;
+
+		ADD	R3,R2,R1			; select it
+		FNcall	Zap_Select,R0			;
+
+		MOV	R0,R3				; jump to the end
+		FNcall	Zap_GotoOffset,R1		;
+		FNRTS
+
+none$l		BL	Beep				; beep if no more words
+		FNRTS					;
+
+
+		LOCAL
+
+
+; ---------------------------------
+; IMPRESSIONSPELL_PREV  command
+
+		DCD	0
+ImpSpell_Prev	FNJSR	"R6,R7"
+		BL	get_workspace
+
+		TST	R3,#1				; check concatenation flag
+		LDRNE	R2,[R11,#current_offset]	; if set, go from where we left off
+		LDREQ	R2,[R10,#c_off]			; otherwise go from the cursor
+		BLEQ	prev_word			;
+		SUB	R2,R2,#1			;
+
+		MOV	R0,#OP_PREV
+		BL	set_id
+
+		BL	tell_mode			; allow mode to make mods to R2
+
+		BL	prev_bad_word
+		BCS	none$l
+
+		ADD	R3,R2,R1
+		FNcall	Zap_Select,R0
+
+		MOV	R0,R3
+		FNcall	Zap_GotoOffset,R1
+
+		FNRTS
+
+none$l		BL	Beep
+		FNRTS
+
+
+		LOCAL
+
+; ---------------------------------
+; IMPRESSIONSPELL_ADDWORD  command
+
+		DCD	&1F + (1<<6)			; string, no R8/R9/R10, prompt
+ImpSpell_AddWord
+		FNJSR
+		BL	get_workspace
+
+		TEQ	R2,#6
+		BEQ	prompt$l
+
+		BL	spell_add_word
+		FNRTS
+
+prompt$l	ADR	R0,token$l
+		FNcall	Zap_LookupTokenR0,R1
+		FNcall	Zap_MiniPrompt,R1
+		FNRTS
+
+token$l		=	"spell_p_word",0
+		ALIGN
+
+
+; ---------------------------------
+; IMPRESSIONSPELL_DELWORD  command
+
+		DCD	&1F + (1<<6)			; string, no R8/R9/R10, prompt
+ImpSpell_DelWord
+		FNJSR
+		BL	get_workspace
+
+		TEQ	R2,#6
+		BEQ	prompt$l
+
+		BL	spell_remove_word
+		FNRTS
+
+
+
+; beep, unless silent mode
+; E
+; X
+		FNAME	Beep
+Beep		FNJSR	"R0,R1"
+		ADR	R0,com$l
+		FNcall	Zap_CommandString,R1
+		FNRTS
+
+com$l		=	"BEEP",0
+		ALIGN
+
+
+; create a spelling throwback window
+; E
+; X R8/R9 updated but on same window/file
+		FNAME	create_throwback
+create_throwback
+		FNJSR	"R1,R2"
+		FNcall	Zap_GetWindOff,R1		; keep current R8/R9
+		PUSH	"R0"
+
+		MOV	R0,#40				; width
+		ORR	R0,R0,#(3<<30) + (1<<29)	; r1 = name token, r2 = colouring list
+		ADR	R1,title$l			;
+		ADR	R2,list$l			;
+		FNcall	Zap_CreateThrowback		;
+		ADDVC	R1,R11,#tb_window		;
+		STMVCIA	R1,{R8,R9}			;
+
+		PULL	"R0"				; restore (new) R8/R9
+		FNcallc	Zap_ConvWindOff,VC,R1		;
+		FNRTS
+
+title$l		=	"spell_title",0
+		ALIGN
+
+list$l		DCD	0
+		DCD	13
+		=	"spell_tb_line",0
+		ALIGN
+		DCD	0
+		DCD	10 + (6<<28)
+		=	"spell_tb_file",0
+		ALIGN
+		DCD	0
+		DCD	0
+
+
+		LTORG
+
+; add a misspelt word to the throwback
+; E r1 = word legth, r2 = word offset  word buffer contains word
+; X
+		FNAME	add_throwback
+add_throwback	FNJSR					; note explicit pull below
+		LDR	R0,[R11,#tb_window]
+		TEQ	R0,#0
+		BLEQ	create_throwback
+		PUSH	"R1-R9"				; keep updated R8/R9
+
+		SUB	R13,R13,#256
+
+		ADD	R6,R2,R1			; keep offset of end of word
+
+		LDR	R0,=&20202020			;
+		STR	R0,[R13]			; store some spaces
+		STR	R0,[R13,#4]			;
+		STR	R0,[R13,#8]			;
+
+		MOV	R0,R6				; word offset
+		FNcall	Zap_OffsetLine,R1		;
+
+		MOVVC	R0,R2				; write out the line number
+		ADDVC	R1,R13,#12			;
+		MOVVC	R2,#16				;
+		SWIVC	XOS_ConvertCardinal4		;
+
+		SUBVC	R5,R1,R0			; length of number
+		RSBVC	R5,R5,#8			;
+		SUBVC	R5,R0,R5			; right align
+
+		MOVVC	R0,#' '				;
+		STRVCB	R0,[R1],#1			; overwrite terminator
+		STRVCB	R0,[R1],#1			;
+
+		MOVVC	R0,R1				; copy in word
+		LDRVC	R1,[R11,#word_buffer]		;
+		BLVC	strcpy				;
+
+		FNcallc	Zap_GetFileOff,VC,R1		; file offset
+		MOVVC	R4,R0				;
+
+		ORRVC	R0,R6,#1<<31			; text offset (don't insert)
+		LDRVC	R1,[R9,#f_name]			; filename
+		MOVVC	R2,R5				; line number + word
+		ADRVC	R3,prefile$l			; pre-filename text
+		MOVVC	R5,#2				; call SPELL
+		ORRVC	R5,R5,#1<<8			; 1 header line per block
+		ADRVC	R6,heading$l			; heading
+		MOVVC	R7,#0				; post-filename
+
+		ADDVC	R8,R11,#tb_window		; R8/R9 of throwback window
+		LDMVCIA	R8,{R8,R9}			;
+
+		FNcallc	Zap_Throwback,VC		;
+err$l		ADD	R13,R13,#256
+		PULL	"R1-R9,PC"
+
+fname$l		=	27,"spell_title",0
+prefile$l	=	27,"spell_tb_file",0
+heading$l	=	27,"spell_tb_line",0
+null$l		=	0
+		ALIGN
+
+
+		LOCAL
+
+; open the spelling window
+; E r1 -> Wimp_OpenWindow block to open window at  r8
+; X
+		FNAME	open_spell_win
+open_spell_win	FNJSR	"R10"
+		MOV	R10,R1
+		LDR	R0,[R11,#w_spell]
+		STR	R0,[R1]
+		SWI	XWimp_OpenWindow
+		FNRTS	VS
+
+		FNcall	Zap_GetWindOff,R1
+		STR	R0,[R11,#current_window]	; keep window
+
+		LDR	R0,[R10,#4]
+		LDR	R2,[R10,#8]
+		LDR	R3,[R10,#12]
+		LDR	R4,[R10,#16]
+
+		SUB	R1,R13,#64
+		LDR	R0,[R11,#w_spell]
+		STR	R0,[R1]
+		MOV	R0,#i_spell_pane
+		STR	R0,[R1,#4]
+		SWI	XWimp_GetIconState
+		FNRTS	VS
+
+		LDR	R0,[R1,#8]
+		LDR	R2,[R1,#12]
+		LDR	R3,[R1,#16]
+		LDR	R4,[R1,#20]
+
+		LDR	R0,[R1,#8+0]			; min x
+		LDR	R2,[R10,#4]
+		ADD	R0,R0,R2
+		ADD	R0,R0,#8
+		STR	R0,[R1,#4]
+
+		LDR	R0,[R1,#8+4]			; min y
+		LDR	R2,[R10,#16]
+		ADD	R0,R0,R2
+		ADD	R0,R0,#8
+		STR	R0,[R1,#8]
+
+		LDR	R0,[R1,#8+8]			; max x
+		LDR	R2,[R10,#4]
+		ADD	R0,R0,R2
+		SUB	R0,R0,#8+40			; scrollbar width
+		STR	R0,[R1,#12]
+
+		LDR	R0,[R1,#8+12]			; max y
+		LDR	R2,[R10,#16]
+		ADD	R0,R0,R2
+		SUB	R0,R0,#8
+		STR	R0,[R1,#16]
+
+		;LDR	R0,[R1,#4]
+		;LDR	R2,[R1,#8]
+		;LDR	R3,[R1,#12]
+		;LDR	R4,[R1,#16]
+		LDMIB	R1,{R0,R2-R4}
+
+		LDR	R0,[R11,#w_pane]
+		STR	R0,[R1]
+		MOV	R0,#0
+		STR	R0,[R1,#20]			; scroll offsets
+		STR	R0,[R1,#24]
+		MOV	R0,#-1
+		STR	R0,[R1,#28]			; open behind
+
+		LDR	R2,=TASK
+		LDR	R3,[R11,#w_spell]
+		MOV	R4,#0				; everything linked to work area
+		SWI	XWimp_OpenWindow
+		FNRTS
+
+
+; hide the spelling window
+; E
+; X
+		FNAME	close_spell_win
+close_spell_win	FNJSR	"R7"
+		SUB	R1,R13,#32			; get the current caret pos
+		SWI	XWimp_GetCaretPosition		;
+		LDR	R7,[R1]				;
+
+		SUB	R1,R13,#4			; close the window
+		LDR	R0,[R11,#w_spell]		;
+		STR	R0,[R1]				;
+		SWI	XWimp_CloseWindow		;
+
+		LDR	R0,[R11,#w_spell]		; check if we own the caret
+		TEQ	R0,R7				;
+		FNRTS	NE				;
+
+		LDR	R0,[R11,#current_window]	; if so, restore it to the Zap win
+		FNcall	Zap_ConvWindOff			;
+		TEQ	R8,#0				;
+		FNRTS	EQ				;
+		LDR	R0,[R8,#w_poff]			;
+		FNcall	Zap_PutCaret,R1			;
+
+		MOV	R1,#5				; car_cursor
+		FNcall	Zap_ReadVar,R0			;
+		MOV	R10,R0				; make cursor visible
+		FNcall	Zap_ShowCursor,R0		;
+
+		FNcall	Zap_ClearSel,R0			; remove the selection
+		FNRTS
+
+
+; give the spell window the caret
+; E
+; X
+		FNAME	spell_caret
+spell_caret	FNJSR	"R1-R2"
+		LDR	R2,[R11,#w_spell]		; get length of suggested word
+		MOV	R1,#i_spell_newword		;
+		BL	icon_gettext			;
+		BL	strlen				;
+
+		MOV	R5,R1
+		LDR	R0,[R11,#w_spell]
+		MOV	R1,#i_spell_newword
+		MOV	R2,#0
+		MOV	R3,#0
+		MOV	R4,#-1
+		SWI	XWimp_SetCaretPosition
+		FNRTS
+
+
+; tell the mode about a forthcoming spelling op
+; E R2/R3 as for e_init 10
+; X R2/R3 updated
+		FNAME	tell_mode
+tell_mode	FNJSR	"R4,R11"
+		LDR	R0,[R11,#spell_op_id]
+		MOV	R1,#10
+		MOV	R11,#e_init
+		FNcall	Zap_CallMode,R4
+		FNRTS
+
+
+; ----------------------
+; Code to load resources
+; ----------------------
+
+		MACRO
+$la		TEM	$s, $h
+$la		=	"$s",0				; "template name"
+		ALIGN					; pad to 12 bytes
+		[ :LEN: "$s" < 8			; where to store handle
+		DCD 0
+		]
+		[ :LEN: "$s" < 4
+		DCD 0
+		]
+		DCD	:INDEX:$h
+		MEND
+
+; load the templates
+; E
+; X
+		FNAME	load_templates
+load_templates	FNJSR	"R10"
+		ADR	R1,name$l
+		SWI	XWimp_OpenTemplate
+		FNRTS	VS
+
+		ADR	R10,wins$l
+loop$l		LDR	R0,[R10]
+		TEQ	R0,#0
+		BEQ	ret$l
+
+		MOV	R0,R10
+		BL	load_template
+		LDRVC	R1,[R10,#12]
+		STRVC	R0,[R11,R1]
+		ADDVC	R10,R10,#16
+		BVC	loop$l
+
+ret$l		MOVVC	R10,#0
+		ADDVSS	R10,R0,#0
+		SWI	XWimp_CloseTemplate
+
+		MOVS	R0,R10
+		FNRTS	EQ
+		FNRTV
+
+wins$l		TEM	"SpellPane",	w_pane
+		TEM	"SpellCheck",	w_spell
+		DCD	0
+
+name$l		=	"ZapSpell:Templates",0
+		ALIGN
+
+
+		LOCAL
+
+; load a template and create its window
+; E r0 -> template name
+; X r0 = handle
+		FNAME	load_template
+load_template	FNJSR	"R1"
+
+		SUB	R13,R13,#12
+
+		LDMIA	R0,{R1-R3}			; copy template name to RAM
+		STMIA	R13,{R1-R3}			;
+
+		MOV	R1,#0				; read the size
+		MOV	R2,#0				;
+		MOV	R3,#0				;
+		MOV	R4,#-1				;
+		MOV	R5,R13				;
+		MOV	R6,#0				;
+		SWI	XWimp_LoadTemplate		;
+		BVS	ret$l				;
+		TEQ	R6,#0				; ensure the template exists
+		BEQ	not$l				;
+
+		MOV	R7,R1				; claim the block
+		MOV	R8,R2				;
+		ADD	R0,R7,R8			;
+		ADD	R0,R0,#32			;
+		FNcall	Zap_Claim,R1			;
+		BVS	ret$l				;
+
+		MOV	R2,R0				; read it in
+		ADD	R3,R0,R8			;
+		ADD	R3,R3,#8			;
+		ADD	R1,R3,#12			;
+		BIC	R1,R1,#3			;
+		MOV	R4,#-1				;
+		MOV	R5,R13				;
+		MOV	R6,#0				;
+		SWI	XWimp_LoadTemplate		;
+
+		SWIVC	XWimp_CreateWindow		; create it
+
+		; FIXME: reduce the block
+
+ret$l		ADD	R13,R13,#12
+		FNRTS
+
+not$l		ADR	R0,err$l
+		SEV
+		B	ret$l
+
+err$l		DCD	0
+		=	"Window definition not found",0
+		ALIGN
+
+
+		LOCAL
+
+; ---------------------------------
+; Spell checking
+; ---------------------------------
+
+
+; check if a word is correctly spelt
+; E r0 -> word
+; X CC if OK
+		FNAME	spell_check_quick
+spell_check_quick
+		FNJSR	"R1"
+		BL	str_skipspaces
+		MOV	R1,R0
+		SWI	XSpell_CheckWord
+		FNRTS
+
+
+; check if a word is correctly spelt
+; E r0 -> word  r2 = offset  r1 = length
+; X CC => OK,  r2 = new offset / -1 if not supplied by mode
+;   CS => BAD, r2 = offset of misspelt word, r1 = length
+; current_offset updated to offset of original word
+		FNAME	spell_check
+spell_check	FNJSR	"R3-R7"
+		MOV	R3,R1
+		STR	R2,[R11,#current_offset]
+
+		BL	str_skipspaces			; first ask impressionspell
+		MOV	R1,R0				;
+		SWI	XSpell_CheckWord		;
+		MOVCC	R2,#-1				; no new offset
+		MOVCC	R1,R3				; restore length
+		FNRTS	CC				; word ok
+
+		MOV	R0,R2				; offset
+		ADD	R2,R0,R3			;
+		SUB	R2,R2,#1			; point to last char of word
+		PUSH	"R3,R11"			;
+		MOV	R1,#9				; e_init reason code
+		LDR	R4,[R11,#user_buffer]		; 32 byte buffer
+		LDR	R5,[R11,#spell_op_id]		; id and op
+		MOV	R11,#e_init			;
+		FNcall	Zap_CallMode,R6			;
+		PULL	"R3,R11"			;
+
+		MOV	R2,#-1				; no new offset by default
+
+		CMP	R1,#0				;
+		BMI	ok$l				; < 0 - word is ok
+		BEQ	tryagain$l			; try again after skipping R0 chars
+
+		CMP	R1,#2				; most common case - mode doesn't know
+		MOVCS	R1,R3				;
+		LDRCS	R2,[R11,#current_offset]	;
+		FNRTS	CS				;
+
+		MOV	R2,R0				; new offset
+ok$l		ADDS	R1,R3,#0			; restore length and clc
+		FNRTS					;
+
+tryagain$l	LDR	R2,[R11,#current_offset]	; try again, but don't ask mode this time
+		ADD	R2,R2,R0			;
+		BL	get_word			;
+		BL	spell_check_quick		;
+		MOVCC	R2,#-1				; ok - no new offset
+		FNRTS
+
+
+
+; fill the list of suggestions
+; E r0 -> word
+; X
+		FNAME	spell_suggest
+spell_suggest	FNJSR	"R10"
+		LDRB	R1,[R0]
+		TST	R1,#&20				; FIXME: i18n
+		MOVNE	R10,#0				; lower case
+		BNE	try$l
+
+		LDRB	R1,[R0,#1]
+		TST	R1,#&20				; FIXME: i18n
+		MOVNE	R10,#1				; upper lower - capitalise
+		MOVEQ	R10,#2				; upper upper
+
+try$l		LDR	R1,[R11,#word_list]
+		MOV	R2,#word_list_size
+		SUB	R2,R2,#1
+		MOV	R4,#-1
+		SWI	XSpell_Fuzzy
+		BVS	none$l
+		MOV	R0,#0				; terminate the list
+		STRB	R0,[R1,R3]
+
+convert$l	TEQ	R10,#2				; do nothing if upper case
+		BEQ	loop$l				;
+
+		MOV	R4,#0
+
+a$l		TEQ	R10,#1
+		ADDEQ	R4,R4,#1
+word$l		CMP	R4,R3
+		BHS	loop$l
+		LDRB	R2,[R1,R4]			; convert to lower case
+		TEQ	R2,#13
+		ADDEQ	R4,R4,#1			; move to next word
+		BEQ	a$l
+		ORR	R2,R2,#&20			; FIXME: i18n
+		STRB	R2,[R1,R4]
+		ADD	R4,R4,#1
+		B	word$l
+
+loop$l		LDRB	R2,[R1],#1			; change CR terminators to 0
+		TEQ	R2,#13
+		STREQB	R0,[R1,#-1]
+		SUBS	R3,R3,#1
+		BNE	loop$l
+		FNRTS
+
+none$l		SUBS	R0,R0,R0			; R0 = 0 and CLV
+		STRB	R0,[R1]				; null list
+		FNRTS
+
+		LOCAL
+
+
+; replace the selection with the new word
+; E R0 -> word
+; X
+		FNAME	spell_replace
+spell_replace	FNJSR
+		LDR	R2,[R11,#w_spell]		; get replacement word
+		MOV	R1,#i_spell_newword		;
+		BL	icon_gettext			;
+
+		BL	strlen				;
+		MOV	R4,R1				;
+		MOV	R3,R0				;
+
+		FNcall	Zap_GetSel,R0			; get current word
+		FNcallc	Zap_ReplaceArea,CC,R0		; do it
+		FNPULL
+
+		; fall through
+
+		LOCAL
+
+; ignore the current word, and go to the next
+; E
+; X
+		FNAME	spell_ignore
+spell_ignore	FNJSR
+		FNcall	Zap_GetSel,R0
+		BCS	none$l				; no selection
+
+		ADD	R2,R1,R2			; end of selection
+		BL	next_bad_word			;
+		BCS	none$l				;
+
+		BL	get_word			; read the word
+
+		PUSH	"R0"				;
+		ADD	R3,R2,R1			; select the word (but don't move the cursor)
+		FNcall	Zap_AlterSel,R4			;
+
+		MOV	R1,#7				; car_selection
+		FNcall	Zap_ReadVar,R0			;
+		MOV	R10,R0				;
+		FNcall	Zap_ShowCursor,R0		; make selection visible on screen
+		PULL	"R0"				;
+
+		LDR	R2,[R11,#w_spell]		; copy it into the icons
+		MOV	R1,#i_spell_badword		;
+		BL	icon_settext			;
+		MOV	R1,#i_spell_newword		;
+		BL	icon_settext			;
+
+		BLVC	spell_suggest			; do the suggestions list
+		BLVC	wlist_set_extent		;
+		BLVC	wlist_home			;
+		BLVC	wlist_invalidate		;
+
+		BLVC	spell_caret			; give it the caret
+		FNRTS
+
+none$l		BL	close_spell_win			; no more words
+		FNRTS
+
+
+; set the spell op id
+; E r0 = op code
+; X
+		FNAME	set_id
+set_id		LDR	R1,[R11,#spell_op_id]		; get current id
+		ADD	R1,R1,#&100			; inc it
+		BIC	R1,R1,#&FF			; set op code
+		ORR	R1,R1,R0			;
+		STR	R1,[R11,#spell_op_id]		; done
+		MOV	PC,R14				;
+
+
+; spell check to window
+; E r2,r3 = start,end offsets
+; X throwback window created, beep if no incorrect words
+		FNAME	spell_buf
+spell_buf	FNJSR	"R6,R7"
+		MOV	R7,R3
+
+		SWI	XHourglass_On
+
+loop$l		BL	hg$l				;
+		BL	next_bad_word			;
+		CMPCC	R2,R7				;
+		BCS	done$l				; no more words
+		BL	add_throwback			;
+		ADD	R2,R2,R1			; skip this word
+		B	loop$l				;
+
+done$l		SWI	XHourglass_Off
+
+		ADD	R1,R11,#tb_window		; zero window, and check if a
+		MOV	R0,#0				; throwback window was created
+		SWP	R0,R0,[R1]
+
+		TEQ	R0,#0				; no, so beep
+		BLEQ	Beep
+		FNRTS
+
+hg$l		FNJSR	"R0-R3"
+		MOV	R0,#100
+		MUL	R0,R2,R0
+		LDR	R1,[R9,#f_len]
+		SWI	XZapRedraw_Divide
+		SWI	XHourglass_Percentage
+		FNRTS
+
+
+		LOCAL
+
+; add a word to the user dictionary
+; E r0 -> word
+; X
+		FNAME	spell_add_word
+spell_add_word	ADR	R1,Zap
+		SWI	XSpell_AddWord
+		B	spell_save_dic
+
+Zap		=	"Zap",0
+
+; remove a word from the user dictionary
+; E r0 -> word
+; X
+		FNAME	spell_add_word
+spell_remove_word
+		ADR	R1,Zap
+		SWI	XSpell_DeleteWord
+		B	spell_save_dic
+
+; load the user dictionary
+; E
+; X
+		FNAME	spell_load_dic
+spell_load_dic	ADR	R1,path$l			;
+		MOV	R0,#17				; read catalogue information no path
+		SWI	XOS_File			;
+		TEQ	R0,#1				; if it doesn't exist, create it
+		BNE	create$l			;
+		ADR	R0,path$l			; otherwise load it
+		SWI	XSpell_LoadUser			;
+		MOV	PC,R14				;
+
+create$l	ADR	R0,Zap
+		SWI	XSpell_CreateUser
+		MOV	PC,R14
+
+path$l		=	"ZapUser:Modules.Spell.Zap",0
+dir1$l		=	"CDir ZapUser:Modules",0
+dir2$l		=	"CDir ZapUser:Modules.Spell",0
+
+; save the user dictionary
+; E
+; X
+		FNAME	spell_save_dic
+spell_save_dic	ADR	R0,dir1$l			; create the directories
+		SWI	XOS_CLI				;
+		ADRVC	R0,dir2$l			;
+		SWIVC	XOS_CLI				;
+
+		ADRVC	R0,Zap				; save it
+		ADRVC	R1,path$l			;
+		SWIVC	XSpell_SaveDictionaryWithPath	;
+		MOV	PC,R14				;
+
+
+; -----------------------------------
+; Suggestion list window manipulation
+; -----------------------------------
+
+; set the extent of the word list window
+; E
+; X
+		FNAME	wlist_set_extent
+wlist_set_extent
+		FNJSR	"R9"
+		LDR	R1,[R11,#word_list]
+		MOV	R9,#0
+
+loop$l		LDRB	R0,[R1]				; count the number of entries in the list
+		TEQ	R0,#0				;
+		BEQ	counted$l			;
+							;
+		ADD	R9,R9,#1			;
+		BL	str_next			;
+		B	loop$l				;
+
+counted$l	SUB	R1,R13,#64			; find the minimum extent
+		LDR	R0,[R11,#w_pane]		;
+		STR	R0,[R1]				;
+		SWI	XWimp_GetWindowState		;
+		LDR	R2,[R1,#8]			; visible min y
+		LDR	R3,[R1,#16]			; visible max y
+		SUB	R2,R3,R2			;
+
+		MOV	R0,#0				; min x
+		STR	R0,[R1]				;
+		MOV	R0,#1<<20			; nice and wide
+		STR	R0,[R1,#8]			;
+		MOV	R0,#0				; max y
+		STR	R0,[R1,#12]			;
+
+		MOV	R0,#word_list_spacing		;
+		MOV	R3,#word_list_padding		;
+		MLA	R9,R0,R9,R3			;
+		CMP	R9,R2				;
+		RSBLO	R0,R2,#0			;
+		RSBHS	R0,R9,#0			; min y
+		STR	R0,[R1,#4]			;
+
+		LDR	R0,[R11,#w_pane]		; set it
+		SWI	XWimp_SetExtent			;
+		FNRTS					;
+
+
+		LOCAL
+
+; redraw the word list window
+; E r1 -> wimp redraw block
+; X
+		FNAME	wlist_redraw
+wlist_redraw	FNJSR
+		SWI	XWimp_RedrawWindow
+
+loop$l		TEQ	R0,#0
+		FNRTS	EQ
+		BL	wlist_redraw_area
+		SWI	XWimp_GetRectangle
+		B	loop$l
+
+
+		LOCAL
+
+; redraw an area of the list window
+; E r1 -> wimp redraw area block
+; X
+		FNAME	wlist_redraw_area
+wlist_redraw_area
+		FNJSR	"R1,R9,R10"
+		LDR	R0,[R1,#4]			; visible minx
+		LDR	R2,[R1,#20]			; scroll x
+		SUB	R4,R0,R2			; work area screen origin x
+		ADD	R4,R4,#word_list_indent		;
+
+		LDR	R0,[R1,#16]			; visible maxy
+		LDR	R2,[R1,#24]			; scroll y
+		SUB	R5,R0,R2			; work area screen origin y
+
+		MOV	R0,#0				; set the text colours
+		MOV	R1,#0				;
+		MOV	R2,#&FFFFFF00			;
+		SWI	XWimp_TextOp			;
+
+		LDR	R1,[R11,#word_list]		;
+		MOV	R2,#-1				;
+		MOV	R3,#-1				;
+
+		LDRB	R0,[R1]				; check for a null list
+		TEQ	R0,#0				;
+		BEQ	null$l				;
+
+loop$l		LDRB	R0,[R1]				; draw each line
+		TEQ	R0,#0				;
+		FNRTS	EQ				;
+							;
+		MOV	R0,#2				;
+		ORR	R0,R0,#1<<30			;
+		SUB	R5,R5,#word_list_spacing	;
+		SWI	XWimp_TextOp			;
+		BL	str_next			;
+		B	loop$l				;
+
+null$l		SUB	R13,R13,#64			;
+		ADR	R1,token$l			;
+		MOV	R2,R13				;
+		MOV	R3,#64				;
+		FNcall	Zap_LookupToken,R0		;
+							;
+		MOVVC	R0,#2				;
+		ORRVC	R0,R0,#1<<30			;
+		MOVVC	R1,R2				;
+		SUBVC	R5,R5,#word_list_spacing	;
+		SWIVC	XWimp_TextOp			;
+
+		ADD	R13,R13,#64			;
+		FNRTS
+
+token$l		=	"spell_null",0
+		ALIGN
+
+
+		LOCAL
+
+
+; cause the word list to be redrawn
+; E
+; X
+		FNAME	wlist_forceredraw
+wlist_invalidate
+		LDR	R0,[R11,#w_pane]		;
+		MOV	R1,#0				; min x
+		MOV	R2,#&c0000000			; min y
+		MOV	R3,#&3fffffff			; max x
+		MOV	R4,#0				; max y
+		SWI	XWimp_ForceRedraw		;
+		MOV	PC,R14				;
+
+
+; open the word list at top left corner
+; E
+; X
+		FNAME	wlist_origin
+wlist_home	SUB	R1,R13,#40
+		LDR	R0,[R11,#w_pane]
+		STR	R0,[R1]
+		SWI	XWimp_GetWindowState
+		MOV	R0,#0
+		STR	R0,[R1,#20]
+		STR	R0,[R1,#24]
+		SWI	XWimp_OpenWindow
+		MOV	PC,R14
+
+
+; click in the wlist
+; E r1 -> wimp click block
+; X
+		FNAME	wlist_click
+wlist_click	FNJSR
+		MOV	R5,R1
+
+		SUB	R1,R13,#40
+		LDR	R0,[R11,#w_pane]
+		STR	R0,[R1]
+		SWI	XWimp_GetWindowState
+
+		LDR	R2,[R1,#16]			; max y
+		LDR	R3,[R1,#24]			; scroll y
+		SUB	R2,R2,R3			; top-left of work area
+		LDR	R3,[R5,#4]			; mouse y
+		SUB	R0,R2,R3			; cursor offset into window
+
+		MOV	R1,#word_list_spacing		; get the word number
+		SWI	XZapRedraw_Divide		;
+		BL	wlist_find			;
+
+		TEQ	R0,#0				; do nothing of no word there
+		FNRTS	EQ				;
+
+		LDR	R2,[R11,#w_spell]		; copy it into the icon
+		MOV	R1,#i_spell_newword		;
+		BL	icon_settext			;
+
+		LDR	R0,[R5,#8]                      ;
+		TST	R0,#4				; double-click select
+		BNE	double$l			;
+
+		BL	spell_caret			; ensure caret inside word
+		FNRTS
+
+double$l	BL	spell_replace			; replace, and move onto next
+		FNRTS                                   ;
+
+
+		LOCAL
+
+; find the nth word in the word list
+; E R0 = n
+; X R0 -> nth word / 0 if off end
+		FNAME	wlist_find
+wlist_find	FNJSR					;
+		MOV	R2,R0
+		LDR	R1,[R11,#word_list]		;
+loop$l		LDRB	R0,[R1]				; check we don't go off the end of the list
+		TEQ	R0,#0				;
+		FNRTS	EQ				;
+		SUBS	R2,R2,#1			;
+		MOVMI	R0,R1				;
+		FNRTS	MI				;
+		BL	str_next			;
+		B	loop$l				;
+
+
+; ---------------------------------
+; Icon manipulation
+; ---------------------------------
+
+
+; get an icon's text (must be indirected)
+; E r1 = icon number  r2 = window handle
+; X r0 -> string
+		FNAME	icon_gettext
+icon_gettext	FNJSR	"R1,R2"
+
+		SUB	R13,R13,#64
+		STR	R2,[R13]
+		STR	R1,[R13,#4]
+		MOV	R1,R13
+		SWI	XWimp_GetIconState
+
+		LDRVC	R0,[R1,#8+20]
+		ADD	R13,R13,#64
+		FNRTS
+
+
+; set an icon's text (must be indirected)
+; E r0 -> string  r1 = icon number  r2 = window handle
+; X
+		FNAME	icon_settext
+icon_settext	FNJSR	"R0-R2,R10"
+		MOV	R10,R0
+		BL	icon_gettext			; find the text pointer
+
+		MOVVC	R1,R10
+		BLVC	strcpy
+
+		SUBVC	R1,R13,#32			; force it to be redrawn
+		LDRVC	R0,[R13,#8]
+		STRVC	R0,[R1,#0]
+		LDRVC	R0,[R13,#4]
+		STRVC	R0,[R1,#4]
+		MOVVC	R0,#0
+		STRVC	R0,[R1,#8]
+		STRVC	R0,[R1,#12]
+		SWIVC	XWimp_SetIconState
+		FNRTS
+
+
+; ---------------------------------
+; String manipulation
+; ---------------------------------
+
+
+; copy a string  r1 -> r0
+		FNAME	strcpy
+strcpy		LDRB	R2,[R1],#1			; copy the string
+		STRB	R2,[R0],#1
+		TEQ	R2,#0
+		BNE	strcpy
+		MOV	PC,R14
+
+; concat a string  r1 -> r0
+		FNAME	strcat
+strcat		LDRB	R2,[R0],#1			; find the end
+		TEQ	R2,#0
+		BNE	strcat
+		SUB	R0,R0,#1
+		B	strcpy				; copy it in
+
+; strip spaces from string at R0
+		FNAME	str_skipspaces
+str_skipspaces	LDRB	R1,[R0],#1
+		TEQ	R1,#' '
+		TEQNE	R1,#9
+		BEQ	str_skipspaces
+		SUB	R0,R0,#1
+		MOV	PC,R14
+
+; skip to the next line in the word list
+; E R1 -> current entry
+; X R1 -> next entry
+		FNAME	str_next
+str_next	LDRB	R0,[R1],#1
+		TEQ	R0,#0
+		BNE	str_next
+		MOV	PC,R14
+
+		LOCAL
+
+; find length of string
+; E R0 -> string
+; X R1 = length
+		FNAME	strlen
+strlen		FNJSR
+		MOV	R1,#0
+loop$l		LDRB	R14,[R0,R1]
+		TEQ	R14,#0
+		FNRTS	EQ
+		ADD	R1,R1,#1
+		B	loop$l
+
+
+		LOCAL
+
+
+; get a word and put it in the word buffer
+; E r2 = file offset of start of word  r9
+; X r0 -> word  r1 = length
+		FNAME	get_word
+get_word	FNJSR	"R2,R4,R5"
+		MOV	R5,R2
+		LDR	R3,[R11,#word_buffer]
+		SUB	R3,R3,R2
+		ADD	R4,R2,#max_word_length		; limit
+
+loop$l		BL	get_char			; get the letters
+		BL	isalpha				;
+		BNE	done$l				;
+		STRB	R0,[R3,R2]			;
+		ADD	R2,R2,#1			;
+		CMP	R2,R4				;
+		BLO	loop$l				;
+
+done$l		MOV	R0,#0				; terminate the word
+		STRB	R0,[R3,R2]			;
+
+		LDR	R0,[R11,#word_buffer]		; point to it
+		SUB	R1,R2,R5			; length
+		FNRTS
+
+
+		LOCAL
+
+
+; skip the current word and to the next one
+; E r2 = current offset  r9
+; X r2 = new offset
+		FNAME	skip_word
+skip_word	FNJSR
+loop$l		BL	get_char
+		FNRTS	CS
+		BL	isalpha
+		ADDEQ	R2,R2,#1
+		BEQ	loop$l
+		FNPULL
+
+		; fall through
+
+		LOCAL
+
+; skip to the next word
+; E r2 = current offset  r9
+; X r2 = new offset
+		FNAME	next_word
+next_word	FNJSR
+loop$l		BL	get_char
+		FNRTS	CS
+		BL	isalpha
+		ADDNE	R2,R2,#1
+		BNE	loop$l
+		CLC
+		FNRTS
+
+		LOCAL
+
+
+; skip to the previous word
+; E r2 = current offset  r9
+; X r2 = new offset
+		FNAME	prev_word
+prev_word	FNJSR
+		CMP	R2,#0				; exit with CS if at SOF
+		FNRTS	EQ
+
+a$l		BL	get_char			; skip to the end of a word
+		FNRTS	CS
+		BL	isalpha
+		SUBNE	R2,R2,#1
+		BNE	a$l
+
+b$l		BL	get_char			; skip to the start of it
+		BCS	sof$l
+		BL	isalpha
+		SUBEQ	R2,R2,#1
+		BEQ	b$l
+
+		ADDS	R2,R2,#1			; clc
+		FNRTS
+
+sof$l		MOVS	R2,#0,2				; r2 = 0, clc
+		FNRTS
+
+		LOCAL
+
+
+; skip to the next misspelt word
+; E r2 = current offset  r9
+; X r2 = offset of misspelt word, word in word buffer, r1 = length, CS if EOF (no more)
+		FNAME	next_bad_word
+next_bad_word	FNJSR	"R6"
+		BL	next_word
+		FNRTS	CS
+loop$l		MOV	R6,R2
+		BL	get_word
+		BL	spell_check
+		BCS	bad$l
+		CMP	R2,#-1
+		BEQ	new$l
+		CMP	R2,R6				; ignore the new offset if less than original
+		BHI	loop$l				;
+new$l		ADD	R2,R6,R1
+		BL	next_word
+		BCC	loop$l
+		FNRTS
+
+bad$l		CLC
+		FNRTS
+
+
+		LOCAL
+
+; skip to the previous misspelt word
+; E r2 = current offset  r9
+; X r2 = offset of misspelt word, word in word buffer, r1 = length, CS if EOF (no more)
+		FNAME	prev_bad_word
+prev_bad_word	FNJSR	"R6"
+		BL	prev_word
+		FNRTS	CS
+loop$l		MOV	R6,R2
+		BL	get_word
+		BL	spell_check
+		BCS	bad$l
+		CMP	R2,#-1
+		BEQ	new$l
+		CMP	R2,R6				; ignore the new offset if more than original
+		BLO	loop$l				;
+new$l		SUB	R2,R6,#1
+		BL	prev_word
+		BCC	loop$l
+		FNRTS
+
+bad$l		CLC
+		FNRTS
+
+
+; check if a character is alphabetic
+; E r0 = char
+; X EQ if alphabetic
+		FNAME	isalpha
+isalpha		FNJSR	"R0-R1"
+		AND	R14,R0,#&FF
+		MOV	R0,#-1				; current territory
+		MOV	R1,#3				; alphabetic characters
+		SWI	XTerritory_CharacterPropertyTable
+		LDRB	R1,[R0,R14,LSR #3]
+		MVN	R1,R1
+		AND	R14,R14,#7
+		MOV	R0,#1
+		TST	R1,R0,LSL R14
+		FNRTS
+
+; get a char from the file
+; E r2 = offset  r9
+; X r0 = char  CS if EOF
+		FNAME	get_char
+get_char	FNJSR
+		LDR	R0,[R9,#f_len]			; exit with CS if outside file
+		CMP	R2,R0
+		FNRTS	HS
+
+		MOV	R14,R2
+		LDR	R0,[R9,#f_splito]
+		CMP	R14,R0
+		LDRHS	R0,[R9,#f_splits]
+		ADDHSS	R14,R14,R0			; clc
+		LDR	R0,[R9,#f_ptr]
+		LDRB	R0,[R0,R14]
+		FNRTS
+
+
+
+
+ END

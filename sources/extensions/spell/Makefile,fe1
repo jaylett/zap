@@ -1,0 +1,57 @@
+# Make file for ZapSpell
+# using Acorn tools amu, objasm, link
+
+# Targets:
+#	ZapSpell	Assemble .s files and link. This is the default
+#	Heders		Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+
+OBJECTS		= o.module
+HEADERS		= h.spell
+
+TARGET		= ZapSpell
+as		= objasm
+asflags		= -o $@ -depend !Depend -throwback -stamp -quit
+link		= link
+linkPartFlags	= -aof
+linkFlags	= -bin -B &00000000
+ZapS		= <ZapSource$Dir>
+ZapD		= <Zap$Dir>.Modules.!ZapSpell
+
+ZapSpell:	$(OBJECTS) o Headers
+		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
+		Settype $(TARGET) Module
+		Run $(ZapS).data.MCopy $(TARGET) $(ZapD).$(TARGET)
+		@Echo Finished $(TARGET)
+
+Headers:	$(HEADERS)
+		@Echo Made headers
+
+o:;		cdir o
+
+Clean:;		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+		Remove $(TARGET)
+
+# The .t file date gives the last time the header was created from the file.
+# This is usually not the .h date as the .h file is not stamped if the file
+# contents doesn't change.
+
+.SUFFIXES: .t .s .o
+
+.s.t:;		@Run $(ZapS).data.StoH s.$* h.$*
+		Create t.$* 0
+
+.s.o:;		$(as) $(asflags) s.$*
+
+# Dynamic dependencies:
+o.module: s.module
+o.module: ZapSource:h.ZapHeader
+o.module: ZapSource:h.System
+o.module: ZapSource:h.ZapLibrary
+o.module: ZapSource:h.ZapVars
+o.module: ZapSource:h.Macros
+o.module: ZapSource:h.ZapConsts
+o.module: <ZapExtSource$Dir>.h.RegNames
+o.module: <ZapExtSource$Dir>.h.Macros
+o.module: h.spell
