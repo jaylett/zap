@@ -97,3 +97,6 @@ clean:
 #h.ZapLibrary:	<Zap$Dir>.Docs.TechCode.E-Library
 # Run $(ZapS).data.BasicToAsm <Zap$Dir>.Docs.TechCode.E-Library RAM:ZapTemp
 # COPY RAM:ZapTemp $(ZapS).h.ZapLibrary ~C~VNSFD
+
+o/ModuleBits:	h/Version,fff
+
