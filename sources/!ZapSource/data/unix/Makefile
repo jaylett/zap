@@ -65,7 +65,7 @@ rm		= rm -f
 #
 # First, the internal tools we use
 makehdr		= data/unix/makehdr
-timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
+timestamp	= perl -pe "s/00 Jan 0000/`date +'%d %b %Y'`/"
 
 # The bits after here are fairly standard GNU make incantations.
 # Watch out for variable substitution (the $(subst) stuff), which
