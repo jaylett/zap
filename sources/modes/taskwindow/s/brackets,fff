@@ -1,0 +1,122 @@
+; Contains mode entry points for BASIC mode.
+; $Id: brackets,fff,v 1.1 2003/02/07 22:27:09 christian Exp $
+; -*- armasm -*-
+
+ GET h.ZapTWHdr
+ GET h.module
+
+ EXPORT charchar
+
+
+delay		*	20		; pause on previous bracket (cs)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Bracket matching					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; E as for e_char  ie.
+;   R4 = w_flags  R5 = number of bytes
+;   R6 = w_format  R7 -> data   R8-R10
+;   PLUS R1 = mode number
+; X all preserved
+charchar
+	FNJSR	"R1-R7"
+	FNcall	Zap_GetModeWord,R0	; do nothing if not enabled
+	TST	R0,#mw_bracket_match
+	FNRTS	EQ
+
+	MOV	R1,#0
+find$l	CMP	R1,R5
+	FNRTS	HS
+	LDRB	R2,[R7,R1]		; search for an inserted bracked
+	TEQ	R2,#')'
+	TEQNE	R2,#'}'
+	TEQNE	R2,#']'
+	ADDNE	R1,R1,#1
+	BNE	find$l
+
+	CMP	R5,#2
+	ADDCS	R1,R1,#1
+	BCS	find$l
+
+	SUB	R5,R5,R1
+	ADD	R7,R7,R1
+
+	MOV	R1,#0
+	TEQ	R2,#')'
+	MOVEQ	R1,#'('
+	TEQ	R2,#'}'
+	MOVEQ	R1,#'{'
+	TEQ	R2,#']'
+	MOVEQ	R1,#'['
+
+	TEQ	R1,#0
+	FNRTS	EQ
+
+	LDR	R0,[R10,#c_off]
+	BL	find_match
+	BLEQ	move_and_wait
+	FNRTS
+
+
+	LOCAL
+
+; move caret to position and wait for delay time or until key pressed
+; E R0 = pos
+; X
+move_and_wait
+	FNJSR
+	LDR	R4,[R10,#c_off]
+	LDR	R5,[R10,#c_col]
+	STR	R0,[R10,#c_off]
+	FNcall  Zap_ReflectCaret
+	SWI	XOS_ReadMonotonicTime
+	ADD	R3,R0,#20
+
+loop$l	MOV	R0,#152			; wait until time elapsed or key pressed
+	MOV	R1,#0
+	SWI	XOS_Byte
+	BCC	stop$l
+	SWI	XOS_ReadMonotonicTime
+	CMP	R0,R3
+	BLT	loop$l
+
+stop$l	STR	R4,[R10,#c_off]
+	FNcall	Zap_ReflectCaret
+	FNRTS
+
+
+	LOCAL
+
+; find matching bracket
+; E R0 = pos  R1 = left  R2 = right
+; X R0 = pos, Z set  / -ve, Z clear
+find_match
+	FNJSR
+	MOV	R3,R0
+	MOV	R4,#1			;  depth.
+loop$l	SUBS	R3,R3,#1
+	BLT	done$l
+	MOV	R0,R3
+	BL	cln_readc
+
+	TEQ	R0,#'"'			; ignore quoted strings
+	EOREQ	R4,R4,#1<<16
+	TST	R4,#1<<16
+	BNE	loop$l
+
+	TEQ	R0,R2
+	ADDEQ	R4,R4,#1
+	BEQ	loop$l
+
+	TEQ	R0,R1
+	BNE	loop$l
+
+	SUBS	R4,R4,#1		; we can guarantee 1<<16 is clear here
+	BNE	loop$l
+done$l	MOV	R0,R3
+	FNRTS
+
+
+
+ END
