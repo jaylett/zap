@@ -2,12 +2,25 @@
 # using freeware tools make, AS, DRLink
 # (c) Darren Salt
 
-# target "Zap" (or unspecified) = assemble .s file and link
-# target "ZapHdrs" = build header files
+# For the standard build name:
+#	make -r -f MakefileAS
+# For alternative build names:
+#	make -r -f MakefileAS BUILD=foo
+#	make -r -f MakefileAS BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+# BTW, give 'make' lots of memory ;-)
 
-BUILD	= -DBUILD
-# "-n" automatically appended
-# leave blank if to use "patch-n" or "[TEST n]"
+# Targets:
+#	Zap		Assemble .s files and link. This is the default
+#	ZapHdrs		Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+#	Rebuild		Wipe o.ModuleBits. Useful for changing the build name
+#	Revision	Stamps h.Version
+
+# Where to get the tools:
+# 	AS:     <URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
+# 	Make:   <URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/unixtools/gnu/make.absolute>
+# 	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
 
 H1	= t.dispatch t.modulebits t.redraw t.template t.messages
 H2	= t.cursors t.createwind t.altertxt t.search t.commands t.execute t.update
@@ -29,14 +42,17 @@ ZapS		= <ZapSource$$Dir>
 link		= drlink
 linkPartFlags	= -aof
 linkFlags	= -bin -b &00000000 -nounused
-as		= testas
-asFlags		= -throwback -nolocal -objasm -upper
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic
+
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
 
 
 Zap:		$(OBJECTS)
 		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
-		Settype $(ZapS).$(TARGET) Module
-		Run $(ZapS).data.MCopy $(ZapS).$(TARGET) ZapCode:Zap
+		Settype $(TARGET) Module
+		Run data.MCopy $(TARGET) ZapCode:Zap
 		@Echo Finished
 
 ZapHdrs:	$(Hs)
@@ -46,267 +62,189 @@ Clean:
 		IfThere o.* Then Wipe o.* ~CF~R~V
 		IfThere t.* Then Wipe t.* ~CF~R~V
 
+Rebuild:
+		Remove o.ModuleBits
+		chain:make -r -f MakefileAS $(NEWBUILD)
+
+Revision:
+		Stamp h.Version
+		chain:make -r -f MakefileAS $(NEWBUILD)
+
+
+s.% o.%:
+	$(as) $(asFlags) $(__BUILD) s.$*
+
+s.% t.%:
+	@Run data.StoH s.$* h.$*
+	Create t.$* 0
+
 
 o.objects1:	$(OBJECTS1)
-		$(link) $(linkPartFlags) -o o.objects1 $(OBJECTS1)
-
+	$(link) $(linkPartFlags) -o o.objects1 $(OBJECTS1)
 o.objects2:	$(OBJECTS2)
-		$(link) $(linkPartFlags) -o o.objects2 $(OBJECTS2)
-
+	$(link) $(linkPartFlags) -o o.objects2 $(OBJECTS2)
 o.objects3:	$(OBJECTS3)
-		$(link) $(linkPartFlags) -o o.objects3 $(OBJECTS3)
-
+	$(link) $(linkPartFlags) -o o.objects3 $(OBJECTS3)
 o.objects4:	$(OBJECTS4)
-		$(link) $(linkPartFlags) -o o.objects4 $(OBJECTS4)
-
+	$(link) $(linkPartFlags) -o o.objects4 $(OBJECTS4)
 o.objects5:	$(OBJECTS5)
-		$(link) $(linkPartFlags) -o o.objects5 $(OBJECTS5)
-
+	$(link) $(linkPartFlags) -o o.objects5 $(OBJECTS5)
 
 t.altertxt:	s.altertxt
-	@Run $(ZapS).data.StoH $(ZapS).s.altertxt $(ZapS).h.altertxt
-	Create $(ZapS).t.altertxt 0
 t.boxes:	s.boxes
-	@Run $(ZapS).data.StoH $(ZapS).s.boxes $(ZapS).h.boxes
-	Create $(ZapS).t.boxes 0
 t.commands:	s.commands
-	@Run $(ZapS).data.StoH $(ZapS).s.commands $(ZapS).h.commands
-	Create $(ZapS).t.commands 0
 t.createfile:	s.createfile
-	@Run $(ZapS).data.StoH $(ZapS).s.createfile $(ZapS).h.createfile
-	Create $(ZapS).t.createfile 0
 t.createwind:	s.createwind
-	@Run $(ZapS).data.StoH $(ZapS).s.createwind $(ZapS).h.createwind
-	Create $(ZapS).t.createwind 0
 t.cursors:	s.cursors
-	@Run $(ZapS).data.StoH $(ZapS).s.cursors $(ZapS).h.cursors
-	Create $(ZapS).t.cursors 0
 t.dispatch:	s.dispatch
-	@Run $(ZapS).data.StoH $(ZapS).s.dispatch $(ZapS).h.dispatch
-	Create $(ZapS).t.dispatch 0
 t.exceptions:	s.exceptions
-	@Run $(ZapS).data.StoH $(ZapS).s.exceptions $(ZapS).h.exceptions
-	Create $(ZapS).t.exceptions 0
 t.execute:	s.execute
-	@Run $(ZapS).data.StoH $(ZapS).s.execute $(ZapS).h.execute
-	Create $(ZapS).t.execute 0
 t.fonts:	s.fonts
-	@Run $(ZapS).data.StoH $(ZapS).s.fonts $(ZapS).h.fonts
-	Create $(ZapS).t.fonts 0
 t.heap:		s.heap
-	@Run $(ZapS).data.StoH $(ZapS).s.heap $(ZapS).h.heap
-	Create $(ZapS).t.heap 0
 t.keybits:	s.keybits
-	@Run $(ZapS).data.StoH $(ZapS).s.keybits $(ZapS).h.keybits
-	Create $(ZapS).t.keybits 0
 t.menus:	s.menus
-	@Run $(ZapS).data.StoH $(ZapS).s.menus $(ZapS).h.menus
-	Create $(ZapS).t.menus 0
 t.messages:	s.messages
-	@Run $(ZapS).data.StoH $(ZapS).s.messages $(ZapS).h.messages
-	Create $(ZapS).t.messages 0
 t.minibuff:	s.minibuff
-	@Run $(ZapS).data.StoH $(ZapS).s.minibuff $(ZapS).h.minibuff
-	Create $(ZapS).t.minibuff 0
 t.mode0:	s.mode0
-	@Run $(ZapS).data.StoH $(ZapS).s.mode0 $(ZapS).h.mode0
-	Create $(ZapS).t.mode0 0
 t.mode1:	s.mode1
-	@Run $(ZapS).data.StoH $(ZapS).s.mode1 $(ZapS).h.mode1
-	Create $(ZapS).t.mode1 0
 t.mode11:	s.mode11
-	@Run $(ZapS).data.StoH $(ZapS).s.mode11 $(ZapS).h.mode11
-	Create $(ZapS).t.mode11 0
 t.mode2:	s.mode2
-	@Run $(ZapS).data.StoH $(ZapS).s.mode2 $(ZapS).h.mode2
-	Create $(ZapS).t.mode2 0
 t.mode3:	s.mode3
-	@Run $(ZapS).data.StoH $(ZapS).s.mode3 $(ZapS).h.mode3
-	Create $(ZapS).t.mode3 0
 t.mode4:	s.mode4
-	@Run $(ZapS).data.StoH $(ZapS).s.mode4 $(ZapS).h.mode4
-	Create $(ZapS).t.mode4 0
 t.modebits:	s.modebits
-	@Run $(ZapS).data.StoH $(ZapS).s.modebits $(ZapS).h.modebits
-	Create $(ZapS).t.modebits 0
 t.modulebits:	s.modulebits
-	@Run $(ZapS).data.StoH $(ZapS).s.modulebits $(ZapS).h.modulebits
-	Create $(ZapS).t.modulebits 0
 t.redraw:	s.redraw
-	@Run $(ZapS).data.StoH $(ZapS).s.redraw $(ZapS).h.redraw
-	Create $(ZapS).t.redraw 0
 t.search:	s.search
-	@Run $(ZapS).data.StoH $(ZapS).s.search $(ZapS).h.search
-	Create $(ZapS).t.search 0
 t.softwrap:	s.softwrap
-	@Run $(ZapS).data.StoH $(ZapS).s.softwrap $(ZapS).h.softwrap
-	Create $(ZapS).t.softwrap 0
 t.startcode:	s.startcode
-	@Run $(ZapS).data.StoH $(ZapS).s.startcode $(ZapS).h.startcode
-	Create $(ZapS).t.startcode 0
 t.startup:	s.startup
-	@Run $(ZapS).data.StoH $(ZapS).s.startup $(ZapS).h.startup
-	Create $(ZapS).t.startup 0
 t.strings:	s.strings
-	@Run $(ZapS).data.StoH $(ZapS).s.strings $(ZapS).h.strings
-	Create $(ZapS).t.strings 0
 t.template:	s.template
-	@Run $(ZapS).data.StoH $(ZapS).s.template $(ZapS).h.template
-	Create $(ZapS).t.template 0
 t.undo:		s.undo
-	@Run $(ZapS).data.StoH $(ZapS).s.undo $(ZapS).h.undo
-	Create $(ZapS).t.undo 0
 t.update:	s.update
-	@Run $(ZapS).data.StoH $(ZapS).s.update $(ZapS).h.update
-	Create $(ZapS).t.update 0
 
 h.ZapLibrary:	<Zap$$Dir>.Docs.TechCode.E-Library
-	Run $(ZapS).data.BasicToAsm <Zap$$Dir>.Docs.TechCode.E-Library $(ZapS).h.ZapLibrary
+	Run data.BasicToAsm <Zap$$Dir>.Docs.TechCode.E-Library h.ZapLibrary
 
 
 o.altertxt: s.altertxt h.CreateFile h.CreateWind h.Cursors h.Heap h.Macros \
 		h.MiniBuff h.Mode0 h.ModeBits h.Redraw h.SoftWrap \
 		h.StartCode h.Strings h.System h.TMTVars h.Undo h.Update \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.altertxt
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.boxes: s.boxes h.CreateFile h.CreateWind h.Cursors h.Heap h.KeyBits \
 		h.Macros h.Menus h.MiniBuff h.ModeBits h.Redraw h.Search \
 		h.StartCode h.Strings h.System h.Template h.TMTVars h.Undo \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.boxes
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.commands: s.commands h.AlterTxt h.Boxes h.CreateFile h.CreateWind \
 		h.Cursors h.Execute h.Fonts h.Heap h.KeyBits h.Macros \
 		h.Menus h.MiniBuff h.Mode1 h.Mode11 h.Mode2 h.Mode4 \
 		h.ModeBits h.ModuleBits h.Redraw h.Search h.StartCode \
 		h.StartUp h.Strings h.System h.Template h.TMTVars h.Undo \
-		h.Update h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.commands
+		h.Update h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.createfile: s.createfile h.AlterTxt h.CreateWind h.Cursors h.Cursors \
 		h.Heap h.KeyBits h.Macros h.MiniBuff h.ModeBits h.Redraw \
 		h.Strings h.System h.Template h.TMTVars h.Undo h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.createfile
+		h.ZapLibrary h.ZapVars h.Messages
 o.createwind: s.createwind h.Commands h.CreateFile h.Cursors h.Heap \
 		h.KeyBits h.Macros h.MiniBuff h.ModeBits h.Redraw \
 		h.StartCode h.Strings h.Strings h.System h.Template \
-		h.TMTVars h.Update h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.createwind
+		h.TMTVars h.Update h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.cursors: s.cursors h.AlterTxt h.Commands h.CreateFile h.CreateWind \
 		h.Execute h.Heap h.KeyBits h.Macros h.MiniBuff h.ModeBits \
 		h.Redraw h.Search h.StartCode h.Strings h.System h.TMTVars \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.cursors
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.dispatch: s.dispatch
-	$(as) $(asFlags) s.dispatch
 o.exceptions: s.exceptions h.Macros h.ModuleBits h.StartCode h.StartUp \
-		h.Strings h.System h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.exceptions
+		h.Strings h.System h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.execute: s.execute h.AlterTxt h.Boxes h.Commands h.CreateFile \
 		h.CreateWind h.Cursors h.Fonts h.Heap h.KeyBits h.Macros \
 		h.Menus h.MiniBuff h.Mode1 h.Mode11 h.Mode2 h.Mode4 \
 		h.ModeBits h.ModuleBits h.Redraw h.Search h.StartCode \
 		h.StartUp h.Strings h.System h.Template h.TMTVars h.Undo \
-		h.Update h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.execute
+		h.Update h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.fonts: s.fonts h.CreateFile h.CreateWind h.Heap h.Macros h.ModeBits \
 		h.Strings h.System h.TMTVars h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.fonts
-o.heap: s.heap h.Macros h.System h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.heap
+		h.ZapVars h.Messages
+o.heap: s.heap h.Macros h.System h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.keybits: s.keybits h.Commands h.CreateFile h.Cursors h.Execute h.Heap \
 		h.Macros h.Menus h.MiniBuff h.ModeBits h.Strings h.System \
-		h.Template h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.keybits
+		h.Template h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.menus: s.menus h.Commands h.CreateFile h.CreateWind h.Cursors h.Execute \
 		h.Heap h.KeyBits h.Macros h.Messages h.MiniBuff h.ModeBits \
 		h.ModuleBits h.Redraw h.StartCode h.StartUp h.Strings \
 		h.System h.Template h.TMTVars h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.menus
+		h.ZapVars h.Messages
 o.messages: s.messages h.Heap h.Macros h.System h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.messages
+		h.ZapVars h.Messages
 o.minibuff: s.minibuff h.Commands h.CreateFile h.CreateWind h.Cursors \
 		h.Execute h.Heap h.Macros h.StartCode h.Strings h.System \
-		h.Template h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.minibuff
+		h.Template h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.mode0: s.mode0 h.AlterTxt h.Commands h.Cursors h.Heap h.Macros h.Mode1 \
 		h.ModeBits h.Redraw h.SoftWrap h.StartCode h.System \
-		h.Template h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode0
+		h.Template h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.mode11: s.mode11 h.AlterTxt h.Commands h.CreateFile h.CreateWind \
 		h.Cursors h.Execute h.Heap h.Macros h.ModeBits h.Redraw \
-		h.Strings h.System h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode11
+		h.Strings h.System h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.mode1: s.mode1 h.AlterTxt h.Commands h.Cursors h.Execute h.Macros h.Menus \
 		h.MiniBuff h.Mode0 h.Mode2 h.Mode3 h.Mode4 h.ModeBits \
 		h.Redraw h.Strings h.System h.TMTVars h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode1
+		h.ZapLibrary h.ZapVars h.Messages
 o.mode2: s.mode2 h.AlterTxt h.Commands h.Cursors h.Execute h.Heap h.KeyBits \
 		h.Macros h.Menus h.MiniBuff h.Mode0 h.Mode1 h.Mode3 h.Mode4 \
 		h.ModeBits h.Redraw h.Strings h.System h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode2
+		h.ZapLibrary h.ZapVars h.Messages
 o.mode3: s.mode3 h.AlterTxt h.Cursors h.Macros h.Mode0 h.Mode1 h.ModeBits \
-		h.Redraw h.System h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode3
+		h.Redraw h.System h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.mode4: s.mode4 h.AlterTxt h.Commands h.CreateWind h.Cursors h.Execute \
 		h.Heap h.KeyBits h.Macros h.Menus h.MiniBuff h.Mode0 \
 		h.Mode1 h.Mode2 h.ModeBits h.ModuleBits h.Redraw h.Strings \
 		h.System h.TMTVars h.Update h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.mode4
+		h.ZapVars h.Messages
 o.mode4dis: s.mode4dis data.clib_names h.AlterTxt h.Macros h.System \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.mode4dis
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.modebits: s.modebits h.AlterTxt h.Commands h.CreateFile h.CreateWind \
 		h.Fonts h.Heap h.Macros h.Mode0 h.Mode4 h.Redraw h.Search \
 		h.Strings h.System h.TMTVars h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.modebits
+		h.ZapVars h.Messages
 o.modulebits: s.modulebits h.Commands h.Dispatch h.Execute h.Heap h.Macros \
 		h.Messages h.Mode0 h.Mode1 h.Mode2 h.Mode3 h.Mode4 \
 		h.ModeBits h.StartCode h.Strings h.System h.Version \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.modulebits
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.redraw: s.redraw h.AlterTxt h.CreateFile h.CreateWind h.Cursors h.Fonts \
 		h.Heap h.KeyBits h.Macros h.MiniBuff h.ModeBits h.SoftWrap \
 		h.Strings h.System h.TMTVars h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.redraw
+		h.ZapVars h.Messages
 o.search: s.search h.AlterTxt h.Commands h.CreateFile h.CreateWind \
 		h.Cursors h.Heap h.KeyBits h.Macros h.MiniBuff h.ModeBits \
 		h.Redraw h.Strings h.System h.Template h.TMTVars \
-		h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.search
+		h.ZapHeader h.ZapLibrary h.ZapVars h.Messages
 o.softwrap: s.softwrap h.Cursors h.Heap h.Macros h.Mode0 h.ModeBits \
-		h.Redraw h.System h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.softwrap
+		h.Redraw h.System h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.startcode: s.startcode h.AlterTxt h.Commands h.CreateFile h.CreateWind \
 		h.Cursors h.Exceptions h.Execute h.Heap h.KeyBits h.Macros \
 		h.Menus h.Menus h.MiniBuff h.ModeBits h.Redraw h.StartUp \
 		h.Strings h.System h.Template h.TMTVars h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.startcode
+		h.ZapLibrary h.ZapVars h.Messages
 o.startup: s.startup h.CreateFile h.Heap h.KeyBits h.Macros h.ModeBits \
 		h.Redraw h.Strings h.System h.Version h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.startup
+		h.ZapLibrary h.ZapVars h.Messages
 o.strings: s.strings h.Heap h.Macros h.System h.ZapHeader h.ZapLibrary \
-		h.ZapVars
-	$(as) $(asFlags) s.strings
+		h.ZapVars h.Messages
 o.template: s.template h.AlterTxt h.Boxes h.CreateFile h.CreateWind \
 		h.Cursors h.Heap h.KeyBits h.Macros h.Menus h.MiniBuff \
 		h.ModeBits h.ModuleBits h.Redraw h.Search h.StartCode \
 		h.Strings h.System h.TMTVars h.Undo h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.template
+		h.ZapLibrary h.ZapVars h.Messages
 o.undo: s.undo h.AlterTxt h.CreateFile h.CreateWind h.Heap h.Macros \
-		h.System h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.undo
+		h.System h.TMTVars h.ZapHeader h.ZapLibrary h.ZapVars \
+		h.Messages
 o.update: s.update h.AlterTxt h.CreateWind h.Cursors h.Heap h.Macros \
 		h.Mode0 h.ModeBits h.Redraw h.System h.ZapHeader \
-		h.ZapLibrary h.ZapVars
-	$(as) $(asFlags) s.update
+		h.ZapLibrary h.ZapVars h.Messages
