@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.1.2.8 1999/03/02 00:43:46 ds Exp $
+; $Id: MiniBuff,fff,v 1.1.2.9 1999/03/04 00:22:51 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -12,6 +12,7 @@
  GET h.Commands
  GET h.Execute
  GET h.StartCode
+ GET h.Boxes
 
  IMPORT call_back
  IMPORT convert_key
@@ -562,10 +563,8 @@ mi_setmark
  FNSTR R7,mini_mark
  B mi4
 mi_histkill
- FNLDR R0,mini_lineed
+ ADD R0,R12,#mini_lineed
  BL lineeditor_kill
- MOV R0,#0
- FNSTR R0,mini_lineed
 ; SWI &107 ; ??????????????????????????????????
  B mi4
 mi_pastefrom
@@ -1927,8 +1926,9 @@ help$l FNS ("<Zap$HelpData>")
 
 kill_lineeditor
  FNJSR
- FNLDR R0,mini_lineed
+ ADD R0,R12,#mini_lineed
  BL lineeditor_kill
+ BL kill_mbsearch_bufs
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1985,16 +1985,18 @@ lineeditor_reset
  SWI XLineEditor_SetPos
  FNRTS
 
-;E R0=buffer handle /0
+;E R0=ptr to buffer handle /0
 ;X Buffer killed
 
 lineeditor_kill
- FNJSR
- TEQ R0,#0
- FNRTS EQ
-; BL lineeditor_hack
- SWI XLineEditor_DeleteBuffer
- FNRTS
+	FNJSR	"R7"
+	MOV	R7,R0
+	LDR	R0,[R7]
+	TEQ	R0,#0
+	MOVNE	R14,#0
+	STRNE	R14,[R7]
+	SWINE	XLineEditor_DeleteBuffer
+	FNRTS
 
 ;E R0=buffer handle /0 R1=buffer position
 ;X Buffer pointer decreased by one

@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.6 1999/02/22 18:49:28 ds Exp $
+; $Id: Boxes,fff,v 1.1.2.7 1999/03/04 00:22:49 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -62,6 +62,7 @@
 	EXPORT	ctrllist
 	EXPORT	give_dbox_focus
 	EXPORT	poll_word_pdriverchanged
+	EXPORT	kill_mbsearch_bufs
 
 	EXPORT	Countmatches
 	EXPORT	Dzapbox
@@ -2072,10 +2073,8 @@ lc_Search_clearhist_Search
  MOV R5,#0
 lc_clearhist
  ADR R0,mbsearchindex
- LDR R0,[R5,R0]!
+ ADD R0,R0,R5
  BL lineeditor_kill
- MOV R0,#0
- STR R0,[R5]
  B c_ret
 
 lc_Search_clearhist_Replace
@@ -2262,6 +2261,16 @@ mbsearchindex
  DCD 0
  DCD 0
 ; DCD 0
+
+kill_mbsearch_bufs
+	FNJSR
+	ADR	R0,mbsearchindex
+	BL	lineeditor_kill
+	ADR	R0,mbsearchindex+4
+	BL	lineeditor_kill
+	ADR	R0,mbsearchindex+8
+	BL	lineeditor_kill
+	FNRTS
 
 resethistorypositions
  FNJSR
@@ -3757,6 +3766,9 @@ lc_Mzap_read
  BLVC lc_buffernum
  BVS c_ret
  MOV R4,R0			; end address
+ CMP R2,R4
+ BEQ s_ret			; nothing to read
+ BHI endbeforestart$l
 
  LDR R0,[R6,#140]		; addr of string for icon 1.
  LDRB R1,[R0]
@@ -3776,6 +3788,9 @@ lc_Mzap_read
  BLVC create_window_block
  BLVC create_window_caret
  B s_ret
+endbeforestart$l
+	BL	Beep		; warn user
+	B	c_ret		; don't close dbox
 
 lc_Mzap_dragsprite
  TST R4,#&50

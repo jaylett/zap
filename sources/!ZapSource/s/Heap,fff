@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 1.1.2.3 1999/01/14 14:46:33 dj Exp $
+; $Id: Heap,fff,v 1.1.2.4 1999/03/04 00:22:51 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -391,20 +391,28 @@ create_dynamic_area
  MOVVC R1,R3
  FNRTS
 
+ LOCAL
+
 ;X Kills dynamic areas etc prior to exit #
 
 kill_heap
- FNJSR "R1"
+ FNJSR "R1-R2"
  FNLDR R1,wimp_version
  CMP R1,#320
  FNRTS LE			; no dynamic areas to kill
- MOV R0,#1
- FNLDR R1,font_area
- SWI XOS_DynamicArea		; kill fonts
- MOVVC R0,#1
- FNLDR R1,file_area,VC
- SWIVC XOS_DynamicArea		; kill files
+ FNADD R2,R12,font_area		; kill fonts
+ BL kill$l
+ FNADD R2,R12,file_area		; kill files
+ BL kill$l
  FNRTS
+kill$l	FNJSR	; could be in SVC mode...
+	LDR	R1,[R2]
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	STRNE	R0,[R2]
+	MOVNE	R0,#1
+	SWINE	XOS_DynamicArea
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Manage the Acorn heap in block -1				;
