@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.13 2003/09/22 00:31:37 ds Exp $
+; $Id: module,fff,v 1.14 2003/09/22 18:27:42 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -6305,20 +6305,20 @@ find$l	LDRB	r0,[r11,#1]!
 	;MOVVC	r7,r0
 	LDRVC	r7,[r10,#c_off]
 	ADRVC	r3,common_open
-	BLVC	put$l
+	BLVC	Cmd_insert
+	BLVC	Cmd_insert_variable
+	ADRVC	r3,common_end_s
+	BLVC	Cmd_insert
 	BLVC	Cmd_insert_sel
 	ADRVC	r3,common_close
-	BLVC	put$l
+	BLVC	Cmd_insert
+	BLVC	Cmd_insert_spaceterm
+	ADRVC	r3,common_end_s
+	BLVC	Cmd_insert
 	FNcall	Zap_StopOp
 	FNRTS
 bad$l	FNPULL			; shared by CmdHTMLSingleTag
 	ERR	"hotmeal_badtag"
-put$l	FNJSR
-	BL	Cmd_insert
-	BLVC	Cmd_insert_variable
-	ADRVC	r3,common_end_s
-	BLVC	Cmd_insert
-	FNRTS
 enter$l	=	"hotmeal_gettag",0
 	ALIGN
 
@@ -6386,11 +6386,26 @@ Cmd_insert_common
 	; R7 -> insert offset
 	; R11 -> string (NUL-term)
 	; R7 updated, R0-R3 corrupted
+	LOCAL
 Cmd_insert_variable
 	MOV	r3,r11
-getlen	LDRB	r2,[r11],#1
+len$l	LDRB	r2,[r11],#1
 	TEQ	r2,#0
-	BNE	getlen
+	BNE	len$l
+	SUB	r2,r11,r3
+	MOV	r11,r3
+	SUB	r2,r2,#1
+	B	Cmd_insert_common
+
+	; R7 -> insert offset
+	; R11 -> string (space or ctrl-term)
+	; R7 updated, R0-R3 corrupted
+	LOCAL
+Cmd_insert_spaceterm
+	MOV	r3,r11
+len$l	LDRB	r2,[r11],#1
+	CMP	r2,#32
+	BHI	len$l
 	SUB	r2,r11,r3
 	MOV	r11,r3
 	SUB	r2,r2,#1
