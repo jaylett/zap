@@ -1,5 +1,5 @@
 ; Contains TMF (configuration) variable code.
-; $Id: TMFs,fff,v 1.1.2.2 1999/05/24 23:27:18 ds Exp $
+; $Id: TMFs,fff,v 1.1.2.3 1999/05/30 18:36:32 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Strings
@@ -208,9 +208,9 @@ get_from_parent
 	BNE	get_var_from_given_mode$l
 	LDR	r0,[r1,#2*e_basemode]	; basemode number
 	CMP	r0,r14
-	MOVEQ	r0,#0			; reached top of inheritance table
-	FNRTS	EQ			; so just return "shrug"
-	B	get_var_from_given_mode$l
+	BNE	get_var_from_given_mode$l
+	MOV	r0,#0			; reached top of inheritance table
+	FNRTS				; so just return "shrug"
 
 	LOCAL
 ; \E r0 variable table, r1 mode dispatch table, r2 variable name
@@ -522,11 +522,9 @@ done_interpolation$l
 	MOV	r2,r0			; duplicated variable name (so safe)
 
 	vt_top	r3,r1			; set r1 to the top of the table
-	STR	r2,[r1],#4		; store name, previously copied
-	STR	r4,[r1],#4		; store value
-	MOV	r0,#0
-	STR	r0,[r1],#4		; new end of
-	STR	r0,[r1],#4		; table pseudo-entry
+	MOV	r14,#0
+	STMIA	r1!,{r2,r4,r14}		; store name (prev. copied), value
+	STR	r14,[r1],#4		; and new end of table pseudo-entry
 	LDR	r0,[r3,#vartable_num_entries]
 	ADD	r0,r0,#1
 	STR	r0,[r3,#vartable_num_entries]
@@ -638,15 +636,22 @@ skip$l	SUBS	r3,r3,#1
 	LOCAL
 ; \E r1 mode name
 ; \X r1 filename of mode's TMF, or 0, r0 corrupted
-;
-; Note that this is only temporary, until we figure out
-; exactly how we are going to locate TMFs. Hence I don't care
-; about the waste of space ...
 get_mode_tmf
-	FNJSR	"r2-r4"
+	FNJSR	"r2-r6"
 	MOV	r2,r1			; source
+	PUSH	"r2"
+	MOV	r0,#16
+	ADR	r1,config_mode		; destination
+	BL	strbuf			; adds terminator
+	MOV	r0,#17
+	ADR	r1,config_start
+	SWI	XOS_File		; first look in ZapUser
+	PULL	"r2"
+	TEQ	r0,#1
+	FNRTS	EQ			; found? return, else try sysvar
+	MOV	r0,#16
 	ADR	r1,sysvar_mode		; destination
-	BL	strcopy			; adds terminator
+	BL	strbuf			; adds terminator
 	ADR	r0,sysvar_start
 	ADR	r1,sysvar_result
 	MOV	r2,#256
@@ -663,6 +668,9 @@ sysvar_start
 sysvar_mode
 	%	16			; leeway: modes shouldn't be longer than 7 chars
 					; however some (including Taskwindow!) go up to 10
+config_start
+	=	"ZapUser:Config.TMFs."	; 20 characters :-)
+config_mode
 sysvar_result
 	%	256			; a fixed buffer will always be necessary
 					; for use in the interpolation routines
