@@ -1,0 +1,579 @@
+; CVS mode
+; $Id: module,fff,v 1.1 2002/08/28 23:48:07 christian Exp $
+
+ GET h.CVSH
+ GET h.Version
+
+		; embed a function name
+		MACRO
+$la		FUNC	$s
+		[ :DEF: Debug
+		=	"$s",0
+		ALIGN
+		&	&FF000000 + ((:LEN: $ss + 3) :AND: 3)
+		]
+$la
+		MEND
+
+
+		AREA |!!!Module_Header|,CODE,READONLY
+
+		ENTRY
+
+mod_header	DCD	0				; start offset
+		DCD	mod_init			; init code
+		DCD	0				; finalisation
+		DCD	0				; sevice handler
+		DCD	mod_title			; title
+		DCD	mod_help			; help
+		DCD	0				; commands
+
+mod_title	=	"ZapCVS",0
+
+mod_help	=	"ZapCVS",9
+		= version,"(00 Jan 0000)"
+		[ BUILD > ""
+		  = " ",BUILD
+		  [ (BUILD:RIGHT:1 < "0" :LOR: BUILD:RIGHT:1 > "9") :LAND: patch_level <> ""
+		    = "-",patch_level
+		  ]
+		  |
+		  [ test_flag
+		    = " [TEST"
+		    [ patch_level <> ""
+		      = " ",patch_level
+		    ]
+		    = "]"
+		  |
+		    [ patch_level <> ""
+		      = " patch-",patch_level
+		    ]
+		  ]
+		]
+		FNS (" © Zap Developers")
+
+		LOCAL
+
+
+mod_init	FNJSR	"R0-R4,R11"
+
+		MOV	R11,#0				; no workspace
+
+		MOV	R0,#18				; find Zap and add our mode
+		ADR	R1,zap$l			;
+		SWI	XOS_Module			;
+		FNRTS	"VS"				;
+		MOV	R12,R4				;
+		ADR	R0,cvs_modetable		;
+		FNcall	Zap_AddMode			;
+		FNRTS					; done for now
+
+zap$l		= "Zap",0
+
+
+; ---------------------------------
+
+cvs_modetable	DCD	cvs_modetable			; offset of mode table
+		DCD	cvs_title			; mode title string
+		DCD	cvs_author			; author string
+		DCD	0				; base mode number
+		DCD	1<<12 + 1<<13			; messages, cloneable
+		DCD	cvs_init			; offset of initialisation code
+		DCD	0				; offset of your menu
+		DCD	cvs_tableend-cvs_modetable	; length of table
+		DCD	0				; mode_postload
+		DCD	0				; mode_presave
+		DCD	0				; mode_loading
+		DCD	cvs_start			; mode_start
+		DCD	cvs_end				; mode_end
+		DCD	0				; mode_width
+		DCD	0				; mode_linecol
+		DCD	0				; mode_lineoff
+		DCD	0				; mode_clnlog
+		DCD	0				; mode_clnphy
+		DCD	0				; mode_clnoff
+		DCD	0				; mode_nextline
+		DCD	0				; mode_minus
+		DCD	0				; mode_plus
+		DCD	0				; mode_sminus
+		DCD	0				; mode_splus
+		DCD	0				; mode_cminus
+		DCD	0				; mode_cplus
+		DCD	cvs_redrawline			; mode_redrawline
+		DCD	0				; mode_redrawlnum
+		DCD	0				; mode_char
+		DCD	0				; mode_delete
+		DCD	0				; mode_tab
+		DCD	0				; mode_return
+		DCD	0				; mode_renumber
+		DCD	0				; mode_saveandrun
+		DCD	0				; mode_linestart
+		DCD	0				; mode_lineend
+		DCD	0				; mode_linenext
+		DCD	0				; mode_lineprev
+		DCD	0				; mode_copy
+		DCD	0				; mode_joinline
+		DCD	0				; mode_splitline
+		DCD	0				; mode_aligncaret
+		DCD	cvs_command			; mode_command
+		DCD	0				; mode_compile
+		DCD	cvs_formattext			; mode_formattext
+		DCD	0				; mode_run
+		DCD	0				; mode_runandquit
+		DCD	0				; mode_basic
+		DCD	0				; mode_search
+		DCD	0				; mode_replace
+		DCD	0				; mode_selection
+		DCD	0				; mode_click
+		DCD	0				; mode_message
+		DCD	0				; mode_setwidth
+		DCD	0				; mode_listfns
+		DCD	cvs_prevline			; mode_prevline
+		;DCD	0				; mode_openwindow
+		;DCD	0				; mode_interrogate
+		;DCD	0				; mode_returnword
+		;DCD	0				; mode_help
+		;DCD	0				; mode_stripspaces
+cvs_tableend
+
+cvs_title	= "CVS",0
+cvs_author	= "Christian Ludlam",0
+
+		ALIGN
+
+		LOCAL
+
+
+; ----------- init options -------------
+
+		FUNC	"cvs_init"
+cvs_init
+		[ :DEF: Debug
+		TEQ	R1,#0
+		MOVEQ	R0,#-1				; prevent zap killing my module
+		MOVEQ	PC,R14				; so we know where we went wrong
+		]
+
+		TEQ	R1,#2				; zap has initialised me -
+		BEQ	init_2$l			;   check options
+		TEQ	R1,#6				; zap wants colour names
+		ADREQ	R1,colours$l			;
+		MOV	PC,R14				; don't care
+
+; zap has initialised us - check our options
+init_2$l	FNJSR	"R1,R2,R8"			;
+		MOV	R1,R0				; keep mode number
+		MOV	R8,#0				; default options
+		FNcall	Zap_GetModeWord			;
+		FNRTS	VS				;
+		TEQ	R0,#0				;
+		BNE	checkopts$l			; we have options - check their validity
+
+		LDR	R0,default0$l			; default word 0
+		MOV	R2,#0				;
+		FNcall	Zap_ModeData			;
+		LDR	R0,default1$l			;
+		MOV	R2,#1				; and 1
+		FNcall	Zap_ModeData			;
+		LDR	R0,defaultmode$l		; and default mode word
+		FNcall	Zap_PutModeWord			;
+		MOV	R0,#numberofcolours		; and number of colours
+		FNcall	Zap_ModeColourNum		;
+		MOV	R2,#9				; and set up default colours
+		BL	default_colours			;
+		FNRTS					;
+
+checkopts$l	MOV	R0,#-1				; check we have enough colours
+		FNcall	Zap_ModeColourNum		;
+		CMP	R0,#numberofcolours		;
+		FNRTS	HS				;
+		MOV	R0,#numberofcolours		;
+		FNcall	Zap_ModeColourNum		;
+		MOV	R2,R0				;
+		BL	default_colours			;
+		FNRTS					;
+
+default0$l	DCD	&1201004D
+default1$l	DCD	&0200000F
+defaultmode$l	DCD	1
+
+colours$l	= "cvs_colours",0
+		ALIGN
+
+		LOCAL
+
+; E  r1 = mode numner  r2 = number of existing colours  r8 = 0
+		FUNC	"default_colours"
+default_colours	FNJSR	"R4-R5"
+		ADR	R4,table$l
+		SUB	R5,R2,#9			; subtract system colours
+loop$l		LDR	R0,[R4,R5,LSL #2]
+		FNcall	Zap_ModeColour
+		ADD	R2,R2,#1
+		ADD	R5,R5,#1
+		CMP	R2,#numberofcolours
+		BLS	loop$l
+		FNRTS
+
+table$l		DCD	12				; lines beginning with CVS:
+
+
+; ------------ start & end ------------
+
+		FUNC	"cvs_start"
+cvs_start	FNJSR
+		LDRB	R0,[R8,#w_format]		; mode number
+		FNcall	Zap_RestoreModeWord
+		FNRTS
+
+		FUNC	"cvs_end"
+cvs_end		FNJSR
+		LDRB	R0,[R8,#w_format]		; mode number
+		FNcall	Zap_SaveModeWord
+		FNRTS
+
+
+		LOCAL
+
+; --------------- redraw -----------------
+
+
+		FUNC	"cvs_redrawline"
+cvs_redrawline	FNJSR	"R12"
+
+		SUB	R0,R7,R5			; get file offset
+		BL	iscvsline			; set line colour
+		MOVEQ	R2,#c_cvs			;
+		MOVNE	R2,#c_fg			;
+
+		LDR	R3,[R8,#w_txtw]			; width of cache
+
+		LDRB	R12,[R8,#w_cr]			;
+		LDRB	R0,[R8,#w_tabchar]		; load tab char
+		ORR	R12,R12,R0,LSL #24		; patch in
+		LDRB	R0,[R8,#w_bpl]			; load bpl
+		ORR	R12,R12,R0,LSL #16		; patch in
+newline$l	MOV	R14,#0				; reset column counter
+
+main$l		CMP	R7,R10				; at split?
+		BLO	splitok$l			; nope - ok
+		LDR	R10,[R9,#f_len]			; load length of file
+		ADD	R10,R10,R5			; add apparent start
+		CMP	R7,R10				; at end of file?
+		FNRTS	"HS"				; yes - done
+		LDR	R1,[R9,#f_splits]		; load split size
+		ADD	R7,R7,R1			; add to input pointer
+		ADD	R5,R5,R1			; and apparent start
+		ADD	R10,R10,R1			; and to contiguous end
+splitok$l	LDRB	R0,[R7],#1			; load char
+
+		AND	R1,R12,#&FF			; if cr char
+		TEQ	R0,R1				;
+		ADDEQ	R11,R11,#1			; new logical line
+		FNRTS	EQ				;
+
+		MOV	R1,#c_bg			; store background colour
+		STRB	R1,[R6,R3,LSL #1]		;
+
+		TEQ	R0,R12,LSR #24			; deal with tabs
+		BEQ	tab$l				;
+
+		STRB	R2,[R6,R3]			; store fg colour
+		STRB	R0,[R6],#1			; store char
+		ADD	R14,R14,#1			; inc column
+
+nextchar$l	AND	R0,R12,#&FF<<16			; check the window width
+		TEQ	R14,R0,LSR #16			;
+		BNE	main$l				;
+		FNRTS					;
+
+tab$l		MOV	R0,#9				; ->	   (->	   )
+		TEQ	R4,#1<<12			; tab mode 1
+		MOVEQ	R0,#' '				; space	   (	   )
+		TEQ	R4,#3<<12			; tab mode 3
+		MOVEQ	R0,#'-'				; -	   (------>)
+tabloop$l	MOV	R1,#c_ctls			; store colours
+		STRB	R1,[R6,R3]			;
+		MOV	R1,#c_bg			;
+		STRB	R1,[R6,R3,LSL #1]		;
+		STRB	R0,[R6],#1			; store char
+		ADD	R14,R14,#1			; next column
+		TEQ	R4,#2<<12			;
+		MOVEQ	R0,#' '				;
+		AND	R1,R12,#&FF<<16			; stop if we've exceeded bpl
+		TEQ	R14,R1,LSR #16			;
+		TSTNE	R14,#7				;  or reached the next tab column
+		BNE	tabloop$l			;
+		TEQ	R4,#3<<12			; store the arrow if tab mode 3
+		MOVEQ	R0,#9				;
+		STREQB	R0,[R6,#-1]			;
+		MOV	R0,R12,LSR #24			;
+		B	nextchar$l			;
+
+		LOCAL
+
+
+; -------------- prevline ----------------
+
+		FUNC	"cvs_prevline"
+cvs_prevline	SUBS	R0,R0,#4			; colour CVS: as it's typed
+		MOVMI	R0,#0				;
+		MOV	PC,R14				;
+
+		LOCAL
+
+
+; --------------- command ----------------
+
+
+; perform word-wrapping ourselves so we skip lines starting CVS:
+		FUNC	"cvs_command"
+cvs_command	FNJSR	"R11"				;
+		LDR	R11,[R8,#w_flags]		; nothing special to do if wordwrap not on
+		TST	R11,#1<<13			;
+		BEQ	docom$l				;
+
+		FNcall	Zap_StartOp			; perform the original command
+		FNRTS	VS				;
+		FNcall	Zap_DoCommand			;
+		FNcallc	Zap_StopOp,VS			;
+		FNRTS	VS				;
+
+		LDR	R11,[R9,#f_flags]		; unlink the cursor
+		ORR	R14,R11,#1<<14			;
+		STR	R14,[R9,#f_flags]		;
+
+		PUSH	R0				;
+		MOV	R0,R1				; format the text
+		;MOV	R1,#1				;
+		BL	format_para			;
+		STRVS	R0,[R13]			;
+		PULL	R0				;
+		FNcall	Zap_StopOp			; (this handles VS)
+
+		LDR	R14,[R9,#f_flags]		; restore previous unlink state
+		BIC	R11,R11,#8			;
+		AND	R14,R14,#8			;
+		ORR	R14,R14,R11			;
+		STR	R14,[R9,#f_flags]		;
+
+		FNRTS					;
+
+docom$l		FNcall	Zap_DoCommand			;
+		FNRTS					;
+
+		LOCAL
+
+
+; -------------- formattext ----------------
+
+; this is identical to mode0_formattext in Zap, altered to skip lines starting CVS:
+		FUNC	"cvs_fomattext"
+cvs_formattext	FNJSR
+		FNcall	Zap_StartOp			; concatonate
+		LDR	R0,[R10,#c_loff]
+		BL	format_para
+		STRVC	R0,[R10,#c_off]			; new caret offset
+		FNcall	Zap_StopOp			; print result
+		FNcallc	Zap_ReflectCaret,VC
+		FNcallc	Zap_ShowCursor,VC
+		FNRTS
+
+
+; format a paragraph
+; E R0 = file offset to format
+; X R0 = file offset of next paragraph
+		FUNC	"format_para"
+format_para	FNJSR	"R1"
+line$l		BL	format_line
+		FNRTS	VS
+		TEQ	R1,#1				; reached para end?
+		BNE	line$l
+		FNRTS
+
+		LOCAL
+
+;E R0=file offset to take for line start R8-R9
+;X R0=file offset of next line after (uses command_primative) #
+;  R1=0 if nothing done/1 if reached para end/2 if moved stuff
+; (Algorithm: If line stops short of end then sees if it can join on a bit
+; of the next line - if so then joins on the whole of the next line and
+; loops back to the start. If line goes over end then splits it and returns).
+		FUNC	"format_line"
+format_line	FNJSR	"R2-R11"
+		BL	iscvsline			; don't touch lines beginning CVS:
+		MOVEQ	R1,#1				;
+		FNRTS	EQ				;
+
+		MOV	R7,R0				; save file offset
+		LDR	R6,[R9,#f_len]
+		LDRB	R5,[R8,#w_cr]
+		LDRB	R4,[R8,#w_tabc]
+		CMP	R7,R6
+		BCS	fileend$l			; reached file end
+		MOV	R3,#0				; current column
+		LDR	R2,[R8,#w_wrapwidth]		; format width
+		MOV	R10,#0				; last valid split offset (none currently)
+		MOV	R11,#0				; done nothing flag
+search$l	CMP	R7,R6				; search for somewhere to split at
+		BCS	lineend$l			; reached file end
+		MOV	R0,R7
+		BL	readc				; get next character
+		ADD	R7,R7,#1			; update offset
+		TEQ	R0,R5
+		BEQ	lineend$l			; reached line end
+		TEQ	R0,R4
+		ADDNE	R3,R3,#1
+		ADDEQ	R3,R3,#8
+		BICEQ	R3,R3,#7			; update column
+		TEQ	R0,#&20
+		TEQNE	R0,R4
+		SUBEQ	R10,R7,#1			; update last valid split posn
+		BEQ	search$l			; and loop ignoring overflow
+		CMP	R3,R2				; have we overflowed line end
+		BLE	search$l			; (not overflow)
+		CMP	R10,#0
+		BLE	search$l			; nowhere to split - keep going anyway
+		MOV	R0,#3				; replace
+		MOV	R1,R10				; file offset
+		MOV	R2,#1				; number of bytes
+		ADD	R3,R8,#w_cr			; data to replace with
+		FNcall	Zap_DoCommand			; (this sub may be called in exec_command)
+		ADDVC	R0,R10,#1			; next line
+		MOVVC	R1,#2				; done stuff
+		FNRTS
+
+lineend$l	TEQ	R3,#0
+		BEQ	end$l				; this line was blank so skip
+		MOV	R10,R7				; start of next line
+
+		MOV	R0,R7				; don't join a line starting CVS:
+		BL	iscvsline			;
+		BEQ	para$l				;
+
+join$l							; get bit to join on
+		SUBS	R0,R10,R7			; number of bytes planning to add (exc ret)
+		BLE	check$l				; don't test adding null text
+		ADD	R0,R0,R3			; total length of old line (exc extra space)
+		CMP	R0,R2
+		BCS	end$l				; no split posn close enough to join
+check$l							; check for a split posn
+		CMP	R10,R6				; at EOF?
+		MOVHS	R0,R5				; ...if so, pretend it's a CR
+		MOVLO	R0,R10
+		BLLO	readc				; otherwise, get next char
+		TEQ	R0,#&20
+		TEQNE	R0,R5
+		TEQNE	R0,R4
+		ADDNE	R10,R10,#1
+		BNE	join$l				; not reached a split posn yet
+		SUBS	R0,R10,R7			; offset in line
+		BLE	para$l				; if at start of line then at new para
+		ADD	R1,R3,R0
+		ADD	R1,R1,#1			; col we would reach if joined
+		CMP	R1,R2
+		BHI	end$l				; no good don't bother to join
+		MOV	R3,R1				; update col
+		PUSH	"R2-R3"
+		MOV	R0,#3				; replace
+		SUB	R1,R7,#1			; file offset
+		MOV	R2,#1				; number of bytes
+		ADR	R3,spaces$l			; data to replace with
+		FNcall	Zap_DoCommand			; (this sub may be called in exec_command)
+		PULL	"R2-R3"
+		SUBVC	R0,R7,#1			; last valid spilt posn
+		MOVVC	R7,R10				; update offset
+		MOVVC	R10,R0				; update last valid posn
+		MOVVC	R11,#2				; done something
+		BVC	search$l			; continue with line
+		FNRTS
+
+end$l		MOV	R0,R7				; next line
+		MOV	R1,R11				; return what I've done
+		FNRTS
+
+fileend$l	MOV	R0,R6				; file end
+		MOV	R1,#1
+		FNRTS
+
+para$l		MOV	R0,R7				; start of a new paragraph
+		MOV	R1,#1
+		FNRTS
+
+spaces$l	=	"    "
+
+		LOCAL
+
+; read char at offset
+; E R0 = offset
+; X R0 = char
+		FUNC	"readc"
+readc		LDR	R1,[R9,#f_splito]
+		CMP	R0,R1
+		LDRCS	R1,[R9,#f_splits]
+		ADDCS	R0,R0,R1
+		LDR	R1,[R9,#f_ptr]
+		LDRB	R0,[R1,R0]
+		MOV	PC,R14
+
+
+		LOCAL
+
+
+; --------------------------------
+
+; determine the line type
+; E R0 = file offset R8/R9
+; X Z set   : line starting with CVS:
+;   Z clear : normal line
+		FUNC	"cvs_linetype"
+iscvsline	FNJSR	"R0-R5,R10-R11"
+		MOV	R10,#0				; get the offset of 1st char from Text mode
+		MOV	R11,#e_linestart		;
+		FNcall	Zap_CallGivenMode		;
+
+		ADR	R5,cvs$l			; string to check
+
+		LDR	R1,[R9,#f_ptr]			;
+		ADD	R0,R0,R1			;
+
+		LDR	R2,[R9,#f_splito]		; check which side of the buffer we're in
+		ADD	R2,R2,R1			;
+		CMP	R0,R2				;
+		BHS	high$l				;
+
+looplow$l	LDRB	R3,[R0],#1			; check bytes in the low side
+		LDRB	R4,[R5],#1			;
+		TEQ	R3,R4				;
+		BNE	normal$l			;
+		TEQ	R4,#':'				;
+		BEQ	cvsline$l			;
+
+		CMP	R0,R2				; until we hit the split
+		BLO	looplow$l			;
+
+high$l		LDR	R2,[R9,#f_splits]		; skip the split
+		ADD	R0,R0,R2			;
+
+		LDR	R2,[R9,#f_bufl]			; find the end of the file
+		ADD	R2,R2,R1			;
+
+loophigh$l	CMP	R0,R2				; don't go beyond file end
+		BHS	normal$l			;
+		LDRB	R3,[R0],#1			; check bytes in the high side
+		LDRB	R4,[R5],#1			;
+		TEQ	R3,R4				;
+		BNE	normal$l			;
+		TEQ	R4,#':'				;
+		BNE	loophigh$l			;
+
+cvsline$l	MOVS	R0,#0				; CVS: line
+		FNRTS					;
+
+normal$l	MOVS	R0,#1				; normal line
+		FNRTS					;
+
+cvs$l		=	"CVS:"
+
+
+	END
