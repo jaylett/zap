@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.4 1998/12/03 17:40:48 dj Exp $
+; $Id: DSARedraw,fff,v 1.5 1999/06/03 23:54:59 ds Exp $
 
  GET h.ZapRedHdr
 
@@ -569,14 +569,16 @@ redraw_raster_pixel_any
  LDR R0,[R1,#r_bpp]
  MOV R8,R8,LSL R0		; number bits to write
  MOV R9,R9,LSL R0		; first bit offset
- ADD R2,R9,R2,LSL#3		; bit address of bitmap
- ANDS R0,R2,#&1F		; alignment
+	ADD	R0,R9,R2,LSL #3	; bit address of bitmap (less top 3 bits)
+	ADD	R2,R2,R9,LSR #3	; byte address of bitmap
+	ANDS	R0,R0,#&1F	; bit offset within word
  BEQ aligned$l			; word aligned
  RSB R9,R0,#32			; number of bits from this word
  CMP R9,R8
  MOVGE R9,R8			; clip with number to do
  SUB R8,R8,R9			; number left to do afterwards
  BL redraw_raster_any_write	; write these and align R2
+	MOV	R0,#0
 aligned$l
  MOVS R9,R8			; number of bits to write
  BLNE redraw_raster_any_write	; write these
@@ -1109,7 +1111,7 @@ loop$l
  BLEQ redraw_control_code
  LDR R2,[R1,#r_cbpc]
  MLA R2,R0,R2,R4		; address of bitmap
- MOV R2,R2,LSL#3		; bit address of bitmap
+	MOV	R0,R2,LSL #3	; bit addr of bitmap (no need to mask yet)
  MOV R9,R12			; number of bits to write
  BL redraw_raster_any_write
  SUBS R8,R8,#1			; done another character
@@ -1150,9 +1152,8 @@ loop$l
 
 redraw_raster_any_write
  FNJSR
- ANDS R0,R2,#&1F
+	ANDS	R0,R0,#&1F
  BNE notaligned$l		; not word aligned
- MOV R2,R2,LSR#3		; get byte address
 aligned$l			; bitmap aligned on a word boundry (main)
  LDR R0,[R2],#4			; get next word of bitmap
  AND R14,R10,R0			; foreground
@@ -1167,10 +1168,8 @@ aligned$l			; bitmap aligned on a word boundry (main)
  BGT aligned$l			; word aligned
  FNRTS				; finished
 notaligned$l			; no aligned (eg first/last characters)
- BIC R2,R2,#&1F
- MOV R14,R2,LSR#3		; byte address
- LDR R14,[R14]			; get the word
- ADD R2,R2,#&20			; move onto the next word
+	LDMIA	R2!,{R14}	; get the word
+	BIC	R2,R2,#3	; move to *start* of next word
  MOV R0,R14,LSR R0		; shift down
  AND R14,R10,R0			; foreground
  BIC R0,R11,R0			; background
