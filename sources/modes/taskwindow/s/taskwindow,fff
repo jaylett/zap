@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.19 2003/09/16 10:48:04 christian Exp $
+; $Id: taskwindow,fff,v 1.20 2003/09/16 10:53:13 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -172,12 +172,16 @@ cols$l	ADR	R1,twmode_cols
 ; Zap is building the title bar
 title$l	LDR	R1,[R9,#f_source]
 	LDR	R1,[R1,#52]		; flags
+	TST	R1,#1<<2
+	ADRNE	R1,unl$l
+	MOVNE	PC,R14
 	TST	R1,#1			; suspended
 	ADRNE	R1,sus$l
 	MOVEQ	R1,#18
 	MOV	PC,R14
 
 sus$l	=	"(Suspended)",0		; FIXME: i18n
+unl$l	=	"(Unlinked)",0
 	ALIGN
 
 ; Zap is deleting a file we own
@@ -453,6 +457,8 @@ TaskWindowLink$l
 	BIC	R14,R14,#6		; and ignore bit.
 	STR	R14,[R7,#52]
 	BL	register_filter		; register the filter again
+
+	FNcall	Zap_NewFileTitle,R0
 	FNRTS
 
 TaskWindowUnlink$l
@@ -462,6 +468,8 @@ TaskWindowUnlink$l
 	ORR	R14,R14,#6		; and ignore bit.
 	STR	R14,[R7,#52]
 	BL	deregister_filter	; derigster filter, in case it gets permanently unlinked
+
+	FNcall	Zap_NewFileTitle,R0
 	FNRTS
 
 TaskWindowResurrect
