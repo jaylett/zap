@@ -82,7 +82,6 @@ bool obeyFlag; /* Include set for Obey$Dir so obey files will still work */
 
 /* Misc variables */
 
-const char *country;  /* Value of Zap$Country */
 const char **nextArg;	/* Array of unused parameters remaining */
 char *fileBuffer;	/* Buffer used to build files in */
 unsigned int fileBufferSize; /* Current size of fileBuffer */
@@ -96,6 +95,7 @@ TQueued *queued;	/* Queued buffer */
 int queuedSize;		/* Current size of queued buffer in entries */
 int queuedIndex;	/* Current queued index */
 
+const char *countries[] = {NULL, "UK", NULL};
 
 /* Misc functions */
 
@@ -156,8 +156,8 @@ void combineName(char *const buffer,
 {
   int l=strlen(dir);
   if (dir!=buffer) strcpy(buffer,dir);
-  /* Add in '.' unless we have a path */
-  if (buffer[l-1]!=':') buffer[l++]='.';
+  /* Add in '.' unless we have a path or we already have a . */
+  if (buffer[l-1]!=':' && buffer[l-1]!='.') buffer[l++]='.';
   strcpy(buffer+l,leaf);
 }
 
@@ -177,6 +177,27 @@ void file_load(const char *const file, byte *const addr)
   x((_kernel_oserror*)xosfile_load_stamped_no_path(file, addr,
       (fileswitch_object_type*)&temp, (bits*)&temp, (bits*)&temp, &temp,
       (fileswitch_attr*)&temp));
+}
+
+/* find a file:
+ * Try  <path>.<country>.file
+ * Then <path>.UK.<file>
+ * Then <path>.File
+ */
+fileswitch_object_type find_internationalised_file(char *out, const char *const path, const char *const file, osfile_file_info *info)
+{
+  int i;
+
+  for (i = 0; i < (sizeof(countries) / sizeof(countries[0])); i++)
+  {
+    combineName(out, path, (countries[i] ? countries[i] : ""));
+    combineName(out, out, file);
+    file_getinfo(info, out);
+    if (info->obj_type==fileswitch_IS_FILE)
+      break;
+  }
+
+  return info->obj_type;
 }
 
 
@@ -359,7 +380,7 @@ void forAll(const char *file,
   /* 'In' directory is in dir if no prefix on file, modules if "@." prefix */
   const char **dirs;
   if (file[0]=='@' && file[1]=='.') {
-    isindir=country!=0;
+    isindir=countries[0]!=0;
     dirs=modulesDirs;
     file+=2;
   } else {
@@ -369,13 +390,8 @@ void forAll(const char *file,
 
   /* Check for file in all dirs */
   for (i=0; dirs[i]; i++) {
-    memset(&info, 0, sizeof(osfile_file_info));
     if (isindir) {
-      combineName(name, dirs[i], country);
-      combineName(name, name, file);
-      /* If file found, execute handler on it */
-      file_getinfo(&info, name);
-      if (info.obj_type==fileswitch_IS_FILE) {
+      if (find_internationalised_file(name, dirs[i], file, &info) == fileswitch_IS_FILE) {
         handler(name, &info);
         continue;
       }
@@ -604,6 +620,13 @@ void close(const char *param, void *reference)
 }
 
 
+/* -country */
+void setCountry(const char *param, void *reference)
+{
+  countries[0] = getenv(getArg());
+}
+
+
 /* Unrecognised */
 void syntax(const char *param,void *reference)
 {
@@ -648,6 +671,7 @@ const TOption options[] = {
   { ")"       , close     , NULL        , false },
   { "-at"     , setBool   , &atFlag     , false },
   { "-obey"   , setBool   , &obeyFlag   , false },
+  { "-country", setCountry, NULL        , false },
   { NULL      , syntax    , NULL        , false }
 };
 
@@ -655,7 +679,6 @@ const TOption options[] = {
 /* It all starts here */
 int main(int argc, char **argv)
 {
-  country=getenv("Zap$Country");
   if (argc!=1) {
     nextArg=(const char **)argv+1;
     while (1) {
