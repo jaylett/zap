@@ -1,5 +1,5 @@
 ; Diff colouring mode
-; $Id: module,fff,v 1.6 2001/04/24 20:54:08 ds Exp $
+; $Id: module,fff,v 1.7 2001/04/25 16:40:37 james Exp $
 ;
 ; (c) Zap Developers 2001
 ;
@@ -48,14 +48,15 @@ help_string = "ZapDiff",9
 	FNS (" © Zap Developers")
 
 title_string FNS ("ZapDiff")
-
-ws_store	DCD	0
 zap_modulename	=	"Zap", 0
 
+; Some Zap entry points won't set up r11 (eg e_redrawline)
+ws_store	DCD	0
 get_workspace
 	LDR	r11, ws_store
 	MOV	pc, lr
 
+; Make sure we have some workspace, and add our mode to Zap
 init_code
 	FNJSR
 	LDR	r2, [r12, #0]
@@ -82,6 +83,7 @@ module_init
 	FNcall	Zap_AddMode
 	FNRTS
 
+; Free up our workspace
 finalise_code
 	FNJSR
 	MOV	r0,#7
@@ -167,10 +169,6 @@ mode_table_end
 ; course, if a mode never gets extended, we don't win anything by being
 ; careful (but this mode was extended by two colours within hours of being
 ; written, so ... :-).
-;
-; FIXME: we don't currently upgrade clone modes properly. I think we
-; know how to do it, but we need to be sure. Until then, your clone modes
-; won't upgrade smoothly (best solution is to delete them then recreate).
 
 	LOCAL
 mode_init
@@ -192,8 +190,8 @@ mode_init
 	FNJSR	"r1-r3, r7, r8"
 	MOV	r8, #0
 	MOV	r1, r0
- MOV r14,#&8000
- STR r1,[r14]
+; MOV r14,#&8000
+; STR r1,[r14]
 	BL	init_colours
 	FNRTS	VS
 
@@ -285,6 +283,9 @@ menu_path$l
 
 ; Check to see if we have enough colours allocated to this mode yet.
 ; If not, change the allocation and write some useful defaults.
+; We don't need to set system colours, because these are written from
+; the internal defaults for Text mode - ie we know exactly what they
+; will be already.
 	LOCAL
 init_colours
 	FNJSR	"r1-r5"
@@ -401,7 +402,6 @@ standard_or_ed$l
 
 diff_or_rcs$l
 	; RCS is "d<number>" or "a<number>"
-; e_start / e_end must get Zap to save & restore all mode options
 	BL	readchar$l
 	TEQ	r4,#'i'
 	BEQ	nextline$l	; 'i' => "diff" line
@@ -415,20 +415,22 @@ maybe_rcs$l
 
 ; preserves flags
 ; R0=char at offset R0
-readchar
-	FNJSR	"r1"
-	LDR	r1,[r9,#f_ptr]
-	LDR	r14,[r9,#f_len]
-	CMP	r0,r14
-	MOVHS	r0,#-1
-	FNRTSS	HS
-	LDR	r14,[r9,#f_splito]
-	CMP	r0,r14
-	LDRHS	r14,[r9,#f_splits]
-	ADDHS	r0,r0,r14
-	LDRB	r0,[r1,r0]
-	FNRTSS
+;readchar
+;	FNJSR	"r1"
+;	LDR	r1,[r9,#f_ptr]
+;	LDR	r14,[r9,#f_len]
+;	CMP	r0,r14
+;	MOVHS	r0,#-1
+;	FNRTSS	HS
+;	LDR	r14,[r9,#f_splito]
+;	CMP	r0,r14
+;	LDRHS	r14,[r9,#f_splits]
+;	ADDHS	r0,r0,r14
+;	LDRB	r0,[r1,r0]
+;	FNRTSS
 
+; When a window enters or leaves our mode, we need to ask Zap to restore
+; or store the per-mode data for us.
 
 mode_start
 	FNJSR
@@ -445,24 +447,21 @@ mode_end
 
 	LOCAL
 mode_redrawline
-; If e_prevline (which is called before here) was told that we're
-; redrawing based on an edit action which includes the first character
-; of the file (ie it starts at offset 0) then redraw the entire file
-; rather than just the line surrounding the change. This is because
-; the redraw code always checks the first character of the file to see
-; whether this is a 'normal' or unified diff - if that character changes
-; we may need to update the entire file. We could be more cautious, and
-; check the actual character to see if we need to bother, but our redraw
-; isn't too expensive, and the code starts getting very messy at that point
+; Redraw a single line. We are responsible for writing the characters
+; as well as foreground and background colours. If you want to write style
+; information (independent of the colours you're using), check out
+; e_interrogate #11, which allows for more elaborate font sub-style handling
 	FNJSR	"r7, r10, r11"
 
 	LDMIA	r13,{r7,r10}
 	PUSH	"r6, r9"
-	; Can't use Zap_BaseMode because r11 is a parameter to e_redrawline :-(
 
 ; First, let text mode draw the line without colouring, and then
 ; recolour as necessary based on the diff type (detected at
 ; e_init #13).
+
+	
+	; Can't use Zap_BaseMode because r11 is a parameter to e_redrawline :-(
 	MOV	r0, #0
 	FNcall	Zap_ReadMode
 	MOV	lr, pc
@@ -686,6 +685,15 @@ ov1$l
 
 	LOCAL
 mode_nextline
+; If e_prevline (which is called before here) was told that we're
+; redrawing based on an edit action which includes the first character
+; of the file (ie it starts at offset 0) then redraw the entire file
+; rather than just the line surrounding the change. This is because
+; the redraw code always checks the first character of the file to see
+; whether this is a 'normal' or unified diff - if that character changes
+; we may need to update the entire file. We could be more cautious, and
+; check the actual character to see if we need to bother, but our redraw
+; isn't too expensive, and the code starts getting very messy at that point
 	FNJSR	"r2, r9, r11"
 	LDR	r2, [ws, #ws_lastprevline]
 	CMP	r2, #0
