@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.16 1999/03/10 11:28:09 james Exp $
+; $Id: ModeBits,fff,v 1.1.2.17 1999/04/25 19:58:43 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -123,9 +123,8 @@ find$l				; find the module in the OS list
  MOV R7,R0			; dispatch table (don't write 'till complete)
  STR R8,[R7]			; module address
  STR R4,[R7,#4]			; module workspace
- LDR R0,[R9,#e_mode]		; mode it wanted to be + flags
- BIC R0,R0,#&FF
- ORR R2,R0,R10			; add mode actually is
+ LDR R0,[R9,#e_mode+1]		; mode it wanted to be + flags
+ ORR R2,R10,R0,LSL #8		; add mode actually is
  STR R2,[R7,#2*e_mode]		; actual mode number + flags
  MOV R0,R6,LSR #2		; one byte per entry
  BL heap_claim
@@ -382,15 +381,17 @@ next$l
  FNRTS VS			; blocks
  ADR R10,init_mode_window
  BL do_allwindow		; update open windows options blocks
- ; SUBS R14,R14,R14		; clv...? (????)
  BLVC init_mode_menu		; initialise the menus - a problem?
  FNRTS
 
+	LOCAL
+
 ;E R0=clone mode number
+;  R1=clone base mode number
 ;X Mode initialised if necessary
 
 init_mode
-	FNJSR	"R1,R9-R10"
+	FNJSR	"R1-R3,R9-R10"
 	MOV	R10,R0
 	BL	read_mode
 	FNRTS	VS
@@ -401,7 +402,19 @@ init_mode
 	ORR	R0,R10,#&FF00
 	STR	R0,init_mode_list	; this is a new mode
 	BL	init_a_mode		; create dispatch table for this mode
-	BLVC	init_mode_config	; read the config block (or default)
+	FNRTS	VS
+	MOV	R0,R10			; clone mode
+	MOV	R3,R0
+	BL	read_mode
+	MOV	R2,R1
+	LDR	R0,[R13]		; clone base mode
+base$l	BL	read_mode
+ 	LDR	R0,[R1,#d_clonebasemode]
+	TEQ	R0,R3
+	MOVNE	R3,R0
+	BNE	base$l
+	STR	R3,[R2,#d_clonebasemode] ; write the clone base mode number
+	BL	init_mode_config	; read the config block (or default)
 	BLVC	init_modes_init		; call e_init with R1=2 to init options
 	ADRVC	R10,init_mode_window
 	BLVC	do_allwindow		; update open windows options blocks
@@ -475,6 +488,7 @@ loop$l
  FNRTS EQ			; finished
  MOV R11,#e_init
  MOV R1,#7
+ MOV R0,R10
  BL call_given_mode		; see if it's got a new menu
  FNRTS VS
  MOV R2,R1			; save the new menu pointer
@@ -747,7 +761,7 @@ isthisaclonebase
 	MOV	R2,R0
 	MOV	R0,R3
 	BL	read_mode
-	LDR	R0,[R1,#2*e_basemode+4]	; get clone base of current mode
+	LDR	R0,[R1,#d_clonebasemode]; get clone base of current mode
 	TEQ	R0,R2			; same mode?
 	MOV	R0,R3			; get current mode anyway
 	ADDNE	R3,R3,#1
@@ -1245,17 +1259,18 @@ new_mode
  TEQ R8,#0
  FNLDRB R10,opt_format,EQ
  LDRNEB R10,[R8,#w_format]	; current mode
+ TEQ R10,R0
+ FNRTS EQ			; return if same mode
  MOV R11,#e_end
  BL call_given_mode		; inform old mode that we're changing mode
  BLVC save_window_status	; save window status
  FNRTS VS
  MOV R10,R7			; new mode
  TEQ R8,#0
- FNLDR R0,opt_format,EQ
- LDRNE R0,[R8,#w_format]	; get old format
+ FNLDR R0,opt_format+1,EQ
+ LDRNE R0,[R8,#w_format+1]	; get old format
 ; BLNE init_basemap
- BIC R0,R0,#&FF
- ORR R0,R0,R10			; switch to new mode
+ ORR R0,R10,R0,LSL #8		; switch to new mode
  FNSTR R0,opt_format,EQ
  STRNE R0,[R8,#w_format]	; save new format
  BLNE init_basemap		; select basemap
@@ -1437,24 +1452,13 @@ copy$l	SUBS	R1,R1,#4	; copy the unlinked table
 	BL	strcopy		; copy the name
 	PULL	"R0"
 	BL	add_new_mode
+	MOVVC	R1,R4
 	BLVC	init_mode
 	FNRTS	VS
 	MOV	R0,R10
 	BL	test_mode_name
 	CMP	R0,#0
 	MOVLT	R0,#-1
-	FNRTS	LT		; not initialised? return :-(
-	MOV	R3,R0
-	BL	read_mode
-	MOV	R2,R1
-	MOV	R0,R4
-base$l	BL	read_mode
-	LDR	R0,[R1,#2*e_basemode+4]
-	TEQ	R0,R4
-	MOVNE	R4,R0
-	BNE	base$l
-	STR	R4,[R2,#2*e_basemode+4] ; write the clone base mode number
-	MOV	R0,R3		; return clone mode number
 	FNRTS
 notcloneable$l
 	ADR	R0,badclonebase$l

@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.1.2.12 1999/04/19 17:43:12 ds Exp $
+; $Id: Mode4,fff,v 1.1.2.13 1999/04/25 19:58:42 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -14,8 +14,8 @@
 	GET	h.Menus
 	GET	h.MiniBuff
 	GET	h.Mode0
-	GET	h.Mode1
-	GET	h.Mode2
+	GET	h.Mode1+2
+	GET	h.Mode3
 	GET	h.ModeBits
 	GET	h.ModuleBits
 	GET	h.Redraw
@@ -64,10 +64,10 @@ mode_table_4
 	DCD	0
 	DCD	mode4_minus
 	DCD	mode4_plus
-	DCD	mode2_minus
-	DCD	mode2_plus
-	DCD	mode1_cminus
-	DCD	mode1_cplus
+	DCD	mode4_minus
+	DCD	mode4_plus
+	DCD	mode3_cminus
+	DCD	mode3_cplus
 	DCD	mode4_redrawline
 	DCD	0
 	DCD	mode4_char		; start a new string
@@ -80,10 +80,10 @@ mode_table_4
 	DCD	mode1_lineend
 	DCD	mode1_lineend
 	DCD	mode1_linestart
-	DCD	mode2_copy
+	DCD	mode4_copy
 	DCD	0
 	DCD	0
-	DCD	mode2_aligncaret
+	DCD	mode4_aligncaret
 	DCD	command_primative
 	DCD	0
 	DCD	0
@@ -1464,7 +1464,7 @@ branch$l
 mode4_return
 	FNJSR
 	TEQ	R0,#0
-	BNE	inmode2_return
+	BNE	inmode1_return
 inmode4_return
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
@@ -2558,5 +2558,60 @@ mode4_click
 sel$l	BL	alter_selected_region
 	FNRTS
 
-	END
 
+mode4_aligncaret
+	FNJSR
+	LDRB	R14,[R8,#w_format]
+	LDR	R0,[R10,#c_off]
+	BIC	R0,R0,#3			; word align
+	STR	R0,[R10,#c_off]
+	FNLDR	R0,car_hex		; copy so can be recovered only
+	FNSTR	R0,car_hexold		; by e_char entry point
+	MOV	R0,#0
+	FNSTR	R0,car_hex		; zero current value
+	FNRTS
+
+	LOCAL
+
+mode4_copy
+	TEQ	R0,#2
+	MOVEQ	R0,#1
+	MOVEQ	PC,R14			; enter the text automatically
+	FNJSR	"R1,R4-R7"
+	MOV	R2,R1			; save number of times
+	LDRB	R14,[R8,#w_format]
+	FNLDR	R0,wimp_kbdbuf		; output buffer
+	ADD	R14,R8,R14,LSL #2
+	LDR	R14,[R14,#w_mode0]
+	MOV	R1,R2,LSL#2		; words
+	BL	heap_ensure
+	FNRTS	VS
+	FNSTR	R0,wimp_kbdbuf
+	MOV	R3,R0			; buffer
+	MOV	R4,#0			; number typed
+	LDR	R7,[R10,#c_off]		; file offset
+	LDR	R6,[R9,#f_len]		; end of file
+	LDR	R0,[R8,#w_format]
+	PUSH	"R0"
+	BIC	R0,R0,#format_BigEndian
+	STR	R0,[R8,#w_format]
+	LDRB	R14,[R8,#w_format]
+	ADD	R14,R8,R14,LSL #2
+	LDR	R14,[R14,#w_mode0]
+	AND	R14,R14,#mode1_Type
+co29$l	CMP	R7,R6
+	BCS	co30$l
+	MOV	R0,R7
+	BL	cln_readw
+	STR	R0,[R3,R4,LSL#2]		; word
+	ADD	R7,R7,#4
+	ADD	R4,R4,#1
+	CMP	R4,R2
+	BLT	co29$l
+co30$l	PULL	"R0"
+	MOV	R2,R4,LSL#2		; number actually typed
+	STR	R7,[R10,#c_off]
+	BL	reflect_caret
+	FNRTS
+
+	END

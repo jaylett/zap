@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 1.1.2.7 1999/04/13 00:44:04 ds Exp $
+; $Id: Mode0,fff,v 1.1.2.8 1999/04/25 19:58:40 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -11,7 +11,7 @@
 	GET	h.Redraw
 	GET	h.Cursors
 	GET	h.Template
-	GET	h.Mode1
+	GET	h.Mode1+2
 	GET	h.SoftWrap
 	GET	h.TMTVars
 
@@ -1980,15 +1980,12 @@ fake_right$l
   ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
 mode0_char
-	TST	R3,#1
 	ADR	R3,mode0_char_doit
 
 ; R3=routine to call (top bit set if deleting) R4-R10=as above
-; Z set if R3b0 was clear before setting it to the routine address
 ; Routine called with R0=0 if not in block or not block editing, else R0=1
 
 char_del_dispatch
-	ORRNE	R3,R3,#1
 ; To disable block editing, uncomment the following lines:
 ;	MOV	R0,#0
 ;	MOV	PC,R3
@@ -2376,7 +2373,6 @@ endofcharinsertion
 ; X R0=num bytes deleted
 
 mode0_delete
-	TST	R3,#1
 	ADR	R3,mode0_delete_doit
 	ORR	R3,R3,#1<<31		; it's a deletion
 	STMFD	R13!,{R4,R6,R14}
@@ -2426,10 +2422,14 @@ de12
  SUB R5,R5,#1
 de9
  STMFD R13!,{R5}
- BL mode1_delete
+ BL call_mode1_delete
  LDMVCFD R13!,{R0}		; return nun bytes deleted
  ADDVS R13,R13,#4
  FNRTS
+
+call_mode1_delete
+	FNJSR
+	B	mode1_delete_internal
 
 mode0_tab
  FNJSR

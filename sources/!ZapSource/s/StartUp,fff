@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.17 1999/02/26 01:50:00 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.19 1999/04/25 19:58:44 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -21,6 +21,7 @@
  EXPORT free_stack
  EXPORT init_fixed
  EXPORT init_config
+ EXPORT find_version_block
  EXPORT read_given_config_block
  EXPORT write_config_block
  EXPORT find_config_block
@@ -356,16 +357,11 @@ copy$l				; separate into individual heap blocks...
  BNE done$l
  CMP R3,#65536			; 64K is more than enough for any mode ;-)
  BHI done$l
- MOV R0,R3
- BL heap_claim
- FNRTS VS
- MOV R1,R4
- MOV R2,R0
+ MOV R0,R4
  ADD R4,R4,R3
- MOV R5,R0
- BL move_bytes
- BL link_config_block
- B copy$l
+ BL copy_and_link_config_block
+ BVC copy$l
+ FNRTS
 done$l
  MOV R0,R6
  ADR R6,default$l
@@ -404,6 +400,8 @@ __global_start$l
  DCD &00000000			; reserved 4 ; bg
 __global_end$l
 
+	&	-1, 20, version_major, version_minor, version_config
+
 	&	2
 	&	&54
 	FNS	("Text")
@@ -426,7 +424,20 @@ __global_end$l
 	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
 	&	&0000DD10, &FFBB0010
 	&	4
-	&	&082E0200
+	&	&282E0200
+
+halfword_config
+	&	2
+	&	&5C
+	FNS	("Halfword")
+	&	&3C
+	&	&05400008, &0200000F, &00000000, &00000000
+	&	-1
+	&	&00000010, &00000010, &FFFFFF10, &FFFFFF10
+	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
+	&	&0000DD10, &FFBB0010
+	&	4
+	&	&142E0200
 
 	&	2
 	&	&58
@@ -497,6 +508,22 @@ get_pointer_to_code_cols
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
  LOCAL
+
+;X R0 = version block (pointing at major vsn no), or 0
+;  Z flag set accordingly
+
+find_version_block
+	FNJSR	"R5,R6"
+	FNLDR	R6,wimp_config
+findver$l
+	LDR	R5,[R6],#4
+	TEQ	R5,#0
+	FNRTS	EQ
+	LDR	R0,[R5]
+	CMP	R0,#-1
+	BNE	findver$l
+	ADDS	R0,R5,#8
+	FNRTS
 
 ;E R0=Block type (1=options block 2,3=mode block)
 ;  R1=Mode number of block to read if R0=2,3
@@ -651,7 +678,7 @@ a$l				; R4=opt_moden R10=flags R11=mode blk len
  TST R8,#1<<30
  LDREQ R2,[R1,#e_title*2]	; address of mode name
  LDRNE R2,[R13]			; or mode name from stack
- LDR R0,[R1,#e_basemode*2+4]	; clone base number
+ LDR R0,[R1,#d_clonebasemode]	; clone base number
  BL read_mode
  PUSH "R1"
  ADD R1,R5,#8
@@ -729,6 +756,24 @@ scan$l	LDR	R0,[R3],#4
 
 	LOCAL
 
+;E R0=pointer to config block
+;X Config block copied; copy added to list
+
+copy_and_link_config_block
+	FNJSR	"R1-R5"
+	MOV	R2,R0
+	LDR	R0,[R2,#4]
+	BL	heap_claim
+	MOVVC	R1,R2
+	MOVVC	R2,R0
+	LDRVC	R3,[R1,#4]
+	MOVVC	R5,R0
+	BLVC	move_bytes
+	BLVC	link_config_block
+	FNRTS
+
+	LOCAL
+
 ;E R5=pointer to config block
 ;X Config block added to list
 
@@ -794,10 +839,17 @@ write_conf_mode_data
  BL move_bytes
  FNRTS
 
+ LOCAL
+
 ;X Options block updated to new format
 
 update_options
- FNJSR "R1-R4"
+ FNJSR "R1-R5"
+ BL find_version_block
+ LDRNE R0,[R0,#8]
+ TEQNE R0,#0			; version 0 config file, or no version block?
+ ADREQL R0,halfword_config	; yes - need to add halfword mode info
+ BLEQ copy_and_link_config_block
  FNLDR R0,opt_minicols
  TEQ R0,#0
  FNRTS EQ			; up to date
@@ -920,14 +972,9 @@ Saveoptions
 	FNJSR
 	MOV	R10,R13
 prefindver$l
-	FNLDR	R6,wimp_config
-findver$l
-	LDR	R5,[R6],#4
-	TEQ	R5,#0
+	BL	find_version_block
 	BEQ	donever$l
-	LDR	R0,[R5]
-	CMP	R0,#-1
-	BNE	findver$l
+	SUB	R5,R0,#8
 	BL	delete_config_block	; delete version block if found
 	B	prefindver$l		; any duplicates? (hope not...)
 donever$l
@@ -1439,7 +1486,7 @@ remove_clone_mode_entry
 	MOVS	R5,R0			; mode instantiated?
 	BMI	notinstantiated$l
 	BL	read_mode
-	LDRB	R0,[R1,#2*e_basemode+4]
+	LDRB	R0,[R1,#d_clonebasemode]
 	TEQ	R0,R5			; yes - is it a clone?
 	BEQ	nodel$l			; ...no
 	FNLDRB	R0,opt_format		; is it the default mode?

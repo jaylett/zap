@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.29 1999/04/22 19:03:24 ds Exp $
+; $Id: Commands,fff,v 1.1.2.30 1999/04/25 19:58:34 ds Exp $
 
 c_Conditional	* (1<<21)
 
@@ -23,8 +23,7 @@ c_Conditional	* (1<<21)
 	GET	h.StartCode
 	GET	h.ModuleBits
 	GET	h.Fonts
-	GET	h.Mode1
-	GET	h.Mode2
+	GET	h.Mode1+2
 	GET	h.Mode4
 	GET	h.Mode11
 	GET	h.Update
@@ -237,6 +236,9 @@ key_command_table
 	FNcom	"GETDYNAMICAREA",Getdynamicarea
 	FNcom	"GOTO",Goto
 ; FNcom "GOTOADDR",Gotoaddr
+	FNcom	"HALFWORD_CONTROLREPLACE",CmdHALFWORDctrlreplace
+	FNcom	"HALFWORD_FLAGSTOGGLE",CmdHALFWORDflagstoggle
+	FNcom	"HALFWORD_GROUPSIZE",CmdHALFWORDgroupsize
 	FNcom	"HELP",Help
 	FNcom	"HELPCOM",Helpcom
 	FNcom	"HELPFN",Helpfn
@@ -404,6 +406,7 @@ key_command_table
 	FNcom	"WINDOWWRAP",Windowwrap
 	FNcom	"WORDWRAP",Wordwrap
 	FNcom	"EDITBYTE",Editbyte
+	FNcom	"EDITHALFWORD",Edithalfword
 	FNcom	"EDITWORD",Editword
 	FNcom	"WORD_CONTROLREPLACE",CmdWORDctrlreplace
 	FNcom	"WORD_FLAGSTOGGLE",CmdWORDflagstoggle
@@ -2084,6 +2087,7 @@ to_Deltostart
 
  DCD 0
 Deltostart
+	TST	R3,#1
 	ADR	R3,Deltostart_main
 	B	Delto_common
 Deltostart_main
@@ -2106,9 +2110,11 @@ to_Deltoend
 
  DCD 0
 Deltoend
+	TST	R3,#1
 	ADR	R3,Deltoend_main
 Delto_common
 	ORR	R3,R3,#1<<31
+	ORRNE	R3,R3,#1
 	LDR	R4,[R8,#w_flags]
 	MVN	R5,#1<<31
 	LDR	R6,[R8,#w_format]
@@ -5045,21 +5051,20 @@ Wordwrap
 
  LOCAL
 
-local_store1
- & 0
-local_store2
- & 0
-local_store3			; file offset
- & 0
+local_store1	& 0
+local_store2	& 0
+local_store3	& 0		; file offset
+local_store4	& 0		; data length
 
  DCD c_Param_String+c_PreMinibuffer
 Editbyte
  FNJSR
+ MOV R1,#1
+Editbyte_halfword_internal
+ STR R1,local_store4
  MOV R4,R0			; save data string
  LDR R6,[R10,#c_off]		; offset of the instruction
  LDR R5,[R9,#f_len]		; offset of the instruction
- CMP R6,R5
- FNRTS GT			; was CS
  STR R6,local_store3
  LDR R5,[R8,#w_addr]		; address of offset 0
  ADD R5,R5,R6			; address instruction came from
@@ -5068,9 +5073,6 @@ Editbyte
  BIC R0,R6,#3
  BL cln_readw			; get word in r0
  STR R0,local_store1
-; MOV R11,R0
- ;STR R10,local_store2
-
  MOV R0,#&100
  BL heap_claim
  MOVVC R6,R0
@@ -5090,36 +5092,34 @@ Editbyte
  MOV R2,#(1 << 31)		; don't learn...
  MOV R0,R6
  BL process_command
-
-; LDR R10,local_store2
-
  LDRVC R0,local_store3
  BLVC goto_file_offset
  BVS forcedstop$l
-
- ;LDR R10,local_store2
  LDR R0,[R10,#c_off]		; offset of the instruction
  BIC R0,R0,#3
  BL cln_readw			; get word in r0...
-; AND R0,R0,#&FF
  LDR R1,[R10,#c_off]		; offset of the instruction
- AND R1,R1,#3
+ LDR R14,[R8,#w_format]
+ TST R14,#format_BigEndian
+ EORNE R1,R1,#3
+ LDR R14,local_store4
+ TEQ R14,#1
+ ANDEQ R1,R1,#3
+ ANDNE R1,R1,#2
  MOV R1,R1,LSL #3
  MOV R14,#&FF
- MOV R14,R14,LSL R1		; = &FF000000 etc...
+ ORRNE R14,R14,#&FF00
  LDR R11,local_store1
- BIC R11,R11,R14
+ BIC R11,R11,R14,LSL R1
  ORR R11,R11,R0,LSL R1
  MOV R1,R6
  ADR R2,dcd$l
  BL strcpy
  MOV R0,R11
-; LDR R0,local_store1
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  MOVVC R14,#0
  STRVCB R14,[R1]
-
  ADRVC R0,assmbl$l
  BLVC find_key_command
  BVS forcedstop$l
@@ -5131,10 +5131,11 @@ Editbyte
  MOV R2,#(1 << 31)		; don't learn...
  MOV R0,R6
  BL process_command
-
- LDRVC R0,local_store3
- ADDVC R0,R0,#1
- BLVC goto_file_offset		; gets here :-)
+ BVS forcedstop$l
+ LDR R0,local_store3
+ LDR R14,local_store4
+ ADD R0,R0,R14
+ BL goto_file_offset		; gets here :-)
  BVS forcedstop$l
  BL stop_operation
  MOVVC R0,R6
@@ -5158,12 +5159,23 @@ Byte_prompt$l
  FNLDR R0,wimp_block
  BL minibuffer_prompt
  FNRTS VS
+ LDR R2,local_store4		; byte count
+ MOV R3,#0
+ MOV R7,R0
+byte$l
  LDR R0,[R9,#f_len]		; offset of the instruction
  CMP R6,R0
  MOVCS R0,#&00			; off end...!
  MOVCC R0,R6
  BLCC cln_readc
- MOV R7,R0
+ LDR R11,[R8,#w_format]
+ TST R11,#format_BigEndian
+ ORRNE R7,R0,R7,LSL #8		; big endian
+ ORREQ R7,R7,R0,LSL R3		; little endian
+ ADD R3,R3,#8
+ ADD R6,R6,#1
+ SUBS R2,R2,#1
+ BNE byte$l
  MOV R0,#16			; what base?
  MOV R11,#e_interrogate
  BL call_mode
@@ -5175,8 +5187,13 @@ Byte_prompt$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
- ;SUB R1,R1,#1
  MOV R2,#&100
+ LDR R14,local_store4
+ TEQ R14,#1
+ BEQ Byte_hex$l
+ SWI XOS_ConvertHex4		; to hex
+ B Byte_hex$l+4
+Byte_hex$l
  SWI XOS_ConvertHex2		; start off with the address in hex
  MOV R0,#0
  STRB R0,[R1]
@@ -5189,14 +5206,25 @@ Byte_inbinary$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
- ;SUB R1,R1,#1
  MOV R2,#&28
+ LDR R14,local_store4
+ TEQ R14,#1
+ BEQ Byte_bin$l
+ SWI XOS_ConvertBinary2		; to binary
+ B Byte_bin$l+4
+Byte_bin$l
  SWI XOS_ConvertBinary1		; to binary
  MOV R0,#0
  STRB R0,[R1,R2]
  MOV R0,R3
  BL minibuffer_write
  FNRTS
+
+	DCD	c_Param_String+c_PreMinibuffer
+Edithalfword
+	FNJSR
+	MOV	R1,#2
+	B	Editbyte_halfword_internal
 
  DCD c_Param_String+c_PreMinibuffer
 Editword
@@ -5226,9 +5254,13 @@ Editword
  MOV R2,#(1 << 31)
  MOV R0,R6
  BL process_command
+ MOVVC R1,#0
+ MOVVS R1,R0
  MOV R0,R6
  BL heap_free
- FNRTS
+ MOVS R0,R1
+ FNRTS EQ
+ FNRTV
 prompt$l
  MOV R0,R5
  FNLDR R1,wimp_block		; some workspace...

@@ -1,9 +1,9 @@
 ; Contains mode entry points for ascii mode.
-; $Id: Mode3,fff,v 1.1.2.4 1999/02/11 01:53:55 ds Exp $
+; $Id: Mode3,fff,v 1.1.2.5 1999/04/25 19:58:42 ds Exp $
 
  GET h.ZapHeader
  GET h.Mode0
- GET h.Mode1
+ GET h.Mode1+2
  GET h.AlterTxt
  GET h.ModeBits
  GET h.Redraw
@@ -12,6 +12,9 @@
  EXPORT mode_table_3
  EXPORT mode3_author
  EXPORT mode3_char
+ EXPORT mode3_cplus
+ EXPORT mode3_cminus
+ EXPORT modes_linecol
 
 ; IMPORT div_mod
 
@@ -39,16 +42,16 @@ mode_table_3
  DCD mode1_clnphy;
  DCD mode1_clnoff;
  DCD mode1_nextline;
- DCD mode1_minus
- DCD mode1_plus
- DCD mode1_minus
- DCD mode1_plus
- DCD mode1_cminus
- DCD mode1_cplus
+ DCD mode3_minus
+ DCD mode3_plus
+ DCD mode3_minus
+ DCD mode3_plus
+ DCD mode3_cminus
+ DCD mode3_cplus
  DCD mode3_redrawline
  DCD mode1_redrawlnum
  DCD mode3_char
- DCD mode1_delete
+ DCD mode3_delete
  DCD 0
  DCD 0
  DCD 0
@@ -60,7 +63,7 @@ mode_table_3
  DCD mode0_copy
  DCD 0
  DCD 0
- DCD mode1_aligncaret;
+ DCD mode3_aligncaret;
  DCD command_primative
  DCD 0
  DCD 0
@@ -123,7 +126,27 @@ mode3_linecol
  STMFD R13!,{R1-R6,R14}
  MOV R2,#1
  MOV R3,#1
- B modes_linecol
+
+;E R1-R6 stacked R0=file offset R1=column
+;  R2=chars per screen column R3=bytes per screen column
+;X R0=file offset of the character
+
+modes_linecol
+ LDR R4,[R8,#w_bpl]
+ MOV R6,R2			; col offset
+cln_lc_4
+ CMP R1,R6
+ BLT cl14
+ ADD R0,R0,R3		; these two lines?		| Think not since
+ ADD R6,R6,R2		; swap with line below...?	| condition is LE? - sja
+ SUBS R4,R4,R3		; off end of line ?
+ BLE cl14
+ B cln_lc_4
+cl14
+ LDR R1,[R9,#f_len]
+ CMP R0,R1
+ MOVCS R0,R1
+ LDMFD R13!,{R1-R6,PC}
 
 ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
@@ -158,4 +181,67 @@ whatwidthplease
  MOV R0,R1
  MOV PC,R14
 
- END
+
+mode3_plus
+	MVN	R2,#0
+	ADD	R1,R1,#1
+	MOV	PC,R14
+
+mode3_minus
+	MVN	R2,#0
+	SUB	R1,R1,#1
+	MOV	PC,R14
+
+mode3_cplus
+	MVN	R2,#0
+	LDR	R1,[R8,#w_bpl]
+	ADD	R0,R0,R1
+	SUB	R1,R0,#1
+	MOV	PC,R14
+
+mode3_cminus
+	MVN	R2,#0
+	MOV	R1,R0
+	MOV	PC,R14
+
+	LOCAL
+
+mode3_delete
+	FNJSR
+	TST	R7,#1
+	BNE	delnext$l
+	LDR	R1,[R10,#c_off]
+	CMP	R5,R1
+	MOVGT	R5,R1			; clip
+	SUB	R1,R1,R5		; new pointer
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+	MOVEQ	R0,#2			; delete char
+	MOVGT	R0,#&12			; delete block
+	MOV	R2,R5
+thedelete$l
+	BL	execute_command		; delete the chars
+	FNRTS
+
+delnext$l
+	LDR	R1,[R10,#c_off]
+	LDR	R2,[R9,#f_len]
+	SUB	R2,R2,R1		; max number to delete
+	CMP	R5,R2
+	MOVGT	R5,R2			; clip
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+	MOVEQ	R0,#5			; delete char
+	MOVGT	R0,#&15			; delete block
+	MOV	R2,R5
+	BL	execute_command		; delete the chars
+	FNRTS
+
+mode3_aligncaret
+	FNLDR	R0,car_hex		; copy so can be recovered only
+	FNSTR	R0,car_hexold		; by e_char entry point
+	MOV	R0,#0
+	FNSTR	R0,car_hex		; zero current value
+	MOV	PC,R14
+
+	END
