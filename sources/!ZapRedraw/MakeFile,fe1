@@ -1,13 +1,13 @@
 # Make file for ZapRedraw
-# using Norcroft amu, objasm, link
+# using amu, objasm, link
 # (c) Zap Developers
-# $Id: MakeFile,fe1,v 1.1.2.1 2001/06/11 22:36:08 ds Exp $
+# $Id: MakeFile,fe1,v 1.1.2.2 2001/06/12 21:42:52 ds Exp $
 
 # For the standard build name:
-#	make -r -f MakefileAS
+#	amu
 # For alternative build names:
-#	make -r -f MakefileAS BUILD=foo
-#	make -r -f MakefileAS BUILD=foo-42
+#	amu BUILD=foo
+#	amu BUILD=foo-42
 #    "-<n>" is automatically appended if you omit it.
 # BTW, give 'make' lots of memory ;-)
 
@@ -18,27 +18,21 @@
 ##	Rebuild		Wipe o.ModuleBits. Useful for changing the build name
 #	Revision	Stamps h.Version
 
-# Where to get the tools:
-# 	AS:     <URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
-# 	Make:   <URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/riscos/unixtools/gnu/make.absolute>
-# 	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
-
 Hs	= t.Cache t.Commands t.DSARedraw t.Messages t.VDURedraw t.ZapRedraw 
 
 OBJECTS	= o.Cache o.Commands o.DSARedraw o.Messages o.VDURedraw o.ZapRedraw 
 
 TARGET		= ZapRedraw
-ZapS		= <ZapSource$Dir>
+ZapS		= <ZapSource$$Dir>
 link		= link
 #linkPartFlags	= -aof
-linkFlags	= -bin -base 0
+linkFlags	= -bin -B &00000000 -nounused
 as		= objasm
-asFlags		= -to $@ -depend !Depend -throwback -stamp -quit -from
+asFlags		= -PD "ASSEMBLER SETS \"OBJASM\"" -depend !Depend -throwback -stamp -quit -APCS 3/26
 
-__BUILD		= -PD "BUILD SETS \"$(BUILD)\""
-NEWBUILD	= "BUILD=$(BUILD)"
+__BUILD		= -PD "BUILD SETS $(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
 
-ZapRedraw:	Redraw Headers t o
 
 Redraw:		$(OBJECTS)
 		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
@@ -49,32 +43,25 @@ Redraw:		$(OBJECTS)
 Headers:	$(Hs)
 		@Echo Made headers
 
-t:
-		cdir t
-
-o:
-		cdir o
-
 Clean:
 		IfThere o.* Then Wipe o.* ~CF~R~V
 		IfThere t.* Then Wipe t.* ~CF~R~V
 
-Rebuild:
-		Remove o.ZapRedraw
-		chain:amu $(NEWBUILD)
+#Rebuild:
+#		Remove o.ModuleBits
+#		chain:make -r -f MakefileAS $(NEWBUILD)
 
 Revision:
 		Stamp h.Version
-		chain:amu $(NEWBUILD)
+		chain:make -r -f MakefileAS $(NEWBUILD)
 
-.SUFFIXES: .s .t .o
 
-.s.o:
-	$(as) $(asFlags) s.$* $(__BUILD)
+.SUFFIXES: .t .s
 
-.s.t:
-	@Run $(ZapS).data.StoH s.$* h.$*
-	Create t.$* 0
+.s.t:;		@Run data.StoH s.$* h.$*
+		Create t.$* 0
+
+.s.o:;		$(as) $(asflags) $(__BUILD) s.$*
 
 
 o.objects:	$(OBJECTS)
@@ -87,21 +74,10 @@ t.Messages:	s.Messages
 t.VDURedraw:	s.VDURedraw
 t.ZapRedraw:	s.ZapRedraw
 
-o.Cache:	s.Cache
-o.Commands:	s.Commands
-o.DSARedraw:	s.DSARedraw
-o.Messages:	s.Messages
-o.VDURedraw:	s.VDURedraw
-o.ZapRedraw:	s.ZapRedraw
-
 $(ZapS).h.ZapLibrary:	ZapCode:Tools.Technical.E-Library
 	Run $(ZapS).data.BasicToAsm ZapCode:Tools.Technical.E-Library $(ZapS).h.ZapLibrary
 
 
-# Dynamic dependencies:
-o.Messages: s.Messages h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors
-o.Cache: s.Cache h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.ZapRedraw h.DSARedraw h.VDURedraw h.Messages
-o.Commands: s.Commands h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.ZapRedraw h.Messages h.Cache
-o.DSARedraw: s.DSARedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Cache
-o.VDURedraw: s.VDURedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Cache
-o.ZapRedraw: s.ZapRedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Version h.Commands
+# Generated dependencies:
+
+
