@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.9 2002/11/06 12:42:22 james Exp $
+  // $Id: download.php,v 1.10 2002/11/07 12:54:53 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -8,7 +8,7 @@
 
 <h1>Download area</h1>
 
-<p>The current stable release is <a href="#140">v1.40</a>. An older stable release which might still be useful for some people is <a href="#135">v1.35</a>. The current beta release is <a href="#144">v1.44</a>.</p>
+<p>The current stable release is <a href="#145">v1.45</a>. Older stable releases which might still be useful for some people are <a href="#140#">v1.40</a> and <a href="#135">v1.35</a>. <!--The current beta release is <a href="#144">v1.44</a>.--></p>
 
 <p>Zap distribution sets are made as 'zipchives' - Zip-format archives, compatible with the free <a href="http://www.cdrom.com/pub/infozip/">InfoZip</a> program (which is available for most operating systems, including RISC OS) and David Pilling's SparkFS. If you don't have either of these, download <a href="http://zap.tartarus.org/ftp/pub/sparkplug.basic.bin">sparkplug.basic.bin</a>, set its type to BASIC and run it - it self-extracts into a copy of SparkPlug into the current directory, which will also read zip archives.</p>
 
@@ -17,7 +17,7 @@
 <p>The official Zap distribution site is <a href="/ftp/pub/">http://zap.tartarus.org/ftp/pub/</a> (also available as <a href="ftp://zap.tartarus.org/pub/">ftp://zap.tartarus.org/pub/</a>). There are currently no mirrors (anyone interested, please <a href="mailto:webmaster@zap.tartarus.org">get in touch</a>).</p>
 
 <ul>
- <li><a href="#144">v1.44</a> - beta phase prior to v1.45
+ <li><a href="#145">v1.45</a> - released 6th November, 2002
  <li><a href="#140">v1.40</a> - released 26th October, 1998
  <li><a href="#135">v1.35</a> - released 6th November, 1996
  <li><a href="#130">v1.30</a> - released 20th June, 1995
@@ -38,24 +38,33 @@ Development release sites
 <uL>
  <li><a class="dir" href="/ftp/pub/ds/">Darren Salt</a>
  <li><a class="dir" href="/ftp/pub/james/">James Aylett</a>
+ <li><a class="dir" href="/ftp/pub/christian/">Christian Ludlam</a>
 </ul>
 
 <hr>
 
-<h2><a name="144">v1.44</a></H2>
+<h2><a name="145">v1.45</a></H2>
 <?php
-  $release='1.44';
-  $beta=11;
-  $betadir='test11';
+  $release='1.45';
+  $patch='';
+  $patchdir='latest';
 
   function href ($leaf)
   {
-    global $release, $betadir;
+    global $release, $patch, $patchdir;
     echo (func_num_args () > 1 ? '<a '.func_get_arg (1) : '<a'),
-	 ' href="/ftp/pub/', $release, '/', $betadir, '/', $leaf, '">';
+	 ' href="/ftp/pub/', $release, '/', $patchdir, '/', $leaf, '">';
   }
 ?>
-<p>Version 1.44 of Zap is a public beta phase. We believe it to be fairly stable, and are currently working on getting remaining important bugs fixed prior to a stable release. The current release is beta <?php echo $beta; ?>. Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts. A <a href="redraw/viewfinder">ViewFinder-enhanced ZapRedraw</a> is available separately.</p>
+<p>Version 1.45 of Zap was released on 6th November 2002.
+<?php
+if ($patch) {
+  print " It is currently at patch $patch.";
+}
+?>
+</p>
+
+<p>Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts. A <a href="redraw/viewfinder">ViewFinder-enhanced ZapRedraw</a> is available separately.</p>
 
 <p>To decide what you need to download, please consult the <? href ('.message', 'class="file"'); ?>list of which extensions are in which group</a>. Alternatively, you can download them <? href ('individual_modes', 'class="dir"'); ?>individually</a>.</p>
 
@@ -96,30 +105,38 @@ Development release sites
     echo '<li><a class="dir" href="/ftp/pub/', $url, '/">', $label, "</a></li>\n";
   }
 
-  zapfile ($release.'/'.$betadir.'/zap.zip', 'Core', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/intl.zip', 'Core - international edition', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/devel.zip', 'Core - developers\' edition', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/mainmods.zip', 'Main modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/develmods.zip', 'Devel modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/devel+mods.zip', 'Second devel modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/riscosmods.zip', 'RISC OS modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/webmods.zip', 'Web modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/allmods.zip', 'All modules at once', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/zapfonts.zip', 'ZapFonts', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/everything.zip', 'Entire Zap binary distribution', 'sja', '');
-  zapdir ($release.'/'.$betadir.'/updates', 'Updates from previous beta releases');
-  zapdir ($release.'/'.$betadir, 'Directory');
-  zapdir ($release, 'Previous beta releases and other related archives');
+  zapfile ($release.'/'.$patchdir.'/zap.zip', 'Core', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/intl.zip', 'Core - international edition', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/devel.zip', 'Core - developers\' edition', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/mainmods.zip', 'Main modules group', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/develmods.zip', 'Devel modules group', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/devel+mods.zip', 'Second devel modules group', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/riscosmods.zip', 'RISC OS modules group', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/webmods.zip', 'Web modules group', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/allmods.zip', 'All modules at once', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/zapfonts.zip', 'ZapFonts', 'sja', '');
+  zapfile ($release.'/'.$patchdir.'/everything.zip', 'Entire Zap binary distribution', 'sja', '');
+//  zapdir ($release.'/'.$patchdir.'/updates', 'Updates from previous patch releases');
+  zapdir ($release.'/'.$patchdir.'/src', 'Source code');
+  zapdir ($release.'/'.$patchdir, 'Directory');
+  zapdir ($release, 'Previous patch releases and other related archives');
 ?>
 </ul>
 
 <hr>
 
+<h2><a name="useful">Useful utils</a></h2>
+
+<p>Note that these are written and maintained by other people; we can't guarantee they'll work properly, and please don't send us bug reports! Let us know if any of the links are out of date, though...</p>
+
+<ul>
+ <li><a href="http://sudden.recoil.org/stronghelp/">StrongHelp</a> - a hypertext help system by Guttorm Vik; invaluable if you're programming under RISC OS</li>
+ <li><a href="http://www.muscat.com/~olly/software/">Line Editor</a> by Olly Betts - makes the command line and taskwindows much nicer to use (this is also bundled with Zap) (see also <a href="http://www.youmustbejoking.demon.co.uk/progs.utils#lineeditor">here</a>)</li>
+</ul>
+
+<hr>
+
 <h2><a name="140">v1.40</a></h2>
-
-<p>Where the extension or distribution set is being maintained by one of the Zap developers, their initials are given in brackets, with a link to contact  details. Otherwise, the name of the extension's author is given, with a link to contact details (if known). There is a <a href="documentation/faq">list of frequently asked questions</a>, and their answers.</p>
-
-<p>Version 1.40 is currently at patch 9; this contains several minor bugfixes and performance improvements. A <a href="documentation/patches">list of changes</a> for the patches is available.</p>
 
 <h3>Core distribution (required)</h3>
 
@@ -200,17 +217,6 @@ Development release sites
 
 <hr>
 
-<h2><a name="useful">Useful utils</a></h2>
-
-<p>Note that these are written and maintained by other people; we can't guarantee they'll work properly, and please don't send us bug reports! Let us know if any of the links are out of date, though...</p>
-
-<ul>
- <li><a href="http://sudden.recoil.org/stronghelp/">StrongHelp</a> - a hypertext help system by Guttorm Vik; invaluable if you're programming under RISC OS</li>
- <li><a href="http://www.muscat.com/~olly/software/">Line Editor</a> by Olly Betts - makes the command line and taskwindows much nicer to use (this is also bundled with Zap) (see also <a href="http://www.youmustbejoking.demon.co.uk/progs.utils#lineeditor">here</a>)</li>
-</ul>
-
-<hr>
-
 <h2><a name="135">v1.35</a></h2>
 
 <p>v1.35 is believed to be the last version of Zap to support RISC OS 2.</p>
@@ -257,5 +263,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/11/06 12:42:22 $');
+  zap_body_end ('$Date: 2002/11/07 12:54:53 $');
 ?>

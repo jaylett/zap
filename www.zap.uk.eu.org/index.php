@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.4 2002/04/24 23:21:43 ds Exp $
+  // $Id: index.php,v 1.5 2002/11/07 12:54:53 james Exp $
   include ".php/zap-std.inc";
   setroot ('index');
   zap_header ("Zap - a programmers' editor", 'top:');
@@ -7,7 +7,7 @@
 ?>
 <h1>Zap - a programmers' editor</h1>
 
-<p>The latest release version of Zap is 1.40. More options, and Zap extensions, are available from the <a href="download">download page</a>. You can also access the source tree via <a href="cvs/">CVS</a>.</p>
+<p>The latest release version of Zap is 1.45. More options, and Zap extensions, are available from the <a href="download">download page</a>. You can also access the source tree via <a href="cvs/">CVS</a>.</p>
 
 <ul>
 <?php
@@ -21,7 +21,7 @@
 	 ereg_replace ('\.', '', $link), "\">downloads page</a>\n";
   }
   plink ('stable');
-  plink ('beta');
+//  plink ('beta');
 ?>
  <li><a href="screenshots">Screenshots</a>
 </ul>
@@ -36,8 +36,8 @@
 
 <hr>
 
-<p>The zap.uk.eu.org domain is supplied by <a href="http://www.eu.org/">eu.org</a>, a source of free domain registration. Primary DNS is supplied by <a href="http://tartarus.org/">Tartarus.Org</a>, and secondary DNS arranged by <a href="http://www.metahusky.net/gavin/">Gavin Kelman</a>. It is, however, being phased out due to technical problems.</p>
+<p>Anyone still using the zap.uk.eu.org domain should change to use the new <a href='http://zap.tartarus.org/'>web</a> and <a href='ftp://zap.tartarus.org/'>ftp</a> site addresses of zap.tartarus.org.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
+  zap_body_end ('$Date: 2002/11/07 12:54:53 $');
 ?>
