@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.19 1999/04/25 19:58:39 ds Exp $
+; $Id: Menus,fff,v 1.1.2.20 1999/05/19 01:07:04 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -2605,7 +2605,7 @@ loop$l
  LDREQ R2,[R1,#20]		;  use item max length
  LDR R1,[R1,#12]		; get menu string
  ADDEQ R2,R2,#10
- ADD R2,R6,#11			; max allowable length (R6+keyname+term)
+ ADDNE R2,R6,#11		; max allowable length (R6+keyname+term)
  BL show_key			; add key macro
  PULL "R1"
 next$l
@@ -2847,14 +2847,14 @@ getlen$l
 	TEQ	R3,#0
 	SUBEQ	R3,R2,R1
 	BEQ	nodblsp1$l
-	SUB	R3,R3,R1
+	SUB	R3,R3,R1	; offset to spaces
 skip1$l	LDRB	R0,[R2],#1	; skip spaces
 	TEQ	R0,#32
 	BEQ	skip1$l
 	SUB	R0,R2,#1
 	BL	str_len
 	ADD	R3,R3,#2
-	ADD	R3,R3,R0
+	ADD	R3,R3,R0	; length if multiple spaces reduced to 2
 nodblsp1$l
 	CMP	R3,R7
 	MOVHI	R7,R3
@@ -2874,26 +2874,30 @@ shorten$l
 	TEQ	R3,#0
 	SUBEQ	R3,R2,R1
 	BEQ	nodblsp2$l
-	ADD	R3,R3,#2
+	ADD	R3,R3,#2	; provisional ptr to key name
 skip2$l	LDRB	R0,[R2],#1	; skip spaces
 	TEQ	R0,#32
 	BEQ	skip2$l
 	SUB	R0,R2,#1
-	BL	str_len
+	BL	str_len		; get key name (rhs) length
 	FNLDR	R5,wimp_realver
 	CMP	R5,#336
-	SUBLS	R5,R3,R1	; (old) length of lhs
-	SUBLS	R5,R7,R5	; (old) remaining space
+	SUBLS	R5,R7,R0	; (old) target offset
+	ADDLS	R5,R5,R1	; (old) target address
+	SUBLS	R5,R5,R2
+	MVNLS	R5,R5		; (old) move by this amount
 	SUBHI	R5,R2,R3	; (new) number of spaces less 1
 	SUBHI	R5,R5,#1	; (new) ... less 2
-	ADDHI	R5,R5,R0	; (new) adjust for rhs len
-	SUBS	R5,R5,R0	; less length of rhs
+	CMP	R5,#0
 	BLE	nodblsp2$l	; don't widen :-)
 	SUB	R2,R2,#2
 shift$l	LDRB	R1,[R2,#1]!
 	STRB	R1,[R2,-R5]
 	CMP	R1,#32
 	BHS	shift$l
+	MOV	R1,#0
+	STRB	R1,[R2,-R5]
+	LDR	R1,[R6,#12]
 nodblsp2$l
 	MOV	R0,R1
 	BL	str_len
