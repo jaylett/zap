@@ -1,5 +1,5 @@
- ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.14 1999/02/03 19:16:26 ds Exp $
+; Contains processing command code and Zap command table.
+; $Id: Commands,fff,v 1.1.2.15 1999/02/09 00:09:36 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -5627,13 +5627,12 @@ if$l	SUBS	R2,R2,#1
 
 	LOCAL
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21 :OR: 1<<23 :OR: 3<<24
 		; b21 stops cmd blk exec code checking IF state
 If
 	FNJSR
-;	FNLDR	R2,if_skip
-;	TEQ	R2,#0
-;	BEQ	noskip$l
+	TEQ	R2,#23
+	BEQ	If_fn$l
 	BL	checktrue
 	BEQ	skip$l
 noskip$l
@@ -5660,6 +5659,54 @@ toomanyIFs_etc
 	&	0
 	=	"zap_e_deepstruct",0
 	ALIGN
+If_fn$l	MOV	R10,R0		; parameter string
+	MOV	R11,R10
+	BL	str_comma	; find comma
+	CMP	R0,#32
+	BLLO	badif_msg$l	; no comma? error
+	FNRTS	VS
+	MOV	R7,R0
+	MOV	R0,#0
+	STRB	R0,[R10,#-1]	; temporary NUL
+	MOV	R0,R11
+	MOV	R1,#0
+	BL	evaluate_string	; evaluate (allow int only)
+	STRB	R7,[R10,#-1]
+	FNRTS	VS
+	TEQ	R1,#0
+	BEQ	else$l		; false? check for ELSE part
+	BL	str_skip
+	TEQ	R0,#','		; if null & there's an ELSE part
+	MOVEQ	R0,#0		;   return null
+	MOVEQ	R1,#3
+	FNRTS	EQ
+	MOV	R11,R10
+	MOV	R0,R10
+	BL	str_comma	; find comma
+	MOV	R7,R0
+	MOV	R0,#0
+	STRB	R0,[R10,#-1]	; temporary NUL
+	MOV	R0,R11
+	MOV	R1,#256
+	BL	evaluate_string
+	STRB	R7,[R10,#-1]
+ret$l	TEQ	R0,#0
+	MOVEQ	R0,R1
+	MOVEQ	R1,#2
+	MOVNE	R1,#3
+	FNRTS
+else$l	MOV	R11,R10
+	BL	str_comma	; find comma
+	CMP	R0,#32
+	MOVLO	R0,#0
+	MOVLO	R1,#3		; none? return null
+	FNRTS	LO
+	MOV	R0,R10
+	MOV	R1,#256
+	BL	evaluate_string
+	B	ret$l
+badif_msg$l
+	ERR	"zap_e_insuffargs"
 
 
 	&	7
