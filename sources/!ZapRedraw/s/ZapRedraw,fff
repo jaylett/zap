@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.5 1999/10/22 11:00:07 james Exp $
+; $Id: ZapRedraw,fff,v 1.6 2000/10/11 15:31:35 james Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -112,6 +112,7 @@ swi_table
  = "RedrawWindow",0		; 19
  = "Divide",0			; 20
  = "PlotRectangle",0		; 21
+ = "AddCursorSmart",0		; 22
  = 0
  ALIGN
 
@@ -151,6 +152,7 @@ start$l
  B redraw_window
  B div_mod
  B plotrect
+ B add_cursor_smart
 end$l
 unknown$l ERRlit "Unknown ZapRedraw SWI"
 
@@ -1158,7 +1160,49 @@ pdl_ordinary_change_colour
 ;  Input string lengthened if off the end
 ;  (length grows by at most R2+9*R3) #
 
+; We do this by setting up the appropriate call to the new-style
+; add cursor routine (Zap_AddCursorSmart, below).
 add_cursor
+ CMP R6,#-1
+ MOVEQ R6,#0
+ ANDNE R6,R6,#0xff
+ ORRNE R6,R6,#(1:SHL:30)
+ B add_cursor_smart
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Add cursor SWI (new-style)				    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=dest string
+;  R1=redraw block giving inital r_for and r_bac
+;  R2=offset in source string
+;  R3=cursor len
+;  R4=cursor string (low bytes)
+;  R5=source string 0,2 terminated
+;  R6=b0-b7   foreground colour to find
+;     b8-b15  background colour to find
+;     b16-b29 reserved
+;     b30 => foreground colour is present
+;     b31 => background colour is present
+;
+;     If we find given fg col, set fg = curbg, bg = curfg
+;     If not and we find given bg col, set bg = curfg (fg
+;     remains as what it is)
+;
+;     This is typically used to invert cursor colours in
+;     a selection. The background matching is to allow
+;     some characters in a selection to have a different
+;     foreground colour and still get the appropriate cursor
+;     colour for the background.
+;  R7=b0-b7  = high bytes of cursor chars
+;     b8-b15 = control code to use 4/8 (4 default)
+;     b16-b23= cursor for
+;     b24-b31= cursor bac
+;X R0=new dest string end (after 0,2)
+;  Input string lengthened if off the end
+;  (length grows by at most R2+9*R3) #
+
+add_cursor_smart
  FNJSR "R1-R10"
  MOV R10,R7			; save the cursor colours
  MOV R9,R6			; save swap colour
@@ -1166,7 +1210,6 @@ add_cursor
  MOV R7,R3			; save cursor len count
  MOV R0,R2			; num chars to skip
  LDR R2,[R1,#r_for]
- ; AND R2,R2,#&FF
  LDR R3,[R1,#r_bac]		; set up initial colours
 ac_0
  MOV R1,R5			; start of string
@@ -1243,25 +1286,54 @@ ac_3
  MOV R0,R6
  FNRTS
 
-;E R2/R3=for and bac R6=buffer pointer R9=swapcol R10=cols
+;E R2/R3=for and bac R6=buffer pointer R10=cols
+;  R9=swapcol (b0-b7 fg, b8-b15 bg, b30 => fg, b31 => bg)
+;  See not at add_cursor_smart, above.
 ;X 0,<code>,f,b written to the buffer, R6 updated.
 
+ LOCAL
+
 ac_write_cur
+ FNJSR "R1,R4"
+ AND R1,R9,#0xff		; fg to find
+ MOV R4,R9,LSR #8
+ AND R4,R4,#0xff		; bg to find
+
  MOV R0,#0
  STRB R0,[R6],#1
+
  MOV R0,R10,LSR#8
  AND R0,R0,#&FF			; control code number
  TEQ R0,#8
  MOVNE R0,#4			; default
  STRB R0,[R6],#1
- TEQ R9,R2			; do we match the swap colour?
- MOVNE R0,R10,LSR#16		; foreground
- MOVEQ R0,R10,LSR#24
+
+ TST R9,#(1:SHL:30)
+ BEQ not_fg$l
+ CMP R2,R1			; foreground match?
+ BNE not_fg$l
+ MOV R0,R10,LSR #24
+ STRB R0,[R6],#1		; set fg to cursor bg
+ MOV R0,R10,LSR #16
+ STRB R0,[R6],#1		; set bg to cursor fg
+ FNRTS
+
+not_fg$l
+ TST R9,#(1:SHL:31)
+ BEQ not_bg$l
+ CMP R3,R4			; background match?
+ BNE not_bg$l
+ STRB R2,[R6],#1		; use existing fg
+ MOV R0,R10,LSR #16
+ STRB R0,[R6],#1		; set bg to cursor fg
+ FNRTS
+
+not_bg$l
+ MOV R0,R10,LSR#16		; set fg to cursor fg, bg to cursor bg
  STRB R0,[R6],#1
- MOVNE R0,R10,LSR#24
- MOVEQ R0,R10,LSR#16
+ MOV R0,R10,LSR#24
  STRB R0,[R6],#1
- MOV PC,R14
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Move bytes SWI					    ;
@@ -1275,215 +1347,6 @@ ac_write_cur
 ;X bytes moved FAST from R1 to R2 with data always preserved R0-R3 corrupt |
 ;  it is careful not to look beyond the start/end of the data
 
-;move_bytes
-; TEQ R3,#0
-; MOVEQS PC,R14			; nothing to do
-; CMP R2,R1
-; BHI up$l			; move up starting from end of data
-; BCC down$l			; move down starting from start of data
-; MOVS PC,R14			; data not being moved
-;up$l				; MOVE BYTES UP (from end)
-; ADD R1,R1,R3			; end of source
-; ADD R2,R2,R3			; end of dest
-; TST R2,#3
-; BNE ualign$l
-;ualigned$l			; destination (R2) now word aligned
-; TST R1,#3
-; BNE uslow$l			; source not word align so need to shift
-; SUBS R3,R3,#8*4
-; BLT uf32$l			; up fast less than 32 bytes
-; STMFD R13!,{R4-R11}
-;a$l
-; LDMDB R1!,{R4-R11}
-; STMDB R2!,{R4-R11}
-; SUBS R3,R3,#8*4
-; BGE a$l			; copy 32 bytes at a time
-; LDMFD R13!,{R4-R11}
-;uf32$l				; copy R3+32 bytes
-; ADDS R3,R3,#7*4
-; BLT uf4$l			; up fast less than 4 bytes
-;b$l
-; LDR R0,[R1,#-4]!
-; STR R0,[R2,#-4]!
-; SUBS R3,R3,#4
-; BGE b$l			; copy 4 bytes at a time
-;uf4$l
-; ADDS R3,R3,#4			; number of bytes remaining
-; MOVEQS PC,R14			; none
-; LDR R0,[R1,#-4]!		; load next 4 (ok as R1,R2 both aligned)
-;c$l
-; MOV R0,R0,ROR#24
-; STRB R0,[R2,#-1]!
-; SUBS R3,R3,#1
-; BGT c$l			; copy remaining bytes
-; MOVS PC,R14
-;ualign$l
-; LDRB R0,[R1,#-1]!
-; STRB R0,[R2,#-1]!
-; SUBS R3,R3,#1
-; MOVEQS PC,R14
-; TST R2,#3
-; BNE ualign$l			; copy bytes 'till dest aligned
-; B ualigned$l
-;uslow$l				; dest (R2) aligned, source (R1) not
-; STMFD R13!,{R12,R14}
-; AND R12,R1,#3			; byte offset of last read byte (1-3)
-; BIC R1,R1,#3
-; ADD R1,R1,#4			; address of last read word
-; MOV R12,R12,LSL#3		; number of bits not read in R1,#-4
-; RSB R0,R12,#32			; number of bits already read in R1,#;-4
-; LDR R14,[R1,#-4]!
-; MOV R14,R14,LSL R0		; fill input buffer (R14)
-; SUBS R3,R3,#8*4
-; BLT us32$l			; up slow less than 32 bytes
-; STMFD R13!,{R4-R11}
-;d$l
-; LDMDB R1!,{R4-R11}
-; ORR R14,R14,R11,LSR R12	; copy 32 bytes at a time shifting
-; MOV R11,R11,	 LSL R0
-; ORR R11,R11,R10,LSR R12
-; MOV R10,R10,	 LSL R0
-; ORR R10,R10,R9, LSR R12
-; MOV R9, R9,	 LSL R0
-; ORR R9, R9, R8, LSR R12
-; MOV R8, R8,	 LSL R0
-; ORR R8, R8, R7, LSR R12
-; MOV R7, R7,	 LSL R0
-; ORR R7, R7, R6, LSR R12
-; MOV R6, R6,	 LSL R0
-; ORR R6, R6, R5, LSR R12
-; MOV R5, R5,	 LSL R0
-; ORR R5, R5, R4 ,LSR R12
-; STMDB R2!,{R5-R11,R14}
-; MOV R14,R4,LSL R0
-; SUBS R3,R3,#8*4
-; BGE d$l
-; LDMFD R13!,{R4-R11}
-;us32$l				; up slow less than R3+32 bytes
-; ADDS R3,R3,#7*4
-; BLT us4$l			; up slow less than 4 bytes
-; STMFD R13!,{R4}
-;e$l
-; LDR R4,[R1,#-4]!
-; ORR R14,R14,R4,LSR R12
-; STR R14,[R2,#-4]!
-; MOV R14,R4,LSL R0
-; SUBS R3,R3,#4
-; BGE e$l			; copy one word at a time
-; LDMFD R13!,{R4}
-;us4$l
-; ADDS R3,R3,#4			; number of bytes left
-; LDMEQFD R13!,{R12,PC}^
-; ADD R1,R1,R12,LSR#3		; address of last byte used
-;f$l
-; LDRB R14,[R1,#-1]!		; get next byte (don't read too far)
-; STRB R14,[R2,#-1]!		; put next byte
-; SUBS R3,R3,#1
-; BGT f$l
-; LDMFD R13!,{R12,PC}^
-;down$l				; MOVE BYTES DOWN (from start)
-; TST R2,#3
-; BNE dalign$l			; ensure output (R2) aligned
-;daligned$l			; R2 now aligned
-; TST R1,#3
-; BNE dslow$l			; source not aligned
-; SUBS R3,R3,#8*4
-; BLT df32$l			; less than 32 to move
-; STMFD R13!,{R4-R11}
-;g$l
-; LDMIA R1!,{R4-R11}
-; STMIA R2!,{R4-R11}
-; SUBS R3,R3,#8*4
-; BGE g$l			; move 32 bytes at a time
-; LDMFD R13!,{R4-R11}
-;df32$l
-; ADDS R3,R3,#7*4
-; BLT df4$l			; less than 4 bytes to move
-;h$l
-; LDR R0,[R1],#4
-; STR R0,[R2],#4
-; SUBS R3,R3,#4
-; BGE h$l			; shift 4 bytes at a time
-;df4$l
-; ADDS R3,R3,#4			; number of bytes left
-; MOVEQS PC,R14
-; LDR R0,[R1],#4			; load next 4 (ok as both aligned)
-;i$l
-; STRB R0,[R2],#1
-; MOV R0,R0,ROR#8
-; SUBS R3,R3,#1
-; BGT i$l			; copy the remaining bytes
-; MOVS PC,R14
-;dalign$l
-; LDRB R0,[R1],#1
-; STRB R0,[R2],#1
-; SUBS R3,R3,#1
-; MOVEQS PC,R14
-; TST R2,#3
-; BNE dalign$l			; word align the destination
-; B daligned$l
-;dslow$l				; dest (R2) aligned, source (R1) not
-; STMFD R13!,{R12,R14}
-; AND R12,R1,#3			; byte offset of first unread byte (1; -3)
-; BIC R1,R1,#3			; address of first not fully read word
-; MOV R12,R12,LSL#3		; number of bits read from !R1
-; RSB R14,R12,#32		; number of bits not read from !R1
-; LDR R0,[R1],#4
-; MOV R0,R0,LSR R12		; fill the input buffer (R0)
-; SUBS R3,R3,#8*4
-; BLT ds32$l			; less than 32 bytes left
-; STMFD R13!,{R4-R11}
-;j$l
-; LDMIA R1!,{R4-R11}
-; ORR R0, R0, R4, LSL R14	; copy 32 bytes at a time with shifting
-; MOV R4, R4,	 LSR R12
-; ORR R4, R4, R5, LSL R14
-; MOV R5, R5,	 LSR R12
-; ORR R5, R5, R6, LSL R14
-; MOV R6, R6,	 LSR R12
-; ORR R6, R6, R7, LSL R14
-; MOV R7, R7,	 LSR R12
-; ORR R7, R7, R8, LSL R14
-; MOV R8, R8,	 LSR R12
-; ORR R8, R8, R9, LSL R14
-; MOV R9, R9,	 LSR R12
-; ORR R9, R9, R10,LSL R14
-; MOV R10,R10,	 LSR R12
-; ORR R10,R10,R11,LSL R14
-; STMIA R2!,{R0,R4-R10}
-; MOV R0,R11,LSR R12
-; SUBS R3,R3,#8*4
-; BGE j$l
-; LDMFD R13!,{R4-R11}
-;ds32$l				; less than 32 bytes left
-; ADDS R3,R3,#7*4
-; BLT ds4$l			; less than 4 left
-; STMFD R13!,{R11}
-;k$l
-; LDR R11,[R1],#4
-; ORR R0,R0,R11,LSL R14
-; STR R0,[R2],#4
-; MOV R0,R11,LSR R12
-; SUBS R3,R3,#4
-; BGE k$l			; copy 4 bytes at a time
-; LDMFD R13!,{R11}
-;ds4$l
-; ADDS R3,R3,#4			; number of bytes left
-; LDMEQFD R13!,{R12,PC}^
-; SUB R1,R1,R14,LSR#3		; address of first unused byte
-;l$l
-; LDRB R0,[R1],#1		; get next byte - don't read off end
-; STRB R0,[R2],#1
-; SUBS R3,R3,#1
-; BGT l$l			; copy remaining bytes
-; LDMFD R13!,{R12,PC}^
-
-; ;E R1=source address
-; ;  R2=destination address
-; ;  R3=number of bytes
-; ;X bytes moved FAST from R1 to R2 with data always preserved R0-R3 corrupt |
-; ;  it is careful not to look beyond the start/end of the data
-
 move_bytes
  CMP R3,#0
  CMPNE R2,R1
@@ -1491,12 +1354,6 @@ move_bytes
  MOVEQS PC,R14			; data not being moved, or no data to move
 ; move up starting from end of data
 up$l				; MOVE BYTES UP (from end)
-; TEQ R3,#0
-; MOVEQS PC,R14			; nothing to do
-; CMP R2,R1
-; BHI up$l			; move up starting from end of data
-; BCC down$l			; move down starting from start of data
-; MOVS PC,R14			; data not being moved
  ADD R1,R1,R3			; end of source
  ADD R2,R2,R3			; end of dest
  TST R2,#3
