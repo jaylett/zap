@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.1.2.13 1999/10/23 23:49:08 ds Exp $
+; $Id: Mode11,fff,v 1.1.2.14 1999/10/24 22:15:18 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -45,7 +45,7 @@ MODE11_COLNUMBS * 9+8
 ; Redraw format of throwback mode - general colour mode		;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; The throwback mode has it's own clnphy etc and handles control
+; The throwback mode has its own clnphy etc and handles control
 ; codes as follows
 ;
 ; 0 = ignore (does nothing - ends strings for 1-7)
@@ -299,16 +299,12 @@ linestart$l
 	BEQ	reentry$l
 	LDR	R1,[R9,#f_cmode]
 	TEQ	R1,#11
- STR R1,[R12,#test_0]
 	BNE	maybelinenum$l
- MOV R1,#0
- STR R1,[R12,#test_1]
 	LDR	R1,[R9,#f_source]
 	CMP	R1,#0
 	LDRGT	R1,[R1,#4]
 	CMPGT	R1,#0
 	BLE	maybelinenum$l
- STR R1,[R12,#test_1]
 	MOV	R2,#2
 	BL	lookup$l
 	BEQ	reentry$l
@@ -395,10 +391,9 @@ skiptoken$l
 	BNE	lookup_loop$l
 	TEQ	R0,#1		; no match - return Z clear
 	FNRTS
-matched$l			; (Z set)
+matched$l			; (Z must be set)
 	LDR	R2,[R13]
 	LDR	R2,[R2,#4]
-	TEQ	R2,R2
 	FNRTS
 lookup_get$l
 	ADD	R0,R1,#8
@@ -419,6 +414,8 @@ mode11_cols
  ALIGN
 
 mode11_init
+ TEQ R1,#einit_RedrawStart
+ BEQ mode11_redrawstart
  TEQ R1,#einit_ModeMenu
  BEQ mode11_menu
  TEQ R1,#einit_ColoursSubmenu
@@ -427,14 +424,16 @@ mode11_init
  BEQ init_throwback
  TEQ R1,#einit_DeleteModifiedFile
  BEQ mode11_killingfile
- MVNEQ R1,#0			; kill the file
- MOVEQ PC,R14
  TEQ R1,#einit_ZapDying
  MOVNE PC,R14
  FNJSR
  BL kill_throwback
  MOVVC R0,#-1			; don't kill module
  FNRTS
+
+mode11_redrawstart
+	STR	R1,mode11_locstsp1
+	MOV	PC,R14
 
 mode11_menu
 	FNJSR	"R0"
@@ -445,13 +444,12 @@ mode11_menu
 mode11_killingfile
 	LDR	R1,[R9,#f_cmode]
 	TEQ	R1,#11
-	MVNNE	R1,#0
+	MVN	R1,#0
 	MOVNE	PC,R14
 	FNJSR	"R0"
 	LDR	R0,[R9,#f_source]
 	CMP	R0,#0
 	BLGT	heap_free
-	MVN	R1,#0
 	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

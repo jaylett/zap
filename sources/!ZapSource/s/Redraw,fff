@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.1.2.8 1999/08/20 18:43:09 ds Exp $
+; $Id: Redraw,fff,v 1.1.2.9 1999/10/24 22:15:18 ds Exp $
 
  GET h.ZapHeader
 
@@ -2776,12 +2776,9 @@ pnt_get_pagesize
  MOVVS R4,#0
  LDRVS R5,default_width$l
  LDRVS R6,default_height$l
- STR R3,[R0,#&00]		; x offset of printable area
- STR R4,[R0,#&04]		; y offset of printable area
  SUB R5,R5,R3
- STR R5,[R0,#&08]		; width
  SUB R6,R6,R4
- STR R6,[R0,#&0C]		; height
+ STMIA R0,{R3-R6}		; x, y, width, height of printable area
  SUBS R0,R0,#0
  LDMFD R13!,{R1-R6,PC}
 default_width$l  & 595275 ; 21cm
@@ -2798,17 +2795,16 @@ pnt_fit_pages
  LDMVSFD R13!,{R1-R11,PC}	; set up font values
  FNLDR R10,wimp_print
  FNLDR R11,opt_flags
- LDR R4,[R10,#&08]		; width mps
- LDR R5,[R10,#&0C]		; height mps
  TST R11,#1<<15			; sideways print
- MOVNE R14,R4
- MOVNE R4,R5
- MOVNE R5,R14			; swap over width and height
- MOV R0,R4 ; ,LSL #2		; sheet width in mps ; (new 4)
- LDR R1,[R10,#&10]		; pages per sheet
- ADD R0,R0,R1,ASR#1
+ LDREQ R4,[R10,#print_width]	; width mps
+ LDREQ R5,[R10,#print_height]	; height mps
+ LDRNE R5,[R10,#print_width]	; (swapped)
+ LDRNE R4,[R10,#print_height]
+ MOV R0,R4			; R4 = sheet width in mps ; (new 4)
+ LDR R1,[R10,#print_columns_per_page]
+;* ADD R0,R4,R1,ASR#1
  SWI XZapRedraw_Divide		; BL div_mod
- STR R0,[R10,#&24]		; distance between pages in mps
+ STR R0,[R10,#print_column_gap]
  MOV R4,R0			; page width
  FNLDR R0,font_charw		; font width in pixels
  FNLDR R14,scn_magx		; x os scaling
@@ -2818,32 +2814,31 @@ pnt_fit_pages
  MUL R1,R0,R6			; window width in mps @ b0
  MOV R1,R1,ASR#8		; window width mps/256 @ b0
  MOV R0,R4,LSL#8		; paper  width mps/256 @ b16
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; BL div_mod
  MOV R6,R0			; R6=x scaling @ b16
- MOV R0,#&14000			; max scaling 5/4
- CMP R6,R0
- MOVGT R6,R0
- STR R6,[R10,#&28]		; x scaling
+ CMP R6,#&14000			; max scaling 5/4
+ MOVGT R6,#&14000
+ STR R6,[R10,#print_xscale]
 ; ADD R6,R6,R6,LSR #2	;!!!!!!!!!!!!!!!!!!!!!!!!
- STR R6,[R10,#&2C]		; y scaling
+ STR R6,[R10,#print_yscale]
  MOV R0,R5,LSL#8		; paper height mps / 256 @ b16
  MOV R1,#400
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; paper height os / 256 @ b16
  FNLDR R1,scn_magy
  MOV R0,R0,LSR R1		; paper height pix / 256 @ b16
  MOV R0,R0,LSL#8		; paper height pix @ b16
- LDR R1,[R10,#&28]		; x scaling @ b16
- ADD R0,R0,R1,ASR#1
+ LDR R1,[R10,#print_xscale]	; x scaling @ b16
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; height in pixels after scaling
  FNLDR R1,font_charh
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; height in chars
  MOV R3,R0
  TST R11,#1<<16
  SUBEQ R3,R3,#3			; subtract room for title
- STR R3,[R10,#&14]		; lines per page
+ STR R3,[R10,#print_lines_per_column]
  LDMFD R13!,{R1-R11,PC}
 
 ;E R0=use colour R8/R9=file
@@ -2896,12 +2891,12 @@ print_file_sub
  MOV R7,R0			; save previous Job
  FNLDR R10,wimp_print
  BL pnt_matrix
- LDR R1,[R10,#&1C]		; start page(from 0)
- LDR R2,[R10,#&20]		; end page(+1)
- LDR R3,[R10,#&18]		; total number of pages
+ LDR R1,[R10,#print_start_page]	; start page(from 0)
+ LDR R2,[R10,#print_stop_page]	; end page(+1)
+ LDR R3,[R10,#print_total_num_pages]
  CMP R2,R3
  MOVGE R2,R3			; clip end page
- LDR R3,[R10,#&10]		; number of columns per page
+ LDR R3,[R10,#print_columns_per_page]
 pn3
  CMP R1,R2
  BGE pn7			; none left so finish
@@ -2953,17 +2948,17 @@ print_file_s0	FNS ("printer:")
 
 pnt_matrix
  FNJSR "R1-R3"
- ADD R1,R10,#&30		; column os rectangle
+ ADD R1,R10,#print_column_rectangle
  MOV R0,#0
  STR R0,[R1,#0]			; min x
  STR R0,[R1,#4]			; min y
  LDR R2,[R8,#w_width]		; window width in chars
- LDR R3,[R10,#&14]		; lines per col
+ LDR R3,[R10,#print_lines_per_column]
  BL ccd_xyline_xyos
  STR R2,[R1,#8]			; max x
  RSB R3,R3,#0
  STR R3,[R1,#12]		; max y
- ADD R1,R10,#&60		; title os rectangle
+ ADD R1,R10,#print_title_rectangle
  MOV R0,#0
  STR R0,[R1,#0]			; min x
  STR R0,[R1,#4]			; min y
@@ -2973,15 +2968,15 @@ pnt_matrix
  STR R2,[R1,#8]			; max x
  RSB R3,R3,#0
  STR R3,[R1,#12]		; max y
- ADD R1,R10,#&40		; columns matrix
+ ADD R1,R10,#print_column_matrix
  MOV R0,#0
  STR R0,[R1]
  STR R0,[R1,#4]
  STR R0,[R1,#8]
  STR R0,[R1,#12]		; clear matrix
  FNLDR R14,opt_flags
- LDR R2,[R10,#&28]		; x scale
- LDR R3,[R10,#&2C]		; y scale
+ LDR R2,[R10,#print_xscale]
+ LDR R3,[R10,#print_yscale]
  TST R14,#1<<15
  BNE pn10			; not upright
  STR R2,[R1]			;  (b 0)
@@ -2989,10 +2984,9 @@ pnt_matrix
  B pn1
 pn10
  RSB R2,R2,#0
- STR R2,[R1,#4]			; (0  c)
- STR R3,[R1,#8]			; (-b 0)
+ STMIB R1,{R2,R3}		; matrix (0  c) (-b 0)
 pn1
- ADD R2,R10,#&70		; title matrix
+ ADD R2,R10,#print_title_matrix
  MOV R3,#4			; count
 pn2
  LDR R0,[R1],#4
@@ -3010,12 +3004,12 @@ pnt_send_column
  MOV R7,R0			; save col offset
  MOV R6,R1			; page number
  FNLDR R11,opt_flags
- ADD R1,R10,#&30		; rectangle block
- ADD R2,R10,#&40		; matrix
- ADD R3,R10,#&50		; plot position
- LDR R4,[R10,#&08]		; x width
- LDR R5,[R10,#&0C]		; y height
- LDR R0,[R10,#&24]		; col seperation in mps
+ ADD R1,R10,#print_column_rectangle
+ ADD R2,R10,#print_column_matrix
+ ADD R3,R10,#print_plot_position
+ LDR R4,[R10,#print_width]
+ LDR R5,[R10,#print_height]
+ LDR R0,[R10,#print_column_gap]
 ; MOV R0,R0,LSR #2		; (new 4) !! irrelevant!
  MUL R0,R7,R0			; col offset in mps
 ; MOV R0,R0,LSR #2		; (new 4)
@@ -3024,15 +3018,14 @@ pnt_send_column
  MOVEQ R5,#0			; xy for upright
  MOVNE R4,#0
  SUBNE R5,R5,R0			; xy for sideways
- LDR R0,[R10,#&00]		; x margin
+ LDR R0,[R10,#print_xoff]
  ADD R4,R4,R0			; add x margin
- LDR R0,[R10,#&04]		; y margin
+ LDR R0,[R10,#print_yoff]
  ADD R5,R5,R0			; add y margin
- STR R4,[R3]			; x plot position
- STR R5,[R3,#4]			; y plot position
+ STMIA R3,{R4,R5}		; plot position
  MVN R4,#&FF			; colour &FFFFFF00 (bg colour = white...)
  BL add_fudge_factors
- LDR R0,[R10,#&10]		; cols per page
+ LDR R0,[R10,#print_columns_per_page]
  MLA R0,R6,R0,R7		; total column offset as ID
  SWI &A014B			; PDriver_GiveRectange
  LDMFD R13!,{R1-R11,PC}
@@ -3043,36 +3036,35 @@ pnt_send_column
 pnt_send_title
  STMFD R13!,{R1-R11,R14}
  FNLDR R11,opt_flags
- TST R11,#1<<16
+ TST R11,#flags_FancyPrintNoTitle
  LDMNEFD R13!,{R1-R11,PC}	; no need to add title
- ADD R1,R10,#&60		; rectangle block
- ADD R2,R10,#&70		; matrix
- ADD R3,R10,#&50		; plot position
- LDR R4,[R10,#&08]		; x width
- LDR R5,[R10,#&0C]		; y height
+ ADD R1,R10,#print_title_rectangle
+ ADD R2,R10,#print_title_matrix
+ ADD R3,R10,#print_plot_position
+ LDR R4,[R10,#print_width]
+ LDR R5,[R10,#print_height]
  FNLDR R0,font_charw		; font height in pixels
  FNLDR R14,scn_magy
  MOV R0,R0,LSL R14		; font height in os
  MOV R14,#400
  MUL R0,R14,R0			; font height in mps
- LDR R14,[R10,#&2C]		; y scale @ b16
+ LDR R14,[R10,#print_yscale]
  MUL R0,R14,R0			; height mps @ b16
  MOV R0,R0,LSR#16		; height mps
- TST R11,#1<<15
+ TST R11,#flags_FancyPrintSideways
  MOVEQ R4,#0
  SUBEQ R5,R5,R0			; xy for upright
  SUBNE R4,R4,R0			; xy for sideways
- LDR R0,[R10,#&00]
+ LDR R0,[R10,#print_xoff]
  ADD R4,R4,R0			; add x margin
  LDR R14,[R8,#w_rl]		; font height in pixels
  MOV R14,R14,LSL #10
 ; MOV R0,#400
  CMP R5,R14
  MOVLT R5,R14			; position fudge...
- LDR R0,[R10,#&04]
+ LDR R0,[R10,#print_yoff]
  ADD R5,R5,R0			; add y margin
- STR R4,[R3]
- STR R5,[R3,#4]			; plot position
+ STMIA R3,{R4,R5}		; plot position
  BL add_fudge_factors
  MVN R4,#&FF			; colour &FFFFFF00
  MVN R0,#0			; -1 as ID
@@ -3123,15 +3115,15 @@ pn12
  TEQ R0,#0
  LDMEQFD R13!,{R1-R11,PC}	; finished
  CMP R2,#0			; is ID<0
- ADDPL R0,R10,#&30		; column rectangle
- ADDMI R0,R10,#&60		; title rectangle
+ ADDPL R0,R10,#print_column_rectangle
+ ADDMI R0,R10,#print_title_rectangle
  LDMIA R0,{R4-R7}
  STMIB R11,{R4-R7}		; 'visible area of window'
  MOV R1,R11
  BL redraw_clip			; clip given rectangle to boundry
  CMP R2,#0
  BMI pn14			; print title
- LDR R4,[R10,#&14]		; lines per column
+ LDR R4,[R10,#print_lines_per_column]
  MUL R3,R2,R4			; y scroll offset in lines
  MOV R2,#0			; x scroll offset
  BL ccd_xyline_xyos
@@ -3338,8 +3330,8 @@ quick_print_sub
  BLVC printer_startoffile
  LDMVSFD R13!,{R1-R11,PC}
 pr3
- LDR R1,[R10,#&58]		; start line
- LDR R2,[R10,#&5C]		; end line (+1)
+ LDR R1,[R10,#print_start_line]
+ LDR R2,[R10,#print_stop_line]
  LDR R3,[R8,#w_height]
  CMP R2,R3
  MOVGE R2,R3			; clip end line

@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.16 1999/10/21 16:13:08 james Exp $
+; $Id: Boxes,fff,v 1.1.2.17 1999/10/24 22:15:15 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -3443,32 +3443,32 @@ cw_PrintBox_main
  BL	pnt_fit_pages
  FNRTS	VS
  LDR	R0,[R8,#w_height]	; total number of lines
- LDR	R2,[R10,#&14]		; lines per column
- LDR	R1,[R10,#&10]		; columns per page
+ LDR	R2,[R10,#print_lines_per_column]
+ LDR	R1,[R10,#print_columns_per_page]
  MUL	R1,R2,R1		; lines per page
  SWI	XZapRedraw_Divide
  TEQ	R2,#0
  ADDNE	R0,R0,#1		; last page not empty
- STR	R0,[R10,#&18]		; number of pages
+ STR	R0,[R10,#print_total_num_pages]
 
- LDR R0,[R10,#&14]
+ LDR R0,[R10,#print_lines_per_column]
  MOV R5,#11
  BL icon_buffernum
- LDRVC R0,[R10,#&18]
+ LDRVC R0,[R10,#print_total_num_pages]
  MOVVC R5,#13
  BLVC icon_buffernum
  FNRTS VS
  TEQ R11,#0
  BNE no_userbits$l		; R11!=0 - don't alter editable bits
 someuserbits$l
- LDR R0,[R10,#&10]
+ LDR R0,[R10,#print_columns_per_page]
  MOV R5,#5
  BL icon_buffernum
- LDRVC R0,[R10,#&1C]
+ LDRVC R0,[R10,#print_start_page]
  ADDVC R0,R0,#1
  MOVVC R5,#1
  BLVC icon_buffernum
- LDRVC R0,[R10,#&20]
+ LDRVC R0,[R10,#print_stop_page]
  MOVVC R5,#0
  BLVC icon_buffernum
  FNRTS VS
@@ -3563,6 +3563,7 @@ lc_Print_title
  FNSTR R1,opt_flags
  MVN R0,R1,LSR#16
  BL icon_set
+ BLVC cw_PrintBox_main
  B c_ret
 
 lc_Print_up
@@ -3582,7 +3583,7 @@ lc_Print_newpps
  FNLDR R10,wimp_print
  CMP R0,#1
  MOVLT R0,#1
- STR R0,[R10,#&10]
+ STR R0,[R10,#print_columns_per_page]
  B c_ret
 
 lc_Print_newstart
@@ -3590,7 +3591,7 @@ lc_Print_newstart
 ; BVS c_ret
  FNLDR R10,wimp_print,VC
  SUBVC R0,R0,#1
- STRVC R0,[R10,#&1C]
+ STRVC R0,[R10,#print_start_page]
  B c_ret
 
 lc_Print_newend
@@ -3598,7 +3599,7 @@ lc_Print_newend
 	BL	lc_buffernum
 	BVS	c_ret
 	FNLDR	R10,wimp_print
-	STR	R0,[R10,#&20]		; end page
+	STR	R0,[R10,#print_stop_page]
 lc_Print_print
 	SWI	&A0140			; XPDriver_Info
 	BVS	s_ret
@@ -3621,9 +3622,9 @@ Printfile
 	BLVC	check_font_manager
 	FNLDR	R10,wimp_print,VC
 	MOVVC	R0,#0
-	STRVC	R0,[R10,#&1C]		; start page
+	STRVC	R0,[R10,#print_start_page]
 	MOVVC	R0,#&10000
-	STRVC	R0,[R10,#&20]		; end page
+	STRVC	R0,[R10,#print_stop_page]
 	MOVVC	R0,#t_PrintBox
 	BLVC	open_leaf_com
 	FNRTS
@@ -3636,11 +3637,11 @@ cw_QuickBox
  FNJSR
  FNLDR R10,wimp_print
  LDR R2,[R8,#w_stline]
- LDR R0,[R10,#&58]
+ LDR R0,[R10,#print_start_line]
  ADD R0,R0,R2			; first line
  MOV R5,#1
  BL icon_buffernum
- LDRVC R0,[R10,#&5C]
+ LDRVC R0,[R10,#print_stop_line]
  ADDVC R0,R0,R2
  SUBVC R0,R0,#1			; last line (inc)
  MOVVC R5,#0
@@ -3696,7 +3697,7 @@ newstart$l
  FNLDR R10,wimp_print
  LDR R2,[R8,#w_stline]
  SUB R0,R0,R2
- STR R0,[R10,#&58]
+ STR R0,[R10,#print_start_line]
  FNRTS
 
 newend$l
@@ -3708,7 +3709,7 @@ newend$l
  LDR R2,[R8,#w_stline]
  SUB R0,R0,R2
  ADD R0,R0,#1
- STR R0,[R10,#&5C]		; end line
+ STR R0,[R10,#print_stop_line]
  FNRTS
 
 lc_Quick_newend
@@ -3733,9 +3734,9 @@ Quickprint
  FNJSR
  FNLDR R10,wimp_print
  MOV R0,#0
- STR R0,[R10,#&58]		; start line
+ STR R0,[R10,#print_start_line]
  LDR R0,[R8,#w_height]
- STR R0,[R10,#&5C]		; end line
+ STR R0,[R10,#print_stop_line]
  MOV R0,#t_QuickBox
  BL open_leaf_com
  FNRTS
