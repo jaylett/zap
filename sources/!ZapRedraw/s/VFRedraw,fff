@@ -1,5 +1,5 @@
 ; Contains code for redraw via ViewFinder
-; $Id: VFRedraw,fff,v 1.4 2002/01/30 19:53:02 ds Exp $
+; $Id: VFRedraw,fff,v 1.5 2002/03/01 00:06:02 ds Exp $
 
 	GET	h.ZapRedHdr
 	GET	h.ZapRedraw
@@ -10,6 +10,9 @@
 	EXPORT	vf_redraw_area
 	EXPORT	vf_redraw_raster
 	EXPORT	vf_plot_rect
+
+	EXPORT	viewfinder_draw	; call this
+	EXPORT	vf_draw_swi	; not this
 
 	EXPORT	viewfinder_test_text
 	EXPORT	viewfinder_test_rectangle
@@ -602,7 +605,7 @@ vf_render_single_char
 	MOV	R0,#1
 	STR	R0,a_vf_string_length	; string ptr, length
 	LDR	R0,a_vf_draw_flags
-	SWI	XViewFinder_Draw	; draw it
+	BL	viewfinder_draw		; draw it
 	PULL	"R1,R6-R7,R14"		; restore things...
 	LDR	R1,[R13]
 	STR	R6,a_vf_font_bitmaps
@@ -661,7 +664,7 @@ vf_render_buffered
 	FNJSR	"R1,R4,R11"
 	ADRL	R1,a_vf_char
 	LDR	R0,a_vf_draw_flags
-	SWI	XViewFinder_Draw	; render it
+	BL	viewfinder_draw		; render it
 	FNRTS	VS
 	LDR	R1,[R13]
 	MOV	R14,#2<<30:OR:1
@@ -748,7 +751,7 @@ vf_plot_rect
 	MOV	R0,#2:OR:9<<28	; render the rectangle
 	STMFD	R13!,{R2-R6,R11,R14}
 	MOV	R1,R13
-	SWI	XViewFinder_Draw
+	BL	viewfinder_draw
 	ADD	R13,R13,#7*4
 	FNRTS
 
@@ -820,7 +823,7 @@ viewfinder_recache_meta
 	STMIA	R0!,{R1-R4}
 	MOV	R0,#1:OR:9<<28	; text; internal coords, GCOL, no clip
 	MOV	R1,R13
-	SWI	XViewFinder_Draw
+	BL	viewfinder_draw
 	ADD	R13,R13,#256	; deallocate
 	CMNVS	R0,#0		; clear carry if V set
 	LDRCS	R14,[R12,#viewfinder_select]
@@ -829,7 +832,7 @@ viewfinder_recache_meta
 	FNRTS	CS
 	MOV	R0,#2:OR:9<<28	; rectangle; internal coords, GCOL, no clip
 	ADR	R1,vft_rectangle$l
-	SWI	XViewFinder_Draw
+	BL	viewfinder_draw
 	CMNVS	R0,#0		; clear carry if V set
 	LDR	R14,[R12,#viewfinder_select]
 	ORRCS	R14,R14,#vf_can_plot_rectangle
@@ -839,5 +842,21 @@ viewfinder_recache_meta
 vft_rectangle$l	& 0,0, 0,0, 3,0, -1	; null rectangle
 vft_string$l	&	0, 1, 0
 vft_colour$l	&	0, 0, 3, 3 ; EOR, transparent
+
+	LOCAL
+
+;E,X as for SWI ViewFinder_Draw
+viewfinder_draw
+	FNJSR	"R12"
+	BL	get_r12
+	BL	call$l
+	FNRTS
+call$l	ADD	R12,R12,#viewfinder_draw_R12
+	LDMIA	R12,{R12,PC}
+vf_draw_swi
+	FNJSR
+	SWI	XViewFinder_Draw
+	FNRTS
+
 
 	END

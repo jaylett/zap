@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.11 2002/02/01 12:06:52 james Exp $
+; $Id: ZapRedraw,fff,v 1.12 2002/03/01 00:06:02 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -8,6 +8,7 @@
  GET h.Commands
  GET h.Cache
  GET h.Messages
+ GET h.SWIs
  GET h.DSARedraw
  GET h.VFRedraw
  GET h.VDURedraw
@@ -193,6 +194,15 @@ loop$l		STR	R0,[R2],#4
 		MOVNE	R0,#vf_is_present:OR:vf_mode_has_changed
 set_vf_flag	STR	R0,[R12,#viewfinder_select]
 		ADD	R13,R13,#12
+		STR	R12,[R12,#viewfinder_draw_R12]
+		ADRL	R1,vf_draw_swi
+			; ADR here may trigger a linker bug (Norcroft)
+		STR	R1,[R12,#viewfinder_draw_code]
+		TEQ	R0,#vf_is_present
+		MOVNE	R0,#6
+		ADDNE	R1,R12,#viewfinder_direct_call
+		MOVNE	R2,#16
+		SWINE	XViewFinder_Info	; we don't care if this fails
 
 		MOV	R1,R12				; initialise fake redraw block
 		ADD	R0,R12,#buffer
@@ -220,8 +230,7 @@ viewfinder_1_29
 viewfinder_1_41
 		=	"%RMEnsure ViewFinder 1.41",0
 vf_enable_var	=	"ViewFinder$Enable",0
-		ALIGN
-	
+
 		LOCAL
 
 		[ |zap$|="Zap"
