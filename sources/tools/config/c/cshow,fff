@@ -1,5 +1,5 @@
 /*
- * $Id: cshow,fff,v 1.1 1999/06/21 17:41:53 james Exp $
+ * $Id: cshow,fff,v 1.2 1999/06/24 17:11:30 ds Exp $
  * cshow.c
  * (c) James Aylett 1999
  *
@@ -16,77 +16,62 @@
 #include "coopt.h"
 
 #define MAX_MODENAME_LENGTH 10
-#define VERSION_STRING "cshow v0.01 (c) James Aylett 1999"
+#define VERSION_STRING "v0.1.1 (c) Zap developers 1999"
 
 /* eek, global variable ... */
 int writing=1;
 
+void *xmalloc (int);
+void *xrealloc (void *, int);
 void do_error(char *);
 int do_fill_byte(void *, FILE *, FILE *);
 int do_fill_word(void *, FILE *, FILE *);
+char *read_mode_name (int, FILE *);
+void help(void);
 
 #define fill_byte(a, b) do_fill_byte(a, b, out);
 #define fill_word(a, b) do_fill_word(a, b, out);
 
-int main(int argc, char const * const * argv)
+const char *program_name;
+
+int
+main(int argc, char const * const * argv)
 {
   FILE *in=NULL, *out=NULL;
   int type;
 
-  struct coopt_option option[10];
+  static const struct coopt_option option[] = {
+    { 'i', COOPT_REQUIRED_PARAM, "input" },
+    { 'v', COOPT_NO_PARAM, "verbose" },
+    { 'l', COOPT_NO_PARAM, "listmodes" },
+    { 'd', COOPT_NO_PARAM, "dumpfile" },
+    { 'r', COOPT_REQUIRED_PARAM, "deletemode" },
+    { 'o', COOPT_REQUIRED_PARAM, "output" },
+    { 't', COOPT_NO_PARAM, "terse" },
+    { 'p', COOPT_NO_PARAM, "pruneunknown" },
+    { 'h', COOPT_NO_PARAM, "help" },
+    { 'V', COOPT_NO_PARAM, "version" }
+  };
+
   struct coopt_state state;
   struct coopt_return ret;
-  int verboseflag=0, terseflag=0, pruneflag=0, deleteflag=0;
-  int usagemode=0;
+  int verboseflag=0, terseflag=0, pruneflag=0, deletemodes=0;
+  enum {
+    usage_default,
+    usage_listmodes,
+    usage_dumpfile
+  } usagemode = usage_default;
+  int shownmode = 0;
 
-#define use_listmodes usagemode==1
-#define use_dumpfile usagemode==2
-#define use_deletemode deleteflag==1
+#define use_listmodes (usagemode == usage_listmodes)
+#define use_dumpfile (usagemode == usage_dumpfile)
+#define use_deletemode (deletemodes)
 
   char const * infile=NULL;
   char const * outfile=NULL;
-  char const * deletemode=NULL;
+  char const ** deletemodelist = NULL;
 
-  option[0].short_option='i';
-  option[0].has_param=COOPT_REQUIRED_PARAM;
-  option[0].long_option="input";
-
-  option[1].short_option='v';
-  option[1].has_param=COOPT_NO_PARAM;
-  option[1].long_option="verbose";
-
-  option[2].short_option='l';
-  option[2].has_param=COOPT_NO_PARAM;
-  option[2].long_option="listmodes";
-
-  option[3].short_option='d';
-  option[3].has_param=COOPT_NO_PARAM;
-  option[3].long_option="dumpfile";
-
-  option[4].short_option='r';
-  option[4].has_param=COOPT_REQUIRED_PARAM;
-  option[4].long_option="deletemode";
-
-  option[5].short_option='o';
-  option[5].has_param=COOPT_REQUIRED_PARAM;
-  option[5].long_option="output";
-
-  option[6].short_option='t';
-  option[6].has_param=COOPT_NO_PARAM;
-  option[6].long_option="terse";
-
-  option[7].short_option='p';
-  option[7].has_param=COOPT_NO_PARAM;
-  option[7].long_option="pruneunknown";
-
-  option[8].short_option='h';
-  option[8].has_param=COOPT_NO_PARAM;
-  option[8].long_option="help";
-
-  option[9].short_option='V';
-  option[9].has_param=COOPT_NO_PARAM;
-  option[9].long_option="version";
-
+  program_name = argv[0];
   coopt_init(&state, option, 10, argc-1, argv+1);
 
   do
@@ -100,26 +85,27 @@ int main(int argc, char const * const * argv)
         {
           case 'i':
             if (infile!=NULL)
-              do_error("you can't specify more than one input file\n");
+              do_error("you can't specify more than one input file");
             infile = ret.param;
             break;
           case 'o':
             if (outfile!=NULL)
-              do_error("you can't specify more than one output file\n");
+              do_error("you can't specify more than one output file");
             outfile = ret.param;
             break;
           case 'l':
-            usagemode=1;
+            usagemode = usage_listmodes;
             break;
           case 'd':
-            usagemode=2;
+            usagemode = usage_dumpfile;
             break;
           case 'r':
-            if (deletemode!=NULL)
-              do_error("you may only specify --deletemode once\n");
-            deleteflag=1;
-            if ((deletemode = ret.param)==NULL)
-              do_error("you must specify the mode to delete!\n");
+            if (!ret.param)
+              do_error("you must specify the mode to delete");
+            deletemodes++;
+            deletemodelist = xrealloc (deletemodelist,
+                                       deletemodes * sizeof (const char *));
+            deletemodelist[deletemodes - 1] = ret.param;
             break;
           case 'v':
             verboseflag=1;
@@ -131,22 +117,10 @@ int main(int argc, char const * const * argv)
             pruneflag=1;
             break;
           case 'V':
-            fprintf(stderr,"%s\n", VERSION_STRING);
+            printf ("cshow %s\n", VERSION_STRING);
             exit(0);
           case 'h':
-            fprintf(stderr,"%s\n", VERSION_STRING);
-            fprintf(stderr,"usage: %s [options] [--output <file] [--input] <file>\n\n", argv[0]);
-            fprintf(stderr,"-i, --input <file>\tconfig file read from <file>; stdin used if not given\n\t\t\tif -i not given, a single argument will be used\n");
-            fprintf(stderr,"-o, --output <file>\tfinal config file written to <file>\n\n");
-            fprintf(stderr,"-l, --listmodes\t\tlist modes only (no dump, no editing)\n");
-            fprintf(stderr,"-d, --dumpfile\t\ttextual file dump to stderr\n");
-            fprintf(stderr,"-r, --deletemode <mode>\tdelete given mode from file\n");
-            fprintf(stderr,"-p, --pruneunknown\tprune unknown blocks in file\n\n");
-            fprintf(stderr,"-v, --verbose\t\tincrease verbosity of output\n");
-            fprintf(stderr,"-t, --terse\t\tdecrease verbosity of output\n\t\t\t(both -v and -t gives somewhere between the two)\n");
-            fprintf(stderr,"-h, --help\t\tdisplay this help message and quit\n");
-            fprintf(stderr,"-V, --version\t\tdisplay version string and quit\n\n");
-            exit(0);
+            help();
             break;
         }
       }
@@ -155,13 +129,13 @@ int main(int argc, char const * const * argv)
         if (infile==NULL)
           infile=ret.param;
         else
-          do_error("you can't specify more than one input file\n");
+          do_error("you can't specify more than one input file");
       }
     }
   } while (coopt_is_okay(ret.result));
 
   if (coopt_is_error(ret.result) || ret.result==COOPT_RESULT_MISSINGPARAM)
-    do_error("error in options processing\n");
+    do_error("error in options processing");
 
   /* processing */
   if (infile==NULL || strcmp(infile, "-")==0)
@@ -172,7 +146,15 @@ int main(int argc, char const * const * argv)
   if (outfile!=NULL)
   {
     if (strcmp(outfile, "-")==0)
+    {
       out=stdout;
+      if (usagemode != usage_default)
+      {
+        fprintf (stderr, "%s: warning: output file is stdout, cannot %s\n",
+                 program_name, use_dumpfile ? "dump" : "list");
+        usagemode = usage_default;
+      }
+    }
     else
       out=fopen(outfile, "wb");
   }
@@ -181,7 +163,7 @@ int main(int argc, char const * const * argv)
   {
     if (out!=stdout && out!=NULL)
       fclose(out);
-    do_error("couldn't open input file\n");
+    do_error("couldn't open input file");
   }
 
   if (out==NULL)
@@ -190,7 +172,7 @@ int main(int argc, char const * const * argv)
     {
       if (in!=stdin)
         fclose(in);
-      do_error("couldn't open output file; REQUIRED for --deletemode\n");
+      do_error("couldn't open output file; REQUIRED for --deletemode");
     }
     else
       writing=-1; /* so the ++ and -- don't bring it up to 1, at which point we'd write */
@@ -198,7 +180,7 @@ int main(int argc, char const * const * argv)
 
   fill_word(&type, in);
   if (strncmp((char *)&type, "Conf", 4)!=0)
-    do_error("wasn't a conf file\n");
+    do_error("wasn't a conf file");
 
   while (!feof(in) && !ferror(in))
   {
@@ -207,7 +189,7 @@ int main(int argc, char const * const * argv)
     int which;
 
     if (fread(&type, 4, 1, in)!=1)
-      do_error("terminated without EOF block marker\n");
+      do_error("terminated without EOF block marker");
     if (fread(&block_len, 4, 1, in)!=1)
       block_len=0;
     if (verboseflag)
@@ -219,7 +201,7 @@ int main(int argc, char const * const * argv)
         if (writing==1)
           fwrite(&type, 4, 1, out);
         if (use_dumpfile)
-          fprintf(stderr, "end of options\n");
+          puts ("\nEnd of options");
         break;
 
       case 1: /* global */
@@ -229,7 +211,12 @@ int main(int argc, char const * const * argv)
           fwrite(&block_len, 4, 1, out);
         }
         if (use_dumpfile)
-          fprintf(stderr, "global options block\n");
+        {
+          if (shownmode)
+            puts ("");
+          shownmode = 1;
+          puts ("Global options block");
+        }
         which=0;
         while (block_len>8)
         {
@@ -241,84 +228,86 @@ int main(int argc, char const * const * argv)
           {
             case 0:case 1:case 2:case 3:
               if (type!=0 && terseflag==0)
-                fprintf(stderr, "\tin global options, reserved word at 0x%x wasn't zero (was 0x%8.8x)\n",
+                printf ("    Warning: global options reserved word at 0x%x was non-zero (was 0x%8.8x)\n",
                        4*which, (unsigned int)type);
               break;
             case 4:
               if (use_dumpfile)
-                fprintf(stderr, "\topt_info = 0x%8.8x\n", (unsigned int)type);
+                printf ("    opt_info         = 0x%8.8x\n", (unsigned int)type);
               break;
             case 5: /* char set? 0x14 */
               if (type!=0 && use_dumpfile)
-                fprintf(stderr, "\told-style (pre v1.30) char set = %i\n", type);
+                printf ("    Char set         = %i\n  [pre-1.30]", type);
               break;
             case 6:
               if (use_dumpfile)
-                fprintf(stderr, "\tcolumn tab width = %i\n", type);
+                printf ("    Column tab width = %i\n", type);
               break;
             case 7:
               if (use_dumpfile)
-                fprintf(stderr, "\topt_flags = 0x%8.8x\n", (unsigned int)type);
+                printf ("    opt_flags        = 0x%8.8x\n", (unsigned int)type);
               break;
             case 8:
               if (use_dumpfile)
-                fprintf(stderr, "\topt_format = 0x%8.8x\n", (unsigned int)type);
+                printf ("    opt_format       = 0x%8.8x\n", (unsigned int)type);
               break;
             case 9:
               if (use_dumpfile)
-                fprintf(stderr, "\tstart address = %i\n", type);
+                printf ("    Start address    = %i (0x%x)\n", type, type);
               break;
             case 10:
               if (use_dumpfile)
-                fprintf(stderr, "\tstart line = %i\n", type);
+                printf ("    Start line       = %i\n", type);
               break;
             case 11:
               if (use_dumpfile)
-                fprintf(stderr, "\tline spacing = %i\n", type);
+                printf ("    Line spacing     = %i\n", type);
               break;
             case 12:
               if (use_dumpfile)
-                fprintf(stderr, "\tmargin width = %i\n", type);
+                printf ("    Margin width     = %i\n", type);
               break;
             case 13:
               if (use_dumpfile)
-                fprintf(stderr, "\tcursor types = %i, %i, %i, %i\n", type & 0xff, (type >> 8) & 0xff, (type >> 16) & 0xff,
-                       (type >> 24) & 0xff);
+                printf ("    Cursor types     = %i, %i, %i, %i\n",
+                        type & 0xff, (type >> 8) & 0xff, (type >> 16) & 0xff,
+                        (type >> 24) & 0xff);
               break;
             case 14:
               if (use_dumpfile)
-                fprintf(stderr, "\teol mask uses %i\n", type & 0xff);
+                printf ("    EOL mask         = %i\n", type & 0xff);
               break;
             case 15:
               if (use_dumpfile)
-                fprintf(stderr, "\ttab mask uses %i\n", type & 0xff);
+                printf ("    Tab mask         = %i\n", type & 0xff);
               break;
             case 16:
               if (use_dumpfile)
-                fprintf(stderr, "\twordwrap width = %i\n", type);
+                printf ("    Wordwrap width   = %i\n", type);
               break;
             case 17:
               if (type!=0 && use_dumpfile)
-                fprintf(stderr, "\told-style (pre v1.20) minibuffer colours = 0x%8.8x\n", (unsigned int)type);
+                printf ("    Minibuf colours  = 0x%8.8x  [pre-1.20]\n", (unsigned int)type);
               break;
             case 18:
               if (use_dumpfile)
-                fprintf(stderr, "\tswitches = 0x%8.8x\n", (unsigned int)type);
+                printf ("    Switches         = 0x%8.8x\n", (unsigned int)type);
               break;
             case 19:
               if (use_dumpfile)
-                fprintf(stderr, "\tminibuffer bg = 0x%8.8x\n", (unsigned int)type);
+                printf ("    Minibuffer bgnd  = 0x%8.8x\n", (unsigned int)type);
               break;
             case 20:
               if (use_dumpfile)
-                fprintf(stderr, "\tminibuffer fg = 0x%8.8x\n", (unsigned int)type);
+                printf ("    Minibuffer fgnd  = 0x%8.8x\n", (unsigned int)type);
               break;
             default:
               if (use_dumpfile)
-                fprintf(stderr, "\teek! a word I don't understand = 0x%8.8x\n", (unsigned int)type);
+                printf ("    (unknown)        = 0x%8.8x\n", (unsigned int)type);
               if (pruneflag==1)
               {
-                fprintf(stderr, "[stripping unknown global options word]\n");
+                fputs ("    [stripping unknown global options word]\n",
+                       stderr);
                 do_write=0;
               }
               break;
@@ -336,106 +325,90 @@ int main(int argc, char const * const * argv)
       case 3: /* new-style mode */
         writing--; /* may well not write this block ... ? */
         if (use_dumpfile)
-          fprintf(stderr, "%s-style %smode block\n", (type==2)?("old"):("new"), (type==2)?("(pre v1.41) "):(""));
+        {
+          if (shownmode)
+            puts ("");
+          shownmode = 1;
+          printf ("Mode block, %s style%s\n",
+                  (type == 2) ? "old" : "new",
+                  (type == 2) ? " [pre-1.41]" : "");
+        }
         { /* just a block to give us space for some more variables */
-          char modename[255];
-          int modelen=0;
-          int done=0;
+          char *modename = read_mode_name (0, in);
+          int modelen = strlen (modename) + 1;
+          int deleting = 0;
+
           if (use_dumpfile)
-            fprintf(stderr, "\tmode name ");
+            printf ("    Mode name         = %s\n", modename);
+          else if (use_listmodes)
+            puts (modename);
+
+          if (use_deletemode && deletemodelist)
+          {
+            int i = 0;
+            while (i < deletemodes && strcmp (modename, deletemodelist[i]))
+              i++;
+            if (i < deletemodes)
+            {
+              fprintf (stderr,
+                       "    [found and deleting %s-style %s mode block]\n",
+                       (type == 2) ? "old" : "new", modename);
+              deleting = 1;
+            }
+          }
+          if (writing == 0 && !deleting)
+          { /* want to write this block after all */
+            fwrite (&type, 4, 1, out);
+            fwrite (&block_len, 4, 1, out);
+            fwrite (modename, 1, modelen, out);
+            writing++;
+          }
 
           if (type==3)
           {
-            modelen=0;
-            do
+            /* could be cloned */
+            char *base = read_mode_name (1, in);
+            modelen += strlen (base) + 1;
+
+            if (strcmp (modename, base))
             {
-              done+=fill_byte(modename+modelen, in);
-              if (modelen++>=255)
-                do_error("internal overflow on mode name\n");
-            } while (modename[modelen-1]!=0);
-
-            if (modelen-1 > MAX_MODENAME_LENGTH)
-              fprintf(stderr, "\tillegal length mode name (%i)\n", modelen-1);
-
-            if (use_dumpfile || use_listmodes)
-              fprintf(stderr, "%s%s", modename, (use_dumpfile)?("; "):(""));
-
-            if (use_deletemode && strcmp(modename, deletemode)==0)
-              fprintf(stderr, "[found and deleting new-style mode %s]\n", modename);
-            else
-            {
-              /* want to write this block after all */
-              if (writing==0)
-              {
-                fwrite(&type, 4, 1, out);
-                fwrite(&block_len, 4, 1, out);
-                fwrite(modename, 1, modelen, out); /* the mode name */
-                writing++;
-              }
+              if (use_dumpfile)
+                printf ("    Clone base name   = %s\n", base);
+              else if (use_listmodes)
+                printf ("    cloned from %s\n", base);
             }
 
-            if (use_dumpfile)
-              fprintf(stderr, "clone base ");
-            if (use_listmodes)
-            {
-              if (terseflag==0)
-                fprintf(stderr, "\n");
-              else
-                fprintf(stderr, " ");
-            }
+            if (writing == 1)
+              fwrite (base, 1, strlen (base) + 1, out);
+
+            free (base);
           }
 
-          modelen=0;
-          do
-          {
-            done+=fill_byte(modename+modelen, in);
-            if (modelen++>=255)
-              do_error("internal overflow on mode name\n");
-          } while (modename[modelen-1]!=0);
+          while (modelen & 3)
+            modelen += fill_byte(&type, in);
 
-          if (modelen-1 > MAX_MODENAME_LENGTH)
-              fprintf(stderr, "\tillegal length %s name (%i)\n", (type==2)?("mode"):("clone base"), modelen-1);
-
-          if (use_dumpfile || (type==2 && use_listmodes))
-            fprintf(stderr, "%s%c", modename, (use_listmodes && type==2 && terseflag==1)?(' '):('\n'));
-
-          if (type==2)
-          {
-            if (use_deletemode && strcmp(modename, deletemode)==0)
-              fprintf(stderr, "[found and deleting old-style mode %s]\n", modename);
-            else
-            {
-              /* want to write this block after all */
-              if (writing==0)
-              {
-                fwrite(&type, 4, 1, out);
-                fwrite(&block_len, 4, 1, out);
-                fwrite(modename, 1, modelen, out); /* the mode name */
-                writing++;
-              }
-            }
-          }
-
-          while (done & 3)
-            done+=fill_byte(&type, in);
+	  free (modename);
         }
 
         fill_word(&block_len, in);
         if ((verboseflag || terseflag) && use_dumpfile)
-          fprintf(stderr, "\tZap handled data of length %i\n", block_len);
+          printf ("    Zap-handled data  = %i bytes\n", block_len);
         if (block_len==12)
         {
           if (use_dumpfile && terseflag==0)
-            fprintf(stderr, "\tpre-v1.20 style\n");
+            puts ("    Data is pre-v1.20 style");
           fill_word(&type, in);
           if (use_dumpfile && terseflag==0)
-            fprintf(stderr, "\tmodedata #0 = 0x%8.8x\n", (unsigned int)type);
+            printf ("    Mode data #0      = 0x%8.8x\n", (unsigned int)type);
           fill_word(&type, in);
           if (use_dumpfile && terseflag==0)
-            fprintf(stderr, "\twimp palette part 1 = 0x%8.8x\n", (unsigned int)type);
-          fill_word(&type, in);
-          if (use_dumpfile && terseflag==0)
-            fprintf(stderr, "\twimp palette part 2 = 0x%8.8x\n", (unsigned int)type);
+          {
+            printf ("    Palette           = 0x%8.8x, ", (unsigned int)type);
+            fill_word(&type, in);
+            printf ("0x%8.8x\n", (unsigned int)type);
+          }
+          else
+            fill_word(&type, in);
         }
         else
         {
@@ -444,7 +417,7 @@ int main(int argc, char const * const * argv)
           {
             fill_word(&type, in);
             if (type!=-1 && use_dumpfile && terseflag==0)
-              fprintf(stderr, "\tmodedata #%i = %8.8x\n", which, (unsigned int)type);
+              printf ("    Mode data #%-3i    = 0x%8.8x\n", which, (unsigned int)type);
             which++;
             block_len-=4;
           } while (type!=-1);
@@ -453,7 +426,7 @@ int main(int argc, char const * const * argv)
           {
             fill_word(&type, in);
             if (use_dumpfile && terseflag==0)
-              fprintf(stderr, "\tcolour #%i = 0x%8.8x\n", which, (unsigned int)type);
+              printf ("    Colour #%-3i       = 0x%8.8x\n", which, (unsigned int)type);
             which++;
             block_len-=4;
           }
@@ -461,17 +434,18 @@ int main(int argc, char const * const * argv)
 
         fill_word(&block_len, in);
         if (use_dumpfile)
-          fprintf(stderr, "\tMode handled data of length %i\n", block_len);
-        if (verboseflag && use_dumpfile)
-          fprintf(stderr, "\t\t");
+        {
+          printf ("    Mode-handled data = %i bytes\n%s", block_len,
+                  verboseflag ? "        " : "");
+        }
         while (block_len--)
         {
           fill_byte(&type, in);
           if (verboseflag && use_dumpfile)
-            fprintf(stderr, "[%2.2x]", type & 0xff);
+            printf ("[%2.2x]", type & 0xff);
         }
         if (verboseflag && use_dumpfile)
-          fprintf(stderr, "\n");
+          puts ("");
 
         done_data=1;
         break;
@@ -483,23 +457,34 @@ int main(int argc, char const * const * argv)
           fwrite(&block_len, 4, 1, out);
         }
         if (use_dumpfile)
-          fprintf(stderr, "version block\n");
+        {
+          if (shownmode)
+            puts ("");
+          shownmode = 1;
+          puts ("Version block");
+        }
         if (block_len!=20 && use_dumpfile)
-          fprintf(stderr, "\teek! block is wrong length!\n");
+          puts ("    Warning: block length is wrong");
         fill_word(&type, in);
         if (use_dumpfile)
-          fprintf(stderr, "\tsaved by Zap v%i.", type);
+          printf ("    Saved by Zap v%i.", type);
         fill_word(&type, in);
         if (use_dumpfile)
-          fprintf(stderr, "%i; ", type);
+          printf ("%i; ", type);
         fill_word(&type, in);
         if (use_dumpfile)
-          fprintf(stderr, "config format rev %i\n", type);
+          printf ("Config format rev %i\n", type);
         done_data=1;
         break;
 
       default: /* error! */
-        fprintf(stderr, "eek! illegal options block, type #%i length %i\n", type, block_len);
+        if (use_dumpfile)
+        {
+          if (shownmode)
+            puts ("");
+          shownmode = 1;
+        }
+        printf ("Warning: illegal options block, type %i length %i\n", type, block_len);
         if (writing==1)
         {
           if (pruneflag==0)
@@ -510,7 +495,7 @@ int main(int argc, char const * const * argv)
           else
           {
             writing--;
-            fprintf(stderr, "[stripping unknown options block]\n");
+            fputs ("    [stripping unknown options block]\n", stderr);
           }
         }
         break;
@@ -519,15 +504,15 @@ int main(int argc, char const * const * argv)
     if (done_data==0 && block_len>8)
     {
       if (verboseflag && use_dumpfile)
-        fprintf(stderr, "\t\t");
+        printf ("        ");
       while (block_len-->8)
       {
         fill_byte(&type, in);
         if (verboseflag && use_dumpfile)
-          fprintf(stderr, "[%2.2x]", ((char *)&type)[0]);
+          printf ("[%2.2x]", ((char *)&type)[0]);
       }
       if (verboseflag && use_dumpfile)
-        fprintf(stderr, "\n");
+        puts ("");
     }
 
     if (writing==0)
@@ -535,7 +520,7 @@ int main(int argc, char const * const * argv)
   }
 
   if (use_listmodes && terseflag==1)
-    fprintf(stderr, "\n");
+    puts ("");
 
   if (in!=stdin)
     fclose(in);
@@ -545,15 +530,17 @@ int main(int argc, char const * const * argv)
   return 0;
 }
 
-int do_fill(void *ptr, size_t s, FILE *in, FILE *out)
+
+int
+do_fill(void *ptr, size_t s, FILE *in, FILE *out)
 {
   int r;
   if (feof(in) || ferror(in))
-    do_error("feof() or ferror()\n");
+    do_error("feof() or ferror()");
   r = fread(ptr, s, 1, in);
   if (r==1)
   {
-    if (writing==1)
+    if (writing==1 && out)
       fwrite(ptr, s, 1, out);
     return 1;
   }
@@ -564,18 +551,104 @@ int do_fill(void *ptr, size_t s, FILE *in, FILE *out)
   return 0;
 }
 
-int do_fill_byte(void *ptr, FILE *fp, FILE *out)
+
+int
+do_fill_byte(void *ptr, FILE *fp, FILE *out)
 {
   return do_fill(ptr, 1, fp, out);
 }
 
-int do_fill_word(void *ptr, FILE *fp, FILE *out)
+
+int
+do_fill_word(void *ptr, FILE *fp, FILE *out)
 {
   return do_fill(ptr, 4, fp, out);
 }
 
-void do_error(char *mess)
+
+char *
+read_mode_name (int type, FILE *in)
 {
-  fprintf(stderr, mess);
+  int len = 0;
+  char *name = xmalloc (256);
+
+  if (!name)
+    do_error ("malloc failed");
+  writing--;
+  do
+  {
+    do_fill_byte (name + len, in, 0);
+    if (len >= 255)
+      do_error ("internal overflow on mode name");
+  } while (name[len++]);
+  writing++;
+
+  if (len - 1 > MAX_MODENAME_LENGTH)
+    fprintf (stderr, "    Error: %s name is too long (%i characters)\n",
+             type ? "clone base" : "mode", len - 1);
+  else if (len == 1)
+    fprintf (stderr, "    Error: null %s name\n",
+             type ? "clone base" : "mode");
+
+  return name;
+}
+
+
+void *
+xmalloc (int size)
+{
+  void *ptr = malloc (size);
+  if (!ptr)
+  {
+    fprintf(stderr, "%s: %salloc failed\n", "m", program_name);
+    exit (2);
+  }
+  return ptr;
+}
+
+
+void *
+xrealloc (void *ptr, int size)
+{
+  ptr = realloc (ptr, size);
+  if (!ptr)
+  {
+    fprintf(stderr, "%s: %salloc failed\n", "re", program_name);
+    exit (2);
+  }
+  return ptr;
+}
+
+
+void
+do_error(char *mess)
+{
+  fprintf(stderr, "%s: %s\n", program_name, mess);
   exit(1);
+}
+
+
+void
+help(void)
+{
+  printf (
+"usage: %s [options] [--output INFILE] [--input] OUTFILE\n"
+"\n"
+"  -i, --input INFILE     config file read from INFILE; stdin used if not given\n"
+"                         if -i not given, a single argument will be used\n"
+"  -o, --output OUTFILE   final config file written to OUTFILE\n"
+"\n"
+"  -l, --listmodes        list modes only (no dump, no editing)\n"
+"  -d, --dumpfile         textual file dump to stderr\n"
+"  -r, --deletemode MODE  delete given mode from file\n"
+"  -p, --pruneunknown     prune unknown blocks in file\n"
+"\n"
+"  -v, --verbose          increase verbosity of output\n"
+"  -t, --terse            decrease verbosity of output\n"
+"                         (both -v and -t gives somewhere between the two)\n"
+"\n"
+"  -h, --help             display this help message and quit\n"
+"  -V, --version          display version string and quit\n"
+    , program_name);
+  exit(0);
 }
