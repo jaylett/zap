@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 1.3 1999/01/15 13:55:19 dj Exp $
+; $Id: Mode0,fff,v 1.4 2000/02/22 15:04:04 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -11,7 +11,7 @@
 	GET	h.Redraw
 	GET	h.Cursors
 	GET	h.Template
-	GET	h.Mode1
+	GET	h.Mode1+2
 	GET	h.SoftWrap
 	GET	h.TMTVars
 
@@ -55,7 +55,7 @@ mode_table_0
 	DCD	mode0_title
 	DCD	mode0_author
 	DCD	0
-	DCD	0
+	DCD	0 :OR: emode_MayBeCloned
 	DCD	mode0_init
 	DCD	0
 	DCD	mode0_table_end-mode_table_0
@@ -63,8 +63,8 @@ mode_table_0
 	DCD	Null			; postload
 	DCD	Null
 	DCD	Null
-	DCD	mode0_start
-	DCD	mode0_end
+	DCD	modes_start
+	DCD	modes_end
 	DCD	mode0_width
 	DCD	mode0_linecol
 	DCD	mode0_lineoff
@@ -548,7 +548,7 @@ cln_phy_backward
 cln_phy_vs
  BLVC err$l
  LDMFD R13!,{R2-R11,PC}		; return with error
-err$l ERR "Internal error: cln_phy"
+err$l ERRlit "Internal error: cln_phy"
 
  LOCAL
 
@@ -596,7 +596,7 @@ cln_log_backward
 cln_log_vs
  BLVC err$l
  LDMFD R13!,{R2-R11,PC}		; return with error
-err$l ERR "Internal error: cln_log"
+err$l ERRlit "Internal error: cln_log"
 
 
 call_mode_clnoff		; call sw mode...
@@ -747,7 +747,7 @@ cln_BA_vs
  LDMFD R13!,{R0,R1}		; restore stack
  BL err$l			; internal error
  LDMFD R13!,{R10-R11,PC}	; ret with error
-err$l ERR "Internal error: cln_BACKWARD"
+err$l ERRlit "Internal error: cln_BACKWARD"
 
 ;;;;;;;;;;;;;;;; low level forward/backward subs ;;;;;;;;;;;;;;;;;;;
 
@@ -1022,14 +1022,6 @@ cln_lc_2
  CMP R0,R3
  MOVCS R0,R3
  LDMFD R13!,{R1-R10,PC}
-
-mode0_start
- MOV R0,#0
- B modes_start
-
-mode0_end
- MOV R0,#0
- B modes_end
 
 ;E R0=line off R1=caret off R2=caret col R8/R9
 ;X R1/R2 new posn after / R2=-1 and R1=new file offset #
@@ -1308,7 +1300,8 @@ search$l			; search for somewhere to split at
  CMP R3,R2			; have we overflowed line end
  BLE search$l			; (not overflow)
  CMP R10,#0
- BLE para$l			; nowhere to split so give up
+; BLE para$l			; nowhere to split so give up
+ BLE search$l			; nowhere to split - keep going anyway because it's rude not to
  MOV R0,#3			; replace
  MOV R1,R10			; file offset
  MOV R2,#1			; number of bytes
@@ -2170,6 +2163,7 @@ call_r3	MOV	R0,#1
 
 local_wflags$l	& 0
 local_wformat$l	& 0
+local_oflags$l	& 0
 ;local_winfo$l	& 0
 placedmark$l	& 0
 local_sel$l	& 0,0
@@ -2429,10 +2423,14 @@ de12
  SUB R5,R5,#1
 de9
  STMFD R13!,{R5}
- BL mode1_delete
+ BL call_mode1_delete
  LDMVCFD R13!,{R0}		; return nun bytes deleted
  ADDVS R13,R13,#4
  FNRTS
+
+call_mode1_delete
+	FNJSR
+	B	mode1_delete_internal
 
 mode0_tab
  FNJSR
@@ -3093,25 +3091,16 @@ cl17
 	BCS cl17			; cycle clicks
 	TST R4,#1<<3			; multidrag?
 	BNE cl20
-	MOV R11,R1			; save click depth
+	SUB R11,R1,#2			; R11 = number of clicks - 2
 	BL find_offset			; R0=file offset
 	LDMVSFD R13!,{R1-R11,PC}
 	MOV R10,R0			; save file offset
- TEQ R11,#2
- BEQ cl_select_word
- TEQ R11,#3
- BEQ cl_select_line
- TEQ R11,#4
- BEQ cl_select_para
- TEQ R11,#5
- BEQ cl_select_all
-;	SUBS R11,R11,#2
-;	BEQ cl_select_word ; =2
-;	CMP R11,#4-2
-;	BLO cl_select_line ; =3
-;	BEQ cl_select_para ; =4
-;	TEQ R11,#5-2
-;	BEQ cl_select_all ; =5
+	CMP R11,#1
+	BLO cl_select_word
+	BEQ cl_select_line
+	CMP R11,#3
+	BLO cl_select_para
+	BEQ cl_select_all
 	LDMFD R13!,{R1-R11,PC}
 cl20
 	FNSTR R1,wimp_dragdepth
@@ -3212,7 +3201,7 @@ mode0_saveandrun
 	FNRTS
 nosaveandrunthanks$l
 	ADR	R0,warn$l
-	MOV	R1,#&80000000		; default + no beep...
+	MOV	R1,#5<<29
 	BL	warn_user
 	FNRTS
 
@@ -3251,7 +3240,7 @@ twstartstr
 twstartstr2
  = 34,32,34,"Run ",0
 warn$l
-	FNS ("This mode does not support running files.")
+	FNS ("zap_NoRunFile")
 
 ; *****************************************
 ; * More misc word start/end like subs... *

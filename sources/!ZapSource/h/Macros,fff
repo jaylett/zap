@@ -1,5 +1,15 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 1.1 1999/01/06 16:59:23 dj Exp $
+; $Id: Macros,fff,v 1.2 2000/02/22 15:04:01 james Exp $
+
+; count in-core storage
+	GBLA InCoreTotal
+InCoreTotal SETA 0
+
+	MACRO
+$la	INCORE $a
+InCoreTotal SETA InCoreTotal+$a
+$la
+	MEND
 
 ; local labels use label$l to get a local label and LOCAL to start a new
 ; area
@@ -25,7 +35,8 @@ l	SETS "x$LocalCount"
 	MACRO
 $la	FNJSR $a
 StackedRegs SETS "$a"
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	STMFD R13!,{R14}
 	|
 	STMFD R13!,{$StackedRegs,R14}
@@ -36,7 +47,8 @@ $la	[ StackedRegs=""
 
 	MACRO
 $la	FNRTS $cc
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	LDM$cc.FD R13!,{PC}
 	|
 	LDM$cc.FD R13!,{$StackedRegs,PC}
@@ -47,7 +59,8 @@ $la	[ StackedRegs=""
 
 	MACRO
 $la	FNPULL $cc
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	LDM$cc.FD R13!,{R14}
 	|
 	LDM$cc.FD R13!,{$StackedRegs,R14}
@@ -58,7 +71,8 @@ $la	[ StackedRegs=""
 
 	MACRO
 $la	FNRTSS $cc
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	LDM$cc.FD R13!,{PC}^
 	|
 	LDM$cc.FD R13!,{$StackedRegs,PC}^
@@ -69,7 +83,8 @@ $la	[ StackedRegs=""
 
 	MACRO
 $la	FNRTV	$cc
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	LDM$cc.FD R13!,{R14}
 	|
 	LDM$cc.FD R13!,{$StackedRegs,R14}
@@ -81,7 +96,8 @@ $la	[ StackedRegs=""
 
 	MACRO
 $la	FNRTVC $cc
-$la	[ StackedRegs=""
+$la
+	[ StackedRegs=""
 	LDM$cc.FD R13!,{R14}
 	|
 	LDM$cc.FD R13!,{$StackedRegs,R14}
@@ -147,12 +163,35 @@ $la	LDR$cc R14,[R12]
  ]
 	MEND
 
+	MACRO
+$la	FNjump $a,$r
+ [ "$r">""
+$la	LDR $r,[R12]
+	ADD PC,$r,#$a
+ |
+$la	STMFD R13!,{R14,PC}
+	LDR R14,[R12]
+	ADD R14,R14,#$a
+	STR R14,[R13,#4]
+	LDMFD R13!,{R14,PC}
+ ]
+	MEND
+
 ; Produce a general purpose error sub generating the given error $a
 
 	MACRO
 $la	ERR $a
 $la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#Vbit		; return with an error
+	B lookup_error			; return with an error
+	DCD ENUM			; error number
+	= "$a",0			; error message
+	ALIGN
+	MEND
+
+	MACRO
+$la	ERRlit $a
+$la	ADD R0,PC,#0			; address of the error message
+	ORRS PC,R14,#1<<28		; return with an error
 	DCD ENUM			; error number
 	= "$a",0			; error message
 	ALIGN
@@ -201,6 +240,100 @@ div2A$l CMP     $a,$b
 
 	LOCAL
 
+	MEND
+
+; Logging information
+;
+; Tim liked to use Zephyr - however this is really only useful for immediate debugging
+; purposes. It also relies on Wimp Messages, and so can't be used from interrupt code,
+; exception handlers and so on.
+; The advantage of SysLog is that it does priorities, and is designed for background
+; logging. This can sensibly be running constantly in any release of Zap (just set the logging
+; level really low), or turned off (if <Zap$Log> isn't set, !SysLog won't be loaded or used).
+;
+; These macros return VS on error, but it is advised to clear this before returning to the Zap
+; central loop.
+;
+; Priorities are as follows (SysLog default is 125):
+;
+;  0	exceptions
+;  10	fatal errors
+;  20	non-fatal errors
+;  50	warnings
+;  100	Zap status (eg: starting, stopping)
+;  110  File ops (eg: loading, saving)
+;  120	Window ops (eg: creation, deletion)
+;  130  Font ops (these may be removed once we've figured out what's wrong here)
+;  150	Minor status (eg: loading modules)
+;  200  Memory management
+;
+; These are bases; so you can add small amounts for less important things within that class.
+; (Only really relevant for warnings and less important things.)
+
+LOG_ALWAYS	*	0
+LOG_EXCEPTION	*	0
+LOG_FATAL	*	10
+LOG_ERROR	*	20
+LOG_WARNING	*	50
+LOG_STATUS	*	100
+LOG_FILE	*	110
+LOG_WINDOW	*	120
+; Above here will be logged by default
+LOG_FONT	*	130
+LOG_MINOR	*	150
+; The following in particular has several levels within the class.
+; LOG_MEMORY gives broad strokes (DA/heap claim and kill, and things like claim_list_block).
+; LOG_MEMORY + 1 gives some more detail on mass memory ops.
+; LOG_MEMORY + 2 gives all claim/free/ensure/extend heap ops (warning: several per second even when idle!).
+; LOG_MEMORY + 3 gives some more detail on heap ops.
+LOG_MEMORY	*	200
+
+	GBLA	LogCount
+	GBLS	LC
+LogCount SETA	0
+LC	SETS	"log$LogCount"
+
+	MACRO
+$la	SYSLOGF	$t,$p
+$la
+ [ LOGGING = SYSLOG
+        STMFD   R13!,{R0-R3,R8-R12,R14}
+        LDR	R0,[R12,#zap_logname]
+        CMP	R0,#0
+        BEQ	jump$LC
+        ADR     R1,text$LC
+        MOV     R2,#$p
+        MOV     R3,R13
+        SWI     XSysLog_LogFormatted
+        B       jump$LC
+text$LC	=       "$t",0
+        ALIGN
+jump$LC	LDMFD   R13!,{R0-R3,R8-R12,R14}
+
+LogCount SETA	LogCount+1
+LC	SETS	"log$LogCount"
+ ]
+        MEND
+
+	MACRO
+$la	SYSLOG	$t,$p
+$la
+ [ LOGGING = SYSLOG
+	STMFD	R13!,{R0-R2,R14}
+        LDR	R0,[R12,#zap_logname]
+        CMP	R0,#0
+        BEQ	jump$LC
+	ADR	R1,text$LC
+	MOV	R2,#$p
+	SWI	XSysLog_LogMessage
+	B	jump$LC
+text$LC	=	"$t",0
+	ALIGN
+jump$LC	LDMIA	R13!,{R0-R2,R14}
+
+LogCount SETA	LogCount+1
+LC	SETS	"log$LogCount"
+ ]
 	MEND
 
 ; end of macros

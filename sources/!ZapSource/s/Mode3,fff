@@ -1,9 +1,9 @@
 ; Contains mode entry points for ascii mode.
-; $Id: Mode3,fff,v 1.2 1999/01/12 18:24:00 dj Exp $
+; $Id: Mode3,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
  GET h.Mode0
- GET h.Mode1
+ GET h.Mode1+2
  GET h.AlterTxt
  GET h.ModeBits
  GET h.Redraw
@@ -12,6 +12,9 @@
  EXPORT mode_table_3
  EXPORT mode3_author
  EXPORT mode3_char
+ EXPORT mode3_cplus
+ EXPORT mode3_cminus
+ EXPORT modes_linecol
 
 ; IMPORT div_mod
 
@@ -22,7 +25,7 @@ mode_table_3
  DCD mode3_title
  DCD mode3_author
  DCD 0 ;
- DCD 3+(1<<11)
+ DCD 3+emode_BinaryMode+emode_MayBeCloned
  DCD mode0_init
  DCD 0
  DCD mode3_table_end-mode_table_3
@@ -30,8 +33,8 @@ mode_table_3
  DCD 0				; postload
  DCD 0
  DCD 0
- DCD mode3_start
- DCD mode3_end
+ DCD modes_start
+ DCD modes_end
  DCD mode3_width
  DCD mode3_linecol
  DCD mode3_lineoff
@@ -39,16 +42,16 @@ mode_table_3
  DCD mode1_clnphy;
  DCD mode1_clnoff;
  DCD mode1_nextline;
- DCD mode1_minus
- DCD mode1_plus
- DCD mode1_minus
- DCD mode1_plus
- DCD mode1_cminus
- DCD mode1_cplus
+ DCD mode3_minus
+ DCD mode3_plus
+ DCD mode3_minus
+ DCD mode3_plus
+ DCD mode3_cminus
+ DCD mode3_cplus
  DCD mode3_redrawline
  DCD mode1_redrawlnum
  DCD mode3_char
- DCD mode1_delete
+ DCD mode3_delete
  DCD 0
  DCD 0
  DCD 0
@@ -60,7 +63,7 @@ mode_table_3
  DCD mode0_copy
  DCD 0
  DCD 0
- DCD mode1_aligncaret;
+ DCD mode3_aligncaret;
  DCD command_primative
  DCD 0
  DCD 0
@@ -84,15 +87,14 @@ mode3_title
 
 mode3_width
  STMFD R13!,{R1-R2,R14}
- MVN R0,#0
- MOV R1,#3
+ MOV R0,#-1
+ LDRB R1,[R8,#w_format]
  MOV R2,#0
  BL mode_data
  MOV R0,R0,LSL#16
  MOV R0,R0,LSR#16		; bottom 16 bits
  CMP R0,#1
  MOVLT R0,#1
- ; BL	 update_w_bpl
  STR R0,[R8,#w_bpl]
  LDMFD R13!,{R1-R2,PC}
 
@@ -124,87 +126,27 @@ mode3_linecol
  STMFD R13!,{R1-R6,R14}
  MOV R2,#1
  MOV R3,#1
- B modes_linecol
 
 ;E R1-R6 stacked R0=file offset R1=column
 ;  R2=chars per screen column R3=bytes per screen column
 ;X R0=file offset of the character
 
-;modes_linecol - the original routine before James modified it in byte mode.
-; no difference though???
-
-; LDR R4,[R8,#w_bpl]
-; MOV R6,R2			; col offset
-;cln_lc_4
-; CMP R1,R6
-; BLT cl14
-; SUBS R4,R4,R3			; off end of line ?
-; BLE cl14
-; ADD R0,R0,R3
-; ADD R6,R6,R2
-; B cln_lc_4
-;cl14
-; LDR R1,[R9,#f_len]
-; CMP R0,R1
-; MOVCS R0,R1
-; LDMFD R13!,{R1-R6,PC}
-
-;mode3_clnphy
-; MOV R1,R0			; phy line=log line
-; LDR R0,[R8,#w_bpl]
-; MUL R0,R1,R0			; offset
-; MOV PC,R14
-
-;mode3_clnlog
-; MOV R1,R0
-; LDR R0,[R8,#w_bpl]
-; MUL R0,R1,R0
-; MOV PC,R14
-
-;mode3_clnoff
-; STMFD R13!,{R3-R4,R14}
-; LDR R1,[R9,#f_len]
-; CMP R0,R1
-; MOVCC R4,R0
-; MOVCS R4,R1			; search offset in file or on end
-; MOV R0,R4
-; LDR R1,[R8,#w_bpl]
-; SWI XZapRedraw_Divide ; BL div_mod			; R0=phy line R2=col byte offset
-; SUB R1,R4,R2			; offset of start of line
-; MOV R2,R0			; log line
-; LDMFD R13!,{R3-R4,PC}
-
-;E R0=file offset R1=signed change (0 for a replace) R8/R9 (e_nextline)
-;X R0=file offset R1=phy ln / R0=file len R1=w_height (of next logical
-;  line which may be shifted down regardless of text inserted before it)
-
-;mode3_nextline
-; STMFD R13!,{R2-R3,R14}
-; TEQ R1,#0
-; BNE cl7			; not a replace
-; BL cln_off			; R0=phy line R1=line offset
-; LDMVSFD R13!,{R2-R3,PC}
-; LDR R2,[R8,#w_bpl]
-; ADD R2,R1,R2			; offset of start of next line
-; ADD R1,R0,#1			; next phy line
-; LDR R0,[R9,#f_len]
-; CMP R2,R0
-; MOVCC R0,R2			; next shiftable line is next line
-; LDMCCFD R13!,{R2-R3,PC}
-;cl7
-; LDR R0,[R9,#f_len]
-; LDR R1,[R8,#w_bpl]
-; SWI XZapRedraw_Divide ; BL div_mod			; get line in R0
-; MOV R1,R0			; phy line of end
-; LDR R0,[R9,#f_len]
-; LDMFD R13!,{R2-R3,PC}
-;
-;mode3_aligncaret
-; FNLDR R0,car_hex		; copy so can be recovered only
-; FNSTR R0,car_hexold		; by e_char entry point
-; MOV R0,#0
-; FNSTR R0,car_hex		; zero current value
-; MOV PC,R14
+modes_linecol
+ LDR R4,[R8,#w_bpl]
+ MOV R6,R2			; col offset
+cln_lc_4
+ CMP R1,R6
+ BLT cl14
+ ADD R0,R0,R3		; these two lines?		| Think not since
+ ADD R6,R6,R2		; swap with line below...?	| condition is LE? - sja
+ SUBS R4,R4,R3		; off end of line ?
+ BLE cl14
+ B cln_lc_4
+cl14
+ LDR R1,[R9,#f_len]
+ CMP R0,R1
+ MOVCS R0,R1
+ LDMFD R13!,{R1-R6,PC}
 
 ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
@@ -212,34 +154,26 @@ mode3_char
  MOV R11,R5
  B insert_chars_at
 
-mode3_start
- MOV R0,#3
- B modes_start
-
-mode3_end
- MOV R0,#3
- B modes_end
-
 mode3_interrogate
- CMP R0,#14
- CMPNE R0,#23			; block editing?
- CMPNE R0,#24			; auto-indent
- CMPNE R0,#13 ; SAYT
+ CMP R0,#einterrogate_ModeType
+ CMPNE R0,#einterrogate_BlockEdit
+ CMPNE R0,#einterrogate_AutoIndent
+ CMPNE R0,#einterrogate_SpellAsYouType
  MOVEQ R0,#0
- CMPNE R0,#11
+ CMPNE R0,#einterrogate_ElaborateSubStyles
  MOVEQ PC,R14
- CMP R0,#3
+ CMP R0,#einterrogate_PreSetWidth
  BEQ whatwidthplease
- CMP R0,#5 ; ConfineH?
- CMPNE R0,#6 ; ConfineV?
- CMPNE R0,#7 ; Free click?
- CMPNE R0,#8 ; Smart cursors?
- CMPNE R0,#12 ; Smart cursors?
+ CMP R0,#einterrogate_ConfineH
+ CMPNE R0,#einterrogate_ConfineV
+ CMPNE R0,#einterrogate_FreeClick
+ CMPNE R0,#einterrogate_SmartCursor
+ CMPNE R0,#einterrogate_LineSelect
  MOVEQ R0,#0
  MOVEQ PC,R14
- CMP R0,#2
+ CMP R0,#einterrogate_SoftWrap
  MVNEQ R0,#0
- CMP R0,#0
+ CMP R0,#einterrogate_WindowWrapWidth
  MOVEQ R0,R1
  MOV PC,R14
 
@@ -247,4 +181,67 @@ whatwidthplease
  MOV R0,R1
  MOV PC,R14
 
- END
+
+mode3_plus
+	MVN	R2,#0
+	ADD	R1,R1,#1
+	MOV	PC,R14
+
+mode3_minus
+	MVN	R2,#0
+	SUB	R1,R1,#1
+	MOV	PC,R14
+
+mode3_cplus
+	MVN	R2,#0
+	LDR	R1,[R8,#w_bpl]
+	ADD	R0,R0,R1
+	SUB	R1,R0,#1
+	MOV	PC,R14
+
+mode3_cminus
+	MVN	R2,#0
+	MOV	R1,R0
+	MOV	PC,R14
+
+	LOCAL
+
+mode3_delete
+	FNJSR
+	TST	R7,#1
+	BNE	delnext$l
+	LDR	R1,[R10,#c_off]
+	CMP	R5,R1
+	MOVGT	R5,R1			; clip
+	SUB	R1,R1,R5		; new pointer
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+	MOVEQ	R0,#2			; delete char
+	MOVGT	R0,#&12			; delete block
+	MOV	R2,R5
+thedelete$l
+	BL	execute_command		; delete the chars
+	FNRTS
+
+delnext$l
+	LDR	R1,[R10,#c_off]
+	LDR	R2,[R9,#f_len]
+	SUB	R2,R2,R1		; max number to delete
+	CMP	R5,R2
+	MOVGT	R5,R2			; clip
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+	MOVEQ	R0,#5			; delete char
+	MOVGT	R0,#&15			; delete block
+	MOV	R2,R5
+	BL	execute_command		; delete the chars
+	FNRTS
+
+mode3_aligncaret
+	FNLDR	R0,car_hex		; copy so can be recovered only
+	FNSTR	R0,car_hexold		; by e_char entry point
+	MOV	R0,#0
+	FNSTR	R0,car_hex		; zero current value
+	MOV	PC,R14
+
+	END

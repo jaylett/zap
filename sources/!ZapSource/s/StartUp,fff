@@ -1,23 +1,30 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.2 1999/01/12 18:24:11 dj Exp $
+; $Id: StartUp,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
+ GET h.Messages
  GET h.Heap
  GET h.Redraw
  GET h.KeyBits
  GET h.ModeBits
  GET h.CreateFile
  GET h.Strings
+ GET h.Version
+ GET h.CreateWind
 
 ; IMPORT env_noicon_check
+ IMPORT command_string
 
  EXPORT init_vars
  EXPORT init_stack
  EXPORT free_stack
  EXPORT init_fixed
  EXPORT init_config
+ EXPORT find_version_block
  EXPORT read_given_config_block
+ EXPORT write_config_block
+ EXPORT find_config_block
  EXPORT init_envstring
  EXPORT init_load
  EXPORT Saveoptions
@@ -28,8 +35,12 @@
  EXPORT check_object_type
  EXPORT generate_error
  EXPORT init_external
+ EXPORT init_clones
  EXPORT remove_external_object
  EXPORT get_pointer_to_code_cols
+ EXPORT	add_clone_mode_entry
+ EXPORT find_clone_mode_entry
+ EXPORT remove_clone_mode_entry
 
 stack_size		* &800		; stack size
 initial_wimpslot	* 96*1024	; 96K initial wimpslot
@@ -169,8 +180,11 @@ list$l
  DCD &20,ext_modes	; &40
  DCD &20,ext_comms	; &80
  DCD &10,ext_messages
+ DCD &20,ext_clones
  DCD 4,ext_comm_flags
  DCD 0,wimp_clicksend
+ DCD 0,startup_command
+ DCD 0,wimp_config
  DCD if_limit*4,if_bits	; eeek lots of memory :-<
  ;DCD 0,tem_offsets
  DCD -1
@@ -199,7 +213,7 @@ init_stack
  FNSTR R13,env_top		; start of free memory
  SUB R3,R13,R2
  B fill_words			; is this needed...?
-err$l ERR "Couldn't init_stack"
+err$l ERR "zap_e_initstack"
 
 ;X R0=amount unused on stack (still &ABC00DEF) |
 
@@ -245,7 +259,7 @@ a$l
  FNRTS
 table$l
  DCD &100,wimp_buffer
- DCD &100,wimp_block
+ DCD &800,wimp_block
  DCD &64,car_block		; hex?
  DCD &80,wimp_dzap
  DCD &80,wimp_print
@@ -263,15 +277,12 @@ table$l
 ;X !Config loaded in if found and correct type
 ;  Options block read and set up.
 ;  Mode blocks left stored in memory undread until the mode is loaded. #
-;  Mode blocks all cleared to 0's.
+;  Mode blocks all cleared to 0's. TMF MessageTrans pointers all cleared to 0's.
 
 init_config
  FNJSR "R1-R10"
 ; BL loadzapredraw
- BL load_config			; R6=addr R7=len
-; FNRTS VS
- FNSTR R6,wimp_config,VC		; address of config file
- FNSTR R7,wimp_conlen,VC		; config file length
+ BL load_config
  MOVVC R1,#0
  ADDVC R2,R12,#opt_mode0
  MOVVC R3,#max_mode*4
@@ -284,8 +295,12 @@ init_config
  MOVVC R2,R0
  MOVVC R3,#max_mode*4
  BLVC fill_words			; clear all mode data pointers
+ FNADD R2,R12,opt_TMFbase,VC
+ MOVVC R1,#0
+ MOVVC R3,#max_mode*4
+ BLVC fill_words			; clear the TMF MessageTrans pointers
  MOVVC R0,#1
- BL read_given_config_block	; read the options block
+ BLVC read_given_config_block	; read the options block
  FNRTS VS
  CMP R0,#-1
  BLEQ err$l
@@ -295,22 +310,21 @@ init_config
 ; BLVC loadzapredraw
  BLVC update_options		; make any changes required to options block
  FNRTS
-err$l ERR "Config file options block corrupt"
+err$l ERR "zap_e_badconfig"
 
  LOCAL
 
 ;X R6=address of heap block with the config file in.
-;  R7=length #
 
 load_config
  FNJSR "R1-R5"
  MOV R0,#5
  ADR R1,file$l
  SWI XOS_File			; get file info
+ MOV R6,#0
  BVS err$l			; load default
  TST R0,#1			; file?
  BEQ err$l			; load default
- MOV R7,R4			; file length
  MOV R0,R4			; file length
  BL heap_claim
  FNRTS VS
@@ -320,28 +334,43 @@ load_config
  MOV R2,R6
  MOV R3,#0
  SWI XOS_File			; load the file
- BVS err$l			; problems
+ BVC std$l
+err$l				; problem? load the default file instead
+ MOV R0,R6
+ ADR R6,default$l
+ TEQ R0,R6
+ BLNE heap_free			; if claimed space for saved file, free it
+std$l
  LDR R0,[R6]			; first word of file
  LDR R14,default$l
  TEQ R0,R14
- BNE err$l			; not of correct format
- FNRTS				; file loaded ok
-err$l				; load the default file instead
- ;SWI &107
- ;B err$l
- ADDS R0,R0,#0			; clv
- ADR R1,default$l
- MOV R7,#(defend$l-default$l)
- MOV R0,R7
- BL heap_claim
- MOVVC R6,R0
- MOVVC R2,R6
- MOVVC R3,R7
- BLVC move_bytes		; copy in default file
+ BNE err$l			; not of correct format (default must be OK)
+ ADD R4,R6,#4
+copy$l				; separate into individual heap blocks...
+ LDMIA R4,{R1,R3}
+ TEQ R1,#0
+ BEQ done$l
+ CMP R1,#-1
+ RSBGES R14,R1,#3		; if unexpected block type found, *stop*
+ BLT done$l
+ TST R3,#3			; not word aligned? *stop*
+ BNE done$l
+ CMP R3,#65536			; 64K is more than enough for any mode ;-)
+ BHI done$l
+ MOV R0,R4
+ ADD R4,R4,R3
+ BL copy_and_link_config_block
+ BVC copy$l
  FNRTS
+done$l
+ MOV R0,R6
+ ADR R6,default$l
+ TEQ R0,R6
+ BLNE heap_free
+ FNLDR R6,wimp_config
+ FNRTS				; file loaded ok
 file$l = "<",|zap$|,"$Options>",0
  ALIGN
-
 default$l			; default config file
  = "Conf"
 
@@ -371,6 +400,8 @@ __global_start$l
  DCD &00000000			; reserved 4 ; bg
 __global_end$l
 
+	&	-1, 20, version_major, version_minor, version_config
+
 	&	2
 	&	&54
 	FNS	("Text")
@@ -395,6 +426,19 @@ __global_end$l
 	&	4
 	&	&082E0200
 
+halfword_config
+	&	2
+	&	&5C
+	FNS	("HalfWord")
+	&	&3C
+	&	&05400008, &0200000F, &00000000, &00000000
+	&	-1
+	&	&00000010, &00000010, &FFFFFF10, &FFFFFF10
+	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
+	&	&0000DD10, &FFBB0010
+	&	4
+	&	&142E0200
+
 	&	2
 	&	&58
 	FNS	("Word")
@@ -405,7 +449,20 @@ __global_end$l
 	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
 	&	&0000DD10, &FFBB0010
 	&	4
-	&	&042E0200
+	&	&242E0200
+
+doubleword_config
+	&	2
+	&	&5C
+	FNS	("DoubleWord")
+	&	&3C
+	&	&05400002, &0200000F, &00000000, &00000000
+	&	-1
+	&	&00000010, &00000010, &FFFFFF10, &FFFFFF10
+	&	&00000010, &FFFFFF10, &00000010, &00EEEE10
+	&	&0000DD10, &FFBB0010
+	&	4
+	&	&322E0200
 
 	&	2
 	&	&54
@@ -465,8 +522,24 @@ get_pointer_to_code_cols
 
  LOCAL
 
-;E R0=Block type (1=options block 2=mode block)
-;  R1=Mode number of block to read if R0=2
+;X R0 = version block (pointing at major vsn no), or 0
+;  Z flag set accordingly
+
+find_version_block
+	FNJSR	"R5,R6"
+	FNLDR	R6,wimp_config
+findver$l
+	LDR	R5,[R6],#4
+	TEQ	R5,#0
+	FNRTS	EQ
+	LDR	R0,[R5]
+	CMP	R0,#-1
+	BNE	findver$l
+	ADDS	R0,R5,#8
+	FNRTS
+
+;E R0=Block type (1=options block 2,3=mode block)
+;  R1=Mode number of block to read if R0=2,3
 ;X R0=-1 if block not found (+ve otherwise)
 ;  Block read in and removed from list.
 
@@ -475,57 +548,55 @@ read_given_config_block
  MOV R3,R0			; save block type
  MOV R4,R1			; and mode
  FNLDR R6,wimp_config
- FNLDR R7,wimp_conlen
- ADD R5,R6,#4			; first config block
 loop$l
+ LDR R5,[R6],#4
+ TEQ R5,#0
+ MOVEQ R0,#-1
+ FNRTS EQ
  LDR R0,[R5]
- TEQ R0,#0
- BEQ notfound$l
  TEQ R0,R3
- BNE next$l			; not the correct type
+ BNE loop$l			; not the correct type
  TEQ R0,#2
+ TEQNE R0,#3
  BNE found$l			; not a mode block
  ADD R0,R5,#8			; mode name
  BL test_mode_name		; get number if loaded
  FNRTS VS
- TEQ R0,R4
- BEQ found$l			; check its the correct mode
-next$l
- LDR R0,[R5,#4]			; block length
- ADD R5,R5,R0			; next block
- B loop$l
-notfound$l
- MOV R0,#-1
- FNRTS
+ TEQ R0,R4			; check its the correct mode
+ BNE loop$l
 found$l				; got the right block
- BL read_config_block		; read in the block (it does wimp_conlen)
- MOVVC R0,#0			; found
+ BL read_config_block		; read in the block
  FNRTS
 
  LOCAL
 
-;E R6=address of config file R7=length of config file
-;  R5=pointer to a config file block
+;E R5=pointer to a config file block
 ;X Block read in and deleted if it can be, skipped otherwise
-;  R5,R7,wimp_conlen updated. #
 
 read_config_block
  FNJSR "R1-R4,R6,R8-R11"
  LDR R0,[R5]			; block type
- LDR R4,[R5,#4]
- ADD R4,R5,R4			; next block
+ CMP R0,#-1
+ BEQ ver$l
  CMP R0,#1
  FNRTS LT			; end of the file
  BEQ opt$l			; standard block
+ MOV R11,R0			; save block type for later
  ADD R0,R5,#8
  BL test_mode_name		; R0=mode num / -1 if not found
  FNRTS VS
  ADDS R8,R0,#0			; save mode number
- MOVMI R5,R4			; skip as mode not found
  FNRTS MI
  ADD R0,R5,#8			; mode name
  BL str_len
  ADD R9,R5,R0
+ TEQ R11,#2
+ BEQ type2$l
+ ADD R0,R9,#9			; clone name
+ BL str_len
+ ADD R9,R9,R0
+ ADD R9,R9,#1			; skip extra NUL
+type2$l
  ADD R9,R9,#12			; 8+1 term+3 align
  BIC R9,R9,#3			; Zap bit length ...
  LDR R10,[R9],#4		; length of Zap bit
@@ -536,13 +607,14 @@ read_config_block
  MOV R0,R8
  BL read_mode			; R0=unlinked R1=linked
  LDR R0,[R1,#2*e_mode]		; mode num + flags
- TST R0,#1<<10			; do we need to claim block?
+ TST R0,#emode_ModeWordIsBlock	; do we need to claim block?
  BNE claim$l
  CMP R10,#0
  LDRGT R0,[R9]
  ADDGT R1,R12,#opt_mode0
  STRGT R0,[R1,R8,LSL#2]		; store the word of data
- B end$l
+ BL delete_config_block
+ FNRTS
 claim$l
  ADD R0,R10,#4			; length of block inc count word
  BL heap_claim
@@ -555,42 +627,49 @@ claim$l
  MOV R1,R9
  MOV R3,R10
  BL move_bytes			; copy in the data
- B end$l
+ BL delete_config_block
+ MOV R0,R2
+ FNRTS
 opt$l				; main options block
  ADD R1,R5,#8
  ADD R2,R12,#opt_start
  MOV R3,#(opt_end-opt_start)
  BL move_bytes
-end$l				; finished - delete the block
- MOV R1,R4
- MOV R2,R5
- SUB R3,R4,R6
- SUB R3,R7,R3
- BL move_bytes
- SUB R0,R4,R5			; amount deleted
- SUB R7,R7,R0
- FNSTR R7,wimp_conlen
+ BL delete_config_block
+ FNRTS
+ver$l
+ LDR R0,[R5,#4]
+ BL heap_claim
+ FNRTS VS
+ MOV R1,R5
+ MOV R2,R0
+ LDR R3,[R5,#4]
+ MOV R6,R0
+ BL move_bytes			; copy in the data
+ BL delete_config_block
+ MOV R0,R6
  FNRTS
 
  LOCAL
 
-;E R6=address of config file, R7=length
-;  R0=mode number to add block for / -1 for main global block
-;X Block added to end of config file & R6,R7,wimp_con* updated
+;E R0=mode number to add block for / -1 for main global block
+;    if b30 set then R1 = mode name (for cloning purposes)
+;X Block added to end of config file & wimp_config updated
+;  R14=new block
 
 write_config_block
  FNJSR "R1-R5,R8-R11"
- ADD R5,R6,R7			; after 0
- SUB R5,R5,#4			; start for this block
  ADDS R8,R0,#0			; R8=save mode number
  BMI opt$l			; do main block
+ BIC R0,R0,#1<<30		; (the later LSL#2s on R8 are OK - b30 lost)
  BL read_mode			; R1=linked mode table
+ MOV R14,#0
  CMP R1,#0			; was this a valid mode?
  FNRTS LE			; Mode not valid so exits
  ADD R0,R12,#opt_mode0
  LDR R4,[R0,R8,LSL#2]		; mode word contents
  LDR R10,[R1,#e_mode*2]		; mode flags
- TST R10,#1<<10
+ TST R10,#emode_ModeWordIsBlock
  MOVEQ R11,#4			; size of the mode block
  BEQ a$l
  CMP R4,#0			; valid contents?
@@ -603,17 +682,26 @@ a$l				; R4=opt_moden R10=flags R11=mode blk len
  LDR R0,[R3]
  BIC R0,R0,#&FF000000		; length of block (length word -> -1)
  ADD R0,R0,R11			; add length of mode block
- ADD R0,R0,#36			; 8+12+4+blk+4+blk=28+blks
- BL ensure_config_block
+ ADD R0,R0,#96;80;64		; 12+4+blk+4+blk=28+blks, plus space for name
+ BL heap_claim
  FNRTS VS
- MOV R0,#2
+ MOV R5,R0
+ MOV R0,#3
  STR R0,[R5]			; block code
- LDR R2,[R1,#e_title*2]		; address of mode name
+ TST R8,#1<<30
+ LDREQ R2,[R1,#e_title*2]	; address of mode name
+ LDRNE R2,[R13]			; or mode name from stack
+ LDR R0,[R1,#d_clonebasemode]	; clone base number
+ BL read_mode
+ PUSH "R1"
  ADD R1,R5,#8
  BL strcopy			; copy in mode name
+ PULL "R2"
+ LDR R2,[R2,#e_title*2]		; clone base name
+ BL strcopy			; copy in clone name
  ADD R1,R1,#3
  BIC R9,R1,#3			; next place to write (Zap block)
- BL write_conf_mode_data	; write the data block (below)
+ BL write_conf_mode_data	; copy mode data
  FNRTS VS
  STR R11,[R9],#4		; size of mode block
  TST R10,#1<<10
@@ -627,40 +715,120 @@ a$l				; R4=opt_moden R10=flags R11=mode blk len
 end$l				; R5=block start R9=block end
  SUB R0,R9,R5			; block length
  STR R0,[R5,#4]			; save
- MOV R0,#0
- STR R0,[R9],#4			; add terminator
- SUB R7,R9,R6			; new length
- FNSTR R7,wimp_conlen
+ BL link_config_block		; link in config block
+ MOV R14,R5
  FNRTS
 opt$l				; do main options block
- MOV R0,#1
- STR R0,[R5]
+ CMN R0,#1
+ BLT version$l
  MOV R3,#opt_end-opt_start
  ADD R0,R3,#16
- BL ensure_config_block
+ BL heap_claim
  FNRTS VS
+ MOV R5,R0
+ MOV R0,#1
+ STR R0,[R5]
  ADD R1,R12,#opt_start
  ADD R2,R5,#8
  ADD R9,R2,R3
  BL move_bytes
  B end$l
+version$l
+ MOV R0,#20
+ BL heap_claim
+ FNRTS VS
+ MOV R5,R0
+ MOV R0,#-1
+ STR R0,[R5]
+ ADR R0,version_info$l
+ LDMIA R0,{R0-R2}
+ ADD R9,R5,#8
+ STMIA R9!,{R0-R2}
+ B end$l
+version_info$l
+ & version_major, version_minor, version_config
 
-;E R5=current posn R6=start of config block R7=current length
-;  R0=size of block to insert
-;X Block made big enough
+;E R0 -> mode name
+;X R0 = pointer to type 3 block / 0
 
-ensure_config_block
- FNJSR "R1"
- ADD R1,R0,R7			; size block needs to be
- SUB R5,R5,R6			; offset into block
- MOV R0,R6
- BL heap_ensure
- FNSTR R0,wimp_config,VC
- MOVVC R6,R0
- ADDVC R5,R6,R5			; new posn in block
- FNRTS
+find_config_block
+	FNJSR	"R1-R4"
+	MOV	R4,R0
+	FNLDR	R3,wimp_config
+scan$l	LDR	R0,[R3],#4
+	TEQ	R0,#0
+	FNRTS	EQ
+	LDR	R1,[R0]
+	TEQ	R1,#3
+	BNE	scan$l
+	ADD	R1,R0,#8
+	MOV	R2,R4
+	BL	strCMP
+	BNE	scan$l
+	LDR	R0,[R3,#-4]
+	FNRTS
 
-;E R3=pointer to mode data block R9=pointer to output buffer
+	LOCAL
+
+;E R0=pointer to config block
+;X Config block copied; copy added to list
+
+copy_and_link_config_block
+	FNJSR	"R1-R5"
+	MOV	R2,R0
+	LDR	R0,[R2,#4]
+	BL	heap_claim
+	MOVVC	R1,R2
+	MOVVC	R2,R0
+	LDRVC	R3,[R1,#4]
+	MOVVC	R5,R0
+	BLVC	move_bytes
+	BLVC	link_config_block
+	FNRTS
+
+	LOCAL
+
+;E R5=pointer to config block
+;X Config block added to list
+
+link_config_block
+	FNJSR	"R1-R3"
+	FNLDR	R0,wimp_config
+	SUB	R2,R0,#4
+len$l	LDR	R1,[R2,#4]!
+	TEQ	R1,#0
+	BNE	len$l
+	SUB	R2,R2,R0
+	ADD	R1,R2,#8
+	BL	heap_ensure
+	FNSTR	R0,wimp_config,VC
+	STRVC	R5,[R2,R0]!
+	MOVVC	R1,#0
+	STRVC	R1,[R2,#4]
+	FNRTS
+
+;E R5=pointer to config block
+;X Config block deleted (if present)
+
+delete_config_block
+	FNJSR	"R1-R3"
+	FNLDR	R3,wimp_config
+scan$l	LDR	R0,[R3],#4
+	TEQ	R0,#0
+	FNRTS	EQ
+	TEQ	R0,R5
+	BNE	scan$l
+	BL	heap_free
+	MOVVC	R0,#0
+shift$l	LDR	R1,[R3],#4
+	STR	R1,[R3,#-8]
+	TEQ	R1,#0
+	BNE	shift$l
+	TEQ	R0,#0
+	FNRTS	EQ
+	FNRTV
+
+;E R5=pointer to mode data block
 ;X Block copied, R9 updated #
 
 write_conf_mode_data
@@ -685,10 +853,21 @@ write_conf_mode_data
  BL move_bytes
  FNRTS
 
+ LOCAL
+
 ;X Options block updated to new format
 
 update_options
- FNJSR "R1-R4"
+ FNJSR "R1-R5"
+ BL find_version_block
+ LDRNE R5,[R0,#8]		; get config version, if present
+ MOVEQ R5,#0			; else default to version 0
+ TEQ R5,#0			; config file version == 0?
+ ADREQL R0,halfword_config	; yes - need to add halfword mode info
+ BLEQ copy_and_link_config_block
+ CMP R5,#1			; config file version <= 1?
+ ADRLSL R0,doubleword_config	; yes - need to add doubleword mode info
+ BLLS copy_and_link_config_block
  FNLDR R0,opt_minicols
  TEQ R0,#0
  FNRTS EQ			; up to date
@@ -731,6 +910,7 @@ init_envstring
  LOCAL
 
 ;X Looks at the environment string and loads any file after "Zap " WD #
+;  Also runs the startup command (&322).
 
 init_load
  FNJSR "R1-R5"
@@ -743,7 +923,8 @@ init_load
  LDR R0,[R5],#4			; get first word
  LDR R1,zap$l
  TEQ R0,R1
- FNRTS NE			; no match
+ FNPULL NE			; no match
+ BNE startup_command$l
 
  MOV R0,R5
  BL str_len
@@ -763,7 +944,8 @@ loop2$l
  LDRB R14,[R2]
  CMP R14,#'-'
  CMPNE R14,#&20
- FNRTS LE			; no match
+ FNPULL LE			; no match
+ BLE startup_command$l
 
 ;  MOV R5,R2
 ; skip$l
@@ -782,43 +964,101 @@ loop2$l
  BL strmove			; copy filename to buffer stripping spaces
  FNLDR R0,wimp_data
  BL install_file
+ FNLDR R1,opt_switches
+ TST R1,#switch_ExecuteStartCom
+ BLNE startup_command$l
  FNRTS
 zap$l = "Zap "
+
+; Execute startup command
+startup_command$l
+ FNJSR "r0,r8-r10"
+ MOV R8,#0
+ MOV R9,#0
+ MOV R10,#0			; no context to command
+ FNLDR R0,startup_command
+ ORR R0,R0,#command_DontLearn	; don't learn (should be irrelevant ...)
+ BL command_string
+ FNRTSS				; no error!
 
  LOCAL
 
 ;X Config file written and options saved
 
- DCD 7
+	DCD	7
 Saveoptions
- FNJSR
- FNLDR R6,wimp_config
- FNLDR R7,wimp_conlen
- MOV R10,R7			; save orginal length of file
- MVN R4,#0			; first block to add in
-su10
- MOV R0,R4			; block to add
- BL write_config_block		; add it
- FNRTS VS
- ADD R4,R4,#1			; next mode
- CMP R4,#max_mode
- BLT su10
- MOV R0,#&0A
- ADR R1,file$l
- MOV R2,   #&F00
- ORR R2,R2,#&0FD		; data file type
- MOV R3,#0
- MOV R4,R6
- ADD R5,R6,R7
- SWI XOS_File			; write the file
- MOVVC R7,R10			; original length of file
- ADDVC R6,R6,R7
- MOVVC R0,#0
- STRVC R0,[R6,#-4]		; put it back to what it was
- FNSTR R7,wimp_conlen,VC
- FNRTS
-file$l = "<",|zap$|,"$Options>",0
- ALIGN
+	FNJSR
+	MOV	R10,R13
+prefindver$l
+	BL	find_version_block
+	BEQ	donever$l
+	SUB	R5,R0,#8
+	BL	delete_config_block	; delete version block if found
+	B	prefindver$l		; any duplicates? (hope not...)
+donever$l
+	MOV	R4,#-2			; first block to add in
+	MOV	R0,#0
+	PUSH	"R0"
+su10	MOV	R0,R4			; block to add
+	BL	write_config_block	; add it
+	BVS	ret$l
+	TEQ	R14,#0
+	PUSH	"R14",NE
+	ADD	R4,R4,#1		; next mode
+	CMP	R4,#max_mode
+	BLT	su10
+	FNLDR	R6,wimp_config
+	MOV	R0,#8			; find config file size
+size$l	LDR	R1,[R6],#4
+	TEQ	R1,#0
+	LDRNE	R1,[R1,#4]
+	ADDNE	R0,R0,R1
+	BNE	size$l
+	BL	heap_claim
+	MOVVS	R11,#0
+	BVS	free$l
+	MOV	R7,R0
+	MOV	R11,R0
+	LDR	R0,prefix$l
+	FNLDR	R6,wimp_config
+	STR	R0,[R7],#4
+copy$l	LDR	R1,[R6],#4
+	TEQ	R1,#0
+	BEQ	copied$l
+	MOV	R2,R7
+	LDR	R3,[R1,#4]
+	ADD	R7,R7,R3
+	BL	move_bytes
+	B	copy$l
+copied$l
+	MOV	R0,#&0A
+	ADR	R1,file$l
+	MOV	R2,   #&F00
+	ORR	R2,R2,#&0FD		; data file type
+	MOV	R3,#0
+	STR	R3,[R7],#4		; write config file end marker
+	MOV	R4,R11
+	MOV	R5,R7
+	SWI	XOS_File		; write the file
+free$l	MOVVC	R4,#0
+	MOVVS	R4,R0
+	MOV	R0,R11
+	BL	heap_free
+freeloop$l
+	PULL	"R5"
+	TEQ	R5,#0
+	BEQ	donefree$l
+	BL	delete_config_block
+	B	freeloop$l
+donefree$l
+	MOV	R0,R4
+ret$l	MOV	R13,R10
+	TEQ	R0,#0
+	FNRTS	EQ
+	FNRTV
+prefix$l =	"Conf"
+file$l	=	"<",|zap$|,"$Options>",0
+	ALIGN
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Some error code						;
@@ -829,16 +1069,16 @@ file$l = "<",|zap$|,"$Options>",0
 	MACRO
 $la	FNerr $a,$b
 $la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#Vbit		; return with an error
+	B lookup_error			; return with an error
 	DCD (ENUM+$a)			; the error number
 	= $b,0
 	ALIGN
 	MEND
 
-err3 FNerr 3,("Bad number")
-err12 FNerr 12,("This file is read only")
-err23 FNerr 23,("Invalid mode")
-err41 FNerr 41,("Command argument not of correct type")
+err3 FNerr 3,("zap_e_badnum")
+err12 FNerr 12,("zap_ReadOnly")
+err23 FNerr 23,("zap_e_invmode")
+err41 FNerr 41,("zap_e_wrongtype")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Helpful error messages				    ;
@@ -853,27 +1093,21 @@ err41 FNerr 41,("Command argument not of correct type")
 check_object_type
  TST R0,#1
  MOVNE PC,R14			; is a file
- FNJSR "R1-R3"
+ FNJSR "R1-R7"
  MOV R3,R0			; save object type
- MOV R2,R1			; source name
- FNLDR R1,wimp_data		; block for the error
- LDR R0,num$l
- STR R0,[R1],#4
- MOV R0,#'"'
- STRB R0,[R1],#1
- BL strcpy			; copy in file name
- MOV R0,#'"'
- STRB R0,[R1],#1
- ADR R2,notfound$l
+ MOV R4,R1			; source name
  TST R3,#2
- ADRNE R2,directory$l
- BL strcopy
- FNPULL
- FNLDR R0,wimp_data
- ORRS PC,R14,#Vbit
-num$l	    DCD ENUM+2
-notfound$l  FNS (" not found.")
-directory$l FNS (" is a directory.")
+ ADREQ R0,notfound$l
+ ADRNE R0,directory$l
+ MOV R2,#0
+ BL lookup_error
+ FNRTS
+notfound$l
+ & ENUM+2
+ FNS ("zap_e_notfound")
+directory$l
+ & ENUM+2
+ FNS ("zap_e_isadir")
 
  LOCAL
 
@@ -957,21 +1191,36 @@ line$l				; next line loop
  LDRB R0,[R10]
  TEQ R0,#'*'
  BEQ start$l			; start the mode now
+ PUSH "R3,R4"
  SUB R10,R10,#1			; re-read this line
  MOV R3,#0			; current extension type (mode names atm)
 object$l			; next object loop
  BL str_next			; start of next line
- FNRTS CS			; end of file
+ BCS eof$l			; end of file
  MOV R1,R10
  BL str_skip			; skip spaces and tabs
  CMP R1,R10
+ PULL "R3,R4",EQ
  BEQ line$l			; weren't any to skip - not indented
  LDRB R0,[R10]
  TEQ R0,#'-'
  ADDEQ R3,R3,#1			; onto the next object type
  BEQ object$l
+ TEQ R3,#0
+ BNE notmode$l
+ FNLDR R1,default_mode
+ MOV R2,R10
+ BL strCMPstr			; does this module contain the default mode?
+ BNE notmode$l
+ LDRB R0,[R0]
+ CMP R0,#32
+ PULL "R3,R4",LE		; if so, load it
+ BLE start$l
+notmode$l
  BL add_external_object
  BVC object$l
+eof$l
+ PULL "R3,R4"
  FNRTS
 next$l				; skip to start of next line
  BL str_next
@@ -991,23 +1240,30 @@ start$l				; load the module and do a command
 
  LOCAL
 
-; ext_modes,ext_comms,ext_messages contain 0 termianted lists
+; ext_modes,ext_comms,ext_messages contain 0 terminated lists
 ; of mode names,command names,messages numbers (the first two followed
 ; by zeros 'till the next alignment) followed by a pointer to the module
 ; file to load to install that mode, command etc (zero if freed)
 ; The module file name is of the form <module name>,0,<extra file>,0
 ; The extra file will be Wimptasked before the module is loaded.
+;
+; Each mode name is followed by a flags word (the same as is stored in its
+; e_flags entry). If the word isn't specified in the file, then &80000000 is
+; used to indicate this.
+;
 ; Each command name is followed by a flags word (the same as is stored
 ; immediately before the command's entry point). If the word isn't specified
 ; in the file, then &80000000 is used to indicate this.
 
 ;E R10=pointer to mode/command name/message number string
-;  R3=object type (0=mode 1=command 2=message)
+;  R3=object type (0=mode 1=command 2=message 3=clone mode)
 ;  R4=pointer to name of module to load to deal with this command/mode/mess
+;     or the clone base mode (if R3=3)
 ;X Object added #
 
 add_external_object
  FNJSR "R1-R6,R10"
+ SYSLOGF "add_external_object %10s (type %3d) in module %4s", LOG_MINOR
  CMP R3,#3
  FNRTS CS			; illegal type
  ADR R14,list$l
@@ -1025,6 +1281,8 @@ a$l
  LDRB R0,[R1],#1
  TEQ R0,#0
  BNE a$l
+ TEQ R3,#0
+ ADDEQ R1,R1,#4
  ADD R1,R1,#7
  BIC R1,R1,#3			; align + skip the address
  B findend$l
@@ -1035,7 +1293,7 @@ found$l
  MOVEQ R0,#4
  BLNE str_len			; R0=length of argument
  ADD R1,R6,R0
- ADD R1,R1,#20+63		; +term (4) +addr (4)+ listterm(4)
+ ADD R1,R1,#24+63		; +term (+modeflags) +addr +listterm
  BIC R1,R1,#63			; align to next 64 boundry
  MOV R0,R5
  BL heap_ensure
@@ -1060,18 +1318,20 @@ b$l
  STRB R0,[R1],#1		; add terminator
  TST R1,#3
  BNE b$l			; until aligned
- TEQ R3,#1			; command?
- BNE end$l			; no
+ CMP R3,#1			; mode or command?
+ BHI end$l			; no
  BL str_skip
  FNRTS VS
  BL str_readnum
  MOVVS R0,#&80000000		; if there's an error
- ADDS R0,R0,#0			; CLV
- MOVVC R2,R0
- MOVVC R3,R1
- FNLDR R0,ext_comm_flags,VC	; flags words list:
- MOVVC R1,#4
- BLVC heap_extend
+ TEQ R3,#0
+ STREQ R0,[R1],#4
+ BEQ end$l
+ MOV R2,R0
+ MOV R3,R1
+ FNLDR R0,ext_comm_flags	; flags words list:
+ MOV R1,#4
+ BL heap_extend
  FNRTS VS
  LDR R1,[R0]
  FNSTR R0,ext_comm_flags
@@ -1101,11 +1361,16 @@ list$l
 ;  again loaded. Heap block containing name is freed.
 
 remove_external_object
- FNJSR "R1-R4"
+ FNJSR "R1-R5"
+ SYSLOGF "remove_external_object at %0x", LOG_MINOR
  MOV R4,R0			; save pointer to module name
+ MOV R5,#8
  FNLDR R1,ext_modes		; remove from external modes
  BL sub$l
  FNLDR R1,ext_comms		; remove from external commands
+ BL sub$l
+ MOV R5,#4
+ FNLDR R1,ext_clones		; remove from clones list
  BL sub$l
  FNLDR R1,ext_messages
 a$l
@@ -1128,12 +1393,226 @@ b$l
  CMP R0,#0
  FNRTS LE			; reached the end
  ADD R1,R1,R0
- ADD R1,R1,#4
+ ADD R1,R1,R5
  BIC R1,R1,#3
  LDR R0,[R1],#4
  TEQ R0,R4
  MOVEQ R14,#0
  STREQ R14,[R1,#-4]
  B b$l
+
+	LOCAL
+
+;X Clone modes added to external list
+
+init_clones
+	FNJSR	"R1-R5"
+	FNLDR	R5,wimp_config
+loop$l	LDR	R0,[R5],#4
+	TEQ	R0,#0
+	FNRTS	EQ			; return if no more blocks
+	LDR	R1,[R0]
+	TEQ	R1,#3
+	BNE	loop$l			; not type 3
+	ADD	R1,R0,#8
+	MOV	R2,R1			; mode name
+skip$l	LDRB	R0,[R1],#1		; find clone base name
+	TEQ	R0,#0
+	BNE	skip$l
+	BL	strCMP
+	LDRNE	R0,[R5,#-4]
+	ADDNE	R1,R0,#8
+	BLNE	add_clone_mode_entry	; if names differ, add to list
+	BVC	loop$l
+	FNRTS
+
+	LOCAL
+
+;E R1 -> mode name, \0, clone base name
+;X clone mode entry added
+
+add_clone_mode_entry
+	FNJSR	"R1-R5"
+	FNLDR	R2,ext_clones
+findend$l
+	LDR	R3,[R2],#4
+	TEQ	R3,#0
+	BNE	findend$l
+	FNLDR	R0,ext_clones
+	SUB	R2,R2,R0
+	ADD	R1,R2,#4
+	BL	heap_ensure
+	FNRTS	VS
+	FNSTR	R0,ext_clones
+	MOV	R1,#0
+	STR	R1,[R2,R0]!
+	LDR	R1,[R13]
+	MOV	R0,R1
+	BL	str_len
+	ADD	R3,R0,#1
+	ADD	R0,R1,R3
+	BL	str_len
+	ADD	R3,R3,R0
+	ADD	R3,R3,#1
+	MOV	R0,R3
+	BL	heap_claim
+	FNRTS	VS
+	STR	R0,[R2,#-4]
+	MOV	R1,R0
+	LDR	R2,[R13]
+	BL	strcopy
+	BL	strcopy
+	FNRTS
+
+	LOCAL
+
+;E R1 -> mode name
+;X R0 -> clone base mode name / 0 if not found
+;  R1 -> mode name (in list)
+
+find_clone_mode_entry
+	FNJSR	"R1-R3"
+	FNLDR	R3,ext_clones
+loop$l	LDR	R0,[R3],#4
+	TEQ	R0,#0
+	FNRTS	EQ
+	MOV	R1,R0
+	LDR	R2,[R13]
+	BL	strCMP
+	BNE	loop$l
+	LDR	R0,[R3,#-4]
+	MOV	R1,R0
+skip$l	LDRB	R2,[R0],#1
+	TEQ	R2,#0
+	BNE	skip$l
+	STR	R1,[R13]
+	FNRTS
+
+	LOCAL
+
+;E R1 -> mode name
+;  R2 = 0 to delete, non-0 to hide
+;X if found in the clones list:
+;    mode removed from clones list, config block deleted if not already read
+;    if instantiated then mode is marked as deleted (but remains available)
+;  error if not a clone or not found
+
+remove_clone_mode_entry
+	FNJSR	"R1-R7"
+	BL	find_clone_mode_entry
+	TEQ	R0,#0
+	BEQ	nodel$l
+	LDR	R0,[R13]
+	BL	test_mode_name
+	MOVS	R5,R0			; mode instantiated?
+	BMI	notinstantiated$l
+	BL	read_mode
+	LDRB	R0,[R1,#d_clonebasemode]
+	TEQ	R0,R5			; yes - is it a clone?
+	BEQ	nodel$l			; ...no
+	FNLDRB	R0,opt_format		; is it the default mode?
+	TEQ	R0,R5
+	BEQ	inuse$l			; ...yes
+	MOV	R1,#0
+	ADR	R10,checkuse$l
+	BL	do_allwindow		; is it in use?
+	TEQ	R1,#0
+	BNE	inuse$l			; ...yes
+	LDR	R2,[R13,#4]
+	TEQ	R2,#0
+	BEQ	noconf$l
+	MOV	R0,R5			; if we're hiding the mode,
+	BL	write_config_block	; preserve its config block
+	BVC	freenum$l
+	FNRTS
+noconf$l
+	BL	findclonemodeentry$l	; else check it's not a clone base
+freenum$l
+	FNADD	R4,R12,mode_store	; free up its mode number
+	ADD	R4,R4,R5,LSL #3
+	LDMIA	R4,{R0,R3}
+	MOV	R1,#0
+	STR	R1,[R4]
+	STR	R1,[R4,#4]
+	BL	heap_free
+	LDR	R0,[R3,#2*e_mode+4]
+	BL	heap_free
+	MOV	R0,R3
+	BL	heap_free
+	LDR	R2,[R13,#4]
+	TEQ	R2,#0
+	FNRTS	NE			; if hiding, return now
+forget$l
+	LDR	R1,[R13]
+	BL	findclonemodeentry$l	; check that it's not a clone base
+	FNLDR	R3,ext_clones		; completely forget about this mode
+	MOV	R4,R3
+loop$l	LDR	R2,[R3],#4
+	TEQ	R2,R1
+	STRNE	R2,[R4],#4
+	TEQ	R2,#0
+	BNE	loop$l
+	MOV	R0,R1
+	BL	heap_free
+	FNRTS
+notinstantiated$l
+	FNLDR	R1,wimp_kbdbuf
+	LDR	R2,[R13]
+	MOV	R3,#256
+	MOV	R4,#32
+	BL	strmove			; copy clone name into wimp_kbdbuf
+	FNLDR	R0,wimp_kbdbuf
+	BL	find_config_block	; is there a config block for it?
+	MOVS	R5,R0
+	BEQ	nodel$l
+	ADD	R1,R5,#8
+	MOV	R2,R1
+s1$l	LDRB	R0,[R2],#1
+	TEQ	R0,#0
+	BNE	s1$l
+	BL	strcmp			; do the names match?
+	BEQ	nodel$l			; if so, then not a clone -> error
+	LDR	R1,[R13,#4]
+	TEQ	R1,#0
+	FNRTS	NE			; if hiding, then nothing to do
+	BL	findclonemodeentry$l	; check that it's not a clone base
+	BL	delete_config_block	; delete the mode's config block
+	B	forget$l		; and completely forget about it
+nodel$l	ADR	R0,nodelmsg$l
+	LDR	R4,[R13]
+	BL	lookup_error
+	FNRTS
+nodelmsg$l &	0
+	FNS	("zap_e_delclone")
+inuse$l	ADR	R0,inusemsg$l
+	LDR	R4,[R13]
+	BL	lookup_error
+	FNRTS
+inusemsg$l &	0
+	FNS	("zap_e_cloneinuse")
+checkuse$l
+	LDRB	R0,[R8,#w_format]	; clone mode in use?
+	TEQ	R0,R5
+	MOVEQ	R1,#1
+	MOVS	PC,R14
+
+findclonemodeentry$l ;E [R13]=mode name ;X R1=clone mode entry
+	LDR	R1,[R13]
+	FNJSR	"R1-R3"
+	BL	find_clone_mode_entry
+	STR	R1,[R13]
+	FNLDR	R3,ext_clones
+ifbase$l
+	LDR	R1,[R3],#4
+	TEQ	R1,#0
+	FNRTS	EQ
+skip$l	LDRB	R14,[R1],#1
+	TEQ	R14,#0
+	BNE	skip$l
+	LDR	R2,[R13]
+	BL	strCMP
+	BNE	ifbase$l
+	FNPULL
+	B	inuse$l			; well, it is :-)
 
  END

@@ -1,8 +1,10 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.2 1999/01/12 18:24:01 dj Exp $
+; $Id: Mode4,fff,v 1.3 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
 
 	GET	h.ZapHeader
+	GET	h.Messages
 	GET	h.AlterTxt
 	GET	h.Commands
 	GET	h.Execute
@@ -13,8 +15,8 @@
 	GET	h.Menus
 	GET	h.MiniBuff
 	GET	h.Mode0
-	GET	h.Mode1
-	GET	h.Mode2
+	GET	h.Mode1+2
+	GET	h.Mode3
 	GET	h.ModeBits
 	GET	h.ModuleBits
 	GET	h.Redraw
@@ -44,7 +46,7 @@ mode_table_4
 	DCD	mode4_title
 	DCD	mode4_author
 	DCD	1			; based on Word mode...
-	DCD	4+(1<<11)
+	DCD	4+emode_BinaryMode+emode_UsesMessageTrans+emode_MayBeCloned
 	DCD	mode4_init
 	DCD	0
 	DCD	mode4_table_end-mode_table_4
@@ -63,10 +65,10 @@ mode_table_4
 	DCD	0
 	DCD	mode4_minus
 	DCD	mode4_plus
-	DCD	mode2_minus
-	DCD	mode2_plus
-	DCD	mode1_cminus
-	DCD	mode1_cplus
+	DCD	mode4_minus
+	DCD	mode4_plus
+	DCD	mode3_cminus
+	DCD	mode3_cplus
 	DCD	mode4_redrawline
 	DCD	0
 	DCD	mode4_char		; start a new string
@@ -79,10 +81,10 @@ mode_table_4
 	DCD	mode1_lineend
 	DCD	mode1_lineend
 	DCD	mode1_linestart
-	DCD	mode2_copy
+	DCD	mode4_copy
 	DCD	0
 	DCD	0
-	DCD	mode2_aligncaret
+	DCD	mode4_aligncaret
 	DCD	command_primative
 	DCD	0
 	DCD	0
@@ -92,7 +94,7 @@ mode_table_4
 	DCD	mode4_search
 	DCD	replace_area		; 0
 	DCD	0			; selection
-	DCD	default_click		; click
+	DCD	mode4_click		; click
 	DCD	0			; messages
 	DCD	mode4_setwidth
 	DCD	0			; list fns
@@ -128,7 +130,7 @@ mode4_init
 	MOVNE	PC,R14
 	FNJSR	"R0-R4,R8"
 	MOV	R8,#0
-	MOV	R1,#4
+	MOV	R1,R0			; mode number
 ; BL like_init_mode_word
 	BL	ensure_colours_correct
  ;MOV R0,#MODE4_COLNUMBS
@@ -137,7 +139,7 @@ mode4_init
  ;BLNE mode4_UnkPreColBit		; define them
 
 	MOV	r8,#0
-	MOV	R1,#4			; hardwired mode number R0
+	LDR	R1,[R13]		; mode number
 	BL	get_mode_word
 ; FNcall Zap_GetModeWord
 	BVS	mode4_dontchangeathing
@@ -150,12 +152,14 @@ mode4_dontchangeathing
 	LDMFD	R13!,{R0-R4,R8,PC}^	; return no error
 
 mode4_init_13				; set up for redraw
-	FNJSR
+	FNJSR	"R0-R7"
 ; SWI &107
 	BL	getdisasmdata
-	STRVC	R0,local_disassemblerflags
-	LDRVC	R2,[R8,#w_mode4]
-	BLVC	readandputdisasmdata
+	STR	R0,local_disassemblerflags
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
+	BL	readandputdisasmdata
 	FNRTS
 
 mode4_init_14				; end of redraw data
@@ -257,7 +261,6 @@ mode4_col_sup$l
 ensure_colours_correct
 	FNJSR	"R1-R4,R8"
 	MOV	R8,#0			; default options
-	MOV	R1,#4
 	MOV	R2,#0
 ; ADR R3,mode4_col_sup$l
 ; LDR R4,[R3],#4			; number of extra colours
@@ -362,31 +365,7 @@ postinitcolour
 ;  ALIGN
 
 mode4_cols
-	=	"Ascii chars",0 ; 09
-	=	"Hex chars",0 ; 10
-	=	"Comment",0 ; 11
-	=	"SWI's",0 ; 12
-	=	"Branches",0 ; 13
-	=	"Push R14's",0 ; 14
-	=	"Pull PC's",0 ; 15
-	=	"[ and ]",0 ; 16
-	=	"{ and }",0 ; 17
-	=	"#, !, ^ & -",0 ; 18
-	=	"Registers",0 ; 19
-	=	"Numbers",0 ; 20
-	=	"Immediate",0 ; 21
-	=	"Shifts",0 ; 22
-	=	"LDM or STM",0 ; 23
-	=	"LDR or STR",0 ; 24
-	=	"SWI names",0 ; 25
-	=	"Conditions",0 ; 26
-	=	"'Undefined'",0 ; 27
-	=	"FP regs",0 ; 28
-	=	"CP regs",0 ; 29
-	=	"FP instrs",0 ; 30
-	=	"CP instrs",0 ; 31
-; = "LDM or STM ",0 ; 30
-	=	0
+	=	"zap_m_codecols",0
 	ALIGN
 
 mode4_setwidth
@@ -407,18 +386,20 @@ mode4_width
 	MOV	R0,#4
 	STR	R0,[R8,#w_bpl]
 	MOV	R0,#-1
-	MOV	R1,#4
+	LDRB	R1,[R8,#w_format]	; mode number
 	MOV	R2,#0
 	BL	mode_data		; read the first word of mode data
 	AND	R0,R0,#&FF
 	CMP	R0,#1
 	MOVLT	R0,#1			; width
-	LDR	R1,[R8,#w_mode4]	; load in our mode word
-	BIC R1,R1,#255
+	LDRB	R1,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R1,[R14,R1,LSL #2]!	; load in our mode word
+	BIC	R1,R1,#255
 	ORR	R1,R1,R0
-	STR	R1,[R8,#w_mode4]	; save in our mode word
+	STR	R1,[R14]		; save in our mode word
 	ADD	R0,R0,#18
-	TST	R1,#1 << 28		; binary?
+	TST	R1,#mode4_BinaryOpcodes
 	ADDNE	R0,R0,#27
 	FNRTS
 
@@ -428,14 +409,7 @@ localmodeword
 	&	0
 
 local_temp4r6
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-	&	0
-; & 0
+	%	32
 
 ; E R0 = offset (4 => -4...) / R7 = current address.
 ; X R0 -> to addr - offset (as an offset?)
@@ -495,25 +469,19 @@ hex2$l					; hex dump loop
 readandputdisasmdata
 	LDR	R1,[R8,#w_format]
 	TST	R1,#bit_windowwrap	; non-global...?
-	MOVEQ	R1,R2,LSR #8
-	BICEQ	R1,R1,#(&F << 20)	; options - need to update if these change
-	ORREQ	R1,R1,#1<<23		; allow those lower-case letters!
-	BEQ	putdisasmdata
-	MOV	PC,R14
+	MOVNE	PC,R14
+	MOV	R1,R2,LSR #8
+	BIC	R1,R1,#(&F << 20)	; options - need to update if these change
+	ORR	R1,R1,#1<<23		; allow those lower-case letters!
+	B	putdisasmdata
 
 search_readandputdisasmdata
 	LDR	R1,[R8,#w_format]
 	TST	R1,#bit_windowwrap	; non-global...?
-	MOVEQ	R1,R2,LSR #8
-	BICEQ	R1,R1,#(&F << 20)	; options - need to update if these change
-	BEQ	putdisasmdata
-	MOV	PC,R14
-
-readandrestoredisasm
-	LDR	R0,[R8,#w_format]
-	TST	R0,#bit_windowwrap
-	BEQ	restoredisasm
-	MOV	PC,R14
+	MOVNE	PC,R14
+	MOV	R1,R2,LSR #8
+	BIC	R1,R1,#(&F << 20)	; options - need to update if these change
+	B	putdisasmdata
 
 carefully_readandputdisasmdata
 	FNJSR
@@ -534,6 +502,12 @@ carefully_readandrestoredisasm
 	SUBS	R14,R14,R14
 	FNRTS
 
+readandrestoredisasm
+	LDR	R0,[R8,#w_format]
+	TST	R0,#bit_windowwrap
+	MOVNE	PC,R14
+; fall through
+
 restoredisasm
 	FNJSR	"R0,R1"
 	LDR	R1,local_disassemblerflags
@@ -544,13 +518,13 @@ local_disassemblerflags
 	DCD	0
 
 ; mode word values
- ; 0
- ; 1
- ; 2
- ; 4
- ; 8
- ; 16
- ; 32		; SWI names...
+ ; 0						In a comment
+ ; 1						SWI
+ ; 2						Branch
+ ; 4						Push R14
+ ; 8						Pull PC
+ ; 16						this may be SWI names (see below)
+ ; 32		; SWI names...			nope - registers ... seems to work though
  ; 64		; &ampersand -> hex...
  ; 128		; # immediates
  ; 256		; logical...
@@ -570,13 +544,17 @@ local_disassemblerflags
  ; (22)		; Ins is unconditional... :)
 mode4_redrawline
 	FNJSR
+	LDR	R1,[R9,#f_len]
+	SUB	R14,R7,R5
+	CMP	R14,R1
+	ADDHS	R11,R11,#1
+	FNRTSS	HS			; return quickly if at EOF
 	STR	R11,local_temp4r6 + 24	; save it...
-	LDR	R14,[R8,#w_mode4]
-	STR	R14,localmodeword
-; MOV R3,R2
-; BL getdisasmdata
-; STR R0,local_disassemblerflags
-; BL readandputdisasmdata
+	STR	R9,local_temp4r6 + 28	; this too...
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R2,R8,R2,LSL #2
+	LDR	R2,[R2,#w_mode0]
+	STR	R2,localmodeword
 	MOV	R1,#0			; important r1=0?
 	STR	R1,local_bgcol_please
 	MOV	R2,#7
@@ -585,7 +563,7 @@ mode4_redrawline
 	MOV	R1,#7
 	MOV	R2,#11
 	LDR	R0,localmodeword
-	TST	R0,#1 << 28
+	TST	R0,#mode4_BinaryOpcodes
 	ADDNE	R2,R2,#27
 	MOV	R0,#10			; colour of hex/binary
 	BL	colour_chars_both	; colour the hex dump column
@@ -657,7 +635,7 @@ atprehex$l
 	STR	R0,local_temp4r6 + 20	; recover previous attempt...
 	STR	R7,local_temp4r6 + 16	; save it...
 	LDR	R0,localmodeword
-	TST	R0,#1 << 28		; binary mode
+	TST	R0,#mode4_BinaryOpcodes
 	BNE	insertbinarydata
 	TST	R2,#1<<17
 	ADDEQ	R6,R6,#6		; little endian
@@ -698,8 +676,8 @@ dis$l					; disassemble the instruction
 
 	MOV	R2,#0			; standard foreground and flags
 
-	AND	R0,R4,#&F<<28
-	TEQ	R0,#&E<<28
+	AND	R0,R4,#&F<<28		; condition code region
+	TEQ	R0,#&E<<28		; AL
 	ORREQ	R2,R2,#1<<22		; No condition check needed...
 
 	AND	R0,R4,#7<<25
@@ -709,25 +687,25 @@ dis$l					; disassemble the instruction
 	TEQ	R0,#4<<25
 	BEQ	ldm$l			; STM or LDM
 
-	AND	R0,R4,#&C << 24
-	TEQ	R0,#4 << 24
+	AND	R0,R4,#&C << 24		; note that 'undefined instruction' will probably have
+	TEQ	R0,#4 << 24		; been weeded out already ...
 	BEQ	ldr$l			; STR or LDR
 
 	AND	R0,R4,#&F << 24
-	TEQ	R0,#&C << 24
-	TEQNE	R0,#&D << 24
-	TEQNE	R0,#&E << 24
+	TEQ	R0,#&C << 24		; data xfer (P clear)
+	TEQNE	R0,#&D << 24		; data xfer (P set)
+	TEQNE	R0,#&E << 24		; data op / register xfer
 	BEQ	foundcopro$l		; copro
 
 ;pregotcol$l
 	AND	R0,R4,#15<<24
-	TEQ	R0,#15<<24
+	TEQ	R0,#15<<24		; SWI signature
 	ORREQ	R2,R2,#2
 colouring_colour
  ; LDR R4,[R8,#w_txtw]		; offset to foreground mask
-	LDR	R3,[R8,#w_mode4]	; width of instructions
-	MOV	R3,R3,LSL #24
-	MOV	R3,R3,LSR #24		; bottom 16 bits
+	LDRB	R3,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDRB	R3,[R14,R3,LSL #2]	; width of instructions
 dis_loop_in_redraw
 	LDRB	R0,[R1],#1		; load next character from R1 index.
 	TEQ	R0,#0
@@ -738,14 +716,14 @@ dis_loop_in_redraw
 	BEQ	tobfnumberreductionpossible
 	TST	R2,#1<<20		; undefined ins
 	BNE	dontcheckthese_minimal	; theundef
-	TST	R2,#3<<12
+	TST	R2,#3<<12		; asm condition (font/colouring)
 	BNE	maybe_bgcondcolour
 
 	LDR	R4,localmodeword	; flags...
 	TST	R2,#2048		; second column not reached...
 	BLEQ	secondcolnotreached2
 notaconditionhere2
-; TST R4,#1 << 31
+; TST R4,#mode4_Unconditional
  ;BNE notaconditionhere ; ???
 	TST	R2,#1<<22		; second column not reached...
 	BLEQ	tochkcondcode		; ????????????????????
@@ -754,13 +732,13 @@ notaconditionhere2
  ;TST R2,#2048				; second column not reached...
  ;BEQ secondcolnotreached
 notaconditionhere
-	TST	R4,#1 << 30		; flag says no conditions...
+	TST	R4,#mode4_MinimalColouring
 	BNE	backfromfoundaregister
 
 	TST	R2,#2048		; second column not reached...
 	BEQ	backfromfoundaregister	; secondcolnotreached2
 
-	TST	R2,#&C2			; &... or #... or SWI(?)
+	TST	R2,#&C2			; &... or #... or SWI(?) ... erm &2 is MUL, I think.
 	BNE	backfromfoundaregister
  ;TST R2,#1 << 20			; Undefined instruction
  ;BNE backfromfoundaregister
@@ -787,7 +765,7 @@ notaconditionhere
 	BEQ	foundaLSpossibly
 
 backfromfoundaregister
-	MOV	R11,#2
+	MOV	R11,#2			; foreground colour - ie start with the default
 	TEQ	R0,#';'			; comment?
 	BEQ	foundanasmcommenthere
 
@@ -797,12 +775,12 @@ backfromfoundaregister
 	TEQNE	R0,#'-'			; hyphen
 	BICEQ	R2,R2,#32		; Registers
 	BICEQ	R2,R2,#3 << 14		; fp & cp registers
-	TST	R4,#1 << 30
+	TST	R4,#mode4_MinimalColouring
 	BNE	dontcheckthese_minimal
 	TEQ	R0,#'#'			; hyphen
 	ORREQ	R2,R2,#128		; &ampersand -> hex...
 	TST	R2,#&80			; in constant expression
-	TSTEQ	R2,#32		; 2048	; in SWI name...?
+	TSTEQ	R2,#32		; 2048	; in SWI name...? (erm ... registers?)
 	TEQEQ	R0,#'&'			; otherwide &address/hex no...
 	ORREQ	R2,R2,#64		; &ampersand -> hex...
 	BICEQ	R2,R2,#30		; &ampersand -> hex...????
@@ -817,18 +795,18 @@ dontcheckthese_minimal
 	MOVNE	R11,#30
 	TST	R2,#1 << 19		; CP instr
 	MOVNE	R11,#31
-	TST	R2,#16			; SWI?
+	TST	R2,#16			; Pull PC
 	MOVNE	R11,#15
-	TST	R2,#8			; SWI?
+	TST	R2,#8			; Push R14
 	MOVNE	R11,#14
-	TST	R2,#4			; SWI?
+	TST	R2,#4			; Branch
 	MOVNE	R11,#13
-	TST	R2,#2			; SWI?
+	TST	R2,#2			; SWI
 	BNE	saswihere
 ;	MOV	R11,#12			; hope OK.
-	TST	R2,#32			;
+	TST	R2,#32			; registers
 	MOVNE	R11,#19
-	TST	R2,#64			; condition...? SWI?
+	TST	R2,#64			; & -> hex
 	MOVNE	R11,#20
 	TST	R2,#256
 	MOVNE	R11,#22			; logical...
@@ -836,19 +814,19 @@ dontcheckthese_minimal
 	MOVNE	R11,#22			; arithmetic...
 	TST	R2,#1 << 21;1024
 	MOVNE	R11,#22			; rolls...
-	CMP	R11,#12
+	CMP	R11,#12			; !!! wtf is this doing here?
 	TST	R2,#1 << 20		; undefined instructs
 	MOVNE	R11,#27
-	TST	R2,#1 << 14		; cp
+	TST	R2,#1 << 14		; cp regs
 	MOVNE	R11,#29
-	TST	R2,#1 << 15		; fp
+	TST	R2,#1 << 15		; fp regs
 	MOVNE	R11,#28
 	TST	R2,#128			; # immediates
 	MOVNE	R11,#21
 
-	TST	R4,#1 << 30		; minimal/unconditional...
+	TST	R4,#mode4_MinimalColouring
 	BNE	mode4_keepingitsimple	; ?????????????????????????????????
- ;TST R4,#1 << 31		; minimal...
+ ;TST R4,#mode4_Unconditional
  ;BNE bfnumberreductionpossible ; mode4_keepingitsimple
 
 	BIC	R14,R0,#&20
@@ -879,7 +857,7 @@ bfnumberreductionpossible
 	ADD	R4,R4,R4
 	STRB	R0,[R6],#1		; letter
 	LDR	R0,[R8,#w_format]
-	TST	R0,#1<<25		; free mouse/as BG colour?
+	TST	R0,#1<<25		; free mouse/as BG colour? (flag is smart shift-cursor)
 	BNE	possiblyasbackground
 	MOV	R11,#1
 	SUB	R4,R4,#1
@@ -892,7 +870,6 @@ just_exit_from_redraw
 	LDR	R11,local_temp4r6 + 24	; save it...
 	ADD	R11,R11,#1		; next log line
  ;STR R2,local_bgcol_please
-; BL readandrestoredisasm
 	FNRTSS				; return no error
 
 ;theundef
@@ -906,9 +883,9 @@ tobfnumberreductionpossible
 
 numberreductionpossible
 	LDR	R4,localmodeword
-	TST	R4,#1 << 30		; minimal
+	TST	R4,#mode4_MinimalColouring
 	MOVNE	PC,R14
-	MOV	R11,#&14
+	MOV	R11,#&14		; 'numbers'
 	CMP	R0,#'-'
 	MOVEQ	R11,#&12
 	MOV	PC,R14
@@ -977,30 +954,62 @@ module$l
 ; => r0 = offset in file
 ; <= r0 = string pointer, or 0 if not known
 mode4_mod_headerstring
-        STMFD   r13!,{r1,r2,r14}
+	FNJSR	"R1-R5,R9"
 	CMP	R0,#(end_mod_stab - mod_stab) ;&2C
 	MOV     r1,r0                   ; r1 = offset
 	MOVCS   r0,#0                   ; if too big, it's not known
-	LDMCSFD	r13!,{r1,r2,pc}         ; definitely not in header
+	FNRTS	CS			; definitely not in header
 	MOV	R2,#0			; check valid loop
 	PUSH	"R0"			; save the word
 checkoff$l			        ; check it is a valid module offset
 	MOV	R0,R2
 	BL	cln_readw		; get word
-	BIC	R0,R0,#1 << 31		; clear bit 31...
+	TEQ	R2,#4
+	TEQNE	R2,#8
+	BICEQ	R0,R0,#1 << 31		; clear bit 31 if init/final
+	MOV	R4,R0			; preserve for later...
 	BL	valid_off		; valid offset?
 	PULL	"R0",CS
 	MOVCS   r0,#0                   ; if too big, it's not known
-	LDMCSFD	r13!,{r1,r2,pc}	        ; definitely not in header
+	FNRTS	CS			; definitely not in header
 	CMP	R2,R1
 	ADDCC	R2,R2,#4
 	BCC	checkoff$l
 	PULL	"R0"			; word not now needed
 	ADR	R0,mod_stab
 	LDR	R14,[R0,R1]		; get string offset
+	TST	R14,#1<<31
+	BEQ	nostring$l
+	BIC	R14,R14,#1<<31
+	PUSH	"R14"
+	FNLDR	R2,wimp_kbdbuf
+	MOV	R5,#127			; should be enough space(!)
+	LDR	R9,local_temp4r6 + 28	; get saved R9
+	LDR	R3,[R9,#f_len]
+copy$l	CMP	R4,R3
+	FNLDR	R2,wimp_kbdbuf,HS
+	BHS	copied$l		; at or past EOF - nullify
+	MOV	R0,R4
+	BL	cln_readc
+	SUBS	R5,R5,#1
+	CMPNE	R0,#0
+	STRNEB	R0,[R2],#1		; copy while space in buffer & !NUL
+	ADDNE	R4,R4,#1
+	BNE	copy$l
+copied$l
+	MOV	R0,#0			; string terminator
+	STRB	R0,[R2]
+	PULL	"R14"
+nostring$l
 	FNLDR	R0,env_modstart		; base for indirected offsets
-	ADD	R0,R0,R14		; string address
-	LDMFD	r13!,{r1,r2,pc}	        ; return the string
+	ADD	R1,R0,R14		; string address
+	FNLDR	R2,wimp_kbdbuf
+	MOV	R3,#128
+	ADD	R2,R2,#128
+	FNLDR	R4,wimp_kbdbuf
+	BL	lookup_token
+	MOVVC	R0,R2
+	FNRTS				; return the string
 
 
 ldm$l
@@ -1010,7 +1019,7 @@ ldm$l
 	ORR	R2,R2,#1 << 16
 	TEQ	R0,#2<<23			; DB
 	BNE	colouring_colour
-	TST	R4,#1<<14
+	TST	R4,#1<<14		; push r14
 	ORRNE	R2,R2,#8
 	B	colouring_colour
 
@@ -1018,7 +1027,7 @@ load$l
 	ORR	R2,R2,#1 << 16
 	TEQ	R0,#1<<23
 	BNE	colouring_colour
-	TST	R4,#1<<15
+	TST	R4,#1<<15		; pull r14
 	ORRNE	R2,R2,#16
 	B	colouring_colour
 
@@ -1073,7 +1082,7 @@ notAPCSstylep
 	B	mode4_keepingitsimple
 
 APCSstylep
-	LDRB	R14,[R1,#-2]		; ???
+	LDRB	R14,[R1,#-2]		; ??? - because r1 has already been advanced ...
 	BIC	R14,R14,#&20
 	TEQ	R14,#'C'
 ;	TEQNE	R14,#'F'
@@ -1203,7 +1212,7 @@ foundanasmcommenthere
 	ORR	R2,R2,#1
 	MOV	R11,#11
 	LDR	R4,localmodeword
-	TST	R4,#1 << 29
+	TST	R4,#mode4_CommentFree
 	BEQ	mode4_keepingitsimple
 	LDR	R4,[R8,#w_txtw]		; offset to foreground mask
 	ADD	R4,R4,R4
@@ -1246,36 +1255,38 @@ mod_stab
 	DCD	inito$l
 	DCD	fino$l
 	DCD	serviceo$l
-	DCD	titleo$l
-	DCD	helpo$l
+	DCD	titleo$l+1<<31
+	DCD	helpo$l+1<<31
 	DCD	commo$l
 	DCD	swichunk$l
 	DCD	swicode$l
 	DCD	switable$l
 	DCD	swideccode$l
-	DCD	msgdeccode$l
+	DCD	msgdeccode$l+1<<31
 end_mod_stab
-starto$l	= "Start offset",0
-inito$l		= "Initialisation offset",0
-fino$l		= "Finalisation offset",0
-serviceo$l	= "Service call handler offset",0
-titleo$l	= "Title string offset",0
-helpo$l		= "Help string offset",0
-commo$l		= "Help and command keyword table offset",0
-swichunk$l	= "SWI chunk base number",0
-swicode$l	= "SWI handler code offset",0
-switable$l	= "SWI decoding table offset",0
-swideccode$l	= "SWI decoding code offset",0
-msgdeccode$l	= "Messages filename offset",0
+starto$l	= "zap_d_starto",0
+inito$l		= "zap_d_inito",0
+fino$l		= "zap_d_fino",0
+serviceo$l	= "zap_d_serviceo",0
+titleo$l	= "zap_d_titleo",0
+helpo$l		= "zap_d_helpo",0
+commo$l		= "zap_d_commo",0
+swichunk$l	= "zap_d_swichunk",0
+swicode$l	= "zap_d_swicode",0
+switable$l	= "zap_d_switable",0
+swideccode$l	= "zap_d_swidecode",0
+msgdeccode$l	= "zap_d_msgdecode",0
 	ALIGN
 
 stored_blank_string
 	DCD	0
 
 mode4_lineoff
-	LDR R1,[R8,#w_mode4]
+	LDRB R1,[R8,#w_format]	; mode number
+	ADD R0,R8,#w_mode0
+	LDR R1,[R0,R1,LSL #2]
 	MOV R0,#0
-	TST R1,#1 << 28		; binary?
+	TST R1,#mode4_BinaryOpcodes
 	AND R1,R1,#255			; bottom 8 bits
 	ADD R1,R1,#18			; hex width
 	ADDNE R1,R1,#27		; + bin width
@@ -1342,7 +1353,7 @@ getpreviousinstrs
 ; <= r0= string to give it, or 0 if none
         LOCAL
 mode4_aif_headerstring
-        STMFD   r13!,{r14}
+	FNJSR	"R1-R3"
         CMP     r0,#&40                 ; is it < start of debugger ?
         BLO     topheader$l             ; if so, it's an explicit header
         MOV     r14,#-4*1               ; -1 string means 'unknown'
@@ -1356,8 +1367,11 @@ topheader$l
 	ADR	R14,abs_stab	        ; take address of offset table
 	LDR	R14,[R14,R0]		; get string offset
 	FNLDR	R0,env_modstart		; base for indirected offsets
-	ADD	R0,R0,R14		; string address
-        LDMFD   r13!,{pc}
+	ADD	R1,R0,R14		; string address
+	MOV	R2,#-1
+	BL	lookup_token
+	MOVVC	R0,R2
+	FNRTS
 
 	DCD	zeroe$l
 	DCD	zeros$l
@@ -1381,27 +1395,27 @@ abs_stab
 	DCD	abs_res1$l
 	DCD	abs_res2$l
 end_abs_stab
-zeroe$l         = "End of zero-initialisation code",0
-zeros$l         = "Start of zero-initialisation code",0
-debug$l         = "Debug initialisation instruction",0
-unknown$l       = "<unknown>",0
+zeroe$l         = "zap_d_zeroe",0
+zeros$l         = "zap_d_zeros",0
+debug$l         = "zap_d_debug",0
+unknown$l       = "zap_d_unknown",0
 ; before here are the 'special' -ve's
-decomp$l        = "Decompression code call",0
-selfreloc$l     = "Self relocation code call",0
-zeroinit$l      = "Zero initialisation code call",0
-entry$l         = "Main entry call",0
-foolish$l       = "Program exit instruction",0
-abs_readonly$l	= "Read-only area size",0
-abs_readwrite$l	= "Read-write area size",0
-abs_debug$l	= "Debug area size",0
-abs_zeroinit$l	= "Zero initialisation size",0
-abs_debugtype$l	= "Debug type",0
-abs_base$l	= "Current base of absolute",0
-abs_workspace$l	= "Workspace required",0
-abs_addrmode$l	= "Addressing mode and flags",0
-abs_database$l	= "Data base address when linked",0
-abs_res1$l	= "Reserved header word &38 (should be 0)",0
-abs_res2$l	= "Reserved header word &3C (should be 0)",0
+decomp$l        = "zap_d_decomp",0
+selfreloc$l     = "zap_d_selfreloc",0
+zeroinit$l      = "zap_d_zeroinit",0
+entry$l         = "zap_d_entry",0
+foolish$l       = "zap_d_foolish",0
+abs_readonly$l	= "zap_d_abs_readonly",0
+abs_readwrite$l	= "zap_d_abs_readwrite",0
+abs_debug$l	= "zap_d_abs_debug",0
+abs_zeroinit$l	= "zap_d_abs_zeroinit",0
+abs_debugtype$l	= "zap_d_abs_debugtype",0
+abs_base$l	= "zap_d_abs_base",0
+abs_workspace$l	= "zap_d_abs_workspace",0
+abs_addrmode$l	= "zap_d_abs_addrmode",0
+abs_database$l	= "zap_d_abs_database",0
+abs_res1$l	= "zap_d_abs_res1",0
+abs_res2$l	= "zap_d_abs_res2",0
 	ALIGN
 
 
@@ -1452,12 +1466,16 @@ branch$l
 	BL	goto_offset
 	B	exit$l
 
+	LOCAL
+
 mode4_return
-	FNJSR
+	FNJSR	"R4"
 	TEQ	R0,#0
-	BNE	inmode2_return
+	BNE	doword$l
 inmode4_return
-	LDR	R2,[R8,#w_mode4]
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
 	STR	R2,localmodeword
 	BL	getdisasmdata ; carefully_getdisasmdata VC
 	STR	R0,local_disassemblerflags
@@ -1466,34 +1484,41 @@ inmode4_return
  ;MOV R1,R2,LSR #8
  ;BIC R1,R1,#(&F << 20)		; options - need to update if these change
 	BL	carefully_readandputdisasmdata
-
-	ADR	R0,mo_s0			; command to execute
-	ORR	R0,R0,#1 << 31		; don't learn
+	ADR	R0,asm$l		; command to execute
+	ORR	R0,R0,#command_DontLearn
 	BL	command_string
 	BL	carefully_readandrestoredisasm
 	FNRTS
-mo_s0
-	FNS	("ASSEMBLE")
+doword$l
+	ADR	R0,word$l
+	ORR	R0,R0,#command_DontLearn
+	BL	command_string
+	FNRTS
+asm$l	=	"ASSEMBLE",0
+word$l	=	"EDITWORD",0
+	ALIGN
 
 mode4_start
-	FNJSR
- ;LDR R0,localcopyof_mode_code	; mode number
-	MOV	R0,#4
+	FNJSR	"R1"
+	TEQ	R8,#0
+	FNLDRB	R0,opt_format,EQ
+	LDRNEB	R0,[R8,#w_format]	; mode number
 	BL	restore_mode_word
 	BL	loaddisasmwithcare	; load it if needed/possible.
 	CMP	R8,#0
 	FNRTS	EQ
-	BL	getdefaultdata
-	STR	R0,[R8,#w_mode4]
+	LDRB	R1,[R8,#w_format]	; mode number
+	ADD	R14,R12,#opt_mode0
+	LDR	R0,[R14,R1,LSL #2]
+	ADD	R14,R8,#w_mode0
+	STR	R0,[R14,R1,LSL #2]
 	FNRTS
 
 mode4_end
-	FNJSR
-	MOV	R0,#4
-	BL	save_mode_word
- ;LDR R0,localcopyof_mode_code	; mode number
- ;BL modes_end
-	FNRTS
+	TEQ	R8,#0
+	FNLDRB	R0,opt_format,EQ
+	LDRNEB	R0,[R8,#w_format]	; mode number
+	B	save_mode_word
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Search through a line (detokenise)			;
@@ -1519,7 +1544,9 @@ mode4_search
 start$l					; get line to search through
 	FNJSR
 	PUSH	"R1-R10"		; hmm...
-	LDR	R2,[R8,#w_mode4]
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
   ; STR R2,localmodeword
 	MOV	R3,R2
 	BL	getdisasmdata
@@ -1600,8 +1627,6 @@ a$l
 	MOV	R2,#&100
 	SWI	XOS_ConvertHex8		; start off with the address in hex
 	FNRTS	VS
-	ADR	R2,colons$l
-	BL	strcopy
 	FNLDR	R0,wimp_block
 	BL	minibuffer_prompt
 ; FNcall Zap_MiniPrompt			; prompt = address + colon
@@ -1609,7 +1634,7 @@ a$l
 	MOV	R1,#0
 	MOV	R0,#0			; address to assume instruction came from
 	SWI	XDebugger_Disassemble	; R1=buf R2=len
-	ADRVS	R1,stored_blank_string
+	ADRVSL	R1,stored_blank_string
 	ADR	R0,assemble$l
 	BL	find_key_command	; locate+load
 	FNRTS	VS
@@ -1618,7 +1643,6 @@ a$l
 	MOV	R7,R0			; command address
 	BL	minibuffer_start	; open the minibuffer
 	FNRTS
-colons$l = " : ",0
 assemble$l FNS ("ASSEMBLE")
 
 local_bgcol_please
@@ -1632,7 +1656,7 @@ secondcolnotreached
 	BICCS	R0,R0,#&20
 	BCS	asmcondfound
 
-	TST	R4,#1 << 31
+	TST	R4,#mode4_Unconditional
 	MOVNE	PC,R14
 
 	CMP	R0,#'V'
@@ -1684,7 +1708,7 @@ skipchk1$l
 	CMPNE	R14,#'S'
 	BNE	notaconditionhere
 asmcondfound
-	TST	R4,#1 << 31
+	TST	R4,#mode4_Unconditional
 	MOVNE	PC,R14
 
 	LDR	R14,[R8,#w_format]
@@ -1873,7 +1897,7 @@ straightfwdCSV2
 mode4_menu
 	FNJSR	"R0"
 ; SWI &107
-	MOV	R0,#7			; Code mode menu
+	MOV	R0,#14			; Code mode menu
 	BL	read_menu_handle		; create the code mode menu
 ;  SUB R1,R1,#8
 	FNRTS
@@ -1887,8 +1911,8 @@ redrawallcodemodewindows
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
-	LDRB	R0,[R8,#w_format]
-	CMP	R0,#4			; mode number...
+	MOV	R0,#4
+	BL	isthisaclonebase
 	BLEQ	Updatewindow
 	FNRTS
 
@@ -1908,45 +1932,40 @@ redrawmostcodemodewindows	; 'global' ones anyway...
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
-	LDR	R14,[R8,#w_format]
-	AND	R0,R14,#&FF
-	CMP	R0,#4			; mode number...
+	MOV	R0,#4
+	BL	isthisaclonebase
 	FNRTS	NE
+	LDR	R14,[R8,#w_format]
 	TST	R14,#bit_windowwrap	; ???
 	BLNE	Updatewindow
 	FNRTS
 
 	DCD	&8017
 Code_disasmtoggle		; global cases dealt with here...
-	FNJSR
-	LDR	R6,[R0]		; REM gets word argument...
-	CMP	R6,#&1C
+	LDR	R6,[R0]		; gets word argument...
+	CMP	R6,#&18
 	BCS	backtonormal$l
-; TST	R6,#&80
-; BNE	specialcasestosdeal
-
-; BL	getdisasmdata
-	CMP	R8,#0
-	LDRNE	R0,[R8,#w_mode4]
-	BLEQ	getdefaultdata
-	MOV	R7,R0
-
+	FNJSR
+	MOV	R0,#4
+	BL	isthisaclonebase
+r$l	MOVNE	R0,#2		; in case R2=15
+	FNRTS	NE		; return if not (a clone of) Code mode
 	CMP	R2,#15
-	BEQ	but_tickquery2		; REM bit 15 of R2 indicates a 'tickquery'
-
-; LDR	R6,[R0]		; REM gets word argument...
-
-; CMP	R8,#0
-; LDRNE	R0,[R8,#w_mode4]
-; BLEQ	getdefaultdata
+	MOVLO	R14,R0
+	TEQ	R0,R14		; menu - right mode?
+	BNE	r$l
+	CMP	R8,#0
+	ADDEQ	R11,R12,#opt_mode0
+	ADDNE	R11,R8,#w_mode0
+	LDR	R0,[R11,R0,LSL #2]! ; mode word
+	MOV	R7,R0
+	CMP	R2,#15
+	BEQ	but_tickquery2		; R2=15 indicates a 'tickquery'
 	MOV	R5,R7,LSR #28
-
 	BL	getdisasmdata
-
 	MOV	R7,R0,LSL #8
 	BIC	R7,R7,#(&F << 28)
 	ORR	R7,R7,R5,LSL #28
-
 	MOV	R5,#0
 	AND	R1,R6,#&FF
 	BL	mode4_execute
@@ -1961,16 +1980,10 @@ Code_disasmtoggle		; global cases dealt with here...
 	MOV	R1,R6,LSR #24
 	TST	R1,#&80
 	BLNE	mode4_execute
-
 	MOV	R1,R7,LSR #8
 	BIC	R7,R7,#(&F << 20)
 	BL	putdisasmdata
-
 	BL	redrawmostcodemodewindows
-; REM window redraw if needed...
-
-; SWI &107 ; fires OK...
-
 	FNRTS
 
 specialcasestosdeal
@@ -1979,29 +1992,16 @@ specialcasestosdeal
 	CMP	R6,#254
 	BEQ	but_tickquery3a
 	CMP	R6,#253
-	FNRTS  NE
-	TEQ	R8,#0
-	LDRNEB	R0,[R8,#w_format]
-	LDREQB	R0,[R12,#opt_format]
-	CMP	R0,#4
-	BNE	lastresort$l
+	FNRTS	NE
 	MOV	R0,#0		; clear nothing
 	MOV	R1,#(1<<25)	; free click?
- ;CMP	 R2,#15
- ;BEQ	jusflagchk$l
 	BL	new_wind_format_set
 	BIC	R0,R0,#2
 	CMP	R2,#15
-	FNRTS  EQ
+	FNRTS	EQ
 	CMP	R8,#0
 	BLNE	Updatewindow
 	FNRTS
-lastresort$l
-	CMP R8,#0
-	MOVEQ R0,#2
-	MOVNE R0,#0
-	FNRTS
-;jusflagchk$l
 
 but_tickquery3a
 	TEQ	R2,#15
@@ -2052,41 +2052,35 @@ but_sortwwout
 	BL	Updatewindow
 	FNRTS
 
-;ensuredisassemblerthere
-; FNJSR  "R0-R5"
-; MOV	  R0,#18
-; ADR	  R1,disassemblermodnam
-; SWI	 XOS_Module
-; CMP	  R5,#0
-; FNRTS
-;
-;disassemblermodnam FNS ("Debugger") ; duplicated information :(
-
 	DCD	&8017
 CmdCODEflagstoggle
-	FNJSR
 	TEQ	R8,#0
-	LDREQ	R14,[R12,#opt_format]
-	LDRNE	R14,[R8,#w_format]
-	TST	R14,#bit_windowwrap	; global?
-	BNE	Code_disasmtoggle + 4	; yes...
+	LDREQ	R11,[R12,#opt_format]
+	LDRNE	R11,[R8,#w_format]
+	TST	R11,#bit_windowwrap	; global?
+	BNE	Code_disasmtoggle	; yes...
 backtonormal$l
-	LDR	R6,[R0]		; REM gets word argument...
+	FNJSR
+	LDR	R6,[R0]		; gets word argument...
+	MOV	R0,#4
+	BL	isthisaclonebase
+	MOVNE	R0,#2		; in case R2=15
+	FNRTS	NE		; return if not (a clone of) Code mode
+	CMP	R2,#15
+	MOVLO	R14,R0
+	TEQ	R0,R14		; menu - right mode?
+	BNE	r$l
 	TST	R6,#&80
 	BNE	specialcasestosdeal
-;	LDR	R6,[R0]		; REM gets word argument...
 	TEQ	R8,#0
-	LDRNE	R0,[R8,#w_mode4]
-	BLEQ	getdefaultdata
-
+	ADDEQ	R11,R12,#opt_mode0
+	ADDNE	R11,R8,#w_mode0
+	LDR	R0,[R11,R0,LSL #2]!
 	MOV	R7,R0
-
 	CMP	R2,#15
 	MOVEQ	R14,R6
-	BEQ	but_tickquery		; REM bit 15 of R2 indicates a 'tickquery'
-
+	BEQ	but_tickquery		; R2=15 indicates a 'tickquery'
 	MOV	R5,#0
-
 	AND	R1,R6,#&FF
 	BL	mode4_execute
 	MOV	R1,R6,LSR #8
@@ -2100,33 +2094,11 @@ backtonormal$l
 	MOV	R1,R6,LSR #24
 	TST	R1,#&80
 	BLNE	mode4_execute
-
 	MOV	R0,R7
+	STR	R0,[R11]
 	CMP	R8,#0
-	STRNE	R0,[R8,#w_mode4]
-	BLEQ	putdefaultdata
-
-	CMP	R8,#0
-
-	BLNE	but_sortwwout		; REM window redraw if needed...
-
+	BLNE	but_sortwwout		; window redraw if needed...
 	FNRTS
-
-putdefaultdata
-; FNJSR "R11"
-	MOV	R1,#4
-	ADD	R1,R1,#&100		; variable number
-	B	write_var
-; FNcall Zap_WriteVar,R11	; R0=mode word
-; FNRTS
-
-getdefaultdata
- ;FNJSR
-	MOV	R1,#4
-	ADD	R1,R1,#&100		; variable number
-	B	read_var
-; FNcall Zap_ReadVar,R0		; R0=mode word
-; FNRTS
 
 but_tickquery
 	AND	R2,R6,#&1F
@@ -2135,7 +2107,7 @@ but_tickquery
 	TST	R7,R3 ; r7?
 	MOVNE	R0,#1
 	MOVEQ	R0,#0
-	LDMFD	R13 !,{PC}
+	FNRTSS
 
 but_tickquery2
 	CMP	R6,#255
@@ -2144,9 +2116,6 @@ but_tickquery2
 	CMP	R6,#&1C
 	BCS	but_tickquery
 	SUB	R6,R6,#8
-; BL	 checkseeifdisasmloaded	; ???
-; BVS	 itsureaint$l		; ???
-; PUSH	 "R7"
 	MOV	R7,#1
 	MOV	R7,R7,LSL R6 ; ???
 	MOV	R0,#0
@@ -2157,9 +2126,8 @@ but_tickquery2
 	MOVVC	R0,#0
 	MOVVS	R0,#2
 	ORRNE	R0,R0,#1
-	LDMFD	R13 !,{PC}^
+	FNRTSS
 skipd_codestf
-; BL getdisasmdata
 	MOV	R0,#0
 	MOV	R1,#0
 	SWI	XDebugger_63
@@ -2167,26 +2135,22 @@ skipd_codestf
 	MOVVC	R0,#0
 	SUBS	R14,R14,R14
 	ADDS	R0,R0,#0
-	LDMFD	R13 !,{PC}^
+	FNRTSS
 
-;itsureaint$l
-; MOV	 R0,#2
-; SUBS	 R14,R14,R14
-; LDMFD	 R13 !,{PC}^
-
-;disassemblertest
-; MOV	  R0,#2
-; LDMFD	  R13 !,{PC}
-
+; \E R1 is bit to operate on (as WFLAGS_TOGGLE)
+;     b0-b4 bit
+;     b5-b6 0=toggle
+;           1=set
+;           2=clear
+;     b7 may be set
+;    R7 is the word value to operate on
+; \X R7 is the word value result
 mode4_execute
 	AND	 R2,R1,#&1F
-
 	MOV	 R3,#1
 	MOV	 R3,R3,LSL R2
-
 	MOV	 R2,#0
 	MOV	 R4,#0
-
 	MOV	 R1,R1,LSR #5
 	AND	 R1,R1,#3
 	CMP	 R1,#1
@@ -2196,7 +2160,6 @@ mode4_execute
 	BIC	 R7,R7,R2
 	ORR	 R7,R7,R4
 	EOR	 R7,R7,R3
-
 	MOV	 PC,R14
 
 insertbinarydata
@@ -2462,11 +2425,14 @@ tertiaryproblems2$l
 	B	colouring_colour
 
 binarytest$l
-	LDR	R0,[R8,#w_mode4]		; load in our mode word
-	TST	R0,#1 << 28		; binary?
+	FNJSR
+	LDRB	R0,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R0,[R14,R0,LSL #2]	; load in our mode word
+	TST	R0,#mode4_BinaryOpcodes
 	MOVNE	R0,#2
 	MOVEQ	R0,#16
-	MOV	PC,R14
+	FNRTS
 
 colourquery$l
 	CMP	R1,#26
@@ -2589,5 +2555,83 @@ failnotswi$l
 	MOV r0,r1 ; restore error pointer
 	FNRTS
 
-	END
+	LOCAL
 
+mode4_click
+	CMP	R1,#2
+	BLO	default_click	; simple drag, or single click
+	TST	R4,#3		; multiple click + drag
+	BNE	default_click
+	TST	R1,#1
+	BNE	select_buffer	; odd number of clicks -> select all
+	FNJSR
+	BL	find_offset
+	MOV	R2,R0
+	ADD	R3,R2,#4
+	LDR	R14,[R9,#f_len]
+	CMP	R3,R14
+	MOVHS	R3,R14
+	TEQ	R2,R3
+	BNE	sel$l
+	BL	clear_selection
+	FNRTS
+sel$l	BL	alter_selected_region
+	FNRTS
+
+
+mode4_aligncaret
+	FNJSR
+	LDRB	R14,[R8,#w_format]
+	LDR	R0,[R10,#c_off]
+	BIC	R0,R0,#3			; word align
+	STR	R0,[R10,#c_off]
+	FNLDR	R0,car_hex		; copy so can be recovered only
+	FNSTR	R0,car_hexold		; by e_char entry point
+	MOV	R0,#0
+	FNSTR	R0,car_hex		; zero current value
+	FNRTS
+
+	LOCAL
+
+mode4_copy
+	TEQ	R0,#2
+	MOVEQ	R0,#1
+	MOVEQ	PC,R14			; enter the text automatically
+	FNJSR	"R1,R4-R7"
+	MOV	R2,R1			; save number of times
+	LDRB	R14,[R8,#w_format]
+	FNLDR	R0,wimp_kbdbuf		; output buffer
+	ADD	R14,R8,R14,LSL #2
+	LDR	R14,[R14,#w_mode0]
+	MOV	R1,R2,LSL#2		; words
+	BL	heap_ensure
+	FNRTS	VS
+	FNSTR	R0,wimp_kbdbuf
+	MOV	R3,R0			; buffer
+	MOV	R4,#0			; number typed
+	LDR	R7,[R10,#c_off]		; file offset
+	LDR	R6,[R9,#f_len]		; end of file
+	LDR	R0,[R8,#w_format]
+	PUSH	"R0"
+	BIC	R0,R0,#format_BigEndian
+	STR	R0,[R8,#w_format]
+	LDRB	R14,[R8,#w_format]
+	ADD	R14,R8,R14,LSL #2
+	LDR	R14,[R14,#w_mode0]
+	AND	R14,R14,#mode1_Type
+co29$l	CMP	R7,R6
+	BCS	co30$l
+	MOV	R0,R7
+	BL	cln_readw
+	STR	R0,[R3,R4,LSL#2]		; word
+	ADD	R7,R7,#4
+	ADD	R4,R4,#1
+	CMP	R4,R2
+	BLT	co29$l
+co30$l	PULL	"R0"
+	MOV	R2,R4,LSL#2		; number actually typed
+	STR	R7,[R10,#c_off]
+	BL	reflect_caret
+	FNRTS
+
+	END

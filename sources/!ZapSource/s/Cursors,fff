@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.2 1999/01/12 18:23:45 dj Exp $
+; $Id: Cursors,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -25,6 +25,7 @@
 	IMPORT process_key_command
 	IMPORT validate_command
 	IMPORT cw_Goto_update_update
+	IMPORT offset_line_number
 
 	EXPORT put_caret
 	EXPORT find_caret_pos
@@ -78,7 +79,7 @@
 	EXPORT declaim_caret
 	EXPORT set_caret
 	EXPORT indent_selection
-	EXPORT word_align_caret
+	EXPORT word_align_caret_variable
 	EXPORT offset_line_column
 	EXPORT plot_caret
 	EXPORT caret_writable
@@ -225,6 +226,7 @@ process_window_click
 	CMP R2,#0
 	MOVMI R2,#0			; clip negative work pixels
 	BL ccd_xypix_xyline		; convert R2/R3 to col/row
+					; note that no clipping has been done as yet ...
 	SWIVC XOS_ReadMonotonicTime
 	LDMVSFD R13!,{R1-R11,PC}
 	MOV R10,R0			; current time in centi-seconds
@@ -234,10 +236,9 @@ process_window_click
 	BGT cl21			; cannot be a simple drag
 	TST R4,#&F0
 	BNE cl15			; standard drag
-cl21
-	FNLDR R0,clk_time		; time of last click
-	SUBS R0,R10,R0			; interval between clicks
-	CMP R0,#100
+
+cl21					; multiple click or drag ...
+	BL clicktime
 	BGE cl15			; standard click
 	FNLDR R0,clk_buttons
 	TEQ R0,R4
@@ -248,9 +249,7 @@ cl21
 	TEQEQ R0,R3			; y square moved?
 	BNE cl15
 
-	FNLDR R0,clk_time		; time of last click
-	SUBS R0,R10,R0			; interval between clicks
-	CMP R0,#100
+	BL clicktime
 	BGE cl15			; standard click
 
 ; this code seems th break triple-click drags and is thus commented out...
@@ -306,7 +305,8 @@ cl21
 	MOVNE R4,R4,LSR#4		; drag buttons
 	ORRNE R4,R4,#1<<3		; indicate multiple drags
 	B cl16				; new click
-cl15
+
+cl15					; single click or drag
 	TST R4,#&F0
 	MOVNE R1,#0
 	MOVNE R4,R4,LSR#4		; simple drag
@@ -325,6 +325,39 @@ cl16
 	BL mouse_click			; take click action
 	LDMFD R13!,{R1-R11,PC}
 
+
+; E R10=current time
+; X GE if R10-clk_time >= WimpDoubleClickDelay
+clicktime
+	FNJSR	"R1-R3"
+	FNLDR	R3,wimp_realver
+	CMP	R3,#300		; old WM -> assume 1 second
+	MOVLO	R3,#100
+	BLO	cl99
+	MOV	R0,#161
+	MOV	R1,#223
+	SWI	XOS_Byte
+	EORVC	R2,R2,#10
+	MOVVS	R2,#10
+	CMP	R3,#380		; non-nested WM: up to 25.5s step .1s
+	ADDLO	R3,R2,R2,LSL #2		; R3=R2*5
+	BLO	cl98
+	AND	R3,R2,#15	; nested WM: 0 to 1.5s (.1s), 0 to 15s (1s)
+	ADD	R3,R3,R3,LSL #2		; R3=R3*5
+	MOV	R0,#161
+	MOV	R1,#22
+	SWI	XOS_Byte
+	MOVVS	R2,#0
+	TST	R2,#1
+	ADDNE	R3,R3,R3,LSL #2		; R3=R3*5
+	MOVNE	R3,R3,LSL #1		; R3=R3*2
+cl98	MOV	R3,R3,LSL #1		; R3=R3*2 (for the above *5)
+cl99	FNLDR	R0,clk_time		; time of last click
+	SUB	R0,R10,R0		; interval between clicks
+	CMP	R0,R3
+	FNRTS
+
+
 	LOCAL
 
 ;E R1=click depth (0=drag 1=single click 2=double click etc)
@@ -339,6 +372,20 @@ mouse_click
 	FNSTR R11,car_column		; trash column preferred by cursor
 	MOV R11,#0			; count this as a command - consider
 	FNSTR R11,key_lastcom		; multiple ctrl K's
+
+	; new code: perform StopOps if necessary to return nested depth to 0
+	; this is valid because mouse clicks can only happen when nothing's
+	; going on in a file. (sja)
+stopop_loop$l
+	LDR R0,[R9,#f_depth]
+	CMP R0,#0
+	BLE stopop_end$l		; if f_depth < 0, something's wrong - but
+					; we really don't want an infinite loop
+	BL stop_operation
+	B stopop_loop$l
+stopop_end$l
+	; end of new code
+
 	TEQ R4,#1
 	TEQNE R4,#4
 	TEQEQ R1,#2
@@ -452,6 +499,8 @@ nostart$l
 	MOV	R1,#1
 	MOV	R5,#16
 	BL	checkvalid$l
+	TEQ	R7,#0
+	BEQ	nofn$l			; catch nonexistent commands
 	BLVC	args$l
 	MOVVC	R1,#1
 	BLVC	process_function
@@ -461,7 +510,7 @@ nostart$l
 	LDRNE	R0,[R11]		; not string (try next)
 	BNE	srch$l
 	TEQ	R0,#0
-	LDREQ	R0,[R11]		; null string (try next)
+nofn$l	LDREQ	R0,[R11]		; null string (try next)
 	BEQ	srch$l
 	B	callcmd$l		; got string - call command
 done_sb$l
@@ -516,6 +565,8 @@ callfn$l
 	LDREQ	R7,[R11,#4]		; ...in preference to command-as-fn
 	MOVEQ	R5,#4
 	BL	checkvalid$l
+	TEQ	R7,#0
+	BEQ	nofn$l			; catch nonexistent commands
 	BLVC	args$l
 	MOVVC	R1,#1
 	BLVC	process_function
@@ -560,14 +611,15 @@ ret$l	LDMFD	R13!,{R2-R7}
 	STMIA	R10,{R2-R7}
 	LDMFD	R13!,{R1-R7,R11,R14}
 	BICS	PC,R14,#1<<28
-args$l	LDR	R6,[R7,#-4]
+args$l	TEQ	R7,#0
+	LDR	R6,[R7,#-4]
 	MOV	R6,R6,LSR #24
 	AND	R6,R6,#7
 	TEQ	R6,#2
 	MOVNE	R6,#0
 	MOVS	PC,R14
 noact$l	ADR	R0,noactmsg$l
-	MOV	R1,#0
+	MOV	R1,#1<<29
 	BL	warn_user
 	B	ret$l
 
@@ -576,13 +628,18 @@ modet$l	&	0			; 1<<(e_interrogate 14)
 moden$l	&	0			; mode name
 
 noactmsg$l
-	=	"No action taken",0
+	=	"zap_NoAction",0
 	ALIGN
 
 ;E R1=depth R2/R3=xycol R4=buttons R8/R9
 ;X perform default action as mode didn't take any notice #
 
 default_click
+	FNJSR	"R1"
+	BL	test_shiftctrl
+	BIC	R4,R4,#3<<30
+	ORR	R4,R4,R1,LSL #30
+	FNPULL
 	TEQ R1,#1
 	BEQ mc_place_cursor
 	TEQ R1,#0
@@ -608,8 +665,7 @@ mc_start_drag
 	;BL test_forkey
 	;BCS specialescapeselectdrag
 	;FNRTS CC
-	BL test_shiftctrl
-	TST R1,#1
+	TST R4,#1<<30
 	BNE specialshiftselectdrag
 notinsideselection
 	; this all needs moving.
@@ -621,7 +677,6 @@ notinsideselection
 	MOV R0,#4			; start drag
 	BL set_caret_mode		; start new drag selection
 	BLVC get_wind_off		; from current cursor posn
-	BLVC get_wind_off
 	FNSTR R0,wimp_drag,VC		; set drag window
 	BLVC drag_point2
 	FNRTS
@@ -644,6 +699,8 @@ actuallysaveitsel
 	LDR R0,[R9,#f_load]
 	BL calc_ftype			; CS and R0=filetype/CC and load
 	MOVCC R0,#-1
+	LDRCC R2,[R9,#f_load]
+	LDRCC R3,[R9,#f_exec]
 	ADR R1,spritenameinfo
 	;BCS typed$l
 	;BL get_file_sprite		; and set sprite name
@@ -720,8 +777,7 @@ mc_drag_adjust
 	FNLDR R0,car_mode
 	CMP R0,#3			; already in a drag?
 	FNRTS GE
-	BL test_shiftctrl
-	TST R1,#2
+	TST R4,#1<<31
 	BLEQ returnneiftwctrlemul
 	BNE rare_adjust_control_drag
 	; TST R1,#1
@@ -776,7 +832,7 @@ ctrladjdrag_savecurs
 
 ;local_offsetofclik
 ; DCD 0
-;E as for mouse click  R4=buttons...
+;E as for mouse click  R4=buttons..., b30=shift, b31=ctrl
 ;X cursor put at correct posn, selection made. #
 
 mc_place_cursor
@@ -784,8 +840,7 @@ mc_place_cursor
  BNE mc_place_adjust
  FNJSR "R1-R11"
  MOV R11,R2
- BL test_shiftctrl
- TST R1,#1
+ TST R4,#1<<30
  BNE specialshiftselect
 notinsideselforclick
 
@@ -850,14 +905,14 @@ notinsideselforclick
 ;
 ;se5
 ; ; end of new from ZB
- BL test_shiftctrl
- TST R1,#2			; ctrl key?
+ TST R4,#1<<31			; ctrl key?
  BNE dontcheck$l		; was BNE ?????????????????
  BL returnneiftwctrlemul
  BNE eeektwsortout$l
 dontcheck$l
- MOV R5,R1			; STORE IT...
- TST R5,#2
+ MOV R5,#0
+ FNSTR R5,key_lastcom		; "no" previous command
+ TST R4,#1<<31
  FNLDR R10,car_cursor,EQ	; control not pressed
  FNLDR R10,car_input,NE		; control pressed
 ; MOV R2,R6
@@ -877,7 +932,7 @@ dontcheck$l
  BLNE wiggleabit
 
 ; BL test_shiftctrl
- TST R5,#2
+ TST R4,#1<<31
 ; BLEQ returnneiftwctrlemul
  FNRTS EQ			; don't start drag
 ; FNRTS				; don't start drag
@@ -1087,11 +1142,9 @@ nosel$l
  FNRTS VS
  MOV R0,R3
 move$l				; R0=new offset
- MOV R4,R0			; new offset
- BL test_shiftctrl
- TST R1,#2
+ TST R4,#1<<31
+ MOV R5,R0			; new offset
  BLEQ returnneiftwctrlemul
- MOV R5,R1			; control status
  BEQ noctrl$l
  BL ctrladjdrag_savecurs
  MOV R0,#5
@@ -1101,7 +1154,7 @@ move$l				; R0=new offset
  FNSTR R0,wimp_drag		; wimp drag window
 noctrl$l
  FNLDR R10,car_cursor		; control not pressed
- MOV R0,R4
+ MOV R0,R5
  BL goto_offset			; goto this offset
  FNRTS VS
  LDR R2,columntemp		; from the last find_offset...
@@ -1111,7 +1164,7 @@ noctrl$l
  ;CMP R11,#0
  BLNE wiggleabit
 ; BL storenewcolumn
- TST R5,#2
+ TST R4,#1<<31
  FNRTS EQ			; don't start drag
  BL clear_caret_always		; remove caret image
  BLVC drag_point		; start the drag
@@ -1166,6 +1219,11 @@ escapedragflag
 process_drag
  FNJSR "R1-R11"
  MOV R2,R0			; save drag state
+ FNLDR R0,car_mode
+ CMP R0,#1			; bug workaround
+ MOVEQ R0,#4			; - if in 'normal' mode, start drag
+ BLEQ set_caret_mode
+ FNRTS VS
  FNLDR R11,wimp_buffer		; use main buffer
  MOV R1,R11
  SWI XWimp_GetPointerInfo	; find mouse position
@@ -1313,14 +1371,20 @@ remove_zero_size_selections
 ; BL Copy
 ; FNRTS
 
+	LOCAL
 ;E R2/R3=xycol R8/R9 (inc margin)
 ;X R0=file offset R1=loff R2/R3=xycol (inc margin) with y clipped #
 
 find_offset
- STMFD R13!,{R2,R11,R14}
+ FNJSR "R2,R11"
  LDR R0,[R8,#w_height]
  CMP R3,R0
- SUBCS R3,R0,#1
+ ; if you want the old behaviour of clicking below last line equivalent
+ ; to clicking on last line then switch the commenting on the following
+ ; two lines ...
+ ;SUBCS R3,R0,#1
+ BCS offset_end$l
+
 ; LDRCS R2,[R8,#w_width]		; ensure not off bottom of file
  LDR R0,[R8,#w_margin]
  ;LDRB R14,[R8,#w_format]
@@ -1333,7 +1397,21 @@ find_offset
  MOVVC R1,R2			; column offset
  BLVC cln_linecol		; get file offset
  MOVVC R1,R11			; start offset of line
- LDMFD R13!,{R2,R11,PC}
+ FNRTS
+
+offset_end$l
+ LDR R0,[R9,#f_len]		; offset of end of file
+ BL offset_line_number		; \X r0=phy l#, r1=offset of phy l start, r2=log l#
+ MOVVC R11,R1			; save offset of line start
+ MOVVC R0,R1
+ LDRVC R1,[R9,#f_len]
+ BLVC cln_lineoff		; \X r0=col. offset on screen, exc. margin, r1=caret width
+ MOVVC R2,R0			; x = col, exc. margin
+ LDRVC R3,[R8,#w_height]
+ SUBVC R3,R3,#1			; y = line
+ MOVVC R1,R11			; start offset of line
+ LDRVC R0,[R9,#f_len]
+ FNRTS
 
 ;modetwofindoffset
 ; SUB R2,R2,R0			; take off margin
@@ -1406,7 +1484,7 @@ into_gain_input$l
  CMN R0,#1
  FNSTR R0,car_omode,NE		; show that carets gained
  FNLDR R0,opt_flags
- TST R0,#1<<25
+ TST R0,#flags_IgnoreInput
  LDMNEFD R13!,{R1-R5,R8-R9,PC}	; Ignore gain input calls
  FNLDR R0,car_input
  LDR R0,[R0,#c_wind]
@@ -1497,6 +1575,9 @@ set_caret_update
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -1590,6 +1671,9 @@ set_caret
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -1800,6 +1884,9 @@ clear_caret_always
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_ocol]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_owidth]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -2066,6 +2153,9 @@ scrub_input_carets
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -2296,22 +2386,26 @@ gi1
  ADD R0,R0,R14,LSL#w_shift
  FNRTS
 
-;E R10=caret
+ LOCAL
+
+;E R0 = 2^n-1 (alignment to 2^n byte boundary) R10=caret
 ;X caret word aligned if window in mode 2/4 #
 
-word_align_caret
- STMFD R13!,{R8-R9,R14}
+word_align_caret_variable
+ STMFD R13!,{R0,R8-R9,R14}
  LDR R0,[R10,#c_wind]
  BL conv_wind_off
  TEQ R8,#0
- LDMEQFD R13!,{R8-R9,PC}
- LDRB R0,[R8,#w_format]		; get draw type
- TEQ R0,#2
- TEQNE R0,#4
- LDMNEFD R13!,{R8-R9,PC}
+ LDMEQFD R13!,{R0,R8-R9,PC}
+; MOV R0,#2			; word mode or clone?
+; BL isthisaclonebase
+; MOVNE R0,#4			; code mode or clone?
+; BLNE isthisaclonebase
+; LDMNEFD R13!,{R0,R8-R9,PC}
  LDR R0,[R10,#c_off]
- TST R0,#3
- BICNE R0,R0,#3
+ LDMFD R13!,{R14}
+ TST R0,R14
+ BICNE R0,R0,R14
  STRNE R0,[R10,#c_off]
  BLNE reflect_caret
  LDMFD R13!,{R8-R9,PC}
@@ -2355,7 +2449,7 @@ enter_window
 init_flash
  FNJSR "R1-R3"
  FNLDR R0,opt_switches
- TST R0,#1
+ TST R0,#switch_FlashingCursor
  FNRTS EQ			; no flashing cursor
  MOV R1,#0			; no delay
  ADR R2,sub$l			; flash cursor sub
@@ -2365,11 +2459,11 @@ sub$l
  FNJSR "R1-R3,R10"
 ; SWI &107			; IRRITATING DEBUG...
  FNLDR R3,opt_switches
- TST R3,#1
+ TST R3,#switch_FlashingCursor
  FNRTS EQ			; cursor no longer flashes - kill interrupt
- EOR R3,R3,#2			; new state
+ EOR R3,R3,#switch_FlashingCursor_on; new state
  FNSTR R3,opt_switches
- TST R3,#2
+ TST R3,#switch_FlashingCursor_on
  FNLDR R1,car_flashon,EQ
  FNLDR R1,car_flashoff,NE	; cursor blanked now
  RSB R1,R1,#0			; negate
@@ -2468,6 +2562,29 @@ get_selection
  SUB R2,R2,R1			; length of selection
  ADDS R0,R0,#0			; clc
  FNRTS
+
+;E R10
+;X CC R1=file off of line start R2=len of line R8/R9 |
+; Normally called if get_selection returns CS
+; (uses e_linestart & e_linenext)
+
+get_line
+	CMP	R10,#0
+	MOVEQ	PC,R14
+	FNJSR	"R11"
+	LDR	R0,[R10,#c_wind]
+	BL	conv_wind_off
+	LDR	R0,[R10,#c_off]
+	PUSH	"R0"
+	MOV	R11,#e_linestart
+	BL	call_mode
+	MOV	R1,R0
+	PULL	"R0"
+	MOV	R11,#e_linenext
+	BL	call_mode
+	SUB	R2,R0,R1
+	ADDS	R0,R0,#0	; CLC
+	FNRTS
 
 ;E R8,R9
 ;X R1,2,3,8,corrupted / selection completely redrawn...
@@ -2570,7 +2687,7 @@ co9
  BL test_fblk
  FNRTS NE			; input not in this window
  LDR R14,[R9,#f_flags]
- TST R14,#1<<14
+ TST R14,#flags_UnlinkCursor
  BNE co17			; input caret not linked to input
  STR R2,[R10,#c_off]		; new offset
  BL update_caret		; update the caret position
@@ -2759,7 +2876,7 @@ ne11
  ;CMP R14,#0
  ;BLNE scrub_caret
  LDR R0,[R9,#f_flags]
- TST R0,#1<<14			; is input linked?
+ TST R0,#flags_UnlinkCursor	; is input linked?
  ;LDMNEFD R13!,{R10,PC}
  BLEQ make_cursor_visible
  LDMFD R13!,{R10,PC}
@@ -2889,7 +3006,7 @@ co1
 ;  MOVPL R3,#0			; clip at top
 ;  STR R3,[R8,#w_scrolly]
 ;  LDR R0,[R8,#w_flags]
-;  ORR R0,R0,#1<<30		; mark changed
+;  ORR R0,R0,#flags_ChangedDuringScrolling
 ;  STR R0,[R8,#w_flags]
 ; scrolled$l			; window at correct scroll offset
 ;  TEQ R2,#0
@@ -2917,7 +3034,7 @@ goto_file_offset
  FNLDR R0,car_mode
  CMP R0,#1
  BEQ maybenothingatall$l
- BLLE import_the_caret		; !?!?!?!?
+ BLLE import_the_caret		; sets the caret mode to 1 (normal)
  FNRTS VS
 modeok$l			; caret mode ok
  BL test_cblk
@@ -3033,7 +3150,7 @@ import_the_caret
 ; call_set_caret
 ;  FNJSR
 ;  ;LDR R11,[R8,#w_format]
-;  ;BIC R14,R11,#1<<29		; ignore next redraw.
+;  ;BIC R14,R11,#format_IgnoreRedraw
 ;  ;STR R14,[R8,#w_format]
 ;  BL store_old__caret_position
 ;  ;STR R11,[R8,#w_format]
@@ -3401,7 +3518,7 @@ update_if_in_this_wind
 add_and_delete_spaces
 	FNJSR	"R10,R11"
 	LDR	R11,[R9,#f_flags]
-	ORR	R14,R11,#1<<14		; input is linked?
+	ORR	R14,R11,#flags_UnlinkCursor
 	STR	R14,[R9,#f_flags]
 	LDR	R10,[R8,#w_flags]
 	BIC	R14,R10,#2		; insert mode...
@@ -3528,7 +3645,7 @@ pagemove_cursor
  FNLDR R10,car_cursor,VC
  BLVC plot_caret
  LDRVC R0,[R8,#w_flags]
- ORRVC R0,R0,#1<<30
+ ORRVC R0,R0,#flags_ChangedDuringScrolling
  STRVC R0,[R8,#w_flags]		; mark changed
  FNLDR R10,car_cursor,VC
  BLVC make_cursor_visible
@@ -3597,7 +3714,7 @@ make_cursor_visible
  BEQ ma1			; if so already left aligned
  STR R0,[R11,#w_scrollx]	; new x scroll
  LDR R0,[R8,#w_flags]
- ORR R0,R0,#1<<30		; altered
+ ORR R0,R0,#flags_ChangedDuringScrolling
  STR R0,[R8,#w_flags]
  B ma1				; do y
 ma4
@@ -3640,10 +3757,10 @@ ma1
  STR R4,[R11,#w_scrolly]	; new y scroll offset
 ma2
  LDR R0,[R8,#w_flags]
- TST R0,#1<<30			; Not -1 - don't redraw...
+ TST R0,#flags_ChangedDuringScrolling
  BEQ exitasnormal$l
  ;LDMEQFD R13!,{R1-R11,PC}	; return if not changed
- BIC R0,R0,#1<<30		; Hmm...?
+ BIC R0,R0,#flags_ChangedDuringScrolling
  STR R0,[R8,#w_flags]		; Hmm...?
 ; BL blat_window_wrap_cache ; needed - no - bug !?
  FNLDR R1,wimp_block		; not DATA or an UNDO bug...
@@ -3658,7 +3775,7 @@ ma2
  TST R14,#bit_windowwrap
  BNE alternative_mcv_exit
  ;;FNLDR R0,opt_switches		; confine cursor on?
- ;;TST R0,#1<<6
+ ;;TST R0,#switch_ConfineCursor
  ;;BNE alternative_mcv_exit
  BL reopen_window_noconstriction ; reopen_window ; update hmm...!
 ; BL reopen_window		; constricts...
@@ -3725,9 +3842,9 @@ update_w_bpl
 
 ;ma2
 ; LDR R0,[R8,#w_flags]
-; TST R0,#1<<30
+; TST R0,#flags_ChangedDuringScrolling
 ; LDMEQFD R13!,{R1-R11,PC}	; return if not changed
-; BIC R0,R0,#1<<30
+; BIC R0,R0,#flags_ChangedDuringScrolling
 ; STR R0,[R8,#w_flags]
 ; MOV R1,R8
 ; BL open_window			; update
@@ -3773,7 +3890,7 @@ update_w_bpl
 ;  CMP R4,#0			; is scroll offset <=0
 ;  BLE ma1			; if so already left aligned
 ;  LDR R14,[R8,#w_flags]
-;  ORR R14,R14,#1<<30		; altered
+;  ORR R14,R14,#flags_ChangedDuringScrolling
 ;  STR R14,[R8,#w_flags]
 ;  FNLDR R0,wimp_leftgap
 ;  RSB R0,R0,#0
@@ -3811,9 +3928,9 @@ update_w_bpl
 ;  STR R4,[R11,#w_scrolly]	; new y scroll offset
 ; ma2
 ;  LDR R0,[R8,#w_flags]
-;  TST R0,#1<<30
+;  TST R0,#flags_ChangedDuringScrolling
 ;  LDMEQFD R13!,{R1-R11,PC}	; return if not changed
-;  BIC R0,R0,#1<<30
+;  BIC R0,R0,#flags_ChangedDuringScrolling
 ;  STR R0,[R8,#w_flags]
 ;  ;
 ; BL blat_window_wrap_cache	; needed?
@@ -3866,7 +3983,7 @@ new_scroll
 	MUL	R0,R1,R2	; cursor end offset pixels)
 	SUBS	R0,R0,R7	; if >, window must be scrolled r/d
 	ADDGT	R4,R4,R0	; scroll it
-done$l	ORRGT	R3,R3,#1<<30
+done$l	ORRGT	R3,R3,#flags_ChangedDuringScrolling
 	STR	R3,[R8,#w_flags]
 	TST	R3,R3,LSL #2	; set/clear carry appropriately
 	MOV	PC,R14
@@ -3878,7 +3995,7 @@ neg$l	SUB	R7,R7,R3	; => window width less cursor width
 	TEQ	R0,R4
 	LDR	R1,[R8,#w_flags]
 	MOV	R4,R0		; new scroll offset
-	ORRNE	R1,R1,#1<<30
+	ORRNE	R1,R1,#flags_ChangedDuringScrolling
 	STRNE	R1,[R8,#w_flags]
 	TST	R1,R1,LSL #2	; set/clear carry appropriately
 	MOV	PC,R14
@@ -4251,13 +4368,14 @@ num$l
  FNLDR R7,red_blkbuf
 start$l				; R0=string pointer / -ve to outdent
  BL get_selection		; R8/R9 for selection
- FNRTS CS			; no selection
-
+ LDRCS R10,[R13,#36]
+ BLCS get_line
+ FNRTS CS
  LDR R4,[R8,#w_format]
  FNLDR R5,opt_flags
  PUSH "R4,R5"
- BIC R4,R4,#1<<15		; non-standard edit...
- BIC R5,R5,#1<<22		; no auto-clear selection
+ BIC R4,R4,#format_NonStandardEdit
+ BIC R5,R5,#flags_SelectionsVanish
  STR R4,[R8,#w_format]
  FNSTR R5,opt_flags
 
@@ -4286,6 +4404,8 @@ loop$l
  MOV R5,R0
 atstart$l			; R4=start of line to indent
  BL get_selection		; R8/R9 for selection
+ LDRCS R10,[R13,#44]
+ BLCS get_line
  ADD R2,R1,R2			; sel end
  CMP R4,R2			; was in R5...
  BGE end$l			; out of selected area
@@ -4308,34 +4428,14 @@ atstart$l			; R4=start of line to indent
  MOVGT R2,R0			; clip amount to delete
  MOV R11,#e_replace
  BL call_mode			; alter the line (may word wrap)
- BVS end$l
-; CMP R6,#0
-
-; ADDPL R5,R5,R4		;
-; ADDPL R4,R10,R4		; R10 = ?
-; SUBMI R5,R5,R2		; get new start and end of selection
-; SUBMI R4,R10,R2
-
- ;BL get_selection		; R8/R9 for selection
- ;ADD R5,R1,R2			; sel end
- MOV R4,R5			; stored SOL...
-
-; MOVVC R11,#e_linestart		; find line start
-; BLVC call_mode
-; BVS error$l ; end$l
-; CMP R0,R4			; ?
-
- B loop$l			; do next line
+ MOVVC R4,R5			; stored SOL...
+ BVC loop$l			; do next line
 end$l				; end/error
- MOVVC R11,#0
- MOVVS R11,R0
+ PULL "R1,R2"
+ STR R1,[R8,#w_format]
+ FNSTR R2,opt_flags
  BL stop_operation
- PULL "R0,R1"
- STR R0,[R8,#w_format]
- FNSTR R1,opt_flags
- MOVS R0,R11
- FNRTS EQ
- FNRTV
+ FNRTS
 
 ;E R2-R5=region R8
 ;X region corrected so that R2R3 <= R4R5 and clipped to margin

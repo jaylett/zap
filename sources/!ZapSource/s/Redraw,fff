@@ -1,8 +1,10 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.2 1999/01/12 18:24:06 dj Exp $
+; $Id: Redraw,fff,v 1.3 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
 
  GET h.ZapHeader
 
+ GET h.Messages
  GET h.MiniBuff
  GET h.Heap
  GET h.ModeBits
@@ -257,7 +259,7 @@ redraw_area_fontfast
  LDRVC R0,[R8,#w_palette]
  FNSTR R0,red_palette,VC
  FNLDR R0,opt_switches,VC
- ANDVC R0,R0,#1<<22
+ ANDVC R0,R0,#switch_SuppressAntialiasedDSA
  STRVC R0,local_aliasing_defeat
  ADDVC R1,R12,#red_flags
  ADRVC R2,fastfont_extension
@@ -650,11 +652,11 @@ read_font_info
  FNLDR R0,font_cache
  TEQ R0,#0
  MOVEQ PC,R14			; doesn't want fonts
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  BL font_findfont		; get font handle
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  MOV R1,R0			; save handle
- BL font_readinfo
+ BL font_readinfo		; bounding box in font_[xy]off, font_char[wh]
  BVS re38
  FNLDR R0,font_cache
  CMP R0,#0
@@ -663,19 +665,17 @@ read_font_info
  ;SWI &107			; ?????????? gets here...
  MOV R0,R1
  SWI XFont_LoseFont
- LDMFD R13!,{R1,PC}
+ FNRTS
 re38
- MOV R14,R0
+ PUSH "R0"
  MOV R0,R1			; handle
- MOV R1,R14			; error
- MVN R14,#0
+ MOV R14,#-1
  FNSTR R14,font_cache		; cache no longer valid
  MOV R14,#10
  FNSTR R14,font_size		; go back to reasonable font size
  SWI XFont_LoseFont
- MOV R0,R1			; restore error
- LDMFD R13!,{R1,R14}
- ORRS PC,R14,#Vbit
+ PULL "R0"			; restore error
+ FNRTV
 
 ;E font_charw/charh/xoff/yoff set up
 ;X Cache ensured, font_bpl/bpc/cachedto set up #
@@ -1088,7 +1088,9 @@ ccd_xyline_xyos
  MOVEQ R2,R2,LSL#3
  MULNE R2,R0,R2
  FNLDR R0,scn_magx
- MOV R2,R2,LSL R0		; convert x to work os
+ MOVS R2,R2,LSL R0		; convert x to work os
+ FNLDR R2,wimp_leftgap,EQ	; DS fix.
+ RSBEQ R2,R2,#0			; DS fix.
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
  MOVEQ R3,R3,LSL#3
@@ -1096,10 +1098,10 @@ ccd_xyline_xyos
  FNLDR R0,scn_magy
  MOV R3,R3,LSL R0
  RSB R3,R3,#0			; convert y pix to work os
- CMP R2,#4			; TT fix.
- MOVGT PC,R14
- FNLDR R2,wimp_leftgap		; TT fix.
- RSB R2,R2,#0			; TT fix.
+; CMP R2,#4			; TT fix.
+; MOVGT PC,R14
+; FNLDR R2,wimp_leftgap		; TT fix.
+; RSB R2,R2,#0			; TT fix.
  MOV PC,R14
 
 ;E R2/R3=xycol R8
@@ -1454,6 +1456,9 @@ invert_caret
  LDR R3,[R10,#c_width]
  ADD R0,R0,R3,LSL#4		; amount we need spare
  LDR R2,[R10,#c_col]
+	LDR	R14,[R8,#w_width]
+	CMP	R2,R14
+	MOVHI	R2,R14		; \/\/ display clipping
  ADD R0,R0,R2			; and incase line blank
  BL ensure_red_data
  LDMVSFD R13!,{R2-R11,PC}
@@ -1834,22 +1839,26 @@ blat_redraw_cache
 ;X R0=file off/R1=log ln of first line. R2-R5,R8-R9 saved
 
 red_cache_lines
- STMFD R13!,{R2-R5,R14}
+ FNJSR "R2-R5"
  MOV R0,R7			; phy ln of first line
  BL cln_phy			; file offset & log ln of first line
- LDMVSFD R13!,{R2-R5,PC}
+ FNRTS VS
  MOV R3,R0			; save file offset
  MOV R5,R1			; save log ln
  TEQ R10,#0
- LDMEQFD R13!,{R2-R5,PC}	; return if no lines to draw
+ FNRTS EQ			; return if no lines to draw
  ADD R4,R7,R10			; phy ln of final line
  MOV R10,R7			; phy ln of first line
+ STMFD R13!,{R3,R5}		; save off/log of first line
+ MOV R1,#13
+ MOV R2,R7
+ MOV R3,R4
+ BL calle_init			; e_init 13 (as described in the docs)
  MOV R11,R5			; log ln of first line
  MOV R7,R0			; offset in file of first line
  LDR R2,[R8,#w_txtlen]		; byte width of cache lines
  LDR R0,[R8,#w_txt]
  MLA R6,R2,R6,R0		; address of line in cache
- STMFD R13!,{R3,R5}		; save off/log of first line
  MOV R3,#0
  STR R3,local_ss_info_word
  MVN R5,#0			; region lines
@@ -1889,20 +1898,25 @@ red_cl_12
 ; LDMFD R13!,{R3,R5}		; pull back off/log
 ; MOV R0,R3			; file offset of first line drawn
 ; MOV R1,R5			; log ln of this line
+ MOV R1,#14
+ BL calle_init			; e_init 14 (as described in docs)
  LDR R0,local_ss_info_word
 ; TEQ R0,#0
  BL setup_fontmc_with_extras	; slow and maybe not even needed :-)
 ; BLVC setup_multiple_fonts
  STRVS R0,[R13]
- LDMFD R13!,{R0-R5,PC}
+ LDMFD R13!,{R0,R1}
+ FNRTS
 red_cl_11
  STR R0,[R13,#4]!
+ MOV R1,#14
+ BL calle_init			; e_init 14 (as described in docs)
  LDR R0,local_ss_info_word
  BL setup_fontmc_with_extras
 ; BLVC setup_multiple_fonts
- STRVS R0,[R13]
- LDMFD R13!,{R0,R2-R5,R14}	; escape
- ORRS PC,R14,#1<<28
+ ADDVS R13,R13,#4
+ LDRVC R0,[R13],#4
+ FNRTV				; escape
 
 local_ss_info_word
  & 0
@@ -2061,10 +2075,10 @@ redraw_cache_line
  LDR R0,[R8,#w_height]		; height of work area
  CMP R10,R0			; is this line off end of file
  FNRTS CS			; return if so
- MOV R1,#13
- BL calle_init$l
+; MOV R1,#13
+; BL calle_init			; [old broken call to e_init 13]
  LDR R5,[R8,#w_format]		; line format
- TST R5,#1<<8			; is line number required
+ TST R5,#format_ShowLineNumbers
  BEQ re1			; if not then re1
  BL get_linenumber
  BCS re1			; none to draw
@@ -2085,8 +2099,8 @@ re1
  ADDCS R5,R5,R1			; inc aparant start of file
  ADD R7,R5,R7			; address of next byte
  AND R1,R4,#&FF			; draw mode
- ADD R0,R12,#(command_store + 4)
- ADD R0,R0,#(mode_store - command_store)	; start of list+4
+ ADD R0,R12,#(mode_store+4):AND:&FF00
+ ADD R0,R0, #(mode_store+4):AND:&00FF; start of list+4
  LDR R0,[R0,R1,LSL#3]		; dispatch table
  LDR R14,[R8,#w_format]
  TST R14,#1 << 27
@@ -2094,9 +2108,9 @@ re1
  MOVS R14,PC
  LDR PC,[R0,#2*e_redrawline]	; call the redraw line sub
  SUB R7,R7,R5			; file offset
- MOV R1,#14
- BL calle_init$l
- LDMFD R13!,{R2-R6,R10,PC}	; return
+; MOV R1,#14
+; BL calle_init			; [old broken call to e_init 14]
+ FNRTS
 
 sw_redrawline
  STMFD R13!,{R1-R11}
@@ -2106,17 +2120,17 @@ sw_redrawline
  BL modesw_redrawline
  SUBVC R7,R7,R5			; file offset
 
- MOVVC R1,#14
- BLVC calle_init$l
- LDMFD R13!,{R2-R6,R10,PC}	; return
+; MOVVC R1,#14
+; BLVC calle_init		; [old broken call to e_init 14]
+ FNRTS
 
 ;errorend$l
 ; MOV R1,#14
-; BL calle_init$l
+; BL calle_init
 ; FNRTV
 
-calle_init$l
- FNJSR "R11"
+calle_init
+ FNJSR
  MOV R11,#e_init
  BL call_mode
  FNRTS
@@ -2131,8 +2145,8 @@ get_linenumber
  TST R5,#1<<11			; log or phy line nos?
  BNE ge14			; phy
  AND R0,R5,#&FF			; draw mode
- ADD R1,R12,#(command_store + 4)
- ADD R1,R1,#(mode_store - command_store)	; start of list+4
+ ADD R1,R12,#(mode_store+4):AND:&FF00
+ ADD R1,R1, #(mode_store+4):AND:&00FF; start of list+4
  LDR R1,[R1,R0,LSL#3]		; dispatch table
  MOVS R14,PC
  LDR PC,[R1,#2*e_redrawlnum]
@@ -2438,12 +2452,10 @@ linenumbercolons
 ;X the coords changed to os and area redrawn (using update window) #
 
 update_area
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R4"
  LDR R2,[R1,#4]			; xmin
  LDR R3,[R1,#8]			; ymin
  BL ccd_xyline_xyos
- ;CMP R2,#16
- ;MVNLE R2,#16			; hmm. serious. doesn't work...
  STR R2,[R1,#4]			; new xmin
  MOV R14,R3			; new ymax
  LDR R2,[R1,#12]		; xmax
@@ -2452,24 +2464,15 @@ update_area
  CMP R2,R3
  LDR R3,[R1,#16]		; ymax
  STR R14,[R1,#16]		; new ymax ...???
- BCS a_special_case
+ MOVLO R4,#0
+ FNLDR R4,wimp_rightgap,HS
  BL ccd_xyline_xyos
- ;CMP R2,#32
- ;ADDCS R2,R2,#16		; tt kludge :(
+ ADD R2,R2,R4
  STR R2,[R1,#12]		; new xmax
  STR R3,[R1,#8]			; new ymin
  BL update_window		; update window
 ; SWIVC &107
- LDMFD R13!,{R1-R3,PC}
-
-a_special_case
- ; SWI &107
- BL ccd_xyline_xyos
- ADD R2,R2,#16			; tt kludge :(
- STR R2,[R1,#12]		; new xmax
- STR R3,[R1,#8]			; new ymin
- BL update_window		; update window
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;E R1=window blk of area in os (handle ...) R8/R9
 ;X window area updated using Wimp_UpdateWindow #
@@ -2612,7 +2615,7 @@ check_font_manager
  CMP R0,#242			; version number
  BLLT err$l
  LDMFD R13!,{R1-R3,PC}
-err$l ERR "Zap needs Font Manager 2.42 or later (outline fonts)"
+err$l ERR "zap_e_needFM242"
 
 ;X R0=font handle of font_name scaled font_size #
 
@@ -2781,12 +2784,9 @@ pnt_get_pagesize
  MOVVS R4,#0
  LDRVS R5,default_width$l
  LDRVS R6,default_height$l
- STR R3,[R0,#&00]		; x offset of printable area
- STR R4,[R0,#&04]		; y offset of printable area
  SUB R5,R5,R3
- STR R5,[R0,#&08]		; width
  SUB R6,R6,R4
- STR R6,[R0,#&0C]		; height
+ STMIA R0,{R3-R6}		; x, y, width, height of printable area
  SUBS R0,R0,#0
  LDMFD R13!,{R1-R6,PC}
 default_width$l  & 595275 ; 21cm
@@ -2803,17 +2803,16 @@ pnt_fit_pages
  LDMVSFD R13!,{R1-R11,PC}	; set up font values
  FNLDR R10,wimp_print
  FNLDR R11,opt_flags
- LDR R4,[R10,#&08]		; width mps
- LDR R5,[R10,#&0C]		; height mps
  TST R11,#1<<15			; sideways print
- MOVNE R14,R4
- MOVNE R4,R5
- MOVNE R5,R14			; swap over width and height
- MOV R0,R4 ; ,LSL #2		; sheet width in mps ; (new 4)
- LDR R1,[R10,#&10]		; pages per sheet
- ADD R0,R0,R1,ASR#1
+ LDREQ R4,[R10,#print_width]	; width mps
+ LDREQ R5,[R10,#print_height]	; height mps
+ LDRNE R5,[R10,#print_width]	; (swapped)
+ LDRNE R4,[R10,#print_height]
+ MOV R0,R4			; R4 = sheet width in mps ; (new 4)
+ LDR R1,[R10,#print_columns_per_page]
+;* ADD R0,R4,R1,ASR#1
  SWI XZapRedraw_Divide		; BL div_mod
- STR R0,[R10,#&24]		; distance between pages in mps
+ STR R0,[R10,#print_column_gap]
  MOV R4,R0			; page width
  FNLDR R0,font_charw		; font width in pixels
  FNLDR R14,scn_magx		; x os scaling
@@ -2823,32 +2822,31 @@ pnt_fit_pages
  MUL R1,R0,R6			; window width in mps @ b0
  MOV R1,R1,ASR#8		; window width mps/256 @ b0
  MOV R0,R4,LSL#8		; paper  width mps/256 @ b16
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; BL div_mod
  MOV R6,R0			; R6=x scaling @ b16
- MOV R0,#&14000			; max scaling 5/4
- CMP R6,R0
- MOVGT R6,R0
- STR R6,[R10,#&28]		; x scaling
+ CMP R6,#&14000			; max scaling 5/4
+ MOVGT R6,#&14000
+ STR R6,[R10,#print_xscale]
 ; ADD R6,R6,R6,LSR #2	;!!!!!!!!!!!!!!!!!!!!!!!!
- STR R6,[R10,#&2C]		; y scaling
+ STR R6,[R10,#print_yscale]
  MOV R0,R5,LSL#8		; paper height mps / 256 @ b16
  MOV R1,#400
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; paper height os / 256 @ b16
  FNLDR R1,scn_magy
  MOV R0,R0,LSR R1		; paper height pix / 256 @ b16
  MOV R0,R0,LSL#8		; paper height pix @ b16
- LDR R1,[R10,#&28]		; x scaling @ b16
- ADD R0,R0,R1,ASR#1
+ LDR R1,[R10,#print_xscale]	; x scaling @ b16
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; height in pixels after scaling
  FNLDR R1,font_charh
- ADD R0,R0,R1,ASR#1
+;* ADD R0,R0,R1,ASR#1
  SWI XZapRedraw_Divide		; height in chars
  MOV R3,R0
  TST R11,#1<<16
  SUBEQ R3,R3,#3			; subtract room for title
- STR R3,[R10,#&14]		; lines per page
+ STR R3,[R10,#print_lines_per_column]
  LDMFD R13!,{R1-R11,PC}
 
 ;E R0=use colour R8/R9=file
@@ -2857,7 +2855,7 @@ pnt_fit_pages
 print_file
  FNJSR "R1-R5,R7,R8,R10"
 ; MVN R0,#0			; test!
- FNSTR R0,opt_temporary
+ FNSTR R0,opt_temporary		; colour flag
  LDR R1,[R8,#w_rl]
  LDR R2,[R8,#w_rw]
  LDR R3,[R8,#w_rh]
@@ -2886,27 +2884,28 @@ print_file
  FNRTS				; may be VS and error...
 
 print_file_sub
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R0,#&8F			; Openout with errors
  ADR R1,print_file_s0
  MOV R2,#0
  SWI XOS_Find			; open printer file
 ; BVS pn8			; ???
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOVS R11,R0			; save handle
- LDMEQFD R13!,{R1-R11,PC}	; file not opened !
+ FNRTS EQ			; file not opened !
+ FNSTR R11,wimp_print_job
  LDR R1,[R9,#f_name]		; title
  SWI &A0145			; PDriver_SelectJob
  BVS pn8			; close file and error
- MOV R7,R0			; save previous Job
+ FNSTR R0,wimp_print_prevjob
  FNLDR R10,wimp_print
  BL pnt_matrix
- LDR R1,[R10,#&1C]		; start page(from 0)
- LDR R2,[R10,#&20]		; end page(+1)
- LDR R3,[R10,#&18]		; total number of pages
+ LDR R1,[R10,#print_start_page]	; start page(from 0)
+ LDR R2,[R10,#print_stop_page]	; end page(+1)
+ LDR R3,[R10,#print_total_num_pages]
  CMP R2,R3
  MOVGE R2,R3			; clip end page
- LDR R3,[R10,#&10]		; number of columns per page
+ LDR R3,[R10,#print_columns_per_page]
 pn3
  CMP R1,R2
  BGE pn7			; none left so finish
@@ -2921,35 +2920,40 @@ pn4
  CMP R4,R3
  BCC pn4
  BL print_page			; print the page
-; BVS pn6
  ADDVC R1,R1,#1			; next page
- B pn3
+ BVC pn3
+ B pn6
 pn7
- MOV R0,R11
+ FNLDR R0,wimp_print_job
  SWI &A0148			; XPDriver_EndJob
  BVS pn6
  MOV R0,#0
- MOV R1,R11
+ FNLDR R1,wimp_print_job
+ FNSTR R0,wimp_print_job
  SWI XOS_Find			; close file
 ; LDMVSFD R13!,{R1-R11,PC}
- MOVVC R0,R7			; previous Job
+ FNLDR R0,wimp_print_prevjob,VC	; previous Job
+ MOV R11,#0
+ FNSTR R11,wimp_print_prevjob
  SWIVC &A0145			; XPDriver_SelectJob
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 pn6
- ADDS R8,R0,#0			; save error pointer & clv
- MOV R0,R11
+ PUSH "R0"
+ FNLDR R0,wimp_print_job
  SWI &A0149			; XPDriver_AbortJob
- MOV R0,R7
+ FNLDR R0,wimp_print_prevjob	; previous Job
+ MOV R11,#0
+ FNSTR R11,wimp_print_prevjob
  SWI &A0145			; XPDriver_SelectJob
- MOV R0,R8
+ PULL "R0"
 pn8
- ADDS R8,R0,#0			; save error pointer & clv
+ PUSH "R0"
  MOV R0,#0
- MOV R1,R11
+ FNLDR R1,wimp_print_job
+ FNSTR R0,wimp_print_job
  SWI XOS_Find			; close file
- MOV R0,R8			; restore error pointer
- LDMFD R13!,{R1-R11,R14}
- ORRS PC,R14,#Vbit		; return with error
+ PULL "R0"
+ FNRTV				; return with error
 
 print_file_s0	FNS ("printer:")
 
@@ -2958,17 +2962,17 @@ print_file_s0	FNS ("printer:")
 
 pnt_matrix
  FNJSR "R1-R3"
- ADD R1,R10,#&30		; column os rectangle
+ ADD R1,R10,#print_column_rectangle
  MOV R0,#0
  STR R0,[R1,#0]			; min x
  STR R0,[R1,#4]			; min y
  LDR R2,[R8,#w_width]		; window width in chars
- LDR R3,[R10,#&14]		; lines per col
+ LDR R3,[R10,#print_lines_per_column]
  BL ccd_xyline_xyos
  STR R2,[R1,#8]			; max x
  RSB R3,R3,#0
  STR R3,[R1,#12]		; max y
- ADD R1,R10,#&60		; title os rectangle
+ ADD R1,R10,#print_title_rectangle
  MOV R0,#0
  STR R0,[R1,#0]			; min x
  STR R0,[R1,#4]			; min y
@@ -2978,15 +2982,15 @@ pnt_matrix
  STR R2,[R1,#8]			; max x
  RSB R3,R3,#0
  STR R3,[R1,#12]		; max y
- ADD R1,R10,#&40		; columns matrix
+ ADD R1,R10,#print_column_matrix
  MOV R0,#0
  STR R0,[R1]
  STR R0,[R1,#4]
  STR R0,[R1,#8]
  STR R0,[R1,#12]		; clear matrix
  FNLDR R14,opt_flags
- LDR R2,[R10,#&28]		; x scale
- LDR R3,[R10,#&2C]		; y scale
+ LDR R2,[R10,#print_xscale]
+ LDR R3,[R10,#print_yscale]
  TST R14,#1<<15
  BNE pn10			; not upright
  STR R2,[R1]			;  (b 0)
@@ -2994,10 +2998,9 @@ pnt_matrix
  B pn1
 pn10
  RSB R2,R2,#0
- STR R2,[R1,#4]			; (0  c)
- STR R3,[R1,#8]			; (-b 0)
+ STMIB R1,{R2,R3}		; matrix (0  c) (-b 0)
 pn1
- ADD R2,R10,#&70		; title matrix
+ ADD R2,R10,#print_title_matrix
  MOV R3,#4			; count
 pn2
  LDR R0,[R1],#4
@@ -3015,12 +3018,12 @@ pnt_send_column
  MOV R7,R0			; save col offset
  MOV R6,R1			; page number
  FNLDR R11,opt_flags
- ADD R1,R10,#&30		; rectangle block
- ADD R2,R10,#&40		; matrix
- ADD R3,R10,#&50		; plot position
- LDR R4,[R10,#&08]		; x width
- LDR R5,[R10,#&0C]		; y height
- LDR R0,[R10,#&24]		; col seperation in mps
+ ADD R1,R10,#print_column_rectangle
+ ADD R2,R10,#print_column_matrix
+ ADD R3,R10,#print_plot_position
+ LDR R4,[R10,#print_width]
+ LDR R5,[R10,#print_height]
+ LDR R0,[R10,#print_column_gap]
 ; MOV R0,R0,LSR #2		; (new 4) !! irrelevant!
  MUL R0,R7,R0			; col offset in mps
 ; MOV R0,R0,LSR #2		; (new 4)
@@ -3029,15 +3032,14 @@ pnt_send_column
  MOVEQ R5,#0			; xy for upright
  MOVNE R4,#0
  SUBNE R5,R5,R0			; xy for sideways
- LDR R0,[R10,#&00]		; x margin
+ LDR R0,[R10,#print_xoff]
  ADD R4,R4,R0			; add x margin
- LDR R0,[R10,#&04]		; y margin
+ LDR R0,[R10,#print_yoff]
  ADD R5,R5,R0			; add y margin
- STR R4,[R3]			; x plot position
- STR R5,[R3,#4]			; y plot position
+ STMIA R3,{R4,R5}		; plot position
  MVN R4,#&FF			; colour &FFFFFF00 (bg colour = white...)
  BL add_fudge_factors
- LDR R0,[R10,#&10]		; cols per page
+ LDR R0,[R10,#print_columns_per_page]
  MLA R0,R6,R0,R7		; total column offset as ID
  SWI &A014B			; PDriver_GiveRectange
  LDMFD R13!,{R1-R11,PC}
@@ -3048,36 +3050,35 @@ pnt_send_column
 pnt_send_title
  STMFD R13!,{R1-R11,R14}
  FNLDR R11,opt_flags
- TST R11,#1<<16
+ TST R11,#flags_FancyPrintNoTitle
  LDMNEFD R13!,{R1-R11,PC}	; no need to add title
- ADD R1,R10,#&60		; rectangle block
- ADD R2,R10,#&70		; matrix
- ADD R3,R10,#&50		; plot position
- LDR R4,[R10,#&08]		; x width
- LDR R5,[R10,#&0C]		; y height
+ ADD R1,R10,#print_title_rectangle
+ ADD R2,R10,#print_title_matrix
+ ADD R3,R10,#print_plot_position
+ LDR R4,[R10,#print_width]
+ LDR R5,[R10,#print_height]
  FNLDR R0,font_charw		; font height in pixels
  FNLDR R14,scn_magy
  MOV R0,R0,LSL R14		; font height in os
  MOV R14,#400
  MUL R0,R14,R0			; font height in mps
- LDR R14,[R10,#&2C]		; y scale @ b16
+ LDR R14,[R10,#print_yscale]
  MUL R0,R14,R0			; height mps @ b16
  MOV R0,R0,LSR#16		; height mps
- TST R11,#1<<15
+ TST R11,#flags_FancyPrintSideways
  MOVEQ R4,#0
  SUBEQ R5,R5,R0			; xy for upright
  SUBNE R4,R4,R0			; xy for sideways
- LDR R0,[R10,#&00]
+ LDR R0,[R10,#print_xoff]
  ADD R4,R4,R0			; add x margin
  LDR R14,[R8,#w_rl]		; font height in pixels
  MOV R14,R14,LSL #10
 ; MOV R0,#400
  CMP R5,R14
  MOVLT R5,R14			; position fudge...
- LDR R0,[R10,#&04]
+ LDR R0,[R10,#print_yoff]
  ADD R5,R5,R0			; add y margin
- STR R4,[R3]
- STR R5,[R3,#4]			; plot position
+ STMIA R3,{R4,R5}		; plot position
  BL add_fudge_factors
  MVN R4,#&FF			; colour &FFFFFF00
  MVN R0,#0			; -1 as ID
@@ -3103,8 +3104,9 @@ add_fudge_factors
 ;E R1=page num R8-R9=file R10=wimp_print and rectangles sent to printer
 ;X Rectangles got from printer driver and plotted WB KB WD #
 
+
 print_page
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  MOV R7,R1			; save page number
  ADD R0,R7,#1			; page
  LDR R1,[R8,#w_txtw]		; cached line width
@@ -3123,20 +3125,20 @@ print_page
  ADDVC R2,R7,#1			; page
  ADDVC R3,R11,#44			; page number string
  SWIVC &A014C			; XPDriver_DrawPage
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 pn12
  TEQ R0,#0
- LDMEQFD R13!,{R1-R11,PC}	; finished
+ FNRTS EQ			; finished
  CMP R2,#0			; is ID<0
- ADDPL R0,R10,#&30		; column rectangle
- ADDMI R0,R10,#&60		; title rectangle
+ ADDPL R0,R10,#print_column_rectangle
+ ADDMI R0,R10,#print_title_rectangle
  LDMIA R0,{R4-R7}
  STMIB R11,{R4-R7}		; 'visible area of window'
  MOV R1,R11
  BL redraw_clip			; clip given rectangle to boundry
  CMP R2,#0
  BMI pn14			; print title
- LDR R4,[R10,#&14]		; lines per column
+ LDR R4,[R10,#print_lines_per_column]
  MUL R3,R2,R4			; y scroll offset in lines
  MOV R2,#0			; x scroll offset
  BL ccd_xyline_xyos
@@ -3144,12 +3146,12 @@ pn12
  STR R3,[R11,#w_scrolly]	; current scroll for this column
  MOV R1,R11
  BL print_rectangle		; print the rectangle
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
 pn13
  ADD R1,R11,#28
  SWI &A014D			; XPDriver_GetRectangle
- LDMVSFD R13!,{R1-R11,PC}
- B pn12				; do next rectangle
+ BVC pn12			; do next rectangle
+ FNRTS
 pn14
  MOV R0,#0
  STR R0,[R11,#w_scrollx]
@@ -3167,8 +3169,8 @@ pn14
  MOV R0,#0
  STR R0,[R1,#4]			; only one line
  BL print_area_font
- LDMVSFD R13!,{R1-R11,PC}
- B pn13				; next rectangle
+ BVC pn13			; next rectangle
+ FNRTS
 
 ;E R1=area to redraw (as for Wimp_Redraw) R8-R9
 ;X Area printed by vdu redraw #
@@ -3343,8 +3345,8 @@ quick_print_sub
  BLVC printer_startoffile
  LDMVSFD R13!,{R1-R11,PC}
 pr3
- LDR R1,[R10,#&58]		; start line
- LDR R2,[R10,#&5C]		; end line (+1)
+ LDR R1,[R10,#print_start_line]
+ LDR R2,[R10,#print_stop_line]
  LDR R3,[R8,#w_height]
  CMP R2,R3
  MOVGE R2,R3			; clip end line
@@ -3400,9 +3402,8 @@ create_heading
  BL strstr			; clear buffer to spaces
  CMN R10,#1
  BEQ cr13			; no page heading
- MOV R1,R11
- ADR R2,cr_s0
- BL strcpy			; Page
+ ADR R0,cr_s0
+ BL cr_sc			; Page
  MOV R0,R10
  MOV R2,#12
  SWI XOS_ConvertCardinal4
@@ -3411,36 +3412,41 @@ create_heading
  STRB R0,[R1]			; remove null
  ADD R11,R11,#12		; move onto next column
 cr13
- MOV R1,R11
- ADR R2,cr_s1
- BL strcpy
+ ADR R0,cr_s1
+ BL cr_sc
  LDR R0,[R9,#f_name]
  BL find_leaf_name
  MOV R2,R0
  BL strcpy			; copy in filename
  ADD R11,R11,#18		; next col
- MOV R1,R11
- ADR R2,cr_s2
- BL strcpy
+ ADR R0,cr_s2
+ BL cr_sc
  FNLDR R0,wimp_dateformat
  BL read_date
  LDMVSFD R13!,{R1-R4,R10-R11,PC}
  FNLDR R2,wimp_kbdbuf
  BL strcpy
  ADD R11,R11,#32
- MOV R1,R11
- ADR R2,cr_s3
- BL strcpy
+ ADR R0,cr_s3
+ BL cr_sc
  FNLDR R0,wimp_timeformat
  BL read_date
  LDMVSFD R13!,{R1-R4,R10-R11,PC}
  FNLDR R2,wimp_kbdbuf
  BL strcpy			; no terminating 0 for cache lines
  LDMFD R13!,{R1-R4,R10-R11,PC}
-cr_s0 FNS ("Page: ")
-cr_s1 FNS ("File: ")
-cr_s2 FNS ("Date: ")
-cr_s3 FNS ("Time: ")
+cr_sc
+ MOV R2,R14
+ BL lookup_token_R0
+ MOV R14,R2
+ MOV R2,R0
+ MOV R1,R11
+ B strcpy
+cr_s0 = "zap_P_page",0
+cr_s1 = "zap_P_file",0
+cr_s2 = "zap_P_date",0
+cr_s3 = "zap_P_time",0
+ ALIGN
 
 ;E R0=pointer to string ending in 0A
 ;X string output to printer (inc 0A) #

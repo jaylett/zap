@@ -1,30 +1,23 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 1.2 1999/01/12 18:24:05 dj Exp $
-
-; Set test_flag for alpha and beta versions.
-; Set patch_level for patches on major releases.
-; (You can also use it to do something appropriate for test versions ...)
- GBLS version
- GBLS patch_level
- GBLL test_flag
-version SETS "1.40 "
-patch_level SETS "8"
-test_flag SETL {FALSE}
+; $Id: ModuleBits,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
+ GET h.Messages
  GET h.Strings
  GET h.Commands
  GET h.Execute
  GET h.Dispatch
  GET h.Mode0
- GET h.Mode1
- GET h.Mode2
+ GET h.Mode1+2
  GET h.Mode3
  GET h.Mode4
  GET h.ModeBits
  GET h.StartCode
  GET h.Heap
+ GET h.Messages
+ GET h.Version
+ GET h.TMFs
 
  EXPORT title_string
  EXPORT help_string
@@ -41,6 +34,7 @@ test_flag SETL {FALSE}
  IMPORT warn_user
  IMPORT get_a_256_byte_buffer
  IMPORT poll_word_pdriverchanged
+ IMPORT kill_lineeditor
 
  AREA |!!!Module_Header_Area|,CODE,READONLY
 
@@ -63,17 +57,24 @@ title_string = |zap$|,0
 
 help_string	= |zap$|,9,9
 help_string_1	= version,"(00 Jan 0000)"
-		[ test_flag
-			= " [TEST"
-			[ patch_level <> ""
-				= " ",patch_level
-			]
-			= "]"
-		|
-			[ patch_level <> ""
-				= " patch-",patch_level
-			]
-		]
+ [ BUILD > ""
+		= " ",BUILD
+  [ (BUILD:RIGHT:1 < "0" :LOR: BUILD:RIGHT:1 > "9") :LAND: patch_level <> ""
+		= "-",patch_level
+  ]
+ |
+  [ test_flag
+		= " [TEST"
+   [ patch_level <> ""
+		= " ",patch_level
+   ]
+		= "]"
+  |
+   [ patch_level <> ""
+		= " patch-",patch_level
+   ]
+  ]
+ ]
 help_string_2	FNS (" © Zap developers")
 
 ; Command table
@@ -126,6 +127,7 @@ initialise_code
  MOV R3,   #(variable_size :AND: &00FF)
  ORR R3,R3,#(variable_size :AND: &FF00)
  SWI XOS_Module			; claim varable workspace
+ BLVC messages_open
  FNRTS VS			; R3 saved
  STR R2,[R12]			; save workspace
  MOV R12,R2
@@ -144,12 +146,16 @@ finalise_code
  MOV R1,R12			; save private word pointer
  LDR R12,[R12]
  BL kill_wimp
+ BL free_tmfs			; must be done before freeing workspace
+ BL kill_heap
+ BL kill_lineeditor
  MOV R0,#7
  MOV R2,R12
  MOV R12,R1
  SWI XOS_Module			; free workspace
- MOVVC R0,#0
- STRVC R0,[R12]			; null private word
+ BL messages_close
+ SUBS R0,R0,R0 ; CLV
+ STR R0,[R12]			; null private word
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -190,13 +196,13 @@ Zap_AddAMode
 service_call
  MOV r0,r0         ; ursula magic word
 ; fast service rejection code
- TEQ R1,#&49
- TEQNE R1,#&4A
- TEQNE R1,#&27
- ;TEQNE R1,#&87
- ;TEQNE R1,#&88
- TEQNE R1,#&53
- TEQNE R1,#&7F
+ TEQ R1,#&49	; StartWimp
+ TEQNE R1,#&4A	; StartedWimp
+ TEQNE R1,#&27	; PostReset
+ ;TEQNE R1,#&87	; FilterManagerInstalled
+ ;TEQNE R1,#&88	; FilterManagerDying
+ TEQNE R1,#&53	; Wimp_Closedown
+ TEQNE R1,#&7F	; PDriverChanged
  MOVNES pc,r14
 service_call_accepted
  LDR R12,[R12]			; get zap workspace
@@ -247,6 +253,7 @@ service_table
 
 service_startwimp
  FNJSR
+ SYSLOG "Zap service_startwimp", LOG_STATUS
  FNLDR R14,wimp_task
  ;CMN R14,#2;
  ;FNRTS EQ;
@@ -265,10 +272,11 @@ service_taskdying
  FNJSR
  FNLDR R14,wimp_task		; task pseudo - dead
  CMP R2,R14
- ADREQ R3,title_string
- MOVEQ R0,R3
- SWIEQ XOS_ExitAndDie
- FNRTS
+ FNRTS NE
+ SYSLOG "Zap service_taskdying", LOG_STATUS
+ ADR R3,title_string
+ MOV R0,R3
+ SWI XOS_ExitAndDie
 ; MOV R14,#0
 ; FNSTR R14,wimp_task		; task pseudo - dead
 ; MOV R14,#0
@@ -277,6 +285,7 @@ service_taskdying
 
 service_startedwimp
  FNJSR
+ SYSLOG "Zap service_startedwimp", LOG_STATUS
  FNLDR R14,wimp_task
  CMP R14,#0 ; CMN R14,#1
  MOVMI R14,#0
@@ -285,6 +294,7 @@ service_startedwimp
 
 service_reset
  FNJSR
+ SYSLOG "Zap service_reset", LOG_STATUS
 ; SWI &107
 ; MOV R14,#&800000
 ; SWI &107
@@ -303,6 +313,7 @@ service_reset
 
 service_pdriverchanged
 	FNJSR
+	SYSLOG "Zap service_pdriverchanged", LOG_STATUS
 	FNLDR	R14,wimp_poll_word
 	ORR	R14,R14,#2		; set it...
 	FNSTR	R14,wimp_poll_word
@@ -313,36 +324,29 @@ service_pdriverchanged
 ;X default modes 0-4,11 added to mode list & command table #
 
 add_default_modes
- FNJSR "R1"
- LDR R1,[R12,#env_modstart]		; start of the module
- LDR R0,ext0$l
- ADD R0,R1,R0
- BL add_new_mode
- LDRVC R0,ext1$l
- ADDVC R0,R1,R0
- BLVC add_new_mode
- LDRVC R0,ext2$l
- ADDVC R0,R1,R0
- BLVC add_new_mode
- LDRVC R0,ext3$l
- ADDVC R0,R1,R0
- BLVC add_new_mode
- LDRVC R0,ext4$l
- ADDVC R0,R1,R0
- BLVC add_new_mode
- LDRVC R0,ext11$l
- ADDVC R0,R1,R0
- BLVC add_new_mode
- LDRVC R0,extc$l
- ADDVC R0,R1,R0
- BLVC add_command_table
- FNRTS
-ext0$l  DCD mode_table_0
-ext1$l  DCD mode_table_1
-ext2$l  DCD mode_table_2
-ext3$l  DCD mode_table_3
-ext4$l  DCD mode_table_4
-ext11$l DCD mode_table_11
+	FNJSR	"R1,R7"
+	LDR	R1,[R12,#env_modstart]	; start of the module
+	ADR	R7,extm$l
+loop$l	LDR	R0,[R7],#4
+	TEQ	R0,#0
+	BEQ	cmd$l
+	ADD	R0,R1,R0
+	BL	add_new_mode
+	BVC	loop$l
+	FNRTS
+cmd$l	LDR	R0,extc$l
+	ADD	R0,R1,R0
+	BL	add_command_table
+	FNRTS
+extm$l	& mode_table_0
+	& mode_table_1
+	& mode_table_2
+	& mode_table_3
+	& mode_table_4
+	& mode_table_5
+	& mode_table_6
+	& mode_table_11
+	& 0
 extc$l  DCD key_command_table
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -355,6 +359,7 @@ extc$l  DCD key_command_table
 
 core_dump
  FNJSR
+ SYSLOG "Dumping core, module and workspace into <Zap$Dir>", LOG_ALWAYS
  ADR R1,module$l
  FNADR R4,ext1$l
  FNADR R5,ext2$l
@@ -470,8 +475,8 @@ loop$l
 	MOV	r3,#0
 	STRB	r3,[r2],#1
 
-	MOV	R1,#4			; current cursor block pointer
-	BL	read_var
+;	MOV	R1,#4			; current cursor block pointer
+;	BL	read_var
 
 	FNLDR	R0,wimp_poll_word
 	ORR	R0,R0,#1		; set it...
@@ -539,20 +544,20 @@ poll_word_changed
 	SUBS	R0,R0,#0
 	FNLDR	R0,wimp_poll_word
 	TST	R0,#1
+	BIC	R0,R0,#1
+	FNSTR	R0,wimp_poll_word
 	BLNE	poll_word_command
 	FNRTS	VS
 	FNLDR	R0,wimp_poll_word
 	TST	R0,#2
+	BIC	R0,R0,#2
+	FNSTR	R0,wimp_poll_word
 	BLNE	poll_word_pdriverchanged
-	MOV	R14,#0
-	FNSTR	R14,wimp_poll_word
 	FNRTS
 
 poll_word_command
 	FNJSR
-	MOV	R1,#5			; current cursor block pointer
-	BL	read_var
-	MOV	r10,r0			; r10=cursor block
+	FNLDR	r10,car_cursor		; r10=cursor block
 	LDR	r0,[r10]		; r0=window offset
 	BL	conv_wind_off		; get r8,r9...
 	BL	get_a_256_byte_buffer
@@ -561,7 +566,7 @@ poll_word_command
 	ADDEQ	r0,r0,#1		; ... so increment start pointer
 	MOVEQ	r8,#0			; ... set wind to 0
 	MOVEQ	r9,#0			; ... and file to 0
-	ORR	r0,r0,#1<<31		; don't learn sequence
+	ORR	r0,r0,#command_DontLearn
 
 	BL	command_string		; corrupts...?
 

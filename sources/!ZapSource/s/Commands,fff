@@ -1,7 +1,11 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.4 1999/02/16 09:28:30 dj Exp $
+; $Id: Commands,fff,v 1.5 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
+
+c_Conditional	* (1<<21)
 
 	GET	h.ZapHeader
+	GET	h.Messages
 	GET	h.Template
 	GET	h.CreateWind
 	GET	h.KeyBits
@@ -20,14 +24,15 @@
 	GET	h.StartCode
 	GET	h.ModuleBits
 	GET	h.Fonts
-	GET	h.Mode1
-	GET	h.Mode2
+	GET	h.Mode1+2
 	GET	h.Mode4
 	GET	h.Mode11
 	GET	h.Update
 	GET	h.TMTVars
 	GET	h.Execute
 	GET	h.Boxes
+	GET	h.TMFs
+	GET	h.ModeBits
 
 	IMPORT	Countmatches
 	IMPORT	TotalSel
@@ -49,6 +54,7 @@
 	IMPORT	Searchcur
 	IMPORT	Tofrontlist
 	IMPORT	Closelist
+	IMPORT	CmdTHROWBACKflagstoggle
 
 	IMPORT	get_DyingBox
 	IMPORT	get_SaveBox
@@ -70,6 +76,7 @@
 	EXPORT	shade_no_sel_at_all
 	EXPORT	checktrue
 	EXPORT	checklearn
+	EXPORT	disknav_tick
 
 	EXPORT	Autosoftwrap
 	EXPORT	Basemap
@@ -79,6 +86,7 @@
 	EXPORT	Cdown
 	EXPORT	Char
 	EXPORT	ClearGC
+	EXPORT	CloneCreate
 	EXPORT	Continue
 	EXPORT	Copy
 	EXPORT	Copysel
@@ -95,6 +103,7 @@
 	EXPORT	Lastsector
 	EXPORT	Learn
 	EXPORT	Local
+	EXPORT	Moden
 	EXPORT	Movesel
 	EXPORT	Multicommand
 	EXPORT	Nextcylinder
@@ -161,6 +170,11 @@ key_command_table
 	FNcom	"CLEARGC",ClearGC
 	FNcom	"CLEFT",Cleft
 	FNcom	"CLI",Cli
+	FNcom	"CLONEBASE",CloneBase
+	FNcom	"CLONEBOX",Clonebox
+	FNcom	"CLONECREATE",CloneCreate
+	FNcom	"CLONEDELETE",CloneDelete
+	FNcom	"CLONEHIDE",CloneHide
 	FNcom	"CLOSEFILE",Deletefile
 	FNcom	"CLOSELIST",Closelist
 	FNcom	"CLOSEOTHER",Closeother
@@ -199,6 +213,9 @@ key_command_table
 	FNcom	"DELWORDSTART",Deletewordprev
 	FNcom	"DISCARDFILE",discard_file
 	FNcom	"DISCARDWINDOW",discard_window
+	FNcom	"DOUBLEWORD_CONTROLREPLACE",CmdDOUBLEWORDctrlreplace
+	FNcom	"DOUBLEWORD_FLAGSTOGGLE",CmdDOUBLEWORDflagstoggle
+	FNcom	"DOUBLEWORD_GROUPSIZE",CmdDOUBLEWORDgroupsize
 	FNcom	"DOWN",Down
 	FNcom	"DUMPFILE",Dumpfile
 	FNcom	"DZAPBOX",Dzapbox
@@ -219,14 +236,19 @@ key_command_table
 	FNcom	"FREECLICK",Freeclick
 	FNcom	"FULLUNDO",Fullundo
 	FNcom	"GETMODULE",Getmodule
+	FNcom	"GETVAR",Getvar
 	FNcom	"GETWORKSPACE",Getworkspace
 	FNcom	"GETDYNAMICAREA",Getdynamicarea
 	FNcom	"GOTO",Goto
 ; FNcom "GOTOADDR",Gotoaddr
+	FNcom	"HALFWORD_CONTROLREPLACE",CmdHALFWORDctrlreplace
+	FNcom	"HALFWORD_FLAGSTOGGLE",CmdHALFWORDflagstoggle
+	FNcom	"HALFWORD_GROUPSIZE",CmdHALFWORDgroupsize
 	FNcom	"HELP",Help
 	FNcom	"HELPCOM",Helpcom
 	FNcom	"HELPFN",Helpfn
 	FNcom	"HELPKEY",Helpkey
+	FNcom	"HELPVAR",Helpvar
 	FNcom	"HEXASCII",Hexascii
 	FNcom	"ICONISE",Iconise
 	FNcom	"INDENT",Indent
@@ -260,7 +282,6 @@ key_command_table
 	FNcom	"LINEWRAP",Linewrap
  ;FNcom "LISTFILES",Listfiles
 	FNcom	"LISTFNS",Listfns
-	FNcom	"LOADLIST",Loadlist
 	FNcom	"LOADMODULE",Loadmodule
 	FNcom	"LOCALPASTE",Paste
 	FNcom	"MAKEDEFAULT",Makedefault
@@ -273,7 +294,9 @@ key_command_table
 	FNcom	"MINIMISEMEMORY",minimise_memory
 	FNcom	"MISCOPS",Miscops
 	FNcom	"MODE",Mode
+	FNcom	"MODELIST",Modelist
 	FNcom	"MODEN",Moden
+	FNcom	"MODENMENU",Modenmenu
 	FNcom	"MOVEBOX",Movebox
 	FNcom	"MOVESEL",Movesel
 	FNcom	"MULTICOMMAND",Multicommand
@@ -295,6 +318,7 @@ key_command_table
 	FNcom	"OSCLI",Oscli
 	FNcom	"OUTDENT",Outdent
 	FNcom	"OUTLINEFONT",Outlinefont
+	FNcom	"OWNEDBY",OwnedBy
 	FNcom	"PASTE",PasteGC
 	FNcom	"PASSTHROUGH",Passthrough
 ; FNcom "PASTEGC",PasteGC
@@ -362,6 +386,7 @@ key_command_table
 	FNcom	"TABDISPLAY",Tabdisplay
 	FNcom	"TABMODE",Tabmode
 	FNcom	"TABSASSPACES",Tabsasspaces
+	FNcom	"THROWBACK_FLAGSTOGGLE",CmdTHROWBACKflagstoggle
 	FNcom	"TOBACK",Toback
 	FNcom	"TOFRONT",Tofront
 	FNcom	"TOFRONTLIST",Tofrontlist
@@ -388,11 +413,13 @@ key_command_table
 	FNcom	"WINDOWWRAP",Windowwrap
 	FNcom	"WORDWRAP",Wordwrap
 	FNcom	"EDITBYTE",Editbyte
+	FNcom	"EDITHALFWORD",Edithalfword
 	FNcom	"EDITWORD",Editword
 	FNcom	"WORD_CONTROLREPLACE",CmdWORDctrlreplace
 	FNcom	"WORD_FLAGSTOGGLE",CmdWORDflagstoggle
 	FNcom	"WORD_GROUPSIZE",CmdWORDgroupsize
 	FNcom	"WRAPWIDTH",Wrapwidth
+	FNcom	"WRITEBUFFER",Writebuffer
 	FNcom	"WRITEFILE",Writefile
 	FNcom	"YANK",Yank
 
@@ -427,6 +454,7 @@ key_command_table
 	FNcom	"FILENAME",Filename
 	FNcom	"GREYED",Greyed
 	FNcom	"IN",In
+	FNcom	"MATCH",Match
 	FNcom	"MENU",Menu
 	FNcom	"MODET",ModeT
 	FNcom	"MODIFIED",Modified
@@ -560,21 +588,15 @@ key_command_table
 
 	LOCAL
 
-	DCD	7+(3<<3)+(1<<6)+(1<<28)
+	DCD	7+c_Param_String+c_PreMinibuffer+c_MovesInputOrKeymap
 Allfiles
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	ADR	R10,callallroutine$l
-	BL	do_allfiles
- ; SUBS R14,R14,R14
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt
-	FNRTS
+	B	do_allfiles
 s$l
-	FNS	("All files command:")
+	FNS	("zap_p_allfiles")
 callallroutine$l
 	FNJSR	"R0-R12"
 	MOV	R8,#0
@@ -584,49 +606,65 @@ callallroutine$l
 
 	LOCAL
 
-	DCD	7+(3<<3)+(1<<6)+(1<<28)
+	DCD	7+c_Param_String+c_PreMinibuffer+c_MovesInputOrKeymap
 Allmodes
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	MOV	R7,R0
+	LDRB	R0,[R7]
+	TEQ	R0,#':'
+	ADDEQ	R7,R7,#1
+	MOVNE	R8,#0
  ; suspicious code to deal with *other modes.*..!?
-	FNLDR	R11,opt_format
-	MOV	R0,#0			; start mode
-a$l
-	BL	tochangeibmode		; change mode from IB first!!!
-	FNRTS	VS
+	BL	get_wind_off
+	MOVS	R6,R0
+	FNLDRB	R11,opt_format,MI
+	LDRPLB	R11,[R8,#w_format]
+	MOV	R5,#0			; start mode
+a$l	MOV	R0,R6
+	BL	conv_wind_off
+	TEQ	R8,#0			; were we given a window?
+	BNE	ok$l
+	CMP	R0,#0			; has it been closed?
+	FNRTS	PL			; ... yes - return
+ok$l	MOV	R0,R5
+	BL	read_mode
+	TEQ	R0,#0
+	BEQ	next$l
+	MOV	R0,R5
+	BL	mode$l
 	BL	callallroutine2$l
-	ADD	R0,R0,#1
-	CMP	R0,#max_mode
+next$l	ADD	R5,R5,#1
+	CMP	R5,#max_mode
 	BCC	a$l
-	AND	R0,R11,#&FF
-	BL	tochangeibmode		; back to how it was before...
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt
+	MOV	R0,R11
+	BL	mode$l
 	FNRTS
 s$l
-	FNS	("All modes command:")
+	FNS	("zap_p_allmodes")
 
 callallroutine2$l
 	FNJSR	"R0-R12"
 	ORR	R0,R7,#1<<31
-	MOV	R8,#0
-	MOV	R9,#0
 	MOV	R10,#0
 	BL	command_string		; execute the string
 	STRVS	R0,[R13]
 	FNRTS
 
+mode$l	TEQ	R6,#0
+	BPL	new_mode
+	B	tochangeibmode		; change mode from IB first!!!
+
 	LOCAL
 
-	DCD	7+(3<<3)+(1<<6)+(1<<28)
+	DCD	7+c_Param_String+c_PreMinibuffer+c_MovesInputOrKeymap
 Allwindows
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	ADR	R10,callallroutine$l
 	MOV	R7,R0
 	BL	do_allwindow
@@ -636,10 +674,6 @@ Allwindows
 	MOVEQ	R0,#0
 	BLEQ	set_caret_mode		; no caret
 	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt
-	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
 	BL	enter_window
@@ -647,7 +681,7 @@ callallroutine$l
 	BL	command_string		; execute the string
 	STRVS	R0,[R13]
 	FNRTS
-s$l	FNS	("All windows command:")
+s$l	FNS	("zap_p_allwindows")
 
 	LOCAL
 
@@ -673,15 +707,11 @@ Altersel
 
 	LOCAL
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Autoindent
-	FNJSR
 	MOV	R0,#0
 	MOV	R1,#1<<16
-	BL new_wind_format_set
-;  CMP R2,#15
-;  BEQ grey$l
-	FNRTS
+	B	new_wind_format_set
 
 ; grey$l
 ;  MOV R10,R0
@@ -693,7 +723,7 @@ Autoindent
 ;  ORRNE R0,R10,#2
 ;  FNRTS
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Autosoftwrap
 	FNJSR
 	MOV	R0,#0		; clear nothing
@@ -704,7 +734,7 @@ Autosoftwrap
 
 	LOCAL
 ;	now produces tickable menu entries...
-	DCD	7 :OR: 2<<3 :OR: 1<<15 :OR: 1<<23 :OR: 1<<28
+	DCD	7+c_Param_Words+c_TickableMenuEntry+c_CommandAndFunction+c_MovesInputOrKeymap
 Basemap
 	TEQ	R2,#15
 	BEQ	tick$l
@@ -755,7 +785,6 @@ get_basemap$l
 	LDRNEB	R0,[R8,#w_basemap]
 	MOVNE	PC,R14
 	MOV	R0,#-1
-modedata$l
 	FNJSR	"R1,R2"
 	FNLDRB	R1,opt_format
 	MOV	R2,#2
@@ -764,15 +793,28 @@ modedata$l
 	FNRTS
 put_basemap$l
 	CMP	R8,#0
-	BEQ	modedata$l
+	BEQ	putoptbasemap$l
 	STRB	R0,[R8,#w_basemap]	; this is a convenience copy...
 	STRB	R0,[R8,#w_currentmap]
 	STRB	R0,[R8,#w_helpmap]
 	MOV	PC,R14
+putoptbasemap$l
+	FNJSR	"R0-R2"
+	MOV	R0,#-1
+	FNLDRB	R1,opt_format
+	MOV	R2,#2
+	BL	mode_data			; mode's base map in low byte
+	LDR	R14,[R13]
+	BIC	R0,R0,#255
+	ORR	R0,R0,R14
+	FNLDRB	R1,opt_format
+	MOV	R2,#2
+	BL	mode_data
+	FNRTS
 
 	LOCAL
 
-	&	3<<3 :OR: 1<<6 :OR: 1<<23 :OR: 1<<28
+	&	c_Param_String+c_PreMinibuffer+c_CommandAndFunction+c_MovesInputOrKeymap
 Basemapn
 	TEQ	R2,#23
 	LDREQB	R0,[R8,#w_basemap]
@@ -780,18 +822,18 @@ Basemapn
 	BEQ	keymap_name
 	TEQ	R2,#6
 	BEQ	prompt$l
-	BL	find_key_table_by_name
+	BL	find_key_table_number
 	TEQ	R2,#15
 	BEQ	tick_keymap
 	TEQ	R0,#0
 	LDMFD	R13!,{R14}
-	BPL	basemap_entry
+	BNE	basemap_entry
 	B	bad_keymap
 prompt$l
 	ADR	R0,s$l
 	LDMFD	R13!,{R14}
-	B	minibuffer_prompt
-s$l	FNS	("Basemap: ")
+	B	minibuffer_prompt_token
+s$l	FNS	("zap_p_basemap")
 keymap_name ; R14 on stack
 	BL	find_key_table
 	TEQ	R0,#0
@@ -806,13 +848,13 @@ keymap_name ; R14 on stack
 Beep
 	FNJSR
 	FNLDR	R14,opt_switches
-	TST	R14,#1<<20		; never beep
+	TST	R14,#switch_InhibitBeeping
 	SWIEQ	&20107			; BEEP command
 	FNRTS
 
 	LOCAL
 
-	DCD	(3<<3)+(1<<6)+(1<<8)+(1<<28)
+	DCD	c_Param_String+c_PreMinibuffer+c_MinibufferKey+c_MovesInputOrKeymap
 Bindtokey
 	FNJSR
 	FNLDR	R14,key_flags		; turn off learn mode
@@ -859,12 +901,12 @@ prekey$l
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 s$l
-	FNS	("Press key to bind learnt sequence to: ")
+	FNS	("zap_p_bindtokey")
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Basic
 	CMP	R2,#15
 	BEQ	returnifonibmenu
@@ -873,18 +915,16 @@ Basic
 	BL	call_mode
 	FNRTS
 
-	DCD	7+(3<<3)+(1<<6)+(1<<14)+(1<<9)	; tabs for filenames
+	DCD	7+c_Param_String+c_PreMinibuffer+c_TrojanCommand+c_MinibufferTabCompletion	; tabs for filenames
 Cli
 	MOV	R3,#0
 	B	os_cli
 
 	DCD	0
 Cancel
-	FNJSR
-	BL	yank_cancel
-	FNRTS				; cancel any yank operation
+	B	yank_cancel		; cancel any yank operation
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Clearsel
 	FNJSR
 	BL	shade_no_sel_at_all
@@ -897,7 +937,7 @@ Clearsel
 	BLVC	clear_selection
 	FNRTS
 
-	DCD	7+(1<<14)+(1<<15)
+	DCD	7+c_TrojanCommand+c_TickableMenuEntry
 Compile
 	CMP	R2,#15
 	BEQ	returnifonibmenu
@@ -924,7 +964,7 @@ Cdown
 	BL	goto_offset
 	FNRTS
 
-	DCD	8+(1<<12)+(1<<23)	; byte input
+	DCD	8+c_UniversalArg+c_CommandAndFunction	; byte input
 Char
 	TEQ	R2,#23
 	BEQ	Char_fn
@@ -983,7 +1023,7 @@ spellasyoutypenum
 spellasyoutypenamed
 	FNS ("SPELL_ASYOUTYPE")
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 ClearGC
 	FNLDR	R0,opt_switches
 	CMP	R2,#15
@@ -996,6 +1036,143 @@ tick$l
 	MOVEQ	R0,#2
 	MOVNE	R0,#0
 	MOV	PC,R14
+
+	LOCAL
+
+	DCD	7+c_Param_String+c_TickableMenuEntry
+CloneBase
+	TEQ	R2,#15
+	MOVNE	PC,R14
+	FNJSR
+	BL	test_mode_name
+	CMP	R0,#0
+	MOVMI	R0,#2
+	FNRTS	MI
+	BL	isthisaclonebase	; we just want the mode numbers
+	CMP	R14,#-1
+	CMPNE	R0,R14
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	FNRTS
+
+	LOCAL
+
+	DCD	7+c_Param_String+c_PreMinibuffer+c_TrojanCommand
+CloneCreate
+	TEQ	R2,#6
+	ADREQ	R0,p$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
+	SUB	R6,R0,#1
+	BL	str$l			; get clone name
+	SUBS	R3,R7,R6
+	ADREQ	R0,noclone$l
+	BEQ	error$l
+	CMP	R3,#10
+	ADRHI	R0,badclone$l
+	BHI	error$l
+	FNLDR	R1,wimp_kbdbuf		; copy clone name
+	MOV	R2,R6
+	ADD	R3,R3,#1
+	MOV	R4,#32
+	BL	strmove
+	FNLDR	R0,wimp_kbdbuf
+	BL	test_mode_name		; does a mode of this name exist?
+	CMP	R0,#0
+	ADRGE	R0,cloneexists$l	; if so, error
+	FNLDR	R4,wimp_kbdbuf
+	BGE	error$l
+	MOV	R0,R4
+	BL	find_ext_mode
+	ADRNE	R0,cloneexists$l
+	BNE	error$l
+	FNLDR	R1,wimp_kbdbuf
+	BL	find_clone_mode_entry
+	TEQ	R0,#0
+	ADRNE	R0,cloneexists$l
+	BNE	error$l
+	MOV	R6,R7			; get clone base name
+	BL	str$l
+	SUBS	R3,R7,R6
+	ADREQ	R0,noclonebase$l
+	BEQ	error$l
+	MOV	R0,R6
+	BL	find_mode_number
+	TEQ	R0,#0
+	ADRMI	R0,clonefail$l
+	BMI	error$l
+	BL	read_mode
+	LDR	R0,[R1,#e_mode*2]
+	TST	R0,#emode_MayBeCloned
+	ADREQ	R0,cantclone$l
+	MOVEQ	R4,R6
+	BEQ	error$l
+	FNLDR	R1,wimp_kbdbuf		; copy clone base name
+s$l	LDRB	R0,[R1],#1
+	TEQ	R0,#0
+	BNE	s$l
+	MOV	R2,R6
+	MOV	R3,#48
+	MOV	R4,#32
+	BL	strmove
+	FNLDR	R1,wimp_kbdbuf
+	BL	add_clone_mode_entry
+	FNLDR	R0,wimp_kbdbuf,VC
+	BLVC	find_mode_number	; create the clone mode
+	FNRTS	VS
+	TEQ	R0,#0
+	FNRTS	PL
+	ADR	R0,clonefail$l
+error$l	FNPULL
+	B	lookup_error
+
+str$l	LDRB	R0,[R6,#1]!
+	TEQ	R0,#32
+	BEQ	str$l
+	SUB	R7,R6,#1
+find$l	LDRB	R0,[R7,#1]!
+	CMP	R0,#32
+	BHI	find$l
+	MOVS	PC,R14
+
+p$l	FNS	("zap_p_mkclone")
+noclone$l &	0
+	FNS	("zap_e_noclone")
+badclone$l &	0
+	FNS	("zap_e_badclone")
+noclonebase$l &	0
+	FNS	("zap_e_noclonebase")
+cloneexists$l &	0
+	FNS	("zap_e_cloneexists")
+clonefail$l &	0
+	FNS	("zap_e_clonefail")
+cantclone$l &	0
+	FNS	("zap_e_badclonebase")
+
+	LOCAL
+
+	DCD	7+c_Param_String+c_PreMinibuffer+c_TrojanCommand
+CloneDelete
+	MOV	R3,#0
+	B	clone_dh$l
+
+	DCD	7+c_Param_String+c_PreMinibuffer+c_TrojanCommand
+CloneHide
+	MOV	R3,#1
+clone_dh$l
+	TEQ	R2,#6
+	ADREQ	R0,p$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
+	SUB	R1,R0,#1
+s$l	LDRB	R0,[R1,#1]!
+	TEQ	R0,#32
+	BEQ	s$l
+	MOV	R2,R3
+	BL	remove_clone_mode_entry
+	FNRTS
+p$l	=	"zap_p_delclone",0
+	ALIGN
 
 	DCD	0
 Closeother
@@ -1015,7 +1192,7 @@ Closeprinter
 op_s2
 	FNS	("Filer_CloseDir Printer:$")
 
-	DCD	0+(1<<28)
+	DCD	c_MovesInputOrKeymap
 Closewindow
 	FNJSR
 	BL	test_delete_window	; what will happen when we delete?
@@ -1040,13 +1217,14 @@ cl18
 
 	LOCAL
 
-	DCD	7+(3<<3)+(1<<6)+(1<<11)+(1<<12)+(1<<17)+(1<<28)
+	DCD	7+c_Param_String+c_PreMinibuffer+c_MinibufferOpen+c_UniversalArg+c_ProvidesDefaultMenuString+c_MovesInputOrKeymap
 Command					; R1=number of times (inc uni arg)
+	TEQ	R2,#6
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	FNJSR
 	TEQ	r2,#17
 	BEQ	m$l
-	TEQ	R2,#6
-	BEQ	p$l			; minibuffer
 	LDRB	R14,[R0]		; get first character
 	TEQ	R14,#0
 	MOVEQ	R0,#0			; close minibuffer
@@ -1064,25 +1242,20 @@ Command					; R1=number of times (inc uni arg)
 	FNRTS
 m$l
 	CMP	r0,#0
-	ADREQ	r0,mt$l			; menu title
+	ADREQ	r0,s$l			; menu title
+	BLEQ	lookup_token_R0		; lookup_token_R0 preserves flags across call
 	FNRTS	EQ
 	CMP	r0,#1
 	MOVEQ	r0,#0			; clear entry
 	CMP	r0,#2
-	MOVEQ	r1,#17			; get minibuffer size into r0
-	BLEQ	read_var
+	FNLDR	r0,mini_bufl,EQ		; get minibuffer size into r0
 	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt
-	FNRTS
-mt$l	=	"Command", 0
-s$l	FNS	("Command: ")
+s$l	FNS	("zap_p_command")
 
 ; This command seems to suffer from severe theoretical problems.
 ; Zap doesn't seem to be able to load modules under these circumstances :(
 
-; DCD 7+(3<<3)+(1<<16) ; +(1<<6)+(1<<11)+(1<<12)
+; DCD 7+c_Param_String+c_CanCreateSubMenu ; +c_PreMinibuffer+c_MinibufferOpen+c_UniversalArg
 ;Menucommand				;R1=total number (inc uni arg)
 ; FNJSR
 ; TEQ R2,#6
@@ -1155,24 +1328,21 @@ s$l	FNS	("Command: ")
 ; SWI &20107
 ; FNRTS
 
-	DCD	1<<23
+	DCD	c_CommandAndFunction
 Copy
-	FNJSR
 	FNLDR	R0,car_mode
 	TEQ	R2,#23
 	BEQ	Copy_fn
 	TEQ	R0,#2
-	BEQ	co11			; copy already initiated
+	MOVEQ	R0,R1			; number of bytes to copy
+	BEQ	copy_text		; copy already initiated
 	TEQ	R0,#1
-	FNRTS	NE			; not in a state to initiate copy
+	MOVNE	PC,R14			; not in a state to initiate copy
+	FNJSR
 	MOV	R0,#2
 	BL	set_caret_mode		; initialise copy
 	MOV	R14,#-1
 	FNSTR	R14,car_column		; column preferred by cursor
-	FNRTS
-co11
-	MOV	R0,R1			; number of bytes to copy
-	BL	copy_text
 	FNRTS
 Copy_fn
 	TEQ	R0,#2
@@ -1183,7 +1353,7 @@ Copy_fn
 
 	LOCAL
 
-	DCD	7+(2<<3)+(1<<17)
+	DCD	7+c_Param_Words+c_ProvidesDefaultMenuString
 Columntab
 	TEQ	R2,#0
 	BNE	a$l
@@ -1196,23 +1366,23 @@ a$l
 	MOVNE	R3,#w_tab
 	ADR	R4,s$l
 	B	new_w_num_checked
-s$l	FNS	("Tab width")
+s$l	FNS	("zap_m_tabw")
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Confinehorizontally
 	MOV	R0,#0			; 1<<21	; clear freeclick?
 	MOV	R1,#1<<24		; toggle Confinehorizontally
 	B	new_wind_format_set
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Colonseparator
 	MOV	R0,#0			; clear zilch
-	MOV	R1,#1<<3		; toggle separating colons
+	MOV	R1,#info_LineNumberColons
 	B	new_info_set
 
 	LOCAL
 
-	DCD	7+(1<<15)
+	DCD	7+c_TickableMenuEntry
 Confinevertically
 	MOV	R0,#0			; clear nothing
 	MOV	R1,#1<<23		; toggle Confinevertically
@@ -1291,7 +1461,7 @@ copyseltmp
  DCD 0
  DCD 0
 
- DCD (1<<15)
+ DCD c_TickableMenuEntry
 Copysel
  FNJSR
  BL shade_no_sel
@@ -1376,7 +1546,7 @@ copyselerrorexit
 ; PULL "R0"
 ; FNRTV
 
-;  DCD (1<<15)
+;  DCD c_TickableMenuEntry
 ; Copysel
 ;  FNJSR
 ;  BL shade_no_sel
@@ -1413,7 +1583,7 @@ copyselerrorexit
 Coredump
  B core_dump
 
-; DCD (3<<3) + (1<<6) + (1<<10)		; !later!
+; DCD c_Param_String + c_PreMinibuffer + c_MinibufferKill		; !later!
 ;Crash
 ; FNJSR
 ; CMP R2,#6
@@ -1468,7 +1638,7 @@ Coredump
 ;  LDR R0,[R0]
 ;  FNRTS
 
- DCD 7+(2<<3)+(1<<28)
+ DCD 7+c_Param_Words+c_MovesInputOrKeymap
 Createfile
  FNJSR
  LDR R0,[R0]			; file type
@@ -1485,43 +1655,40 @@ Cup
  BL goto_offset
  FNRTS
 
- DCD 7+(1<<16)
+ DCD 7+c_CanCreateSubMenu
 Cursormenu
  FNLDR R0,menu_memory
  LDR R0,[R0,#16]
  MOV PC,R14
 
- DCD (1<<15)
+ DCD c_Param_Words + c_TickableMenuEntry
 Cut
+ LDR R6,[R0]
  FNJSR
  MOV R7,R8
  BL shade_no_sel		; get R8/R9 containg the selection
  FNRTS CS
  BL caret_writable
- BL shade_no_sel		; get R8/R9 containg the selection
+ BL shade_no_sel		; get R1 off, R2 len, R8/R9
  CMP R7,R8
  LDRNE R0,[R8,#w_poff]
  LDREQ R0,[R10,#c_off]
- BL goto_file_offset
- ;BLVC clear_point		; scrub out point if marked
- ;BLVC gain_input
- ;BLVC plot_caret ; set_old_caret_pos ; call_set_caret
- ;BLVC make_cursor_visible
-; BLVC gain_input
-; BLVC clear_selection		; remove selected area
+ BL goto_file_offset		; if in different window, go to the selection
  FNRTS VS
+ TEQ R6,#0
+ BNE noundo$l
  LDR R0,[R9,#f_flags]
  TST R0,#1
  BEQ noundo$l
- ;MOV R4,R2			; save length of delete
- ;MOV R5,R3
+
  BL read_selection
  FNRTS VS
  LDR R14,[R9,#f_flags]
  TST R14,#&110			; read only?
  BLEQ clear_selection		; remove selected area if not
  CMP R3,#0
- FNRTS EQ
+ FNRTS EQ			; was there a selection?
+
  MOV R0,#&52			; delete no concat
  LDR R14,[R10,#c_off]
  CMP R14,R1
@@ -1533,11 +1700,11 @@ Cut
  FNLDR R14,opt_switches		; ask for no returned heap block...
  BIC R14,R14,#bit_return_deletions
  FNSTR R14,opt_switches
-; FNRTS VS
- MOVVC R0,#0
- BLVC add_yank_region		; add it to the yank list
- MOVVC R0,R3
- BLVC heap_free
+ FNRTS VS
+ MOV R0,#0			; add last deletion on this file
+ BL add_yank_region		; add it to the yank list
+ MOV R0,R3
+ BL heap_free
  FNRTS
 
 noundo$l
@@ -1558,59 +1725,21 @@ noundo$l
  FNSTR R14,opt_switches
  FNRTS
 
- DCD (3<<3)+(1<<6)
+ DCD c_Param_String+c_PreMinibuffer
 Date
- FNJSR
  TEQ R2,#6
- BEQ da13
- BL insert_date
- FNRTS
-da13
+ BNE insert_date
  ADR R0,da_s0
- BL minibuffer_prompt
- FNRTS
+ B minibuffer_prompt_token
 da_s0
- FNS ("Date format string: ")
+ FNS ("zap_p_date")
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Defaultmap
  TEQ R8,#0
  FNLDR R0,key_default,EQ
  LDRNEB R0,[R8,#w_defaultmap]
  B basemap_entry
-
-delprev$l
- FNS ("PREV")
-delnext$l
- FNS ("NEXT")
-delprevword$l
- FNS ("WORDSTART")
-delnextword$l
- FNS ("WORDEND")
-delword$l
- FNS ("WORD")
-dellinestart$l
- FNS ("LINESTART")
-dellineend$l
- FNS ("LINEEND")
-delline$l
- FNS ("LINE")
-delparagraphstart$l
- FNS ("PARASTART")
-delparagraphend$l
- FNS ("PARAEND")
-delparagraph$l
- FNS ("PARA")
-delfilestart$l
- FNS ("FILESTART")
-delfileend$l
- FNS ("FILEEND")
-delfile$l
- FNS ("FILE")
-delselection$l
- FNS ("SEL")
-delnonselection$l
- FNS ("NONSEL")
 
 goifmatched$l
  FNJSR
@@ -1642,7 +1771,25 @@ update_caret_call_mode
  MOVMI R2,#0
  B call_mode			; find start of next line
 
- DCD (3<<3) + (1<<6) + (1<<10) + (1<<27) ; !later!
+delprev$l		= "PREV",0
+delnext$l		= "NEXT",0
+delprevword$l		= "WORDSTART",0
+delnextword$l		= "WORDEND",0
+delword$l		= "WORD",0
+dellinestart$l		= "LINESTART",0
+dellineend$l		= "LINEEND",0
+delline$l		= "LINE",0
+delparagraphstart$l	= "PARASTART",0
+delparagraphend$l	= "PARAEND",0
+delparagraph$l		= "PARA",0
+delfilestart$l		= "FILESTART",0
+delfileend$l		= "FILEEND",0
+delfile$l		= "FILE",0
+delselection$l		= "SEL",0
+delnonselection$l	= "NONSEL",0
+	ALIGN
+
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKill+c_OmitParameter ; !later!
 Delete
  FNJSR
  CMP R2,#6
@@ -1698,7 +1845,8 @@ Delete
  ADR R4,Delfile + 4
  ADR R1,delfile$l
  BL goifmatched$l
- ADR R4,Cut + 4
+ MOV R6,#0
+ ADR R4,Cut + 8
  ADR R1,delselection$l
  BL goifmatched$l
  ADR R4,Delnonsel + 4
@@ -1712,7 +1860,7 @@ Delete
 ptrtotfs$l
  DCD 65 ; lie...
 
- & 1+(1<<28)
+ & 1+c_MovesInputOrKeymap
 Deletefile
  B delete_file
 
@@ -1756,8 +1904,7 @@ Delline
  DCD 0
 Deletewordnext
  FNJSR
- LDRB	R7,[R8,#w_format]
- CMP	R7,#5 ; BASIC
+ BL	isitBASICmode
  BEQ	BASICfudge1$l
  LDR R7,[R10,#c_off]
  MOV R11,#e_splus
@@ -1811,11 +1958,19 @@ BASICfudge1$l
 	BL	command_string
 	FNRTS
 
+isitBASICmode
+	FNJSR	"R0,R11"
+	MOV	R0,#14
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	AND	R0,R0,#255
+	TEQ	R0,#2 ; tokenised mode
+	FNRTS
+
  DCD 0
 Deletewordprev
  FNJSR
- LDRB	R7,[R8,#w_format]
- CMP	R7,#5 ; BASIC
+ BL	isitBASICmode
  BEQ	BASICfudge2$l
  LDR R7,[R10,#c_off]
  MOV R11,#e_sminus
@@ -1952,6 +2107,7 @@ to_Deltostart
 
  DCD 0
 Deltostart
+	TST	R3,#1
 	ADR	R3,Deltostart_main
 	B	Delto_common
 Deltostart_main
@@ -1974,9 +2130,11 @@ to_Deltoend
 
  DCD 0
 Deltoend
+	TST	R3,#1
 	ADR	R3,Deltoend_main
 Delto_common
 	ORR	R3,R3,#1<<31
+	ORRNE	R3,R3,#1
 	LDR	R4,[R8,#w_flags]
 	MVN	R5,#1<<31
 	LDR	R6,[R8,#w_format]
@@ -1996,7 +2154,7 @@ Deltoend_main
  TEQ R0,R2			; is this line empty
  TEQEQ R5,#0
  BEQ de11			; join the next line if so
- LDR R1,[R10,#c_off]
+ MOV R1,R0
  SUB R2,R2,R1			; num chars to delete
  MOV R0,#&15			; del block
  BL execute_command
@@ -2017,7 +2175,7 @@ de17
  BL add_yank_region		; add it
  FNRTS
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Down
  MOV R2,#0
  MOV R3,#1
@@ -2032,7 +2190,7 @@ Dumpfile
  FNRTS
 sub$l B dump_file
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Emacs
  ADR R0,emacs$l
  B Basemapn
@@ -2042,15 +2200,13 @@ emacs$l FNS ("Emacs")
 Escape
  B default_caret
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Execute
- FNJSR
  FNLDR R3,key_flags
  BIC R3,R3,#4
  FNSTR R3,key_flags		; turn off learn first!
  FNLDR R0,key_learn		; learn buffer
- BL execute_strokes
- FNRTS
+ B execute_strokes
 
  DCD 0
 Fastundo
@@ -2058,7 +2214,7 @@ Fastundo
  MOV R1,#0			; fast undo
  B undo_command
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Fflags_toggle
  FNJSR
  LDR R0,[R0]
@@ -2068,12 +2224,13 @@ Fflags_toggle
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<9)+(1<<28)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferTabCompletion+c_MovesInputOrKeymap
 Findfile
  FNJSR
  TEQ R2,#6
  ADREQ R0,fi_s0
  BEQ fi11
+ ; need to fix this to cope with DDEUtils...
  BL find_file ; FNcall Zap_FindFile
  MOVVC R0,#3			; bring to front
  MOVVC R1,R8
@@ -2085,7 +2242,7 @@ Findfile
 ; FNcallc Zap_PutCaret,VC,R11
  FNRTS
 fi11
- BL minibuffer_prompt		; insert prompt
+ BL minibuffer_prompt_token		; insert prompt
  FNRTS VS
  BL find_current_directory_dde
  TEQVC R0,#0
@@ -2118,10 +2275,10 @@ fi13
  MOVVC R0,#'.'
  BLVC minibuffer_writec		; insert current dir as prompt
  FNRTS
-fi_s0 FNS ("Find file: ")
-fi_s1 FNS ("Find file read only: ")
+fi_s0 FNS ("zap_p_findfile")
+fi_s1 FNS ("zap_p_findfilero")
 
- DCD 7+(3<<3)+(1<<6)+(1<<9)+(1<<28)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferTabCompletion+c_MovesInputOrKeymap
 Findfilereadonly
  FNJSR
  TEQ R2,#6
@@ -2138,7 +2295,7 @@ Findfilereadonly
 
  LOCAL
 
- DCD 0 ; +(3<<3)+(1<<6)+(1<<10)
+ DCD 0 ; +c_Param_String+c_PreMinibuffer+c_MinibufferKill
 Findfunction
  FNJSR
  LDR R0,[R10,#c_off]
@@ -2150,13 +2307,13 @@ Findfunction
  CMPNE R1,#2
  FNRTS EQ ; OK.
  ADR R0,err_notfunfound
- MOV R1,#0
+ MOV R1,#warn_UseMessageTrans
  BL warn_user
  FNRTS
 err_notfunfound
- FNS ("Function not found")
+ FNS ("zap_FnNotFound")
 
- DCD 7+(2<<3)+(1<<17)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString
 Fontaspect
  FNJSR
  TEQ R2,#17
@@ -2174,6 +2331,7 @@ Fontaspect
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#1
  BEQ returnaspect$l
  TEQ R0,#2
@@ -2187,13 +2345,13 @@ returnaspect$l
  ADR R0,local_fontaspect
  FNRTS
 
-s$l FNS ("Font aspect ratio (percent)")
+s$l FNS ("zap_m_faspect")
 local_fontaspect
  DCD 0
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<17)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString
 Fontsize
  FNJSR
  TEQ R2,#17
@@ -2211,6 +2369,7 @@ Fontsize
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#1
  LDREQ R0,[R12,#font_size]
  MOVEQ R0,R0,LSL #16
@@ -2220,11 +2379,11 @@ a$l
  TEQ R0,#2
  MOVEQ R0,#9
  FNRTS
-s$l FNS ("Font size")
+s$l FNS ("zap_m_fsize")
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Fonttype
  LDR R3,[R0]
  MOV R0,#&320000		; mask
@@ -2241,7 +2400,7 @@ Formattext
  MOV R11,#e_formattext
  B call_mode
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Freeclick
  MOV R0,#0 ; 1<<24	; clear CONFINE HORIZ... nothing
  MOV R1,#1<<21		; toggle freeclick
@@ -2253,7 +2412,7 @@ Fullundo
  MOV R1,#1			; full undo
  B undo_command
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Hexascii
  MOV R0,#0
  MOV R1,#1<<5
@@ -2310,7 +2469,7 @@ Hexascii
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<8)+(1<<11)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferKey+c_MinibufferOpen
 Help
  FNJSR
  TEQ R2,#6
@@ -2330,17 +2489,24 @@ Help
  TEQ R0,#'C'
  ADREQ R7,Helpcom
  BEQ helpon$l
+ TEQ R0,#'V'
+ ADREQ R7,Helpvar
+ BEQ helpon$l
  TEQ R0,#'M'
  BEQ mode$l
- TEQ R0,#'Z'
+ TEQ R0,#'D'
+ TEQNE R0,#'Z'
  BNE end$l			; not recognised
+ MOV R11,R0
  MOV R0,#21
  BL minibuffer_writec		; avoid problems if help file not found
  FNLDR R1,opt_flags		; save old flags
  ORR R0,R1,#(1<<4)+(1<<8)	; file fixed as read only
  FNSTR R0,opt_flags
- ADR R0,help$l
- BL install_file
+ TEQ R11,#'Z'
+ ADREQ R0,help$l
+ ADRNE R0,docs$l
+ SWI XWimp_StartTask
  FNSTR R1,opt_flags
 end$l				; exit closing the minibuffer
  MOVVC R0,#0			; close minibuffer
@@ -2374,54 +2540,67 @@ key$l
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
-s$l	= "Help on C=Command, F=Function, K=Key, M=Mode, Z=Zap:",0
+s$l	= "zap_p_help",0
 m$l	= "mode_",0
-help$l	FNS (|zapdir$|:CC:".!Help")
+help$l	= "/",|zapdir$|,".!Help",0
+docs$l	= "Filer_OpenDir ZapResources:Docs",0
+	ALIGN
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)
+ DCD 7+c_Param_String+c_PreMinibuffer
 Helpcom
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  MOV R2,#0
  BL find_command_help
  BLVC display_help
  FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
-s$l FNS ("Help on command: ")
+s$l FNS ("zap_p_helpcom")
 
 	LOCAL
 
-	DCD 7+(3<<3)+(1<<6)
+	DCD 7+c_Param_String+c_PreMinibuffer
 Helpfn
-	FNJSR
 	TEQ	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	MOV	R2,#0
 	ORR	R0,R0,#1<<31
 	BL	find_command_help
 	BLVC	display_help
 	FNRTS
-p$l	ADR	R0,s$l
-	BL	minibuffer_prompt
-	FNRTS
-s$l	FNS	("Help on function: ")
-
+s$l	FNS	("zap_p_helpfn")
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<8)
-Helpkey
- FNJSR
+ DCD 7+(3:SHL:3)+(1:SHL:6)
+Helpvar
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
+ MOV R2,#0
+ ORR R0,R0,#1:SHL:30
+ BL find_command_help
+ BLVC display_help
+ FNRTS
+s$l
+ FNS ("zap_p_helpvar")
+
+ LOCAL
+
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferKey
+Helpkey
+ TEQ R2,#6
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  SUB R1,R2,#&8000
  CMP R1,#&200
  BCC prekey$l			; user has pressed a key
@@ -2465,15 +2644,11 @@ prekey$l
  BLVC minibuffer_write
  MOVVC R0,#&1D			; return operation finished
  FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
-s$l FNS ("Press key you want help on: ")
+s$l FNS ("zap_p_helpkey")
 
  LOCAL
 
- DCD 1+(1<<28)
+ DCD 1+c_MovesInputOrKeymap
 Iconise
  FNJSR
  FNLDR R1,wimp_block
@@ -2510,7 +2685,7 @@ Indirect
  BL goto_offset
  FNRTS
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Infinitewrap
  FNJSR ; why - "R3"
  MOV R0,#0			; clear zilch
@@ -2519,9 +2694,8 @@ Infinitewrap
  CMP R2,#15
  BEQ ww_new_wind_format_set
  CMP R8,#0			; ib menu...?
- FNRTS EQ
- LDR R0,[R8,#w_format]
- TST R0,#bit_windowwrap
+ LDRNE R0,[R8,#w_format]
+ TSTNE R0,#bit_windowwrap
  FNRTS EQ
 
  LDR R0,[R8,#w_width]
@@ -2544,7 +2718,7 @@ reflect_window_height
 
  LOCAL
 
- DCD (3<<3)+(1<<6)		; string input
+ DCD c_Param_String+c_PreMinibuffer		; string input
 Insertblock
  TEQ R2,#6
  BEQ is2
@@ -2556,28 +2730,25 @@ Insertblock
  BL Stopop
  FNRTS
 
- DCD (3<<3)+(1<<6)		; string input
+ DCD c_Param_String+c_PreMinibuffer		; string input
 Insert
- FNJSR
  TEQ R2,#6
- BEQ is2
- MOV R1,R0
+is2
+ ADREQ R0,is_s0
+ BEQ minibuffer_prompt_token
+ FNJSR
+ SUB R1,R0,#1
 is1
- LDRB R14,[R1],#1
+ LDRB R14,[R1,#1]!
  TEQ R14,#0
  BNE is1
- SUB R1,R1,#1
  SUB R1,R1,R0
  BL Char			; insert the chars
  FNRTS
-is2
- ADR R0,is_s0
- BL minibuffer_prompt
- FNRTS
 is_s0
- FNS ("Insert string: ")
+ FNS ("zap_p_insert")
 
- DCD (3<<3)+(1<<6)		; string input
+ DCD c_Param_String+c_PreMinibuffer		; string input
 Insertblockgs
  TEQ R2,#6
  BEQ is3
@@ -2591,11 +2762,13 @@ Insertblockgs
 
  LOCAL
 
- DCD (3<<3)+(1<<6)
+ DCD c_Param_String+c_PreMinibuffer
 Insertgs
- FNJSR
  TEQ R2,#6
- BEQ is3
+is3
+ ADREQ R0,is_s1
+ BEQ minibuffer_prompt_token
+ FNJSR
  FNLDR R1,wimp_kbdbuf
  MOV R2,#kbdbuf_size*4
  SWI XOS_GSTrans
@@ -2603,65 +2776,38 @@ Insertgs
  MOVVC R1,R2			; length
  BLVC Char
  FNRTS
-is3
- ADR R0,is_s1
- BL minibuffer_prompt
- FNRTS
 is_s1
- FNS ("Insert GS string: ")
+ FNS ("zap_p_insertgs")
 
- LOCAL
-
- DCD 0+(3<<3)+(1<<6)+(1<<10)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKill
 Insertdate
  CMP R2,#6
- BEQ prompt$l
- ;FNJSR
- ;FNLDR R0,wimp_dateformat
- B insert_date
- ;FNRTS
-prompt$l
+ BNE insert_date
  FNLDR R0,wimp_dateformat
  MOV PC,R14
 
- LOCAL
-
- DCD 0+(3<<3)+(1<<6)+(1<<10)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKill
 Inserttime
  CMP R2,#6
- BEQ prompt$l
- ;FNJSR
- ; FNLDR R0,wimp_timeformat
- B insert_date
- ;FNRTS
-prompt$l
+ BNE insert_date
  FNLDR R0,wimp_timeformat
  MOV PC,R14
 
- LOCAL
-
- DCD (3<<3)+(1<<6)+(1<<10)+(1<<15)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKill
 Indent
  CMP R2,#6
- BEQ prompt$l
- FNJSR
- MOV R6,R0
- BL shade_no_sel
- FNRTS CS
- MOV R0,R6
- BL indent_selection
- FNRTS
-prompt$l
+ BNE indent_selection
  FNLDR R0,wimp_indentstring
  MOV PC,R14
 
  LOCAL
 
- DCD (3<<3)+(1<<6)+(1<<8)+(1<<17)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKey+c_ProvidesDefaultMenuString
 Indentby
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  CMP R2,#&8000
  BCS q$l
  TEQ R2,#17
@@ -2678,10 +2824,6 @@ Indentby
  BLVC strcopy			; copy to current indent string
  FNLDR R0,wimp_indentstring,VC
  BLVC indent_selection
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
  FNRTS
 q$l
  SUB R14,R2,#&8100
@@ -2701,18 +2843,17 @@ q$l
 m$l
  TEQ R0,#0
  ADREQ R0,s$l			; menu title
+ BLEQ lookup_token_R0
  TEQ R0,#1
  FNLDR R0,wimp_indentstring,EQ
  TEQ R0,#2
  MOVEQ R0,#32
  FNRTS
 
-s$l FNS ("Indent by: ")
+s$l = "zap_m_indentby",0
 clearstr$l = 21,0
 
  ALIGN
-
- LOCAL
 
  DCD 0
 Joinline
@@ -2729,7 +2870,7 @@ Keymap
  SUB R1,R1,#1
  LDR R0,[R0,R1,LSL#2]		; last word in list
  MOV R1,R0
- BL find_key_table
+ BL find_key_table_number
  BMI bad_keymap_jump
  STRPLB R1,[R8,#w_currentmap]
  STRPLB R1,[R8,#w_helpmap]
@@ -2742,29 +2883,27 @@ Keymap
 ke_s0
  FNS (" - ")
 
-	&	3<<3 :OR: 1<<6 :OR: 1<<23 :OR: 1<<28
+	LOCAL
+
+	&	c_Param_String+c_PreMinibuffer+c_CommandAndFunction+c_MovesInputOrKeymap
 Keymapn
+	TEQ	R2,#6
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	TEQ	R2,#23
 	LDREQB	R0,[R8,#w_currentmap]
 	STMFD	R13!,{R14}
 	BEQ	keymap_name
-	TEQ	R2,#6
-	BEQ	prompt$l
-	BL	find_key_table_by_name
-	TEQ	R0,#0
+	BL	find_key_table_number
 	STRPLB	R0,[R8,#w_currentmap]
 	STRPLB	R0,[R8,#w_helpmap]
 	LDMPLFD	R13!,{PC}
 bad_keymap_jump
 	LDMFD	R13!,{R14}
 	B	bad_keymap
-prompt$l
-	ADR	R0,s$l
-	LDMFD	R13!,{R14}
-	B	minibuffer_prompt
-s$l	FNS	("Keymap: ")
+s$l	FNS	("zap_p_keymap")
 
- DCD (1<<15)
+ DCD c_TickableMenuEntry
 Keepregion
  FNJSR
  BL shade_no_sel		; R1=off R2=len
@@ -2778,47 +2917,55 @@ Keepregion
  BLVC plot_caret
  FNRTS
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lastcylinder
- FNJSR
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#0
  MVN R3,#0
- BL new_read_disc
- FNRTS
+ B new_read_disc
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lastsector
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MVN R1,#0
  MOV R2,#0
  MOV R3,#0
  B new_read_disc
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Lasttrack
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MVN R2,#0
  MOV R3,#0
  B new_read_disc
 
+disknav_tick
+	LDR	R0,[R9,#f_cmode]
+	TEQ	R0,#1			; is it a dzap created file?
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	MOV	PC,R14
+
  DCD 0
 Learn
- FNJSR
  FNLDR R0,key_flags
  TST R0,#4
  EOR R0,R0,#4			; toggle mode
  FNSTR R0,key_flags
- BNE le1			; switch off learn mode
+ MOVNE PC,R14			; switch off learn mode
  MOV R0,#0
  FNSTR R0,key_llen		; reset buffer
  FNRTS
-le1
- FNRTS
 
- DCD 7 + (1<<15)
+ DCD 7+c_TickableMenuEntry
 Listfns
  CMP R2,#15
  BEQ returnifonibmenu
@@ -2827,7 +2974,7 @@ Listfns
 
  LOCAL
 
-;  DCD 7 + (1<<15)
+;  DCD 7 + c_TickableMenuEntry
 ; Listfiles
 ;  FNJSR
 ;  MOV R0,#0
@@ -2877,19 +3024,17 @@ Listfns
 ;
 ;  ALIGN
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Left
  MVN R2,#0
  MOV R3,#0
  B move_cursor
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Linewrap
  FNJSR "R2"
  TEQ R2,#15
  BEQ linewrap_justtest
- FNRTS EQ
-
  ; ;MOV R0,#1 << 27		; clear softwrap
  ; ;MOV R1,#0			; toggle nothing
  ; ;TEQ R8,#0
@@ -2916,7 +3061,7 @@ linewrap_justtest
  BL new_wind_flags_set		; was flags?????
  FNRTS
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Lastmark
  FNJSR
  BL get_cursor_caret
@@ -2935,13 +3080,13 @@ Lastmatch
  BL search_data
  FNRTS
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Lineedit
  MOV R0,#0
  MOV R1,#1<<14
  B new_wind_format_set
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Linenos
  LDR R3,[R0]			; 0=none 1=log 2=phy 3=addresses
  MOV R0,#&100			; none mask
@@ -2959,17 +3104,15 @@ Linenos
 
  LOCAL
 
- DCD 7 + (1<<15)
+ DCD 7+c_TickableMenuEntry
 Lineselect
- FNJSR
  MOV R0,#0
  MOV R1,#(1<<6)
- BL new_info_set
- FNRTS
+ B new_info_set
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<17)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString
 Linespacing
  TEQ R2,#0
  BNE a$l
@@ -2982,23 +3125,18 @@ a$l
  MOVNE R3,#w_linesp
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Line sep")
+s$l FNS ("zap_m_linesep")
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)
+ DCD 7+c_Param_String+c_PreMinibuffer
 Loadmodule
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
  ORR R0,R0,#1<<31			; extra * command not given
- BL load_mode_module
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
-s$l = "Zap extension module: ",0
+ B load_mode_module
+s$l = "zap_p_loadmodule",0
  ALIGN
 
  LOCAL
@@ -3011,24 +3149,39 @@ tochangeibmode
  BL new_mode
  FNRTS
 
- DCD 1
+	DCD	1:OR:c_Param_Words
 Makedefault
- FNJSR
- FNLDR R11,opt_format
- LDRB R0,[R8,#w_format]		; the mode whose options we're interested in
- BL tochangeibmode		; change mode from IB first!!!
+	FNJSR
+	LDR	R0,[R0]
+	FNLDRB	R11,opt_format
+	TEQ	R0,#0
+	BEQ	makedefault$l
+	MOV	R6,R8
+	MOV	R5,#0
+	FNLDRB	R4,opt_format
+loop$l	MOV	R0,R5
+	BL	read_mode
+	TEQ	R0,#0
+	BEQ	next$l
+	MOV	R1,R5
+	BL	make_default_mode
+	MOVVC	R0,R5
+	BLVC	copy_back_a_mode_buffer
+	FNRTS	VS
+	TEQ	R5,R4
+	MOV	R8,#0
+	BLEQ	modes_start		; fiddle it for the default mode
+	MOV	R8,R6
+next$l	ADD	R5,R5,#1
+	CMP	R5,#max_mode
+	BLO	loop$l
 
- ; suspicious code to deal with *other modes.*..!?
-;  MOV R1,#0			; start mode
-; a$l
-;  BL make_default_mode
-;  FNRTS VS
-;  ADD R1,R1,#1
-;  CMP R1,#max_mode
-;  BCC a$l
-
- LDRB R1,[R8,#w_format]		; the mode whose options we're interested in
- BL make_default_mode
+makedefault$l
+ LDRB R0,[R8,#w_format]
+ BL tochangeibmode
+ LDRVCB R1,[R8,#w_format]
+ BLVC make_default_mode
+ FNRTS VS
 
  FNLDR R2,opt_flags
  LDR R0,[R8,#w_flags]
@@ -3036,6 +3189,7 @@ Makedefault
  BIC R2,R2,R1
  AND R0,R0,R1
  ORR R2,R2,R0
+  [ (fflags_mask :AND: :NOT: &11F) <> 0
  LDR R0,[R9,#f_flags]
  LDR R1,fmask$l
  BIC R1,R1,#&0F			; don't copy the 'Undo' flag for the file...
@@ -3043,6 +3197,7 @@ Makedefault
  AND R0,R0,R1
  BIC R2,R2,R1
  ORR R2,R2,R0
+  ]
  BIC R2,R2,#&110		; *not* the read-only flags &c...
  FNSTR R2,opt_flags		; this works
 
@@ -3057,7 +3212,6 @@ Makedefault
  FNSTR R2,opt_format ; this doesn't work...?
 
  FNLDR R2,opt_info
- ;LDR R2,[R8,#w_info]
  LDR R0,[R8,#w_info]
  LDR R1,winfo$l
  AND R0,R0,R1
@@ -3079,25 +3233,27 @@ Makedefault
  FNSTR R0,opt_stline
  LDR R0,[R8,#w_wrapwidth]
  FNSTR R0,opt_wrapwidth ; this works!
+ LDRB R0,[R8,#w_format]
  BL copy_back_a_mode_buffer
  AND R0,R11,#&FF
  BL tochangeibmode		; back to how it was before...
  FNRTS
 
 wmask$l DCD wflags_mask
+  [ (fflags_mask :AND: :NOT: &11F) <> 0
 fmask$l DCD fflags_mask
+  ]
 wform$l DCD (wformat_mask:AND:&FFFFFF00)	; don't copy the mode
 winfo$l DCD winfo_mask
 
  LOCAL
 
-;E R8=window to copy from.
+;E R0=mode, R8=window from which to copy
 ;X If mode valid then block copied #
 
 copy_back_a_mode_buffer
  FNJSR "R1-R5,R11"
- LDRB R0,[R8,#w_format]
- ADD R1,R12,#opt_mode0
+ ADD R1,R12,#opt_modebase
  ADD R4,R1,R0,LSL #2 ; LDR R4,[R1,R0,LSL#2]	; mode word
  ADD R5,R8,#w_mode0
  ADD R5,R5,R0,LSL #2		; destination mode word address
@@ -3122,7 +3278,7 @@ copy_back_a_mode_buffer
 
  LOCAL
 
- DCD 7+(1<<3)+(1<<17)
+ DCD 7+c_Param_Bytes+c_ProvidesDefaultMenuString
 Margin
  TEQ R2,#0
  BNE a$l
@@ -3135,9 +3291,9 @@ a$l
  MOVNE R3,#w_mwidth
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Margin")
+s$l FNS ("zap_m_margin")
 
-	DCD     7 + (2<<3)
+	DCD     7 + c_Param_Words
 Menuopen				; R0 -> menu handle to open
 	STMFD	R13!,{R14}		; stack some registers
 	LDR	R4,[R0]			; = index
@@ -3151,7 +3307,7 @@ Menuopen				; R0 -> menu handle to open
 	BLVC	create_menu		; ... and open it
 	LDMFD	R13!,{PC}		; return to caller
 
- DCD 7+(1<<16)
+ DCD 7+c_CanCreateSubMenu
 Minimenu
  FNLDR R0,menu_memory
  LDR R0,[R0,#12]
@@ -3159,81 +3315,58 @@ Minimenu
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Miscops
  LDR R3,[R0]			; number of the option - don't change this!
  MOV R0,#0			; mask
 
- TEQ R3,#0			; auto remove files
- MOVEQ R1,#1<<2
- BEQ new_wind_flags_clear
+ CMP R3,#21			; one beyond highest valid op
+ ADDLO PC,PC,R3,LSL #3
+ MOVS PC,R14
 
- TEQ R3,#1			; auto clear selections
- MOVEQ R1,#1<<22
- BEQ new_wind_flags_set
+ MOV R1,#flags_AutoDeleteFiles		; 0
+  B new_wind_flags_clear
+ MOV R1,#flags_SelectionsVanish		; 1
+  B new_wind_flags_set
+ MOV PC,R14				; 2
+  & 0
+ B caret$l				; 3
+  & 0
+ MOV R1,#switch_CheckDate		; 4
+  B new_switches_set
+ MOV R1,#switch_ClearSearchWindow	; 5
+  B new_switches_set
+ MOV R1,#switch_ConfineCursor		; 6
+  B new_switches_set
+ MOV R1,#switch_TrapCRLF		; 7
+  B new_switches_set
+ MOV R1,#switch_Autoload_flashcar	; 8
+  B new_switches_set
+ MOV R1,#switch_Autoload_lineeditor	; 9
+  B new_switches_set
+ MOV R1,#switch_Autoload_disassembler	;10
+  B new_switches_set
+ MOV R1,#switch_Autoload_assembler	;11
+  B new_switches_set
+ MOV R1,#switch_Autoload_hidepointer	;12
+  B new_switches_set
+ MOV R1,#switch_TolerateBrokenMessages	;13
+  B new_switches_set
+ MOV R1,#switch_InhibitBeeping		;14
+  B new_switches_set
+ MOV R1,#switch_SuppressAntialiasedDSA	;15
+  B new_switches_set
+ MOV R1,#switch_Autoload_iclear		;16
+  B new_switches_set
+ MOV R1,#switch_Autoload_keyboardextend	;17
+  B new_switches_set
+ B hscroll$l				;18
+  & 0
+ MOV R1,#switch_ExecuteStartCom		;19
+  B new_switches_set
+ MOV R1,#switch_MinibufferAutoWidth	;20
+  B new_switches_set
 
- TEQ R3,#3			; flashing cursor
- BEQ caret$l
-
- TEQ R3,#4			; check datestamp
- MOVEQ R1,#1<<2
- BEQ new_switches_set
-
- TEQ R3,#5			; auto clear search
- MOVEQ R1,#1<<3
- BEQ new_switches_set
-
- TEQ R3,#6			; confine cursor
- MOVEQ R1,#1<<6
- BEQ new_switches_set
-
- TEQ R3,#7			; trap MSDos CRLFs
- MOVEQ R1,#1<<8			; not 7...?
- BEQ new_switches_set
-
- TEQ R3,#8			; Autoload flashcar
- MOVEQ R1,#1<<28		; /hope/ this is free... ; ???????
- BEQ new_switches_set
-
- TEQ R3,#9			; Autoload Line Editor
- MOVEQ R1,#1<<16		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#10			; Autoload disasm
- MOVEQ R1,#1<<17		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#11			; Autoload Asm
- MOVEQ R1,#1<<18		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#12			; Autoload HidePtr
- MOVEQ R1,#1<<19		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#13			; be tolerANT :-)
- MOVEQ R1,#1<<21
- BEQ new_switches_set
-
- TEQ R3,#14			; Never beep.
- MOVEQ R1,#1<<20		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#15			; No AA DSA.
- MOVEQ R1,#1<<22		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#16			; AL IClear...
- MOVEQ R1,#1<<23		; hope this is free...
- BEQ new_switches_set
-
- TEQ R3,#17			; AL IClear...
- MOVEQ R1,#1<<30		; tem font mem disable...
- BEQ new_switches_set
-
- TEQ R3,#18			; hscroll removal...
- BEQ hscroll$l
- MOV PC,R14
 caret$l
  FNJSR
  MOV R0,#2
@@ -3260,7 +3393,7 @@ hscroll_op$l
 	MOV	R1,R8
 	B	open_window
 
-; DCD 7+(2<<3)+(1<<15)
+; DCD 7+c_Param_Words+c_TickableMenuEntry
 ;Minifont
 ; STMFD R13!,{R14}
 ; MOV R1,#1<<27
@@ -3282,7 +3415,7 @@ tempmoveselr8
 tempmoveselr9
  DCD 0
 
- DCD (1<<15)
+ DCD c_TickableMenuEntry
 Movesel
  FNJSR
  MOV R6,R9			; save the input caret file
@@ -3317,9 +3450,6 @@ Movesel
  LDR R11,[R9,#f_flags]
  ORR R14,R11,#(1 << 14)		; unlink cursor (o/wise moves input caret)
  STR R14,[R9,#f_flags]
-; FNLDR R14,opt_switches	; ask for returned heap block...
-; ORR R14,R14,#bit_return_deletions
-; FNSTR R14,opt_switches
  MOV R0,#&52			; delete selected block (reslect if undo)
  BL execute_command		; delete the selection data
  ORR R11,R11,#(1 << 3)		; it's been altered anyway...!!!
@@ -3327,9 +3457,6 @@ Movesel
 
   STR R10,[R8,#w_format]
 
-; FNLDR R14,opt_switches
-; BIC R14,R14,#bit_return_deletions
-; FNSTR R14,opt_switches
  BVS in61			;
  TEQ R6,R9			; is it the same file
  BNE in27			; different file
@@ -3394,7 +3521,7 @@ in61
 ;  LDR R5,[R10,#c_col]
 ;  FNRTS
 
-;  DCD (1<<15)
+;  DCD c_TickableMenuEntry
 ; Movesel
 ;  FNJSR
 ;  MOV R6,R9			; save the input caret file
@@ -3442,7 +3569,7 @@ in61
  LOCAL
 
 ; want to have current mode mirrored first :-/
- DCD 7+(2<<3)+(1<<15)+(1<<18)+(1<<19)+(1<<20)+(1<<23)+(1<<28)
+ DCD 7+c_Param_Words+c_TickableMenuEntry+c_ProvidesMenuEntryText+c_SpecifiesSubMenu+c_RemoveMenuEntry+c_CommandAndFunction+c_MovesInputOrKeymap
 Mode
  TEQ R2,#23
  BEQ Mode_fn
@@ -3454,19 +3581,21 @@ Mode
  BEQ a$l
  TEQ R2,#20
  BEQ b$l
+Mode_entry
  TEQ R2,#19
  BEQ c$l
- TEQ R2,#0
- BEQ m$l			; set main/options mode
  TEQ R8,#0
  FNLDRB R1,opt_format,EQ
  LDRNEB R1,[R8,#w_format]	; mode number
+ TEQ R2,#15
+ BEQ m$l
+ TEQ R0,R1
+ BLNE new_mode			; only change if to a different mode
+ FNRTS
+m$l
  TEQ R0,R1
  MOVEQ R0,#1
  MOVNE R0,#0
- FNRTS
-m$l
- BL new_mode
  FNRTS
 a$l				; find replacement text (mode name)
  BL read_mode
@@ -3502,32 +3631,66 @@ get_mode_number
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<23)+(1<<28)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_TickableMenuEntry+c_SpecifiesSubMenu+c_CommandAndFunction+c_MovesInputOrKeymap
 Moden
  TEQ R2,#23
  BEQ Moden_fn
- FNJSR
  TEQ R2,#6
- BEQ p$l
- BL find_mode_number		; find mode + load module
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
+ ADR R14,ret$l
+ CMP R2,#1
+ BLS find_mode_number		; find mode + load module
+ B test_mode_name		; find mode, don't load
+ret$l
  FNRTS VS
  CMP R0,#0
- FNRTS LT			; no mode found
- BL new_mode
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
+ BGE Mode_entry
+ MOV R0,#0
+ FNRTS				; no mode found
 s$l
- = "Mode name: ",0
+ = "zap_p_moden",0
  ALIGN
+
+ LOCAL
+
+; You can't call this!
+ & (c_NoR10 :OR: c_Param_String :OR: c_TickableMenuEntry :OR: c_SpecifiesSubMenu)
+Modenmenu
+ TEQ R2,#15
+ TEQNE R2,#19
+ MOVNE PC,R14
+ FNJSR
+ BL find_mode_number			; \E r0=name \X r0=number or -1
+ CMP R0,#-1
+ BNE gotmode$l
+ CMP R8,#0
+ LDRNEB R0,[R8,#w_format]
+ FNLDRB R0,opt_format,EQ
+gotmode$l
+ PUSH "R0"
+ BL read_mode				; can't fail - this *is* a valid menu!
+ LDR R1,[R1,#2*e_menu]			; menu
+ CMP R1,#0
+ PULL "R0"
+ BNE okay$l
+ TEQ R2,#15
+ MOVEQ R0,#2				; shaded
+ MOVNE R0,#-1				; no valid menu
+ FNRTS
+okay$l
+ TEQ R2,#15
+ MOVEQ R0,#0				; normal menu entry
+ BLNE set_mode_menu_title
+ MOVNE R0,R1
+ FNRTS
 
  DCD 7
 Null
  MOV PC,R14
 
- DCD (7)+(3<<3)+(1<<6)+(1<<10)+(1<<27)+(1<<28)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferKill+c_OmitParameter+c_MovesInputOrKeymap
  ; String is of the format:
  ; [<mode name>] [<filetype>]
 Newfile
@@ -3608,24 +3771,30 @@ noparam$l
  = 0
  ALIGN
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nextcylinder
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#0
  MOV R3,#1
  B new_read_disc
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nextsector
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#1
  MOV R2,#0
  MOV R3,#0
  B new_read_disc
 
- DCD 1<<12
+ DCD c_UniversalArg:OR:c_TickableMenuEntry
 Nexttrack
+ TEQ R2,#15
+ BEQ disknav_tick
  MOV R0,R1
  MOV R1,#0
  MOV R2,#1
@@ -3649,7 +3818,7 @@ Nextmatch
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Newtype
  FNJSR
  LDR R5,[R0]			; file type
@@ -3680,43 +3849,9 @@ a$l				; change type of already existing file
  ORR R2,R2,#&FF000000
  ORR R2,R2,#&00F00000
  ORR R2,R2,R5,LSL#8
- ;FNLDR R0,wimp_flagbits	; is it from savesel...?
- ;TST R0,#1			; *very* temporary
  STR R2,[R9,#f_load]		; new file type
- ;SWI &107
- ;FNRTS
- ;BLNE updatefbits
  BL update_all_save_boxes	; <- this line?
-
- ; FNLDR R14,wimp_flagbits	; is it from savesel...?
- ; TST R14,#1			; *very* temporary
- ; BLEQ get_SaveBox
- ; FNLDR R14,wimp_flagbits	; is it from savesel...?
- ; TST R14,#1			; *very* temporary
- ; BLNE get_SaveSelBox
- ; MOV R7,R1
- ; LDR R0,[R7,#8]			; window handle
- ; MOV R5,#&FF
- ; CMP R0,#0
- ; FNRTS MI
- ; ;FNRTS
- ; BL leaf_update			; was BLPL - dunno what's wrong with this...
- ; PUSH "R6,R7"
- ; LDR R6,[R7]			; window data
- ; BL conv_index_offs
- ; ;FNRTS VS
- ; FNLDR R1,wimp_block
- ; LDR R0,[R7,#8]			; window handle
- ; STR R0,[R1]
- ; BL redraw_request
- ; PULL "R6,R7"
  FNRTS
-
-;updatefbits
-; FNJSR
-; ORR R0,R0,R2,LSL#4
-; FNSTR R0,wimp_flagbits
-; FNRTS
 
 b$l
  LDR R0,[R9,#f_load]
@@ -3730,7 +3865,7 @@ b$l
 
  LOCAL
 
- DCD 7+(1<<28)
+ DCD 7+c_MovesInputOrKeymap
 Newview
  FNJSR
  BL new_view			; may be called from menu with cursor
@@ -3748,7 +3883,7 @@ ne22
 
  LOCAL
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Nextmark
  FNJSR
  BL get_cursor_caret
@@ -3757,7 +3892,7 @@ Nextmark
 
  LOCAL
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Nonstandard
  MOV R0,#0
  MOV R1,#1<<15
@@ -3765,7 +3900,7 @@ Nonstandard
 
  LOCAL
 
-; DCD 7+(1<<15)
+; DCD 7+c_TickableMenuEntry
 ;Nosubstyles
 ; MOV R0,#0		; clear zilch
 ; MOV R1,#1<<4		; toggle separating colons
@@ -3773,25 +3908,16 @@ Nonstandard
 ;
 ; LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<14)+(1<<9)+(1<<28)	; tabs for filenames
+ DCD 7+c_Param_String+c_PreMinibuffer+c_TrojanCommand+c_MinibufferTabCompletion+c_MovesInputOrKeymap	; tabs for filenames
 Oscli
  MOV R3,#1
  B os_cli
 
- LOCAL
-
- DCD (3<<3)+(1<<6)+(1<<10)+(1<<15)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKill
 Outdent
  CMP R2,#6
- BEQ prompt$l
- FNJSR
- MOV R6,R0
- BL shade_no_sel
- FNRTS CS
- ORR R0,R6,#1<<31
- BL indent_selection
- FNRTS
-prompt$l
+ ORRNE R0,R0,#1<<31
+ BNE indent_selection
  FNLDR R0,wimp_indentstring
  MOV PC,R14
 
@@ -3805,6 +3931,20 @@ Openprinter
  FNRTS
 op_s1
  FNS ("Filer_OpenDir Printer:$")
+
+	LOCAL
+
+	DCD	c_Param_String+c_OmitParameter+c_TickableMenuEntry
+OwnedBy
+	TEQ	R2,#15
+	MOVNE	PC,R14
+	FNJSR
+	BL	test_mode_name
+	LDR	R14,[R9,#f_cmode]
+	TEQ	R0,R14
+	MOVEQ	R0,#0
+	MOVNE	R0,#2
+	FNRTS
 
  LOCAL
 
@@ -3821,27 +3961,25 @@ PasteGC
  LOCAL
 
  DCD 1 ; was 3 and 7, but this /may/ have been a bad idea...?
- ; Indeed - save_text uses r8/r9 UNCHECKED. Get it right!
+ ; Indeed save_text uses r8,r9 UNCHECKED. Get it right!
 Quicksave
  B save_text
 
  LOCAL
 
- DCD 0+(1<<28)
+ DCD c_MovesInputOrKeymap
 Quote
- FNJSR
  FNLDR R0,key_flags
  ORR R0,R0,#1<<3		; set quote flag
  FNSTR R0,key_flags
  ADR R0,qu_s0
- BL minibuffer_write
- FNRTS
+ B minibuffer_write_token
 qu_s0
- FNS ("Quote -")
+ FNS ("zap_m_quote")
 
  LOCAL
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Return
  FNJSR
  BL default_caret		; Cancel copy mode; cause caret blks to change
@@ -3859,7 +3997,7 @@ Return
 
  LOCAL
 
- DCD 7+(1<<3)+(1<<17)+(1<<23)
+ DCD 7+c_Param_Bytes+c_ProvidesDefaultMenuString+c_CommandAndFunction
 Returnchar
  TEQ R2,#23
  BEQ Returnchar_fn
@@ -3874,7 +4012,7 @@ a$l
  MOVNE R3,#w_cr
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Return char")
+s$l FNS ("zap_m_retchr")
 
  DCD 0
 Returnnoindent
@@ -3898,12 +4036,11 @@ Returnnoindent
  STR R14,[R8,#w_format]
  FNRTS
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Renumber
  CMP R2,#15
- BEQ returnifonibmenu
- MOV R11,#e_renumber
- B call_mode
+ MOVNE R11,#e_renumber
+ BNE call_mode
 
 returnifonibmenu
  CMP R8,#0
@@ -3911,26 +4048,26 @@ returnifonibmenu
  MOVNE R0,#0
  MOV PC,R14
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Readonly
- FNJSR
  LDR R0,[R9,#f_flags]
- TST R0,#1<<4		; fixed as read only?
+ TST R0,#flags_PermanentReadOnly
  MOV R0,#0			; mask
  MOV R1,#0			; eor
- MOVEQ R1,#1<<8		; can change the state
- BL new_file_flags_set
- FNRTS
+ MOVEQ R1,#flags_ReadOnly	; allowed to change state
+ B new_file_flags_set
 
  DCD 0
 Redo
  MOV R0,R1			; redo R1 chars
  B redo_command
 
- DCD 7+(1<<28)
+ DCD 7+c_MovesInputOrKeymap
 Reloadkeys
-; FNJSR
- B init_keys
+ FNJSR
+ BL init_settings
+ BLVC init_keys
+ FNRTS
 ; MOV R0,#0
 ; FNSTR R0,menu_count
 
@@ -3938,41 +4075,41 @@ Reloadkeys
 ; BLVC load_menus
 ; FNRTS				; doesn't work...
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Right
  MOV R2,#1
  MOV R3,#0
  B move_cursor
 
- DCD 7+(1<<14)+(1<<15)
+ DCD 7+c_TrojanCommand+c_TickableMenuEntry
 Run
  CMP R2,#15
  BEQ returnifonibmenu
  MOV R11,#e_run
  B call_mode
 
- DCD 7+(1<<14)+(1<<15)
+ DCD 7+c_TrojanCommand+c_TickableMenuEntry
 Runandquit
  CMP R2,#15
  BEQ returnifonibmenu
  MOV R11,#e_runandquit
  B call_mode
 
- DCD (3<<3)+(7<<6)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferUpdate+c_MinibufferKey
 Searchback
  MVN R4,#0			; direction =-1
  B search_as_you_type
 
- DCD (3<<3)+(7<<6)	; set b6,7,8
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferUpdate+c_MinibufferKey
 Searchforward
  MOV R4,#1
  B search_as_you_type
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Softwrap
- FNJSR
  TEQ R2,#15
  BEQ softwrap_justtest
+ FNJSR
  MOV R0,#2			; sw possible...?
  MOV R11,#e_interrogate
  BL call_mode
@@ -3997,10 +4134,9 @@ Softwrap
 softwrap_justtest
  MOV R0,#0		; clear nothing
  MOV R1,#1<<27		; toggle softwrap
- BL new_wind_format_set
- FNRTS
+ B new_wind_format_set
 
-;  DCD 7+(1<<15)
+;  DCD 7+c_TickableMenuEntry
 ; Strongsoftwrap
 ;  FNJSR
 ;  TEQ R2,#15
@@ -4081,22 +4217,21 @@ Selectline
 	BL	mouse_click	; hope ALT not pressed...
 	FNRTS
 
- DCD 7+(1<<14)+(1<<15)
+ DCD 7+c_TrojanCommand+c_TickableMenuEntry
 Saveandrun
  CMP R2,#15
  BEQ returnifonibmenu
  MOV R11,#e_saveandrun
  B call_mode
 
- DCD (3<<3)+(1<<6)+(1<<9)+(1<<10)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferTabCompletion+c_MinibufferKill
 Savefile
  FNJSR
  TEQ R2,#6
  BEQ sa11			; starting minibuffer
- BL new_file_name
-; FNcall Zap_NewFileName,R11	; set new file name
- BLVC save_text
-; FNcallc Zap_SaveFile,VC,R11	; save it
+ BL save_to_file		; this has the intelligence to get it right in exceptional cases
+; BL new_file_name
+; BLVC save_text
  FNRTS
 sa11
  LDR R0,[R9,#f_name]
@@ -4108,7 +4243,7 @@ sa11
  FNRTS EQ			; we'll be called again
 sa12				; if no path...
  ADR R0,sa_s0
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
 ; FNcall Zap_MiniPrompt,R11
  BLVC find_current_directory
 ; FNcallc Zap_GetCurrDir,VC,R11
@@ -4123,7 +4258,7 @@ sa12				; if no path...
  MOVVC R0,#0			; open minibuffer
  FNRTS
 sa_s0
- FNS ("Save as: ")
+ FNS ("zap_p_savefile")
 
  DCD 0
 Splitline
@@ -4154,7 +4289,7 @@ Sup
 
  LOCAL
 
- DCD (1 << 12)
+ DCD c_UniversalArg
 Scleft
  LDR R2,[R8,#w_format]
  TST R2,#bit_windowwrap
@@ -4165,7 +4300,7 @@ Scleft
 
  LOCAL
 
- DCD (1 << 12)
+ DCD c_UniversalArg
 Scright
  LDR R2,[R8,#w_format]
  TST R2,#bit_windowwrap
@@ -4176,7 +4311,7 @@ Scright
 
  LOCAL
 
- DCD (1 << 12)
+ DCD c_UniversalArg
 Scdown
  MOV R2,#0
  MOV R3,#1
@@ -4184,7 +4319,7 @@ Scdown
 
  LOCAL
 
- DCD (1 << 12)
+ DCD c_UniversalArg
 Scup
  MOV R2,#0
  MVN R3,#0
@@ -4216,22 +4351,17 @@ Scup
 
  DCD 0
 Selregion
- FNJSR
  FNLDR R0,car_mode
  TEQ R0,#3
- BEQ se39			; already in sel mode
+ BEQ default_caret		; already in sel mode: turn off select area
  TEQ R0,#1
- FNRTS NE
+ MOVNE PC,R14
  MOV R0,#3
- BL set_caret_mode
- FNRTS
-se39
- BL default_caret		; turn off select area
- FNRTS
+ B set_caret_mode
 
  LOCAL
 
- DCD 7 + (3<<3) + (1<<6) + (1<<10) + (1<<15); string...
+ DCD 7+c_Param_String+c_PreMinibuffer+c_MinibufferKill+c_TickableMenuEntry; string...
 Sendsel
  FNJSR
  CMP R2,#6
@@ -4277,7 +4407,7 @@ sub$l
  CMP R2,#31
  LDRLE R14,local_sendtemp + 12
  CMPLE R14,#'X'
- SWINE XOS_Byte
+ BLNE send$l
  FNRTS VS
  ADD R7,R7,#1
  LDR R0,local_sendtemp + 4
@@ -4295,6 +4425,16 @@ atend$l
  MOV R14,#0
  STR R14,local_sendtemp
  FNRTS
+send$l
+	FNJSR	"R0-R2"
+	CMP	R2,#0
+	CMPNE	R2,#128
+	MOVHS	R2,#0
+	SWIHS	XOS_Byte
+	FNRTS	VS
+	FNPULL
+	SWI	XOS_Byte
+	MOV	PC,R14
 ;special_cc$l
 ; PUSH "R1-R11"
 ; FNLDR R6,car_mode
@@ -4331,11 +4471,12 @@ Dropmark
 
  LOCAL
 
- DCD 7+(3<<3)+(1<<6)+(1<<17)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_ProvidesDefaultMenuString
 Setmarginwidth
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  TEQ R2,#17
  BEQ a$l
  BL minibuffer_eval
@@ -4356,13 +4497,10 @@ Setmarginwidth
  STRNE R1,[R8,#w_info]
  BLVC new_window_status
  FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#0			; number of permitted characters...?
  FNRTS EQ
@@ -4376,7 +4514,8 @@ a$l
  ADD R0,R0,#1
  ORR R0,R0,#1<<31		; it's a number
  FNRTS
-s$l FNS ("New margin width: ")
+s$l = "zap_m_setmarginwidth",0
+ ALIGN
 
  LOCAL
 
@@ -4388,11 +4527,12 @@ reallysetwidth
 local_bpltemp
  DCD 0
 
- DCD 7 + (3<<3) + (1<<6) + (1<<17)
+ DCD 7+c_Param_String+c_PreMinibuffer+c_ProvidesDefaultMenuString
 Setwidth
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  TEQ R2,#17
  BEQ a$l
  BL minibuffer_eval		; coz it's a string up to here...
@@ -4430,15 +4570,10 @@ abnormalwidthsetting
  LDR R0,local_bpltemp
  BL new_window_status_forcebpl ; _preserve
  FNRTS
-p$l
- ;CMP R9,#0			; not needed any more...
- ;BEQ abort$l			; this doesn't work :( why not!
- ADR R0,s$l
- BL minibuffer_prompt
- FNRTS
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#8
  TEQ R0,#1
@@ -4451,33 +4586,20 @@ a$l
  BL call_given_mode		; read the current width value
  ORRVC R0,R0,#1<<31		; it's a number
  FNRTS
-s$l FNS ("New width: ")
+s$l = "zap_m_setwidth",0
+ ALIGN
 
  LOCAL
 
- DCD 7 + (1<<15)
+ DCD 7+c_TickableMenuEntry
 Spellasyoutype
- FNJSR
  MOV R0,#0
  MOV R1,#(1<<7)
- BL new_info_set
-; CMP R2,#15
-; BEQ grey$l
- FNRTS
-
-; grey$l
-;  MOV R10,R0
-;  MOV R0,#13			; sw possible...?
-;  MOV R11,#e_interrogate
-;  BL call_mode
-;  CMP R0,#13
-;  MOVEQ R0,R10
-;  ORRNE R0,R10,#2
-;  FNRTS
+ B new_info_set
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<17)+(1<<23)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString+c_CommandAndFunction
 Startaddr
  TEQ R2,#23
  BEQ function$l
@@ -4487,7 +4609,7 @@ Startaddr
  ADR R4,s$l
  ORR R2,R2,#1<<31		; hex
  B new_w_number
-s$l FNS ("Start addr")
+s$l FNS ("zap_m_starta")
 function$l
  TEQ R8,#0
  LDREQ R0,[R12,#opt_addr]
@@ -4497,7 +4619,7 @@ function$l
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<17)+(1<<23)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString+c_CommandAndFunction
 Startline
  TEQ R2,#23
  BEQ function$l
@@ -4506,7 +4628,7 @@ Startline
  MOVNE R3,#w_stline		; offset of the data
  ADR R4,s$l
  B new_w_number
-s$l FNS ("Start line")
+s$l FNS ("zap_m_startl")
 function$l
  TEQ R8,#0
  LDREQ R0,[R12,#opt_stline]
@@ -4524,31 +4646,21 @@ Startop
 Stopop
  B stop_operation
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Stilldown
- FNJSR
- ;PUSH "R0-R12"
- ;BL scrub_caret
- ;PULL "R0-R12"
- PUSH "R0-R12"
+ FNJSR "R0-R12"
  BL Scdown
- PULL "R0-R12"
- BL Down
- FNRTS
+ FNPULL
+ B Down
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Stillup
- FNJSR
- ;PUSH "R0-R12"
- ;BL scrub_caret
- ;PULL "R0-R12"
- PUSH "R0-R12"
+ FNJSR "R0-R12"
  BL Scup
- PULL "R0-R12"
- BL Up
- FNRTS
+ FNPULL
+ B Up
 
- DCD (2<<3)
+ DCD c_Param_Words
 Stripspaces
  LDR R0,[R0]			; get the word argument
  B strip_spaces
@@ -4596,21 +4708,20 @@ Swapchars
  BLVC reflect_caret		; move caret back one
  FNRTS
 
- DCD 0+(1<<28)
+ DCD 0+c_MovesInputOrKeymap
 Swapwindow
- B swap_window
+ B command_swap_window
 
  LOCAL
 
  DCD 7
 Switchtab
- FNJSR
  LDR R0,[R8,#w_flags]
- ANDS R14,R0,#3<<9		; extract current tab mode
+ TST R0,#3<<9			; extract current tab mode
  BICNE R0,R0,#3<<9		; Unix tab mode
  ORREQ R0,R0,#1<<9		; set edit tab mode
  STR R0,[R8,#w_flags]
- FNRTS
+ MOV PC,R14
 
  LOCAL
 
@@ -4630,7 +4741,7 @@ Tofront
 
  LOCAL
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Togglehex
  MOV R0,#&000
  MOV R1,#&400
@@ -4648,30 +4759,23 @@ Togglemark
 
  LOCAL
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Toggleundo
- FNJSR
  TEQ R8,#0
  LDRNE R7,[R9,#f_flags]
  FNLDR R7,opt_flags,EQ
  TEQ R2,#15
  ANDEQ R0,R7,#1			; the undo bit
- FNRTS EQ
+ MOVEQ PC,R14
  TEQ R8,#0
- BNE a$l
- EOR R7,R7,#1
- FNSTR R7,opt_flags
- FNRTS
-a$l				; its on a window
- TST R7,#1
- BEQ b$l			; undo off
- BL open_UndoBox		; question whether to switch off
- FNRTS
-b$l				; switch it on
- ORR R7,R7,#1
+ EOREQ R7,R7,#1
+ FNSTR R7,opt_flags,EQ
+ MOVEQ PC,R14
+ TST R7,#1			; it's on a window
+ BNE open_UndoBox		; if on, question whether to switch off
+ ORR R7,R7,#1			; switch it on
  STR R7,[R9,#f_flags]
- BL new_file_title
- FNRTS
+ B new_file_title
 
  DCD 0
 Togglewind
@@ -4747,7 +4851,7 @@ to12
 ;  BLEQ reflect_toggle		; save toggle size if need be
 ;  FNRTS
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Tab
  FNJSR
  MOV R11,#e_tab
@@ -4759,7 +4863,7 @@ Tab
 
  LOCAL
 
- DCD 7+(1<<3)+(1<<17)+(1<<23)
+ DCD 7+c_Param_Bytes+c_ProvidesDefaultMenuString+c_CommandAndFunction
 Tabchar
  TEQ R2,#23
  BEQ Tabchar_fn
@@ -4774,45 +4878,45 @@ a$l
  MOVNE R3,#w_tabchar
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Tab char")
+s$l FNS ("zap_m_tabchr")
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Tabdisplay
  LDR R3,[R0]
- MOV R0,#&3000			; mask
+ MOV R0,#format_TabDisplayFormat; mask
  CMP R3,#4
  MOVCS R3,#0
- MOV R1,R3,LSL#12
+ MOV R1,R3,LSL#tab_DisplayFormat_shift
  B new_format_select
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Tabmode
  LDR R3,[R0]
- MOV R0,#3<<9
+ MOV R0,#flags_TabMode
  MOV R1,#0			; default=unix tab
- TEQ R3,#1
- MOVEQ R1,#1<<9
- TEQ R3,#2
- MOVEQ R1,#2<<9
+ TEQ R3,#tab_AsAbove
+ TEQNE R3,#tab_Column
+ MOVEQ R1,R3,LSL #tab_Mode_shift
  B new_wind_flags_select
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Tabsasspaces
  MOV R0,#0
- MOV R1,#1<<11		; toggle
+ MOV R1,#flags_InsertTabsAsSpaces ; toggle
  B new_wind_flags_set
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Toggleinsert
  MOV R0,#0
  MOV R1,#2
  B new_wind_flags_set
 
- DCD (3<<3)+(1<<6)+(1<<8)
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferKey
 Universalarg
- FNJSR
  TEQ R2,#6
- BEQ un16
+ ADREQ R0,un_s0
+ BEQ minibuffer_prompt_token
+ FNJSR
  CMP R2,#&8000
  BCS un18
  BL minibuffer_eval
@@ -4821,11 +4925,7 @@ Universalarg
  BL universal_arg
  SWIVC XHourglass_Off
  ADRVC R0,un_s1
- BLVC minibuffer_write
- FNRTS
-un16
- ADR R0,un_s0
- BL minibuffer_prompt
+ BLVC minibuffer_write_token
  FNRTS
 un18
  SUB R0,R2,#&8000		; number of the key
@@ -4840,8 +4940,8 @@ un18
  CMP R14,#10			;  main digits
  ADDHS R0,R0,#&8000		; but do the rest
  FNRTS
-un_s0 FNS ("Number of times to repeat: ")
-un_s1 FNS (:CHR:12:CC:"Now press key to be repeated")
+un_s0 FNS ("zap_p_universalarg_1")
+un_s1 FNS ("zap_p_universalarg_2")
 
  LOCAL
 
@@ -4888,18 +4988,18 @@ d$l				; replace
 sp$l = " "
  ALIGN
 
- DCD (1<<12)
+ DCD c_UniversalArg
 Up
  MOV R2,#0
  MOV R3,#-1
  B move_cursor
 
- DCD 7+(3<<3)+(1<<6)+(1<<14)+(1<<9)	; tabs for filenames
+ DCD 7+c_Param_String+c_PreMinibuffer+c_TrojanCommand+c_MinibufferTabCompletion	; tabs for filenames
 Wimptask
  MOV R3,#2
  B os_cli
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Wflags_alter
  FNJSR
  LDR R0,[R0]
@@ -4907,7 +5007,7 @@ Wflags_alter
  BL new_flags_set
  FNRTS
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Wflags_toggle
  FNJSR
  LDR R0,[R0]
@@ -4915,7 +5015,7 @@ Wflags_toggle
  BL new_wind_flags_set
  FNRTS
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Wformat_alter
  FNJSR
  LDR R0,[R0]
@@ -4925,7 +5025,7 @@ Wformat_alter
  BLEQ new_wind_format_set	; swapped with below
  FNRTS
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Wformat_toggle
  FNJSR
  LDR R0,[R0]
@@ -4937,7 +5037,7 @@ Wformat_toggle
 ; BL Updatewindow		; seems to be needed...!?
  FNRTS
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Winfo_alter
  FNJSR
  LDR R0,[R0]
@@ -4945,7 +5045,7 @@ Winfo_alter
  BL new_wind_info_set
  FNRTS
 
- DCD 7+(2<<3)+(1<<15)
+ DCD 7+c_Param_Words+c_TickableMenuEntry
 Winfo_toggle
  FNJSR
  LDR R0,[R0]
@@ -4955,7 +5055,7 @@ Winfo_toggle
 
 	LOCAL
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Windowwrap
  FNJSR
  MOV R0,#0		; clear nothing
@@ -5019,7 +5119,7 @@ translate_into_new_width
  BL reallysetwidth
  FNRTS
 
- DCD 7+(1<<15)
+ DCD 7+c_TickableMenuEntry
 Wordwrap
  MOV R0,#1<<26		; clear linewrap
  MOV R1,#1<<13		; toggle wordwrap
@@ -5027,21 +5127,20 @@ Wordwrap
 
  LOCAL
 
-local_store1
- & 0
-local_store2
- & 0
-local_store3			; file offset
- & 0
+local_store1	& 0
+local_store2	& 0
+local_store3	& 0		; file offset
+local_store4	& 0		; data length
 
- DCD (3<<3)+(1<<6)
+ DCD c_Param_String+c_PreMinibuffer
 Editbyte
  FNJSR
+ MOV R1,#1
+Editbyte_halfword_internal
+ STR R1,local_store4
  MOV R4,R0			; save data string
  LDR R6,[R10,#c_off]		; offset of the instruction
  LDR R5,[R9,#f_len]		; offset of the instruction
- CMP R6,R5
- FNRTS GT			; was CS
  STR R6,local_store3
  LDR R5,[R8,#w_addr]		; address of offset 0
  ADD R5,R5,R6			; address instruction came from
@@ -5050,9 +5149,6 @@ Editbyte
  BIC R0,R6,#3
  BL cln_readw			; get word in r0
  STR R0,local_store1
-; MOV R11,R0
- ;STR R10,local_store2
-
  MOV R0,#&100
  BL heap_claim
  MOVVC R6,R0
@@ -5072,36 +5168,34 @@ Editbyte
  MOV R2,#(1 << 31)		; don't learn...
  MOV R0,R6
  BL process_command
-
-; LDR R10,local_store2
-
  LDRVC R0,local_store3
  BLVC goto_file_offset
  BVS forcedstop$l
-
- ;LDR R10,local_store2
  LDR R0,[R10,#c_off]		; offset of the instruction
  BIC R0,R0,#3
  BL cln_readw			; get word in r0...
-; AND R0,R0,#&FF
  LDR R1,[R10,#c_off]		; offset of the instruction
- AND R1,R1,#3
+ LDR R14,[R8,#w_format]
+ TST R14,#format_BigEndian
+ EORNE R1,R1,#3
+ LDR R14,local_store4
+ TEQ R14,#1
+ ANDEQ R1,R1,#3
+ ANDNE R1,R1,#2
  MOV R1,R1,LSL #3
  MOV R14,#&FF
- MOV R14,R14,LSL R1		; = &FF000000 etc...
+ ORRNE R14,R14,#&FF00
  LDR R11,local_store1
- BIC R11,R11,R14
+ BIC R11,R11,R14,LSL R1
  ORR R11,R11,R0,LSL R1
  MOV R1,R6
  ADR R2,dcd$l
  BL strcpy
  MOV R0,R11
-; LDR R0,local_store1
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  MOVVC R14,#0
  STRVCB R14,[R1]
-
  ADRVC R0,assmbl$l
  BLVC find_key_command
  BVS forcedstop$l
@@ -5113,10 +5207,11 @@ Editbyte
  MOV R2,#(1 << 31)		; don't learn...
  MOV R0,R6
  BL process_command
-
- LDRVC R0,local_store3
- ADDVC R0,R0,#1
- BLVC goto_file_offset		; gets here :-)
+ BVS forcedstop$l
+ LDR R0,local_store3
+ LDR R14,local_store4
+ ADD R0,R0,R14
+ BL goto_file_offset		; gets here :-)
  BVS forcedstop$l
  BL stop_operation
  MOVVC R0,R6
@@ -5137,17 +5232,26 @@ Byte_prompt$l
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  FNRTS VS
- ADR R2,colons$l
- BL strcopy
  FNLDR R0,wimp_block
  BL minibuffer_prompt
  FNRTS VS
+ LDR R2,local_store4		; byte count
+ MOV R3,#0
+ MOV R7,R0
+byte$l
  LDR R0,[R9,#f_len]		; offset of the instruction
  CMP R6,R0
  MOVCS R0,#&00			; off end...!
  MOVCC R0,R6
  BLCC cln_readc
- MOV R7,R0
+ LDR R11,[R8,#w_format]
+ TST R11,#format_BigEndian
+ ORRNE R7,R0,R7,LSL #8		; big endian
+ ORREQ R7,R7,R0,LSL R3		; little endian
+ ADD R3,R3,#8
+ ADD R6,R6,#1
+ SUBS R2,R2,#1
+ BNE byte$l
  MOV R0,#16			; what base?
  MOV R11,#e_interrogate
  BL call_mode
@@ -5155,12 +5259,20 @@ Byte_prompt$l
  BEQ Byte_inbinary$l
 
  FNLDR R1,wimp_block		; buffer to copy detokenised line
- ADR R2,dcd$l
+ LDR R14,local_store4
+ TEQ R14,#1
+ ADREQ R2,dcb$l
+ ADRNE R2,dcw$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
- ;SUB R1,R1,#1
  MOV R2,#&100
+ LDR R14,local_store4
+ TEQ R14,#1
+ BEQ Byte_hex$l
+ SWI XOS_ConvertHex4		; to hex
+ B Byte_hex$l+4
+Byte_hex$l
  SWI XOS_ConvertHex2		; start off with the address in hex
  MOV R0,#0
  STRB R0,[R1]
@@ -5169,12 +5281,21 @@ Byte_prompt$l
  FNRTS
 Byte_inbinary$l
  FNLDR R1,wimp_block		; buffer to copy detokenised line
- ADR R2,binarydcd$l
+ LDR R14,local_store4
+ TEQ R14,#1
+ ADREQ R2,binarydcb$l
+ ADRNE R2,binarydcw$l
+ ADR R2,binarydcw$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
- ;SUB R1,R1,#1
  MOV R2,#&28
+ LDR R14,local_store4
+ TEQ R14,#1
+ BEQ Byte_bin$l
+ SWI XOS_ConvertBinary2		; to binary
+ B Byte_bin$l+4
+Byte_bin$l
  SWI XOS_ConvertBinary1		; to binary
  MOV R0,#0
  STRB R0,[R1,R2]
@@ -5182,7 +5303,13 @@ Byte_inbinary$l
  BL minibuffer_write
  FNRTS
 
- DCD (3<<3)+(1<<6)
+	DCD	c_Param_String+c_PreMinibuffer
+Edithalfword
+	FNJSR
+	MOV	R1,#2
+	B	Editbyte_halfword_internal
+
+ DCD c_Param_String+c_PreMinibuffer
 Editword
  FNJSR
  MOV R4,R0			; save data string
@@ -5210,17 +5337,19 @@ Editword
  MOV R2,#(1 << 31)
  MOV R0,R6
  BL process_command
+ MOVVC R1,#0
+ MOVVS R1,R0
  MOV R0,R6
  BL heap_free
- FNRTS
+ MOVS R0,R1
+ FNRTS EQ
+ FNRTV
 prompt$l
  MOV R0,R5
  FNLDR R1,wimp_block		; some workspace...
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  FNRTS VS
- ADR R2,colons$l
- BL strcopy
  FNLDR R0,wimp_block
  BL minibuffer_prompt
  MOVVC R0,R6
@@ -5260,14 +5389,17 @@ inbinary$l
  MOV R0,R3
  BL minibuffer_write
  FNRTS
-colons$l FNS (" : ")
 dcd$l FNS ("DCD &")
 binarydcd$l FNS ("DCD %")
+dcw$l FNS ("DCW &")
+binarydcw$l FNS ("DCW %")
+dcb$l FNS ("DCB &")
+binarydcb$l FNS ("DCB %")
 assmbl$l FNS ("ASSEMBLE")
 
  LOCAL
 
- DCD 7+(2<<3)+(1<<17)
+ DCD 7+c_Param_Words+c_ProvidesDefaultMenuString
 Wrapwidth
  FNJSR
  TEQ R2,#17
@@ -5282,6 +5414,7 @@ Wrapwidth
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#8
  TEQ R0,#1
@@ -5290,44 +5423,64 @@ a$l
  ADDEQ R0,R12,#opt_wrapwidth
  ADDNE R0,R8,#w_wrapwidth
  FNRTS
-s$l FNS ("Wrap width")
+s$l FNS ("zap_m_wrapwidth")
 
- DCD (3<<3)+(1<<6)+(1<<9)
-Writefile
- FNJSR
+ LOCAL
+
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferTabCompletion
+Writebuffer
+ CMP R9,#0
+ MOVEQ PC,R14
  TEQ R2,#6
- BEQ wr10
- BL new_file_name
-; FNcall Zap_NewFileName,R11	; set new file name
- BLVC save_text
-; FNcallc Zap_SaveFile,VC,R11	; save it
+ ADREQ R0,p$l
+ BEQ minibuffer_prompt_token
+
+ FNJSR
+ MOV R4,R0			; save filename
+ LDR R0,[R9,#f_len]
+ MOV R1,#0
+ BL split_buffer		; coagulate buffer
+ LDR R0,[R9,#f_load]
+ BL calc_ftype
+ MOVCC R2,R0
+ MOVCC R0,#0
+ LDRCC R3,[R9,#f_exec]
+ MOVCS R2,R0
+ MOVCS R0,#10
+ MOV R1,R4			; target filename
+ LDR R4,[R9,#f_ptr]
+ LDR R5,[R9,#f_len]
+ ADD R5,R4,R5
+ SWI XOS_File
  FNRTS
-wr10
+
+p$l
+ FNS ("zap_p_writebuffer")
+
+ DCD c_Param_String+c_PreMinibuffer+c_MinibufferTabCompletion
+Writefile
+ TEQ R2,#6
+ BNE save_to_file		; this has the intelligence to get it right in exceptional cases
+ FNJSR
  LDR R0,[R9,#f_name]
- BL check_file_name
-; FNcall Zap_CheckFileName,R11	; does name contain path
+ BL check_file_name		; does name contain path
  MOVVC R7,R0			; save whether it conatins a path
  ADRVC R0,wr_s0
- BLVC minibuffer_prompt
-; FNcallc Zap_MiniPrompt,VC,R11
+ BLVC minibuffer_prompt_token
  FNRTS VS
  TEQ R7,#0
  BEQ wr11			; path given
-; FNcall Zap_GetCurrDir,R11
  BL find_current_directory
- BLVC minibuffer_prompt
-; FNcallc Zap_MiniWrite,VC,R11	; insert current directory name
+ BLVC minibuffer_write		; insert current directory name
  MOVVC R0,#'.'
  BLVC minibuffer_writec
-; FNcallc Zap_MiniWriteC,VC,R11
  FNRTS VS
 wr11
  LDR R0,[R9,#f_name]		; leaf name/path
  BL minibuffer_write
-; FNcall Zap_MiniWrite,R11
  FNRTS
 wr_s0
- FNS ("Write file: ")
+ FNS ("zap_p_writefile")
 
  DCD 0
 Yank
@@ -5384,7 +5537,7 @@ add_command_table
  FNLDR R14,com_number
  CMP R14,#max_ctable
  BCS ad16			; table full
- ADD R1,R12,#command_store
+ FNADD R1,R12,command_store
  ADD R1,R1,R14,LSL#2
  STR R0,[R1]			; save new command table pointer
  ADD R14,R14,#1
@@ -5393,7 +5546,7 @@ add_command_table
 ad16
  BL err$l
  LDMFD R13!,{R1,PC}
-err$l ERR "Too many command tables!"
+err$l ERR "zap_e_manycmdtables"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Command tick updating subs					;
@@ -5407,12 +5560,9 @@ err$l ERR "Too many command tables!"
 ;  (ie calls get_selection)
 
 shade_no_sel
- FNJSR
  TEQ R2,#15
- BEQ a$l
- BL get_selection		; just read the selection position
- FNRTS
-a$l
+ BNE get_selection		; just read the selection position
+ FNJSR
  BL get_selection
  MOVCC R0,#0
  MOVCS R0,#2			; shade if none
@@ -5504,13 +5654,12 @@ if$l	SUBS	R2,R2,#1
 
 	LOCAL
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7+c_Param_String+c_MinibufferKill+c_Conditional+c_CommandAndFunction+c_FunctionParam_String
 		; b21 stops cmd blk exec code checking IF state
 If
 	FNJSR
-;	FNLDR	R2,if_skip
-;	TEQ	R2,#0
-;	BEQ	noskip$l
+	TEQ	R2,#23
+	BEQ	If_fn$l
 	BL	checktrue
 	BEQ	skip$l
 noskip$l
@@ -5527,6 +5676,7 @@ noskip$l
 	FNSTR	R2,if_count,LO
 	FNRTS	LO
 	ADR	R0,toomanyIFs_etc
+	BL	lookup_error
 	FNRTV
 skip$l	FNLDR	R0,if_skip
 	ADD	R0,R0,#1
@@ -5534,8 +5684,56 @@ skip$l	FNLDR	R0,if_skip
 	FNRTS
 toomanyIFs_etc
 	&	0
-	=	"Too many nested structures",0
+	=	"zap_e_deepstruct",0
 	ALIGN
+If_fn$l	MOV	R10,R0		; parameter string
+	MOV	R11,R10
+	BL	str_comma	; find comma
+	CMP	R0,#32
+	BLLO	badif_msg$l	; no comma? error
+	FNRTS	VS
+	MOV	R7,R0
+	MOV	R0,#0
+	STRB	R0,[R10,#-1]	; temporary NUL
+	MOV	R0,R11
+	MOV	R1,#0
+	BL	evaluate_string	; evaluate (allow int only)
+	STRB	R7,[R10,#-1]
+	FNRTS	VS
+	TEQ	R1,#0
+	BEQ	else$l		; false? check for ELSE part
+	BL	str_skip
+	TEQ	R0,#','		; if null & there's an ELSE part
+	MOVEQ	R0,#0		;   return null
+	MOVEQ	R1,#3
+	FNRTS	EQ
+	MOV	R11,R10
+	MOV	R0,R10
+	BL	str_comma	; find comma
+	MOV	R7,R0
+	MOV	R0,#0
+	STRB	R0,[R10,#-1]	; temporary NUL
+	MOV	R0,R11
+	MOV	R1,#256
+	BL	evaluate_string
+	STRB	R7,[R10,#-1]
+ret$l	TEQ	R0,#0
+	MOVEQ	R0,R1
+	MOVEQ	R1,#2
+	MOVNE	R1,#3
+	FNRTS
+else$l	MOV	R11,R10
+	BL	str_comma	; find comma
+	CMP	R0,#32
+	MOVLO	R0,#0
+	MOVLO	R1,#3		; none? return null
+	FNRTS	LO
+	MOV	R0,R10
+	MOV	R1,#256
+	BL	evaluate_string
+	B	ret$l
+badif_msg$l
+	ERR	"zap_e_insuffargs"
 
 
 	&	7
@@ -5556,7 +5754,7 @@ Repeat
 
 	LOCAL
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7+c_Param_String+c_MinibufferKill+c_Conditional
 		; b21 stops cmd blk exec code checking IF state
 While
 	FNJSR
@@ -5592,7 +5790,7 @@ skip$l	FNLDR	R1,if_skip
 
 	LOCAL
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7+c_Param_String+c_MinibufferKill+c_Conditional
 Case
 	FNJSR
 	FNLDR	R2,if_skip
@@ -5622,7 +5820,7 @@ skip$l	FNLDR	R0,if_skip
 
 	LOCAL
 
-	&	7 :OR: 1<<21
+	&	7+c_Conditional
 Else
 	FNJSR
 	FNLDR	R0,if_skip
@@ -5640,7 +5838,7 @@ Else
 	FNRTS
 
 
-	&	7 :OR: 1<<21
+	&	7+c_Conditional
 Endif
 	FNJSR
 	FNLDR	R0,if_skip
@@ -5657,7 +5855,7 @@ Endif
 
 	LOCAL
 
-	&	3<<3 :OR: 1<<10
+	&	c_Param_String+c_MinibufferKill
 	; X: R0 = address of next command / 0 / error
 Until
 	FNJSR
@@ -5670,7 +5868,8 @@ Until
 	BNE	true$l
 	BL	altesc
 	BCC	false$l
-	ADR	R0,msg$l
+	ADR	R0,query_escape
+	ADR	R4,repeat$l
 	BL	query_abort
 	BEQ	true$l
 false$l	FNLDR	R2,if_count
@@ -5685,30 +5884,42 @@ true$l	FNLDR	R2,if_count
 	SUB	R2,R2,#1
 	FNSTR	R2,if_count
 	FNRTS
-msg$l	& 0
-	= "Escape from REPEAT loop?",0
+query_escape
+	& 0
+	= "zap_q_escrep",0
+repeat$l
+	= "REPEAT",0
 	ALIGN
 
 	LOCAL
 
 query_abort
+	FNJSR
+	BL	lookup_error
+	MOV	R4,R0
+	ADR	R0,btn$l
+	BL	lookup_token_R0
+	MOV	R5,R0
+	ADR	R1,title$l
+	FNLDR	R2,wimp_data
+	MOV	R3,#256
+	BL	lookup_token
 	FNLDR	R1,wimp_realver
-	ADR	R5,btn$l
-	MOV	R4,#1
-	ADR	R3,zap$l
-	ADR	R2,title$l
 	CMP	R1,#320
 	MOVHS	R1,#&910
 	MOVLO	R1,#&13
-	SWI	XWimp_ReportError
+	MOV	R0,R4
+	ADR	R3,zap$l
+	MOV	R4,#1
+	SWI	XWimp_ReportError	; this calls XHourglass_Smash
 	FNRTS	VS
 	MOV	R0,#5
-	SWI	XHourglass_Start	; what is this?
+	SWI	XHourglass_Start
 	TEQ	R1,#1
 	TEQNE	R1,#3
-	MOV	PC,R14
-title$l = "Message from Zap",0
-btn$l	= "Escape,Continue",0
+	FNRTS
+title$l = "zap_q_msg",0
+btn$l	= "zap_q_btns",0
 zap$l	= "!zap",0
 	ALIGN
 
@@ -5729,7 +5940,7 @@ altesc	MOV	R0,#129
 
 	LOCAL
 
-	&	7 :OR: 1<<10 :OR: 1<<21
+	&	7+c_MinibufferKill+c_Conditional
 	; X: R0 = address of next command / 0 / error
 Endwhile
 	FNLDR	R1,if_skip
@@ -5752,9 +5963,11 @@ Endwhile
 	BEQ	false$l
 	BL	altesc
 	BCC	true$l
-	ADR	R0,msg$l
+	ADR	R0,query_escape
+	ADR	R4,while$l
 	BL	query_abort
 	BEQ	false$l
+	FNLDR	R4,if_bits		; restore!
 true$l	LDR	R0,[R4]
 	ORR	R0,R0,#2		; prevent learning :-)
 	STR	R0,[R4]
@@ -5765,12 +5978,11 @@ false$l	FNLDR	R2,if_count
 	SUB	R2,R2,#1
 	FNSTR	R2,if_count
 	FNRTS
-msg$l	& 0
-	= "Escape from WHILE loop?",0
+while$l	=	"WHILE",0
 	ALIGN
 
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7+c_Param_String+c_MinibufferKill+c_Conditional
 CWhen
 	FNJSR
 	FNLDR	R1,if_skip
@@ -5784,7 +5996,7 @@ CWhen
 	FNRTS
 
 
-	&	7 :OR: 3<<3 :OR: 1<<10 :OR: 1<<21
+	&	7+c_Param_String+c_MinibufferKill+c_Conditional
 When
 	FNJSR
 	FNLDR	R1,if_skip
@@ -5809,7 +6021,7 @@ When_internal
 	FNRTS
 
 
-	&	7 :OR: 1<<21
+	&	7+c_Conditional
 Default
 	FNJSR
 	FNLDR	R0,if_skip
@@ -5829,7 +6041,7 @@ Default
 	FNRTS
 
 
-	&	7 :OR: 1<<21
+	&	7+c_Conditional
 Endcase
 	FNJSR
 	FNLDR	R0,if_skip
@@ -5925,7 +6137,7 @@ popblock
 
 	LOCAL
 
-	&	7 :OR: 1<<10
+	&	7+c_MinibufferKill
 	; E: R4 = address of next command / 0
 	; X: R0 = address of next command / 0 / error
 Continue
@@ -5938,7 +6150,7 @@ Continue
 	FNRTS
 
 
-	&	7 :OR: 1<<10
+	&	7+c_MinibufferKill
 	; E: R4 = address of next command / 0
 	; X: R0 = address of next command / 0 / error
 Break
@@ -5963,7 +6175,7 @@ Break
 
 	LOCAL
 
-	&	7 :OR: 3<<3:OR:1<<12
+	&	7+c_Param_String+c_UniversalArg
 Set
 	FNJSR
 	MOV	R6,R0
@@ -6002,16 +6214,12 @@ free$l	MOVVC	R1,#0
 	FNRTV
 
 bad_zap_variable
-	ADR	R0,badvar_msg$l
-	ORRS	PC,R14,#1<<28
-badvar_msg$l
-	&	0
-	FNS	("Bad variable name")
+	ERR	"zap_e_badvar"
 
 
 	LOCAL
 
-	&	7 :OR: 3<<3:OR:1<<12
+	&	7+c_Param_String+c_UniversalArg
 Unset
 	FNJSR
 	MOV	R7,R0
@@ -6037,7 +6245,7 @@ wipe$l	MOV	R4,#0
 
 	LOCAL
 
-	&	7 :OR: 3<<3:OR:1<<12
+	&	7+c_Param_String+c_UniversalArg
 Local
 	TEQ	R4,#0
 	MOVEQ	PC,R14
@@ -6111,6 +6319,7 @@ bad$l	BL	bad_zap_variable
 	LOCAL
 
 typecheck
+	FNJSR	"R1-R4"
 	FNLDR	R3,if_count
 	FNLDR	R2,if_stop
 	SUB	R3,R3,#1
@@ -6120,48 +6329,35 @@ typecheck
 	FNLDR	R2,if_bits
 	LDR	R2,[R2,R3,LSL #3]
 	TEQ	R1,R2,LSR #28
-	BICEQS	PC,R14,#1<<28
+	FNRTVC	EQ
 	MOV	R1,R2,LSR #28
 	ADR	R0,required$l
-fail$l	LDR	R1,[R0,R1,LSL #2]
-	ADD	R0,R0,R1
-	ORRS	PC,R14,#1<<28
+	ADD	R1,R1,#4
+fail$l	ADR	R14,cmd$l
+	LDRB	R4,[R14,R1]
+	ADD	R4,R4,R14
+	MOV	R2,#0
+	BL	lookup_error
+	FNRTS
 
 nomatching$l
-	&	nomatchingif$l-nomatching$l
-	&	nomatchingrepeat$l-nomatching$l
-	&	nomatchingwhile$l-nomatching$l
-	&	nomatchingcase$l-nomatching$l
-nomatchingif$l
 	&	0
-	FNS	("No matching IF")
-nomatchingrepeat$l
-	&	0
-	FNS	("No matching REPEAT")
-nomatchingwhile$l
-	&	0
-	FNS	("No matching WHILE")
-nomatchingcase$l
-	&	0
-	FNS	("No matching CASE")
-
+	FNS	("zap_e_nostruct")
 required$l
-	&	requiredif$l-required$l
-	&	requiredrepeat$l-required$l
-	&	requiredwhile$l-required$l
-	&	requiredcase$l-required$l
-requiredif$l
 	&	0
-	FNS	("Mismatch: ENDIF required")
-requiredrepeat$l
-	&	0
-	FNS	("Mismatch: UNTIL required")
-requiredwhile$l
-	&	0
-	FNS	("Mismatch: ENDWHILE required")
-requiredcase$l
-	&	0
-	FNS	("Mismatch: WHEN\x2C DEFAULT\x2C ENDCASE required")
+	FNS	("zap_e_misstruct")
+	ALIGN
+cmd$l	=	 if$l-cmd$l, rep$l-cmd$l, whi$l-cmd$l, cas$l-cmd$l
+	=	eif$l-cmd$l, unt$l-cmd$l, ewh$l-cmd$l, whn$l-cmd$l
+if$l	=	"IF",0
+rep$l	=	"REPEAT",0
+whi$l	=	"WHILE",0
+cas$l	=	"CASE",0
+eif$l	=	"ENDIF",0
+unt$l	=	"UNTIL",0
+ewh$l	=	"ENDWHILE",0
+whn$l	=	"WHEN, DEFAULT, ENDCASE",0
+	ALIGN
 
 
 ; Functions
@@ -6171,7 +6367,7 @@ Char_fn
 	MOV	R0,#0
 	B	Charoff
 
-	&	3<<22 :OR: 2<<24
+	&	c_Function+c_FunctionParam_Word
 Charoff
 	MOV	R1,R0
 	FNJSR	"R8-R10"
@@ -6207,12 +6403,12 @@ Tabchar_fn
 	MOV	PC,R14
 ;	FNRTS
 
-	&	3<<22
+	&	c_Function
 Charstr
 	MOV	R0,#0
 	B	Charoffstr
 
-	&	3<<22 :OR: 2<<24
+	&	c_Function+c_FunctionParam_Word
 Charoffstr
 	FNJSR
 	BL	Charoff
@@ -6242,7 +6438,7 @@ Charoffstr
 	FNRTS	HS
 	BL	ctrllist
 	ADD	R2,R2,R1,LSL #2
-wr$l	MOV	R1,#'\'
+wr$l	MOV	R1,#:CHR:92		; '\' -- works with armasm/objasm/etc
 	STRB	R1,[R0]
 	LDRB	R1,[R2]
 	STRB	R1,[R0,#1]
@@ -6256,13 +6452,13 @@ tab$l	=	"t",0
 del$l	=	"?",0
 	ALIGN
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 False	MOV	R0,#0
 	MOV	R1,#2
 	MOVS	PC,R14
 
 ; function 'Filename'
- DCD (1<<22+1<<23)
+	&	c_Function
 Filename
 	CMP	R2,#23
 	MOVNE	PC,R14
@@ -6277,14 +6473,64 @@ Filename
 	FNRTS
 anull$l	 DCD	0
 
-	&	7 :OR: 3<<22
+	LOCAL
+
+	&	7+c_Function+c_FunctionParam_String
+Match	FNJSR	"R2-R5"
+	MOV	R5,#zsearch_MatchAtCursor+zsearch_DontBeep
+	ORR	R5,R5,#zsearch_NoMacros+zsearch_NoHourglass
+	LDRB	R1,[R0]
+	TEQ	R1,#164 ; '¤'
+	BLEQ	flags$l
+	MOV	R1,#zsearch_NoOutput
+	BL	search_data
+	MVN	R0,R0,ASR #31 ; all bits = ~(top bit)
+	MOV	R1,#2
+	FNRTS
+flags$l	ADD	R0,R0,#1
+	MOV	R2,#0
+loop$l	LDRB	R1,[R0],#1
+	CMP	R1,#164 ; '¤'
+	CMPNE	R1,#31
+	MOVLS	PC,R14
+	; Controls
+	TEQ	R1,#'~' ; toggle
+	MOVEQ	R2,#0
+	TEQ	R1,#'+' ; set
+	MOVEQ	R2,#1
+	TEQ	R1,#'-' ; clear
+	MOVEQ	R2,#2
+	MOV	R4,#0
+	; Modifiers
+	TEQ	R1,#92 ; '\'
+	MOVEQ	R3,#zsearch_NoCommands
+	MOVEQ	R4,#3
+	BIC	R1,R1,#32
+	TEQ	R1,#'C'
+	MOVEQ	R3,#zsearch_CaseSensitive
+	TEQ	R1,#'M'
+	MOVEQ	R3,#zsearch_NoMacros
+	MOVEQ	R4,#3
+	TEQ	R1,#'R'
+	MOVEQ	R3,#zsearch_RawSearch
+	; Application of modifiers
+	EOR	R4,R4,R2
+	TEQ	R4,#1
+	ORREQ	R5,R5,R3
+	BEQ	loop$l
+	TEQ	R4,#2
+	BICEQ	R5,R5,R3
+	EORNE	R5,R5,R3
+	B	loop$l
+
+	&	7+c_Function
 True	MVN	R0,#0
 	MOV	R1,#2
 	MOVS	PC,R14
 
 	LOCAL
 
-	&	4 :OR: 3<<22
+	&	4+c_Function
 Modified
 	FNJSR
 	BL	test_changed
@@ -6293,7 +6539,7 @@ Modified
 	MOV	R1,#2
 	FNRTS
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 Shift	MOV	R1,#255
 inkey$l	MOV	R0,#129
 	MOV	R2,#255
@@ -6303,15 +6549,15 @@ inkey$l	MOV	R0,#129
 	MOV	R1,#2
 	MOV	PC,R14
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 Ctrl	MOV	R1,#254
 	B	inkey$l
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 Alt	MOV	R1,#253
 	B	inkey$l
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 Modifiers
 	FNJSR
 	BL	Shift
@@ -6326,7 +6572,7 @@ Modifiers
 
 	LOCAL
 
-	&	7 :OR: 3<<22
+	&	7+c_Function
 Select	MOV	R2,#4
 mouse$l	SUB	R13,R13,#32
 	MOV	R1,R13
@@ -6341,15 +6587,15 @@ mouse$l	SUB	R13,R13,#32
 	MOVNE	R0,#-1
 	MOV	PC,R14
 
-	&	3<<22
+	&	c_Function
 Menu	MOV	R2,#2
 	B	mouse$l
 
-	&	3<<22
+	&	c_Function
 Adjust	MOV	R2,#1
 	B	mouse$l
 
-	&	3<<22
+	&	c_Function
 Buttons	MOV	R2,#7
 	B	mouse$l
 
@@ -6387,7 +6633,7 @@ copy$l	LDRB	R3,[R1],#1
 	MOV	R1,#3
 	FNRTS
 
-	&	1<<15 + 1<<23
+	&	c_TickableMenuEntry+c_CommandAndFunction
 Selanywhere
 	CMP	R2,#15
 	BEQ	shade_no_sel_at_all ; shdenosel$l
@@ -6404,7 +6650,7 @@ Selanywhere
 ;shdenosel$l
 ;	B shade_no_sel_at_all
 
-	&	1<<15 + 1<<23
+	&	c_TickableMenuEntry+c_CommandAndFunction
 Selhere
 	FNJSR
 	MOV	R7,R8
@@ -6428,7 +6674,7 @@ shdenoselhere$l
 	MOVCS	R0,#2
 	FNRTS
 
-	&	3<<22
+	&	c_Function
 Selsize
 	FNJSR
 	MOV	R7,R8
@@ -6441,7 +6687,7 @@ Selsize
 
 	LOCAL
 
-	&	3<<22 :OR: 3<<24
+	&	c_Function+c_FunctionParam_String
 Ticked	MOV	R3,#1
 tick$l
 	FNJSR	"R10"
@@ -6471,11 +6717,11 @@ error$l	MOV	R2,R0
 	MOV	R0,R2
 	FNRTV
 
-	&	3<<22 :OR: 3<<24
+	&	c_Function+c_FunctionParam_String
 Greyed	MOV	R3,#2
 	B	tick$l
 
-	&	3<<22
+	&	c_Function
 Eof
 	FNJSR	"R8-R10"
 	BL	find_input
@@ -6486,7 +6732,7 @@ Eof
 	MOV	R1,#2
 	FNRTS
 
-	&	3<<22
+	&	c_Function
 Sof
 	FNJSR	"R8-R10"
 	BL	find_input
@@ -6498,15 +6744,15 @@ Sof
 
 	LOCAL
 
-	&	7 :OR: 3<<22 :OR: 3<<24
+	&	7+c_Function+c_FunctionParam_String
 In
 	FNJSR
 	MOV	R10,R0		; parameter string
 	MOV	R11,R10
 	BL	str_comma	; find comma
 	CMP	R0,#32
-	ADRLO	R0,badin_msg$l	; no comma? error
-	FNRTV	LO
+	BLLO	badin_msg$l	; no comma? error
+	FNRTS	VS
 	MOV	R7,R0
 	MOV	R0,#0
 	STRB	R0,[R10,#-1]	; temporary NUL
@@ -6530,8 +6776,7 @@ In
 	FNRTS	EQ
 	FNRTV
 badin_msg$l
-	&	0
-	FNS	("Not enough arguments")
+	ERR	"zap_e_insuffargs"
 
 
 	LOCAL
@@ -6583,6 +6828,8 @@ notnum$l
 	BL	heap_free	; not a number (free the string)
 mismatch$l
 	ADR	R0,mismatch_msg$l
+	MOV	R2,#0
+	BL	lookup_error
 err1$l	MOV	R7,R0		; error return
 	MOVS	R0,R5
 	BLNE	heap_free
@@ -6590,11 +6837,11 @@ err1$l	MOV	R7,R0		; error return
 	FNRTV
 mismatch_msg$l
 	&	0
-	FNS	("Type mismatch in list")
+	FNS	("zap_e_listmismatch")
 
 	LOCAL
 
-	&	3<<22
+	&	c_Function
 ModeT
 	MOV	R0,#14
 	MOV	R1,#2
@@ -6605,7 +6852,7 @@ ModeT
 ;  (see buffer_strokes for format)
 ;X Key strokes executed (as a multiop) for input caret #
 
- DCD 7 :OR: 4<<3 :OR: 1<<28
+ DCD 7+c_Param_Data+c_MovesInputOrKeymap
 Multicommand
 execute_strokes
  FNJSR "R1-R11"

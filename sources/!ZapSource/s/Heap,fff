@@ -1,7 +1,8 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 1.2 1999/01/12 18:23:51 dj Exp $
+; $Id: Heap,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
+ GET h.Messages
 
  EXPORT init_heap
  EXPORT kill_heap
@@ -71,10 +72,11 @@ heap_size		* &1000		; initial heap size / inc size
 
 set_block_size
  FNJSR "R1-R11"
+ SYSLOGF "set_block_size %0d to %1x",LOG_MEMORY
  FNLDR R11,wimp_version		; get version number
  MOV R10,R0			; R10=block number (-1 = heap -2=font)
  ADD R5,R1,#3
- BIC R5,R5,#3			; R11=new size word aligned
+ BIC R5,R5,#3			; R5=new size word aligned
  BL get_zap_block
  MOV R4,R0			; start address of current block
  CMP R10,#0
@@ -157,7 +159,7 @@ upfont$l
 ; shift block up (R5>0)
 moveup$l
  MOV R0,R5			; signed change in area size
- MOVS R14,PC
+ MOV R14,PC			; recently was MOVS, but not in v1.35 - sja
  MOV PC,R6			; increase area size (eg wimpslot)
  FNRTS VS			; failed - exit - nothing changed yet
  ADD R1,R4,R7			; start of the next block
@@ -165,14 +167,14 @@ moveup$l
  SUBS R3,R9,R1			; amount to move
  SWIGT XZapRedraw_MoveBytes ; BLGT move_bytes		; shift the data above the block
  MOV R0,R5
- MOVS R14,PC
+ MOV R14,PC			; recently was MOVS, but not in v1.35 - sja
  MOV PC,R8			; enlarge the block (eg heap, file)
  BVC moved$l			; done
  FNRTS
 ; shift block down (R5<0)
 movedown$l
  MOV R0,R5
- MOVS R14,PC
+ MOV R14,PC			; recently was MOVS, but not in v1.35 - sja
  MOV PC,R8			; contract the block (eg heap, file)
  FNRTS VS
  ADD R1,R4,R7			; start of the next block (before shrink)
@@ -237,6 +239,13 @@ fontdone$l
  FNRTS
 filesub$l			; resize a file block
  FNJSR "R1"
+; FNLDR R14,file_num
+; CMP R10,R14
+; FNPULL GE
+; BGE err2$l			; try to avoid loading from memory that doesn't exist
+; falls over heavily ... something's going badly wrong around here.
+; I can't actually figure out what, but then this code is fairly weird :-(
+
  FNLDR R1,file_list
  ADD R1,R1,R10,LSL#f_shift	; start of the block
  LDR R14,[R1,#f_ptr]		; linked?
@@ -247,7 +256,8 @@ filesub$l			; resize a file block
  ADDNE R14,R14,R0
  STRNE R14,[R1,#f_blklen]	; update block size
  FNRTS
-err$l ERR "Bad set_block_size"
+err$l ERRlit "Bad set_block_size"
+err2$l ERRlit "Corrupted block area (set_block_size)"
 
  LOCAL
 
@@ -284,6 +294,7 @@ loop$l				; find next file
 
 set_dynamic_area
  FNJSR "R1-R9"
+ SYSLOGF "set_dynamic_area %0d to %1x",LOG_MEMORY
  MOV R9,R1			; save new end
  MOV R1,R0			; area number
  MOV R0,#2
@@ -307,9 +318,11 @@ set_wimpslot
  SUB R0,R0,#&8000		; new size of slot
  TST R0,#3
  BLNE err$l			; misaligned wimpslot set
- MOVVC R1,#-1			; read next size
- MOVVC R10,R0			; save slot size asked for
- SWIVC XWimp_SlotSize		; CORRUPTS R4 !!!!
+ FNRTS VS
+ SYSLOGF "set_wimpslot to %0d",LOG_MEMORY
+ MOV R1,#-1			; read next size
+ MOV R10,R0			; save slot size asked for
+ SWI XWimp_SlotSize		; CORRUPTS R4 !!!!
  FNRTS VS
  CMP R0,R10
  BLT failed$l
@@ -323,18 +336,9 @@ failed$l
  SWI XWimp_SlotSize		; restore old slot size
  BLVC out_of_memory		; not enough room error
  FNRTS
-err$l ERR "Internal error: misaligned wimpslot"
+err$l ERRlit "Internal error: misaligned wimpslot"
 
-out_of_memory
- ADD R0,PC,#0
- ORRS PC,R14,#Vbit
- DCD ENUM+1			; error code (+1)
- = "Due to lack of memory "
- = |zap$|
- = " is unable to do this. "
- = "We apologise for any inconvenience this may cause to your "
- = "computing.",0
- ALIGN
+out_of_memory ERR "zap_e_lackofmem"
 
  LOCAL
 
@@ -352,6 +356,7 @@ init_heap
  FNSTR R1,heap_start,VC
  SWIVC XOS_Heap			; initialise heap
  FNRTS VS
+ SYSLOGF "init_heap created heap size %3x at %1x",LOG_MEMORY
  ADD R1,R1,R3
  FNSTR R1,heap_end		; end of heap (start of file store)
  FNLDR R0,wimp_version		; OS version
@@ -360,21 +365,26 @@ init_heap
  FNSTR R1,font_start
  FNSTR R1,font_end
  FNSTR R1,file_end		; set up the rest of the vars
+ SYSLOG "init_heap initialised font and file buffers",LOG_MEMORY
  FNRTS
 newos$l				; use dynamic areas for files and fonts
  MOV R1,#0
  MOV R2,#8*1024*1024		; max size = 8 meg
  ADR R3,font$l
  BL create_dynamic_area
- FNSTR R0,font_area,VC
- FNSTR R1,font_start,VC
- FNSTR R1,font_end,VC
- MOVVC R1,#0
- MOVVC R2,#-1			; max size = total ram
- ADRVC R3,file$l
- BLVC create_dynamic_area
- FNSTR R0,file_area,VC
- FNSTR R1,file_end,VC
+ FNRTS VS
+ FNSTR R0,font_area
+ FNSTR R1,font_start
+ FNSTR R1,font_end
+ SYSLOGF "init_heap created font DA #%0d at %1x",LOG_MEMORY
+ MOV R1,#0
+ MOV R2,#-1			; max size = total ram
+ ADR R3,file$l
+ BL create_dynamic_area
+ FNRTS VS
+ FNSTR R0,file_area
+ FNSTR R1,file_end
+ SYSLOGF "init_heap created file DA #%0d at %1x",LOG_MEMORY
  FNRTS
 font$l = |zap$|," bitmaps",0
 file$l = |zap$|," files",0
@@ -385,6 +395,7 @@ file$l = |zap$|," files",0
 
 create_dynamic_area
  FNJSR "R2-R8"			; don't push R1!
+ SYSLOGF "create_dynamic_area size %1x, max size %2x, name %3s",LOG_MEMORY+1
  MOV R8,R3			; name string
  MOV R5,R2			; max size
  MOV R2,R1			; start size
@@ -399,20 +410,32 @@ create_dynamic_area
  MOVVC R1,R3
  FNRTS
 
+ LOCAL
+
 ;X Kills dynamic areas etc prior to exit #
 
 kill_heap
- FNJSR "R1"
+ FNJSR "R1-R2"
  FNLDR R1,wimp_version
  CMP R1,#320
  FNRTS LE			; no dynamic areas to kill
- MOV R0,#1
- FNLDR R1,font_area
- SWI XOS_DynamicArea		; kill fonts
- MOVVC R0,#1
- FNLDR R1,file_area,VC
- SWIVC XOS_DynamicArea		; kill files
+ FNADD R2,R12,font_area		; kill fonts
+ BL kill$l
+ FNADD R2,R12,file_area		; kill files
+ BL kill$l
  FNRTS
+kill$l	FNJSR	; could be in SVC mode...
+	LDR	R1,[R2]
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	STRNE	R0,[R2]
+	MOVNE	R0,#1
+	SWINE	XOS_DynamicArea
+ [ LOGGING = SYSLOG
+	FNRTS	VS
+	SYSLOGF "kill_heap killed DA #%1d",LOG_MEMORY
+ ]
+	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Manage the Acorn heap in block -1				;
@@ -423,6 +446,7 @@ kill_heap
 
 heap_enlarge
  FNJSR "R1"
+ SYSLOGF "heap_enlarge %0x",LOG_MEMORY+3
  FNLDR R1,heap_end
  FNLDR R14,heap_start
  SUB R1,R1,R14			; size of heap
@@ -434,47 +458,91 @@ heap_enlarge
 ;E R0=required num of bytes
 ;X R0=pointer to heap block #
 
+ LOCAL
+
 heap_claim
  FNJSR "R1-R3"
+ SYSLOGF "heap_claim %0d (%0x)",LOG_MEMORY+2
  MOVS R3,R0
  MOVEQ R3,#1			; bug in heap manager (can't have 0 blks)
  MOV R0,#2
  FNLDR R1,heap_start
  SWI XOS_Heap			; claim the block
+ [ LOGGING = SYSLOG
+ BVS failed$l
+ MOV R0,R2
+ SYSLOGF "heap_claim returns %0x",LOG_MEMORY+2
+ FNRTS
+failed$l
+ |
  MOVVC R0,R2
  FNRTS VC			; succeeded!
+ ]
  ADDS R0,R3,#heap_size		; amount to enlarge heap & clv
  BL heap_enlarge
  MOVVC R0,#2			; if heap enlarged...
  FNLDR R1,heap_start,VC
  SWIVC XOS_Heap			; try again
  MOVVC R0,R2
+ SYSLOGF "heap_claim returns %0x",LOG_MEMORY+2
  FNRTS				; return if it errors again
 
 ;E R0=heap block R1=size
 ;X R0=new heap block ptr (at least this size) #
 
+ LOCAL
+
+; If this is going all weird, it's because the XOS_Heap returning VS code
+; used to pull "R1-R3,PC" instead of "R1-R4,PC". However that's wrong ...
 heap_ensure
+ SYSLOGF "heap_ensure %0x to %1d (%1x)",LOG_MEMORY+2
  TEQ R0,#0
  MOVEQ R0,R1
  BEQ heap_claim
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
+ [ LOGGING = SYSLOG
+ STR R0,blk$l			; store heap block
+ ]
  MOV R2,R0			; heap block
  MOV R4,R1			; size required
  MOV R0,#6
  FNLDR R1,heap_start
  SWI XOS_Heap			; read heap block size+4
- LDMVSFD R13!,{R1-R3,PC}	; (due to bug in heap manager)
+ [ LOGGING = SYSLOG
+ BVC noerror$l
+ ADD R1,R0,#4
+ SYSLOGF "heap_ensure returns error #%0px '%1s'",LOG_MEMORY+2
+ FNRTV
+noerror$l
+ |
+ FNRTS VS			; (due to bug in heap manager)
+ ]
  SUB R0,R3,#4			; actual size of heap block
  SUBS R3,R4,R0			; enlargement amount
  BGT he0			; extend block by R3 if needed
  MOV R0,R2			; return pointer to current block
- LDMFD R13!,{R1-R4,PC}		; return if block already big enough
+ [ LOGGING = SYSLOG
+ LDR R1,blk$l
+ CMP R1,R0			; did we have to move the block in the heap?
+ BNE changed$l
+ SYSLOGF "heap_ensure returns %0x unmoved",LOG_MEMORY+2
+ FNRTS
+changed$l
+ SYSLOGF "heap_ensure returns %0x",LOG_MEMORY+2
+ FNRTS
+ |
+ FNRTS				; return if block already big enough
+ ]
+blk$l
+ DCD 0
 
 ;E R0=heap block R1=signed change
 ;X R0=new ptr to block #
 
+ LOCAL
+
 heap_extend
+ SYSLOGF "heap_extend %0x by %1d (%1x)",LOG_MEMORY+2
  TEQ R0,#0
  MOVEQ R0,R1
  BEQ heap_claim
@@ -486,8 +554,21 @@ he0
  MOV R0,#4
  FNLDR R1,heap_start
  SWI XOS_Heap			; attempt to enlarge block
+ [ LOGGING = SYSLOG
+ BVS failed$l
+ MOV R0,R2
+ CMP R0,R4			; did we have to move the block in the heap?
+ BNE changed$l
+ SYSLOGF "heap_extend/ensure returns %0x unmoved",LOG_MEMORY+2
+ LDMFD R13!,{R1-R4,PC}
+changed$l
+ SYSLOGF "heap_extend/ensure returns %0x",LOG_MEMORY+2
+ LDMFD R13!,{R1-R4,PC}
+failed$l
+ |
  MOVVC R0,R2
  LDMVCFD R13!,{R1-R4,PC}	; return if block enlarged ok
+ ]
  ADDS R0,R0,#0			; clv
  MOV R0,#6
  FNLDR R1,heap_start
@@ -503,14 +584,23 @@ he0
  FNLDR R1,heap_start,VC
  MOVVC R3,R4			; size change
  SWIVC XOS_Heap			; try extension of block again
+ [ LOGGING = SYSLOG
+ LDMVSFD R13!,{R1-R4,PC}
+ MOV R0,R2
+ SYSLOGF "heap_extend/ensure returns %0x",LOG_MEMORY+2
+ |
  MOVVC R0,R2
+ ]
  LDMFD R13!,{R1-R4,PC}		; error if it fails this time
 
 ;E R0=heap block/-ve
 ;X returns if -ve and frees heap block o/w #
 
+ LOCAL
+
 heap_free
  FNJSR "R1-R3"
+ SYSLOGF "heap_free %0x",LOG_MEMORY+2
  MOVS R2,R0
  FNRTS MI			; return if pointer negative
  MOV R0,#3
@@ -548,6 +638,7 @@ minimise_memory
 
 claim_list_block
  STMFD R13!,{R4,R10,R14}
+ SYSLOGF "claim_list_block size %2x (list %0x, num %1d)",LOG_MEMORY
  MOV R10,R2			; size of objects
  MOV R2,R0			; current list pointer
  MOV R3,#0			; current num
@@ -574,6 +665,7 @@ cl4
  STR R4,[R14],#4
  SUBS R10,R10,#4		; initialise to -1's
  BHI cl4
+ SYSLOGF "claim_list_block returns block %3d at %2x",LOG_MEMORY
  LDMFD R13!,{R4,R10,PC}
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 1.2 1999/01/12 18:24:14 dj Exp $
+; $Id: Undo,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
  GET h.TMTVars
@@ -80,6 +80,23 @@ udata			* &07		; undo data block increment mask
 ; &07:	Start of a multiple operation marker. (see Zap_StartOp) No data.
 ; &17:	End of a muliple operation marker. (see Zap_StopOp) No data.
 
+			^	0
+undo_Length		#	4
+undo_Type		#	1
+undo_Offset		#	4	; used by everything that has data
+undo_Data		#	0	; most have one (or two same-sized) data area(s)
+
+undo_Type_fastundo	*	0x00
+undo_Type_fastredo	*	0x10
+undo_Type_insert	*	0x01
+undo_Type_delete	*	0x02
+undo_Type_replace_fwd	*	0x03
+undo_Type_replace_bwd	*	0x04
+undo_Type_delete_CAS	*	0x05
+undo_Type_insert_CAS	*	0x06
+undo_Type_startop	*	0x07
+undo_Type_stopop	*	0x17
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Undo and redo							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -94,9 +111,9 @@ pre_undo
  BL pre_input
  FNRTS VS
  LDR R0,[R9,#f_flags]
- AND R0,R0,#1
- EOR R0,R0,#1			; 0 undo 1 no undo
- CMP R0,#1
+ AND R0,R0,#flags_UndoSupported
+ EOR R0,R0,#flags_UndoSupported		; 0 undo 1 no undo
+ CMP R0,#flags_UndoSupported
  FNRTS				; CS if no undo
 
 ;E R0=suggested num of chars R1=0 fast undo/1 full undo R9=file
@@ -411,8 +428,7 @@ un28
  MOV R3,R0			; address
 un29
  BL insertsomespaces		; code seems ok.
- MOV R1,R4			; start of region (before cur)
- ADD R1,R1,R0			; allow for spaces...
+ ADD R1,R4,R0			; start of region (<cur) & allow for spaces
  MOV R0,#&39			; insert block without buf/cur &79 for sel.
  BL execute_command		; perform the yank by inserting text
  BVS un30
@@ -489,11 +505,6 @@ pastegc_command
  SUB r13,r13,#48		; some space for the message
  MOV r1,r13
 
-; MOV r2,#0
-; STR r2,[r1,#12]
-
-; LDR r8,[r8,#0]			; window handle
-; STR r8,[r1,#20]		; and store so we know where it's going to
  LDR r2,[r8,#0]
  STR r2,[r1,#20]
  MOV r2,#0
@@ -513,46 +524,18 @@ pastegc_command
  MVN r3,#0
  STR r3,[r1,#44]		; end of filetype list (send native otherwise)
 
-; BL get_wind_off		; \X r0
  MOV R0,#1
  FNSTR R0,opt_temporary
  MOV r6,r10			; pass as r11 to reply$l
  MOV r0,#message_datarequest	; r0 needs to include flags, so:
  ORR r0,r0,#(3:SHL:30 + 1:SHL:28) ; recorded, call reply code
-; ADD r0,r0,#(1:SHL:31 + 1:SHL:28)
- 				; on bounce or reply
  MOV r3,#48			; length
 
  ADR r5,reply$l
-; MOV r5,#0			; use default Zap reply code
  BL message_send		; go
 
  ADD r13,r13,#48		; stack pointer back up
-; STR R8,cbmsgchk + 0
-; STR R9,cbmsgchk + 4		; yucky raw data :(
-; FNLDR r0,opt_switches          ; opt_switches word
-; BIC r0,r0,#(bit_got_gclip*2)	; we no longer own it
-; FNSTR r0,opt_switches          ; opt_switches word
-; MOV R1,#-20
-; ADR R2,checkforamessagereturned
-; BL call_back
  FNRTS
-
-;cbmsgchk
-; DCD 0
-; DCD 0
-
-;checkforamessagereturned
-; FNJSR "r0"
-; FNLDR r0,opt_switches          ; opt_switches word
-; TST r0,#(bit_got_gclip*2)	; we no longer own it
-; FNRTS NE
-; LDR r8,cbmsgchk + 0
-; LDR r9,cbmsgchk + 4
-; BL paste_command
-; BLEQ paste_command
- ;SWIEQ &107
-; FNRTS
 
 reply$l
  CMP r0,#19
@@ -710,8 +693,8 @@ ad19
  STRVC R3,[R0,#4]			; set up next entry
  FNSTR R5,yank_len,VC		; new len
  FNSTR R5,yank_off,VC		; cancel any yank
- ;BL get_file_off
- ;FNSTR R0,yank_file		; last yanked file
+ BLVC get_file_off
+ FNSTR R0,yank_file,VC		; last yanked file
  BLVC gc_claimclip		; inform everyone that we've got the gc
  LDMFD R13!,{R1-R7,PC}
 

@@ -1,7 +1,9 @@
 ; Contains Zap search/replace code and throwback generation
-; $Id: Search,fff,v 1.2 1999/01/12 18:24:08 dj Exp $
+; $Id: Search,fff,v 1.3 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
 
 	GET	h.ZapHeader
+	GET	h.Messages
 	GET	h.Template
 	GET	h.Heap
 	GET	h.Strings
@@ -61,8 +63,8 @@ getlen$l
 	BHS	getlen$l
 	SUB	R2,R2,R1
 gotlen$l
-	BIC	R5,R5,#1<<21 :OR: 1<<27
-	ORR	R5,R5,#1<<25 :OR: 1<<31
+	BIC	R5,R5,#zsearch_MatchAtCursor :OR: zsearch_AllWindows
+	ORR	R5,R5,#zsearch_DontBeep :OR: zsearch_RawSearch
 	BL	search_init
 	MOVVC	R0,R2
 	MOVVC	R2,R3
@@ -116,8 +118,8 @@ sub$l
  BL search_init			; put search string into the correct form
  FNRTS VS			; and create the fnd_tree
  ADD R3,R3,R4			; first offset to try
- TST R5,#1<<31
- ORREQ R5,R5,#1<<26		; don't do hourglass in search_text
+ TST R5,#zsearch_RawSearch
+ ORREQ R5,R5,#zsearch_NoHourglass
  B first$l
 next$l				; R3=next posn to try
  TEQ R4,#0
@@ -125,9 +127,9 @@ next$l				; R3=next posn to try
 first$l
  MOV R0,R6			; set up R8/R9 of the search window
  BL conv_wind_off		; (may change across calls)
- TST R5,#1<<21			; if b21 set, then...
+ TST R5,#zsearch_MatchAtCursor
  BEQ nocur$l
- ORR R5,R5,#1<<22:OR:1<<26
+ ORR R5,R5,#zsearch_NoHourglassPercent :OR: zsearch_NoHourglass
  FNLDR R10,car_cursor
  LDR R0,[R10,#c_wind]
  TEQ R0,R6			; Cursor in window being searched?
@@ -138,11 +140,11 @@ nocur$l
  LDR R0,[R9,#f_len]
  CMP R3,R0
  BCS nextfile$l			; off start or end of file
- TST R5,#1<<31
+ TST R5,#zsearch_RawSearch
  BNE raw$l			; do a raw search
  SWI XOS_ReadEscapeState	; do once for each line (code mode)
  BCS esc$l
- TST R5,#1<<22			; don't do hourglass percentage (TT)
+ TST R5,#zsearch_NoHourglassPercent
  MOVEQ R0,R3
  BLEQ sumlen_long_op_display
  BLVC search_line_setup		; set up R1,R2,R3,R10
@@ -156,7 +158,7 @@ nocur$l
  CMP R0,#-1
  BLT esc$l
  MOV R2,R0			; match offset / -1
- TST R5,#1<<24
+ TST R5,#zsearch_ReturnEndOfMatch
  BLNE search_line_delimit	; get end of match offset in R11
  BLVC search_line_end		; R2=match offset R3=next posn to try
  FNRTS VS
@@ -169,7 +171,7 @@ match$l				; found a match (in R0)
  FNRTS VS
  CMP R11,#0
  BPL next$l			; go onto next match (buffering them)
- TST R5,#1<<24
+ TST R5,#zsearch_ReturnEndOfMatch
  STRNE R1,[R13]			; overwrite R1 on the stack if wanted
  B secondend$l			; return values of this match
  ;FNRTS				; return values of this match
@@ -193,14 +195,14 @@ raw$l
  MOVEQ R3,#-1			; finished this file
  B next$l
 nextfile$l			; move onto next file
- TST R5,#1<<27
+ TST R5,#zsearch_AllWindows
  BEQ end$l			; all files option not requested
  MOV R0,R6			; current file
  BL next_wind_offset
  FNRTS VS;
  MOVS R6,R0
  BMI end$l			; run out of windows
- SUB R14,R7,#&100
+ SUB R14,R7,#zsearch_ToThrowback
  TEQ R14,R0
  BEQ nextfile$l			; Don't search the throwback!!!!
  BL conv_wind_off		; set up R8/R9
@@ -213,7 +215,7 @@ end$l
  MOV R0,#-1			; no more matches
  BL search_data_buffer		; set up the return values
 secondend$l
- TEQ R7,#3
+ TEQ R7,#zsearch_Count
  LDREQ R0,countsearchdata
  FNRTS
 
@@ -241,12 +243,12 @@ search_data_buffer
  FNJSR "R1-R6,R8-R10"
  MOVS R11,R0			; save match offset
  BMI nomatch$l			; finished search
- CMP R7,#&100
+ CMP R7,#zsearch_ToThrowback
  BGE buffer$l			; insert match into buffer
- CMP R7,#1
+ CMP R7,#zsearch_ToBuffer
  BLO goto$l			; 0
  BEQ newbuffer$l		; 1: create new buffer and insert
- CMP R7,#3
+ CMP R7,#zsearch_Count
  BLO off$l			; 2: just return offset
  BEQ count$l			; 3: for counting; just return offset
 goto$l
@@ -270,9 +272,9 @@ count$l
  MOV R0,R11			; match offset
  FNRTS				; maybe more to do
 nomatch$l
- CMP R7,#&100			; was there some output
+ CMP R7,#zsearch_ToThrowback	; was there some output
  BGE openthrowback$l		; open window on search file
- TST R5,#1<<25			; beep?
+ TST R5,#zsearch_DontBeep
  BLEQ Beep
  ;SWIEQ &107			; no match found
  MOV R0,R11			; return value
@@ -284,20 +286,27 @@ newbuffer$l
  LDR R14,[R8,#w_margin]
  SUB R0,R0,R14
  ADD R0,R0,#10			; width we want throwback window to be
+ ORR R0,R0,#throwback_FilenameIsToken
+ ADR R1,searchtitle$l
  BL create_throwback
  FNRTS VS
- ADD R7,R0,#&100		; set up R7 as the window offset
+ ADD R7,R0,#zsearch_ToThrowback	; set up R7 as the window offset
 buffer$l			; insert the match
  BL enter_search_buffer
  FNRTS
+searchtitle$l
+ = "zap_tb_search", 0
+ ALIGN
 openthrowback$l
- SUB R0,R7,#&100		; window offset
+ SUB R0,R7,#zsearch_ToThrowback	; window offset
  BL conv_wind_off		; get R8/R9
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3		; file not altered
- STR R0,[R9,#f_flags]		; new flags
+ MOV R0,#0
+ BL mark_changed_unchanged	; not changed ...
+; LDR R0,[R9,#f_flags]
+; BIC R0,R0,#flags_Modified	; file not altered
+; STR R0,[R9,#f_flags]		; new flags
  BL new_file_title
- SUBVC R0,R7,#&100		; return offset of throwback buffer
+ SUBVC R0,R7,#zsearch_ToThrowback	; return offset of throwback buffer
  FNRTS
 
  LOCAL
@@ -308,27 +317,29 @@ openthrowback$l
 
 enter_search_buffer
  FNJSR "R1-R9"
- FNLDR R1,wimp_kbdbuf
- MOV R0,#&0A
- STRB R0,[R1],#1
- ADR R2,search$l
- BL strcpy
- FNLDR R2,fnd_string2		; string we're looking for
- BL strcopy			; copy into buffer
+ ADR R1,search$l
+ FNLDR R2,wimp_kbdbuf
+ MOV R3,#10
+ STRB R3,[R2],#1
+ MOV R3,#255
+ FNLDR R4,fnd_string2
+ BL lookup_token
  MOV R0,R6
  BL conv_wind_off		; set up R8/R9 of source window
  LDR R1,[R9,#f_name]
  ADR R2,null$l
  ADR R3,source$l
+ ORR R3,R3,#zap_IsToken
  LDR R4,[R8,#w_file]		; file offset of search file
- SUB R0,R7,#&100		; window offset of throwback file
+ SUB R0,R7,#zsearch_ToThrowback	; window offset of throwback file
  BL conv_wind_off		; set up R8/R9 of throwback file
  BL start_operation		; do in one go
  FNRTS VS
- MOV R5,#1<<8		; flags (Matches: heads the lines)
+ MOV R5,#1:SHL:links_NumberHeadingLines_shift	; (Matches: heads the lines)
  ADR R6,match$l
+ ORR R6,R6,#zap_IsToken
  FNLDR R7,wimp_kbdbuf
- ORR R0,R11,#1<<31		; offset of match (don't display)
+ ORR R0,R11,#zthrowback_SuppressOffset
  BL add_throwback_entry		; uses KB as well!
  BVS end$l
  LDMFD R13,{$StackedRegs}	; get back R1-R9
@@ -337,13 +348,13 @@ enter_search_buffer
  MOV R0,R11
  BL search_data_getline
  FNRTS VS			; R9 not on correct file!
- SUB R0,R7,#&100
+ SUB R0,R7,#zsearch_ToThrowback
  BL conv_wind_off		; R8/R9 of dest window
  MOV R0,R4
- ORR R1,R5,#1<<8
+ ORR R1,R5,#1:SHL:insertlinenumber_InsertOffset_shift
  BL insert_line_number
  BVS end$l
- MOV R0,#&11
+ MOV R0,#command_Insert :OR: command_Atomic
  LDR R1,[R9,#f_len]
  SUB R1,R1,#1
  BL mode11_insprepare
@@ -353,9 +364,9 @@ end$l
  BL stop_operation
  FNRTS
 null$l	 = 0
-source$l = "Source file  : ",0
-search$l = "Search string: ",0
-match$l  = "    Line  Match",0
+source$l = "zap_tb_srcf",0
+search$l = "zap_tb_srch",0
+match$l  = "zap_tb_srcm",0
  ALIGN
 
 ;E R0=file offset R8/R9=file
@@ -373,15 +384,15 @@ search_data_getline
  MOV R4,R2			; logical line
  MOV R5,#0			; default number to display
  LDR R14,[R8,#w_format]
- TST R14,#1<<8
+ TST R14,#format_ShowLineNumbers
  BEQ line$l			; no line numbers
- TST R14,#1<<10
+ TST R14,#format_LinesBase
  ORRNE R5,R5,#1			; hex display
- TST R14,#1<<9
+ TST R14,#format_LinesAreLines
  LDREQ R4,[R8,#w_addr]
  ADDEQ R4,R4,R10
  BEQ ok$l			; address
- TST R14,#1<<11
+ TST R14,#format_LinesPhysical
  MOVNE R4,R0			; physical line
 line$l				; got the line number
  LDR R14,[R8,#w_stline]
@@ -474,7 +485,7 @@ end$l
 
 wild_conv_chars
  FNJSR "R1-R2,R9-R11"
- BIC R5,R5,#1<<23		; clear initially
+ BIC R5,R5,#zsearch_WildConvChars; clear initially
  MOV R1,R0			; string
  FNLDR R10,wimp_data		; data buffer
  MOV R11,#0			; known size
@@ -528,13 +539,13 @@ wild_get_char
  CMP R0,#&20
  MOVCC R2,#-1
  FNRTS CC			; end of text
- TST R5,#1<<28
+ TST R5,#zsearch_NoCommands
  FNRTS NE			; ignore \commands and quotes
  TEQ R0,#'`'
  BEQ quote$l			; one character escape
  TEQ R0,#'\'
  FNRTS NE			; a normal char
- ORR R5,R5,#1<<23
+ ORR R5,R5,#zsearch_WildConvChars
  LDRB R0,[R1],#1		; char after the '\'
  CMP R0,#&20
  SUBCC R1,R1,#1
@@ -616,7 +627,7 @@ b$l
  PULL "R3-R5"
  FNRTS
 quote$l
- ORR R5,R5,#1<<23
+ ORR R5,R5,#zsearch_WildConvChars
  LDRB R0,[R1],#1		; char after the `
  CMP R0,#&20
  SUBCC R1,R1,#1
@@ -664,14 +675,14 @@ default_search
  MOV R4,#1			; positive direction
  MOV R3,#-1			; start offset of file (1 gets added)
  FNLDR R0,opt_switches
- TST R0,#1<<13
+ TST R0,#switch_SearchToBuffer
  MOVEQ R1,#0
  MOVNE R1,#1			; search to buffer
- ANDS R0,R0,#3<<11
+ ANDS R0,R0,#switch_SearchDirAndExtent
  BEQ end$l
- TEQ R0,#3<<11
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
  BEQ all$l
- TEQ R0,#2<<11
+ TEQ R0,#(search_Backwards :SHL: search_DirAndExtent_shift)
  MOVEQ R4,#-1			; reverse search
  FNLDR R10,car_cursor
  BL test_cblk
@@ -700,20 +711,20 @@ default_replace
  MOV R4,#1			; positive direction
  MOV R3,#-1			; start offset of file (1 gets added)
  FNLDR R0,opt_switches
- TST R0,#1<<14
+ TST R0,#switch_SearchGlobalReplace
  MOVEQ R1,#0			; selective
  MOVNE R1,#1			; global
- ANDS R0,R0,#3<<11
+ ANDS R0,R0,#switch_SearchDirAndExtent
  BEQ end$l
- TEQ R0,#3<<11
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
  BEQ all$l
  FNLDR R10,car_cursor
  BL test_cblk
  MOVNE R3,#-1			; not in this window so cursor at start
  LDREQ R3,[R10,#c_off]		; start at cursor
  FNLDR R0,opt_switches		; as R0 corrupted by above BL :-(
- AND R0,R0,#3<<11
- TEQ R0,#2<<11
+ AND R0,R0,#switch_SearchDirAndExtent
+ TEQ R0,#(search_Backwards :SHL: search_DirAndExtent_shift)
  MOVEQ R4,#-1			; reverse search
  B end$l
 all$l				; search all windows
@@ -730,18 +741,18 @@ end$l
 default_search_flags
  MOV R5,#0			; zero flags
  FNLDR R0,opt_flags
- TST R0,#1<<12
- ORRNE R5,R5,#1<<30		; case sensitive
- TST R0,#1<<19
- ORRNE R5,R5,#1<<29		; don't expand search macros
+ TST R0,#flags_SearchCaseSensitive
+ ORRNE R5,R5,#zsearch_CaseSensitive
+ TST R0,#flags_NoSearchMacros
+ ORRNE R5,R5,#zsearch_NoMacros
  FNLDR R0,opt_switches
- TST R0,#1<<9
- ORRNE R5,R5,#1<<31		; raw search
- TST R0,#1<<10
- ORRNE R5,R5,#1<<28		; don't use \commands
- AND R0,R0,#3<<11
- TEQ R0,#3<<11
- ORREQ R5,R5,#1<<27		; all files mode
+ TST R0,#switch_SearchRawSearch
+ ORRNE R5,R5,#zsearch_RawSearch
+ TST R0,#switch_SearchUseCommands
+ ORRNE R5,R5,#zsearch_NoCommands
+ AND R0,R0,#switch_SearchDirAndExtent
+ TEQ R0,#(search_AllFiles :SHL: search_DirAndExtent_shift)
+ ORREQ R5,R5,#zsearch_AllWindows
  MOV PC,R14
 
  LOCAL
@@ -799,11 +810,11 @@ new_replace_string
 
 search_line_setup
  FNJSR "R5-R6,R11"
- MOV R1,#2
+ MOV R1,#esearch_StartLineSearch
  MOV R11,#e_search
  BL call_mode			; R0=len R1=str R2=off in str R3=line off
  FNRTS VS
- TEQ R1,#2
+ TEQ R1,#esearch_StartLineSearch
  FNRTS NE			; the mode did it
  LDR R1,[R9,#f_ptr]		; start default action (we'll have to do it)
  LDR R11,[R9,#f_len]
@@ -879,11 +890,11 @@ end$l				; set R0 to line end (terminator)
 
 search_line_end
  FNJSR "R1,R11"
- MOV R1,#3
+ MOV R1,#esearch_EndLineSearch
  MOV R11,#e_search
  BL call_mode
  FNRTS VS			; set up new R3 and match offset in R2
- TEQ R1,#3
+ TEQ R1,#esearch_EndLineSearch
  FNRTS NE			; the mode did it
  CMP R2,#0			; start default action
  ADDPL R2,R3,R2			; offset of match
@@ -906,11 +917,11 @@ search_line_delimit
  MOVMI PC,R14			; no match to consider
  FNJSR "R1-R3"			; result returned in R11
  MOV R2,R11			; end of match offset
- MOV R1,#4
+ MOV R1,#esearch_MatchEnd
  MOV R11,#e_search
  BL call_mode			; corrupt R3 and match end offset in R2
  FNRTS VS
- TEQ R1,#4
+ TEQ R1,#esearch_MatchEnd
  ADDEQ R2,R3,R2			; default action for end offset
  MOV R11,R2			; file offset of the end of the match
  FNRTS				; restore everything
@@ -1178,7 +1189,7 @@ wb4
  TEQ R14,#0			; are we on bottom level
  BNE wb2			; no so carry on
  FNRTS				; reached end
-err$l ERR "Brackets don't match in search string"
+err$l ERR "zap_e_search_bracketmismatch"
 
 ;e R0=amount to have free R7=offset R10=ptr R11=len
 ;x R0 bytes free in buffer / vs
@@ -1271,10 +1282,10 @@ next$l				; get next character
  FNRTS LT			; there wasn't one
  LDR R0,[R2],#4			; get next character
  TEQ R0,#'+'<<8
- ORREQ R5,R5,#1<<30		; switch on case sensitivity
+ ORREQ R5,R5,#zsearch_CaseSensitive
  BEQ next$l			; it matched a null character
  TEQ R0,#'-'<<8
- BICEQ R5,R5,#1<<30		; switch off case sensitivity
+ BICEQ R5,R5,#zsearch_CaseSensitive
  BEQ next$l
  TEQ R0,#'<'<<8
  TEQNE R0,#'>'<<8
@@ -1283,7 +1294,7 @@ next$l				; get next character
  MOVCS R0,#1
  FNRTS CS			; matched one unknown character
  MOV R14,R0			; default swapped case character
- TST R5,#1<<30
+ TST R5,#zsearch_CaseSensitive
  BNE a$l			; case sensitive
  CMP R0,#'A'
  BCC a$l
@@ -1601,13 +1612,16 @@ wild_reset_5
 ;  NB Word aligned offsets need not be at word aligned addresses.
 ;  Searches through a text segment (\<=start of segment)
 
+st_CaseSensitive	*	(1:SHL:0)
+st_DisplayPercent	*	(1:SHL:1)
+
 search_text
  FNJSR "R2-R11"
  MOV R3,#0			; flags
- TST R5,#1<<30
- ORRNE R3,R3,#1			; case sensitive
- TST R5,#1<<26
- ORREQ R3,R3,#2			; display %
+ TST R5,#zsearch_CaseSensitive
+ ORRNE R3,R3,#st_CaseSensitive
+ TST R5,#zsearch_NoHourglass
+ ORREQ R3,R3,#st_DisplayPercent
  MOVS R5,R4			; save search direction
  MOVEQ R5,#1
  MOV R9,R1			; address
@@ -1748,7 +1762,7 @@ escape$l			; check for escape + possibly show %
  SWI XOS_ReadEscapeState	; doesn't corrupt R14 as in user mode
  MOVCS R0,#-2			; escape
  FNRTS CS
- TST R3,#2
+ TST R3,#st_DisplayPercent
  MOVEQ PC,R14			; log flag not set
  MOV R0,R11
  MOV R1,R2
@@ -1797,7 +1811,7 @@ complex$l			; no optimisations possible
 
 search_init
  FNJSR "R1-R2"
- TST R5,#1<<29
+ TST R5,#zsearch_NoMacros
  BLEQ replace_macros		; replace macros -> wimp_kbdbuf
  BLVC wild_conv_chars		; convert chars -> wimp_data
  MOVVC R1,R0			; len
@@ -1825,7 +1839,7 @@ search_init
 
 replace_data
  FNJSR "R10"
- BIC R5,R5,#1<<21
+ BIC R5,R5,#zsearch_MatchAtCursor
  ADR R10,sub$l
  BL do_longop
 ; BL save_window_status
@@ -1844,8 +1858,8 @@ sub$l
  BL search_init			; put search string into the correct form
  FNRTS VS			; and create the fnd_tree
  ADD R3,R3,R4			; first offset to try
- TST R5,#1<<31
- ORREQ R5,R5,#1<<26		; don't do hourglass in search_text
+ TST R5,#zsearch_RawSearch
+ ORREQ R5,R5,#zsearch_NoHourglass
  CMP R7,#1
  BLCS start_operation		; start op for global replace
  FNRTS VS
@@ -1855,9 +1869,9 @@ next$l				; R3=next posn to try (In start/stop cycle)
  LDR R0,[R9,#f_len]
  CMP R3,R0
  BCS nextfile$l			; off start or end of file
- TST R5,#1<<31
+ TST R5,#zsearch_RawSearch
  BNE raw$l			; do a raw search
- TST R5,#1<<22			; don't do hourglass percentage(TT)
+ TST R5,#zsearch_NoHourglassPercent
  MOVEQ R0,R3
  BLEQ sumlen_long_op_display
  BLVC search_line_setup		; set up R1,R2,R3,R10
@@ -1917,7 +1931,7 @@ nextfile$l			; move onto next file
  FNRTS VS			; stop on this file
  CMP R7,#1
  BLCS adjust_vertical_extent	; ???
- TST R5,#1<<27
+ TST R5,#zsearch_AllWindows
  BEQ end$l			; all files option not supported
  MOV R0,R6			; current file
  BL next_wind_offset
@@ -2060,12 +2074,12 @@ replace_string
  LDR R4,[R3],#4			; length of replacement string
  ADD R10,R1,R4			; file offset after replacement
  LDR R14,[R9,#f_flags]
- ORR R14,R14,#1<<14
+ ORR R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; unlink input
  MOV R11,#e_replace		; replace area call
  BL call_mode			; file flags may alter! (text altered *)
  LDR R14,[R9,#f_flags]		; save error pointer in R0
- BIC R14,R14,#1<<14
+ BIC R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; relink caret
  MOVVC R1,R10			; end offset after the replacement
  FNRTS
@@ -2266,13 +2280,13 @@ key$l
  CMP R4,#-2
  ADREQ R0,bfail$l
 p$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 prompt$l			; starting search (init key_off)
  CMP R4,#0
  ADRPL R0,for$l
  ADRMI R0,bac$l
- BL minibuffer_prompt		; insert help string
+ BL minibuffer_prompt_token	; insert help string
  FNRTS VS
  FNLDR R1,key_off		; buffer
  LDR R0,[R10,#c_off]
@@ -2293,11 +2307,11 @@ ret$l
  BL new_search_string		; R2=1 return - install as current string
  MOVVC R0,#0			; close minibuffer
  FNRTS
-for$l	FNS ("Search forward: ")
-bac$l	FNS ("Reverse search: ")
-ffail$l FNS ("Search  (fail): ")
-bfail$l FNS ("Reverse (fail): ")
-err$l	FNS ("(Search error): ")
+for$l	FNS ("zap_p_srchfwd")
+bac$l	FNS ("zap_p_srchbwd")
+ffail$l FNS ("zap_p_srchfwf")
+bfail$l FNS ("zap_p_srchbwf")
+err$l	FNS ("zap_p_srcherr")
 
 ;E R0=file offset for base
 ;X key_off buffer reset to null string with this base
@@ -2353,15 +2367,15 @@ a$l
  BLE stored$l			; null string - start of buffer
  BL default_search_flags	; get case sensitive bits etc
  FNRTS VS
- ORR R5,R5,#1<<29		; don't expand macros (do use \ commands)
- BIC R5,R5,#1<<27		; only do this window
- ORR R5,R5,#1<<24		; return end of match offset in R1
+ ORR R5,R5,#zsearch_NoMacros
+ BIC R5,R5,#zsearch_AllWindows
+ ORR R5,R5,#zsearch_ReturnEndOfMatch
  MOV R0,R11
  BL wild_conv_chars		; look at string (no macros to replace)
  FNRTS VS
  LDR R3,[R10]			; default start offset
- TST R5,#1<<23
- BNE search$l			; string contains colapsed \ chars etc
+ TST R5,#zsearch_WildConvChars
+ BNE search$l			; string contains collapsed \ chars etc
  SUB R0,R6,#1
  LDR R0,[R10,R0,LSL#3]		; offset of one less letter match
  CMP R0,#-1
@@ -2384,7 +2398,7 @@ stored$l
  BL get_input_caret
  MOV R0,R1
  FNLDR R2,opt_flags
- ORR R14,R2,#1<<25		; ignore gain input calls
+ ORR R14,R2,#flags_IgnoreInput
  FNSTR R14,opt_flags
  BL goto_file_offset		; move cursor
 ; SWI &107
@@ -2512,7 +2526,7 @@ key_next_match
 ;X Hourglass updated
 
 sumlen_long_op_display
-	TST	R5,#1<<27
+	TST	R5,#zsearch_AllWindows
 	LDREQ	R1,[R9,#f_len]
 	BEQ	long_op_display
 	MOV	R1,#0

@@ -1,5 +1,6 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 1.2 1999/01/12 18:23:38 dj Exp $
+; $Id: AlterTxt,fff,v 1.3 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
 
  GET h.ZapHeader
  GET h.Heap
@@ -465,7 +466,7 @@ ta6
 ;  Add &40 if the region is/was/should be selected
 ;X Command executed, placed in input buffer, and input caret updated to
 ;  the end of the block and made visible. #
-; if R0=1/5 then on exit R3=pointer to snipped text...
+; if R0=1/5 then on exit R3=pointer to snipped text (may == wimp_data)...
 
 execute_command
  TEQ R2,#0
@@ -595,7 +596,7 @@ pr26
 pr27
  STMFD R13!,{R0,R1}
  ADR R0,pr_s0
- MOV R1,#0
+ MOV R1,#1<<29
  BL warn_user
  LDMFD R13!,{R0,R1}
 ; LDMVSFD R13!,{R10,PC}
@@ -604,12 +605,13 @@ pr27
 
  LDMFD R13!,{R10,PC}
 pr_s0
- FNS ("This file is read only")
+ FNS ("zap_ReadOnly")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Command Subs						   ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+ INCORE 4
 local_commandtypestored
  DCD 0
 
@@ -628,7 +630,7 @@ do_command
  STR R2,[R9,#f_dolen]		; length of the data
  STR R3,[R9,#f_dodata]		; pointer to the data (if applicable)
  TEQ R0,#1
- TEQNE R0,#6
+ TEQNE R0,#6			; 1, 6 are inserts
  LDR R0,[R9,#f_flags]
  TSTNE R0,#1			; undo enabled? If so, we want deleted block
  FNLDR R14,opt_switches,NE
@@ -912,9 +914,9 @@ save_txt_status_wind
  STRVC R1,[R8,#w_savedlc]	; and current for multiop
  LDMFD R13!,{R1,R11,PC}
 
+ INCORE 8
 localtempr0prevline
  DCD 0
-
 localtempr0prevline2
  DCD 0
 
@@ -1113,11 +1115,12 @@ new_txt_status_wind
 update_linenos
  STMFD R13!,{R1-R3,R14}
  LDR R1,[R8,#w_format]
- TST R1,#1<<8
+ TST R1,#format_ShowLineNumbers
  LDMEQFD R13!,{R1-R3,PC}	; no line numbers
  MOV R3,R0			; save first line
  FNLDR R1,wimp_block
- MOV R0,#0
+ FNLDR R0,wimp_leftgap		; force left margin redraw
+ RSB R0,R0,#0
  STR R0,[R1,#w_minx]
  LDR R14,[R8,#w_info]
  AND R2,R14,#7
@@ -1432,6 +1435,7 @@ to_new_carets$l		; redraw carets on screen (before...?)
  BPL new_carets		; redraw carets on screen (before...?)
  MOV PC,R14
 
+ INCORE 4
 local_storedreight
  DCD 0
 
@@ -1652,7 +1656,7 @@ delete_text
  BLVC mark_changed		; no so mark changed
 
  LDMFD R13!,{R1-R3,R4-R5,PC}
-err$l ERR "Internal error: delete_text"
+err$l ERRlit "Internal error: delete_text"
 
 ;E R1=file offset R2=num of bytes R9
 ;X R3=temp ptr to deleted data (in split) #
@@ -2076,11 +2080,12 @@ main$l
  EOR R10,R0,#3			; save flags NOTing the bottom two
  MOV R7,#0			; current file_offset
  LDRB R4,[R8,#w_cr]		; return symbol
+ LDRB R6,[R8,#w_tabc]		; tab symbol
  BL read$l			; R1=buff R2=splito R3=second bit R5=len
 line$l				; do next line
  MOV R11,#0			; b0-b15=current col b16-b31=white space col
  AND R10,R10,#&0F		; b6=in" b7=in' b8+ file off of white space
- MOV R6,R7			; off of start of strippable characters
+ MOV R8,R7			; off of start of strippable characters
  ADD R10,R10,R7,LSL#8		; offset of current tabbable region
 a$l
  CMP R7,R5
@@ -2098,12 +2103,12 @@ b$l				; update space stripping vals
  TEQEQ R0,#&20
  BEQ a$l			; the character was strippable
  TST R10,#2
- TEQEQ R0,#9
- MOVNE R6,R7			; not strippable so reset
+ TEQEQ R0,R6
+ MOVNE R8,R7			; not strippable so reset
  B a$l
 t$l				; extra code when checking for tabs as well
  ADD R11,R11,#1			; next column (cos we're keeping count)
- TEQ R0,#9			; tab?
+ TEQ R0,R6			; tab?
  ADDEQ R11,R11,#7
  BICEQ R11,R11,#7		; move to next tab stop
  TEQNE R0,#&20
@@ -2117,8 +2122,9 @@ t$l				; extra code when checking for tabs as well
  PUSH "R0"
  BL tabify$l			; compress
  BLVC quit$l
- PULL "R0"
+ PULL "R14",VS
  FNRTS VS
+ PULL "R0"
  FNRTS CS
 u$l				; sorted tabs out up to this non white space
  TEQ R0,#'''			; update quote state
@@ -2133,13 +2139,14 @@ u$l				; sorted tabs out up to this non white space
 endfile$l			; reached end of file
  ADD R7,R7,#1			; go one off end (to fake LF)
 end$l				; reached the end of a line
- SUB R0,R7,R6
+ SUB R0,R7,R8
  SUBS R0,R0,#1			; number of bytes to strip
  BLE s$l
  MOV R2,R0			; number of bytes to delete
  MOV R0,#&12			; delete block
- MOV R1,R6			; offset
+ MOV R1,R8			; offset
  SUB R7,R7,R2			; new current offset
+ LDR R8,[R13,#28]
  BL command_primative		; don't let wordwrap get at it!
  BLVC quit$l
  FNRTS VS
@@ -2157,7 +2164,7 @@ read$l
  LDR R5,[R9,#f_len]		; end offset
  MOV PC,R14
 tabify$l			; possible tab compression
- FNJSR "R4"			; R1-R3,R5 are updated
+ FNJSR "R4,R8"			; R1-R3,R5 are updated. Note R8 read below...
  MOV R1,R11,LSR#16		; start column
  BIC R2,R11,R1,LSL#16
  SUB R2,R2,#1			; end column (taking off terminator)
@@ -2169,7 +2176,7 @@ y$l
  BIC R0,R0,#7			; next tab stop
  CMP R0,R2
  MOVLE R1,R0			; can fit a tab in
- MOVLE R0,#9
+ MOVLE R0,R6
  ADDGT R1,R1,#1
  MOVGT R0,#&20
  STRB R0,[R3],#1
@@ -2181,6 +2188,7 @@ z$l				; replacement data constructed
  FNLDR R0,wimp_kbdbuf
  SUB R4,R3,R0			; data length
  MOV R3,R0			; data
+ LDR R8,[R13,#28+12]		; stacked R8
  BL replace_area
  SUBVC R0,R4,R2			; change in data length
  ADDVC R7,R7,R0			; update the search offset

@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.2 1999/01/12 18:23:52 dj Exp $
+; $Id: KeyBits,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -13,6 +13,8 @@
  GET h.Cursors
  GET h.Template
  GET h.TMTVars
+ GET h.Messages
+ GET h.TMFs
 
  IMPORT err41
  IMPORT get_MacroBox
@@ -29,14 +31,17 @@
  EXPORT do_eachleaf
  EXPORT do_linked_files
  EXPORT do_in_svc
+ EXPORT init_settings
  EXPORT init_keys
  EXPORT add_key_table
  EXPORT add_key_entry
  EXPORT get_key_entry
  EXPORT find_key_entry
+ EXPORT find_key_table_number
  EXPORT find_key_table
  EXPORT find_key_table_by_name
  EXPORT init_basemap
+ EXPORT get_basemap
  EXPORT process_key
  EXPORT test_shiftctrl
  EXPORT process_a_key
@@ -50,7 +55,7 @@
 LONG	* 0
 SHORT	* 1
 
-MENUSHORTS	* SHORT
+MENUSHORTS	* LONG
 
 
 
@@ -65,9 +70,9 @@ MENUSHORTS	* SHORT
 convert_key
  TEQ R0,#&7F
  BEQ ck_delete			; delete key
- CMP R0,#(ck_end-ck_start)/4
- MOVCS PC,R14			; standard character or fn key
  STMFD R13!,{R1,R14}
+ CMP R0,#(ck_end-ck_start)/4
+ BCS ck_std_or_fn		; standard character or fn key
  BL special_test_shiftctrl	; read sc status in R1
  ADD PC,PC,R0,LSL#2		; branch
  DCD 0
@@ -391,6 +396,46 @@ ck_knum_table
  =  43,&39
  ALIGN
 
+ck_std_or_fn
+	BIC	R1,R0,#&31
+	TEQ	R1,#&1C0	; Logo key
+	BEQ	ck_logo_menu
+	; elimination tests
+	; no valid WIMP key codes in range &100-&17F - rejevt
+	CMP	R0,#&FF
+	RSBHIS	R14,R0,#&180
+	MOVHI	R0,#-1
+	; all valid in range &180 to &1BF
+	CMP	R0,#&1C0
+	LDMLOFD	R13!,{R1,PC}
+	; only have &1C0-&1FF to check; last digit must be one of 01ABCD
+	ANDS	R14,R0,#14
+	LDMEQFD	R13,{R0,PC} ; 0 or 1
+	CMP	R14,#10
+	RSBHSS	R14,R14,#13
+	MOVLO	R0,#-1
+	LDMFD	R13!,{R1,PC}
+
+ck_logo_menu
+	ANDS	R1,R0,#1
+	BNE	ck_menu
+	STMFD	R13!,{R0}
+	MOV	R1,#-1
+	MOV	R0,#125		; left Logo inkey
+	ORR	R0,R0,#104<<8	; scan code
+	BL	special_test_forkey
+	MOVCS	R1,#0
+	MOVCC	R1,#2
+	LDMFD	R13!,{R0}
+ck_menu
+	ADD	R1,R1,#&168
+	TST	R0,#16
+	ADDNE	R1,R1,#4
+	TST	R0,#32
+	ADDNE	R1,R1,#16
+	MOV	R0,R1
+	LDMFD	R13!,{R1,PC}
+
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
 
 special_test_shiftctrl
@@ -461,12 +506,17 @@ test_forkey
  LOCAL
 
  MACRO
-$l L $v
-$l = :LEN:$v,$v
+$l L $x,$y
+ [ MENUSHORTS=SHORT
+$l = :LEN:"$x","$x"
+ |
+$l = :LEN:"$y","$y"
+ ]
  MEND
 
-;E R0=(my) key code R1=string
-;X Last (5) characters of string overwritten by key shortcut #
+;E R0=(my) key code R1=string R2=max len (inc. term)
+;X Key name appended, with at least two spaces preceding it
+;  String will be padded out to R2 bytes, inc. term.
 ;Internal flags in R2
 ; b0=shift b1=ctrl b2=F b3=1 b4=keypad
 
@@ -474,19 +524,25 @@ show_key
  FNJSR "R1-R3"
 a$l
  LDRB R14,[R1],#1
- CMP R14,#&1F			; char &1F 'trims' spaces...
+ CMP R14,#&1F
+ SUBCS R2,R2,#1
  BCS a$l
- SUB R1,R1,#1			; terminator of string
+ SUB R1,R1,#1			; point at string terminator
+ MOV R14,#32
+s$l
+ SUBS R2,R2,#1			; pad out to length R2
+ STRGTB R14,[R1],#1
+ BGT s$l
  MOV R2,#0			; flags
+ STRB R2,[R1]			; string terminator
  CMP R0,#&1C0
  BCS fkeys$l			; &1C0-&1FF (k0-k9,F10-F12 and Ins)
  CMP R0,#&180
  BCS sh3			; &180-&1BF (F0-F9,TAB,CPY,ARROWS)
- CMP R0,#&100
- BCS mine$l			; &100-&17F (sc0 etc)
  CMP R0,#&20
+ RSBHSS R14,R0,#&FF
  BCS char$l			  ; &20-&FF
-mine$l
+mine$l				; &100-&17F (sc0 etc)
  ANDS R14,R0,#&1F
  TEQNE R14,#&1F
  BEQ spcdel$l			; space/delete
@@ -508,11 +564,11 @@ sh16
  B sh4
 sh15
  AND R3,R0,#&0F0		; get middle digit
- TEQ R3,#2
+ TEQ R3,#&20
  ORREQ R2,R2,#2
- TEQ R3,#4
+ TEQ R3,#&40
  ORREQ R2,R2,#3
- TEQ R3,#7
+ TEQ R3,#&70
  ORREQ R2,R2,#1			; set sc type
  AND R0,R0,#&0F
  TEQ R0,#6
@@ -528,15 +584,12 @@ sh14
  CMP R0,#&140
  ORRCS R2,R2,#1			; shift
  TEQ R14,#&B
- MOVEQ R0,#'['
- TEQ R14,#&C
- MOVEQ R0,#'\'
- TEQ R14,#&D
- MOVEQ R0,#']'
- TEQ R14,#&F
+ TEQNE R14,#&C
+ TEQNE R14,#&D
+ ADDEQ R0,R14,#'['-&B
+ CMP R14,#&F
  MOVEQ R0,#'-'
- CMP R14,#&10
- ADDCS R0,R14,#&20
+ ADDHI R0,R14,#&20
  B sh4
 spcdel$l
  CMP R0,#&120
@@ -548,32 +601,17 @@ spcdel$l
  MOVNE R0,#&7F
  B char$l			; this traps and replaces by string
 
- [ MENUSHORTS=SHORT
-bak$l L ("<-|")
-esc$l L ("Esc")
-del$l L ("Del")
-tab$l L ("Tab")
-cpy$l L ("Cpy")
-ins$l L ("Ins")
-pnt$l L ("Pnt")
-ret$l L ("Ret")
-hom$l L ("Hom")
-ent$l L ("Ent")
-spc$l L ("Spc")
- |
-bak$l L ("<-|")
-esc$l L ("Esc")
-del$l L ("Delete")
-tab$l L ("Tab")
-cpy$l L ("Copy")
-ins$l L ("Insert")
-pnt$l L ("Print")
-ret$l L ("Return")
-hom$l L ("Home")
-ent$l L ("Enter")
-spc$l L ("Spc")
- ]
-
+bak$l L "<-|","<-|"
+esc$l L "Esc","Esc"
+del$l L "Del","Delete"
+tab$l L "Tab","Tab"
+cpy$l L "Cpy","Copy"
+ins$l L "Ins","Insert"
+pnt$l L "Pnt","Print"
+ret$l L "Ret","Return"
+hom$l L "Hom","Home"
+ent$l L "Ent","Enter"
+spc$l L "Spc","Spc"
  ALIGN
 
 sh11
@@ -664,12 +702,8 @@ sh6
 
 get_key_string
  STMFD R13!,{R1-R3,R14}
- MOV R3,R0			; save keycode
- FNLDR R1,wimp_block
- ADR R2,ge_s0
- BL strcopy			; copy in spaces
- MOV R0,R3
- FNLDR R1,wimp_block
+ ADR R1,ge_s0
+ MOV R2,#12
  BL show_key
  LDMVSFD R13!,{R1-R3,PC}
  FNLDR R0,wimp_block
@@ -679,8 +713,7 @@ ge17
  ADDEQ R0,R0,#1
  BEQ ge17
  LDMFD R13!,{R1-R3,PC}
-ge_s0
- FNS ("       ")
+ge_s0 % 12
 
  LOCAL
 
@@ -692,10 +725,8 @@ find_key
  FNJSR "R1-R5"
  MOV R3,R0			; save key command data
  FNLDR R0,key_default		; default key map (for menus)
- BL find_key_table
- TEQ R0,#0
- MVNEQ R0,#0			; not found
- FNRTS EQ
+ BL find_key_table_maybe_name
+ FNRTS MI			; not found
  LDR R1,[R0,#8]			; first char
  LDR R2,[R0,#12]		; last char
  LDR R4,[R0,#4]			; table address
@@ -843,26 +874,44 @@ do_in_svc
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+;X settings file read in and variables set from it #
+
+init_settings
+ FNJSR "R1"
+ BL pre_read_keys
+ ADR R0,read_keys
+ ADR R1,str3$l
+ BL str_readfile
+ FNRTS
+
 ;X file keys read in and variables set from it #
 
 init_keys
  FNJSR "R1"
- BL pre_read_keys
+ MOV R0,#-1
+ FNSTR R0,key_basemapdef
+ FNSTR R0,key_currentdef
+ FNLDR R1,key_maplist
+ LDR R0,[R1]
+ TEQ R0,#0
+ MOVPL R0,#-1
+ STRPL R0,[R1,#20] ; memory leak :-(
  ADR R0,read_keys
  ADR R1,str4$l ; ...
  BL str_readfile ; ...
- ADR R0,read_keys
- ADR R1,str3$l
- BL str_readfile
- ADR R0,read_keys
- ADR R1,str2$l
- BL str_readfile
- ADR R0,read_keys
- ADR R1,str1$l
- BL str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str2$l
+ BLVC str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str1$l
+ BLVC str_readfile
+ ADRVC R0,read_keys
+ ADRVC R1,str1a$l
+ BLVC str_readfile
  FNRTS
 
 str1$l = "<",|zap$|,"$Keys>",0
+str1a$l = "ZapGenerated:Keys",0
 str2$l = "<",|zap$|,"$Types>",0
 str3$l = "<",|zap$|,"$Settings>",0
 str4$l = "<",|zap$|,"$ClickSend>",0 ; ...
@@ -906,6 +955,8 @@ cr10
 ; BNE crampersand		; find a hex number
  MOV R1,R10
  BL hex_read			; find the value in R0
+ TEQ R1,R10
+ BEQ cr10			; if no hex digits, try again
  MOV R3,R0			; save (start of) range
  MOV R4,R0			; and set as end for the moment
  LDRB R14,[R1]
@@ -941,6 +992,9 @@ cr11
  SUB R0,R3,#&600
  CMP R0,#&100
  BCC rk_clicksend
+ SUB R0,R3,#&800
+ CMP R0,#&100
+ BCC rk_keymapdef
  SUB R0,R3,#&1000		; file type
  CMP R0,#&1000
  BLS rk_mode			; &2000 is for untyped files
@@ -1033,6 +1087,10 @@ varstart$l
  B rk_string
  & wimp_backupdelay	; &21
  B rk_buffernum
+ & startup_command	; &22
+ B rk_string
+ & default_mode		; &23
+ B rk_string
 varend$l
 
 	LOCAL
@@ -1042,8 +1100,14 @@ rk_keymap
 	SUB	R3,R3,#&400	; variable number
 	TEQ	R3,#0
 	BNE	declare$l
+	PUSH	"R10"
 	BL	str_readnum
 	FNSTR	R0,key_default,VC
+	PULL	"R14",VC
+	FNRTS	VC
+	PULL	"R10"		; not a number? must be a name
+	BL	rk_keymap_getname
+	FNSTR	R14,key_default,VC
 	FNRTS
 declare$l
 	BL	str_readnum
@@ -1051,10 +1115,78 @@ declare$l
 	BLVC	str_readnum
 	FNRTS	VS
 	ADD	R2,R0,#1	; max num+1
+	BL	rk_keymap_getname
+	FNRTS	VS
+	MOV	R0,R3		; table number
+	MOV	R3,R14		; ptr to name
+	BL	add_key_table
+	FNRTS
+
+	LOCAL
+
+rk_keymapdef
+	FNJSR	"R4,R5"
+	BL	str_readnum
+	MOVVC	R1,R0		; min num
+	BLVC	str_readnum
+	FNRTS	VS
+	ADD	R2,R0,#1	; max num+1
+	FNLDR	R4,key_maplist	; find first free keymap number
+	MOV	R5,#1
+find$l	MOV	R0,R5
+	BL	find_key_table
+	ADDPL	R5,R5,#1
+	BPL	find$l
+	CMP	R5,#256
+	BLHS	toomany$l
+	BLVC	rk_keymap_getname
+	FNRTS	VS
+	MOV	R0,R5		; table number
+	FNSTR	R0,key_currentdef
+	MOVS	R3,R14		; ptr to name
+	BLEQ	noname$l
+	FNRTS	VS
+	BL	add_key_table
+	MOV	R4,R10
+	BL	str_skip
+	CMP	R0,#32		; is there a basemap name?
+	MOVLO	R0,#0
+	BLO	gotbase$l	; ...no
+	FNLDR	R1,wimp_kbdbuf
+	MOV	R2,R10
+	MOV	R3,#256
+	MOV	R4,#32
+	BL	strmove		; copy its name & terminate with NUL
+	FNLDR	R0,wimp_kbdbuf
+	BL	find_key_table_number
+	BMI	nobase$l
+	FNRTS	VS
+gotbase$l
+	FNSTR	R0,key_basemapdef
+	FNRTS
+noname$l ERR	"zap_e_nokeyname"
+toomany$l ERR	"zap_e_toomanymaps"
+nobase$l
+	ADR	R0,nobasemsg$l
+	MOV	R4,R5
+	FNLDR	R5,wimp_kbdbuf
+	BL	lookup_error
+	FNRTS
+nobasemsg$l &	0
+	=	"zap_e_nokeybasename",0
+	ALIGN
+
+	LOCAL
+
+;E R10=string containing keymap (term <=32)
+;X Leading spaces skipped; R10 updated
+;  R14=heap block containing name
+rk_keymap_getname
+	FNJSR	"R4,R5"
 	BL	str_skip
 	CMP	R0,#32
 	MOVLO	R14,#0		; no name for keymap?
-	BLO	noname$l
+	FNRTS	LO
 	MOV	R4,R10
 len$l	LDRB	R0,[R10],#1	; keymap name len (stop at ctrl)
 	CMP	R0,#32
@@ -1070,10 +1202,6 @@ copy$l	LDRB	R5,[R4],#1	; ...put name in heap block
 	BNE	copy$l
 	MOV	R5,#0
 	STRB	R5,[R0]
-noname$l
-	MOV	R0,R3		; table number
-	MOV	R3,R14		; ptr to name
-	BL	add_key_table
 	FNRTS
 
  LOCAL
@@ -1088,16 +1216,24 @@ noname$l
 
 rk_key
  FNJSR
- MOV R5,R3,LSR#16		; get keymap number
- SUB R3,R3,R5,LSL#16		; range start
- SUB R4,R4,R5,LSL#16		; range end
+ FNLDR R5,key_currentdef
+ TEQ R5,#0
+ MOVMI R5,R3,LSR#16		; get keymap number
+ MOV R3,R3,LSL #16		; range start
+ MOV R3,R3,LSR #16
+ MOV R4,R4,LSL #16		; range end
+ MOV R4,R4,LSR #16
  CMP R4,R3
  FNRTS LT			; wrong way around
  CMP R4,#&200
  FNRTS CS			; too large
  LDRB R0,[R10]
  TEQ R0,#'*'
- BEQ copy$l			; duplicate
+ FNLDR R6,key_basemapdef,EQ
+ BEQ copy$l			; duplicate (base map)
+ TEQ R0,#'#'
+ MOVEQ R6,R5
+ BEQ copy$l			; duplicate (current map)
  BL read_command		; get command to R7,R1,R6
  MOVVS R1,#0		; the bug...? nope...
  MOVVS R7,#0
@@ -1125,8 +1261,10 @@ copy$l
  ADD R10,R10,#1			; character after the "*"
  BL str_readnum
  MOVVS R0,R3			; replace with range start if none
- MOV R6,R0,LSR#16		; source keymap number
- SUB R7,R0,R6,LSL#16		; source range start
+ TEQ R6,#0
+ MOVMI R6,R0,LSR#16		; source keymap number
+ MOV R7,R0,LSL #16
+ MOV R7,R7,LSR #16		; source range start
  MOV R8,R3			; current keynum
 loop$l
  MOV R0,R6
@@ -1746,6 +1884,24 @@ notfound$l
  MOV R0,#0
  FNRTS
 
+;E R0->table name or =table number
+;X R0=table number / -ve if none
+;  (also PL if found, MI if not)
+find_key_table_number
+	FNJSR
+	BL	find_key_table_maybe_name
+	LDRPL	R0,[R0]
+	FNRTS
+
+;E R0->table name or =table number
+;X R0=table info block pointer / 0 if none
+;  (also PL if found, MI if not)
+
+find_key_table_maybe_name
+	CMP	R0,#256
+	BHS	find_key_table_by_name
+;	B	find_key_table
+
  LOCAL
 
 ;E R0=table number
@@ -1764,7 +1920,8 @@ loop$l
  FNRTS
 
 ;E R0->table name
-;X R0=table number or -ve if no match
+;X R0=table info block pointer / 0 if none
+;  (also PL if found, MI if not)
 
 	LOCAL
 
@@ -1774,6 +1931,7 @@ find_key_table_by_name
 	FNLDR	R4,key_maplist
 loop$l	LDR	R0,[R4],#20
 	TEQ	R0,#0
+	MOVMI	R0,#0
 	FNRTS	MI
 	LDR	R2,[R4,#-4]
 	MOV	R1,R3
@@ -1781,7 +1939,7 @@ loop$l	LDR	R0,[R4],#20
 	BEQ	loop$l
 	BL	strCMP
 	BNE	loop$l
-	LDR	R0,[R4,#-20]
+	SUBS	R0,R4,#20
 	FNRTS
 
 
@@ -1791,52 +1949,57 @@ loop$l	LDR	R0,[R4],#20
 ;X Base map, current map, help map, default map set up for current mode
 
 init_basemap
- STMFD R13!,{R0-R2,R14}
- MOV R0,#-1
- LDRB R1,[R8,#w_format]
- MOV R2,#2
- BL mode_data			; mode's base map
- MOV R1,R0
- BL find_key_table
- BLMI whoops$l
- STRB R1,[R8,#w_basemap]
- STRB R1,[R8,#w_currentmap]
- STRB R1,[R8,#w_helpmap]
- STRB R1,[R8,#w_defaultmap]
- LDMFD R13!,{R0-R2,PC}^
-whoops$l
- STMFD R13!,{R14}		; badly configured basemap...
- FNLDR R1,key_default
- BL find_key_table
- MOVPL R0,R1			; set it to the global basemap,
- MOVMI R0,#0			; or 0 if that's bad
- STMFD R13!,{R0}
- LDRB R1,[R8,#w_format]
- MOV R2,#2
- BL mode_data
- MVN R1,#0
- ADR R2,warn$l
- MOV R3,R8
- BL call_back
- MOV R1,#0
- LDMFD R13!,{R1,PC}^
-warn$l
- FNJSR "R8-R10"
- MOV R8,R11
- BL bad_keymap
- FNRTS
+	FNJSR	"R0-R2"
+	BL	get_basemap
+	TEQ	R1,#0
+	BEQ	setmap$l
+	MVN	R1,#0
+	ADR	R2,warn$l
+	MOV	R3,R8
+	BL	call_back
+	MOV	R0,#0
+setmap$l
+	STRB	R0,[R8,#w_basemap]
+	STRB	R0,[R8,#w_currentmap]
+	STRB	R0,[R8,#w_helpmap]
+	STRB	R0,[R8,#w_defaultmap]
+	FNRTSS
+warn$l	FNJSR	"R8-R10"
+	MOV	R8,R11
+	BL	bad_keymap
+	FNRTS
 
 ;X R0,R1 corrupt; warning displayed
 
 bad_keymap
 	FNJSR	"R1"
 	ADR	R0,b$l
-	MOV	R1,#0
+	MOV	R1,#1<<29
 	BL	warn_user
 	FNRTS
-b$l	=	"Unknown keymap",0
+b$l	=	"zap_UnkKeymap",0
 	ALIGN
 
+;E R8
+;X R0=basemap R1=0 / R0=0 R1=1
+
+get_basemap
+	FNJSR
+	ADR	R0,basemap$l
+	BL 	get_mode_variable
+	BEQ	nomap$l			; no basemap variable - use default
+	BL 	find_key_table_number
+	MOVVC	R1,#0
+	FNRTS	VC
+nomap$l	MOVVC	R1,#0			; 0 if no map name
+	MOVVS	R1,#1			; 1 if error
+	FNLDR	R0,key_default
+	BL 	find_key_table_number
+	MOVMI	R1,#1
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	FNRTS
+basemap$l =	"Basemap",0
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; P R O C E S S	  K E Y	  S U B S			       ;
@@ -1869,17 +2032,17 @@ process_converted_key
  BMI cantadd$l			; run out of buffered input
  MOV R1,R0			; key number
  MOV R3,R0			; and in R3 for buffering
- BL test_exec$l
  LDRB R0,[R8,#w_currentmap]	; current key map
  BL get_key_entry		; R0=key entry address/0 if none
+ BLVC test_exec$l
  FNRTS VS			; may have loaded a module
  MOVS R4,R0			; save key entry
  ADREQ R4,null$l		; no entry!
  LDRB R0,[R8,#w_basemap]	; restore basemap
  STRB R0,[R8,#w_currentmap]	; KEYMAP will change it!
  LDRB R0,[R8,#w_format]		; mode number
- ADD R14,R12,#(command_store + 4)
- ADD R14,R14,#(mode_store - command_store)
+ ADD R14,R12,#(mode_store+4):AND:&FF00
+ ADD R14,R14,#(mode_store+4):AND:&00FF
  LDR R0,[R14,R0,LSL#3]		; table pointer for this mode
  LDR R2,[R0,#2*e_mode]		; flags word
  FNLDR R0,key_flags

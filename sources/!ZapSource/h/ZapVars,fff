@@ -1,5 +1,5 @@
 ; Define the variable names for the workspace of the Zap module
-; $Id: ZapVars,fff,v 1.1 1999/01/06 16:59:23 dj Exp $
+; $Id: ZapVars,fff,v 1.2 2000/02/22 15:04:01 james Exp $
 
 if_limit	    * 128
 
@@ -18,6 +18,7 @@ env_string	    # 4 ; startup string address
 ext_modes	    # 4 ; v list of external modes (see add_external_object)
 ext_comms	    # 4 ; v list of external commands (ditto)
 ext_messages	    # 4 ; v list of externally handled wimp messages (ditto)
+ext_clones	    # 4 ; v list of (uninitialised) clone modes
 ext_comm_flags	    # 4 ; v list of flags words for external commands
 
 heap_start	    # 4 ; start of heap
@@ -83,6 +84,8 @@ wimp_data	    # 4 ; v &100 data buf for execute_command etc
 wimp_flagbits	    # 4 ; b0:selmenu?
 wimp_dzap	    # 4 ; f 128 byte dzap buffer
 wimp_print	    # 4 ; f 128 byte print buffer
+wimp_print_job	    # 4 ; contains this print job handle, or 0
+wimp_print_prevjob  # 4 ; contains previous print job handle, or 0
 wimp_cacheline	    # 4 ; v 4 buffer for tidied cached line
 wimp_throwback	    # 4 ; file offset for output / -1 if none
 wimp_timeformat	    # 4 ; v 0 time format string
@@ -101,7 +104,7 @@ wimp_version	    # 4 ; wimp version number 200,300,350 (Zap$OSVsn)
 wimp_indentstring   # 4 ; v 0 indent string
 wimp_quitsender	    # 4 ; sender of pre-quit message
 wimp_config	    # 4 ; v config file address
-wimp_conlen	    # 4 ; config file length
+;wimp_conlen	    # 4 ; config file length
 wimp_loglist	    # 4 ; v 4 address of list of logged wimp blocks
 wimp_loglen	    # 4 ; length of logged list (num in list * 16)
 wimp_dragsub	    # 4 ; address of sub interested in drag ending
@@ -150,8 +153,8 @@ key_learn	    # 4 ; v 0 address of learnt keystrokes
 key_llen	    # 4 ; length of valid data in learn buffer
 key_off		    # 4 ; v &60 List of search as you type offsets
 key_default	    # 4 ; default key map number
-;key_basemap	    # 4 ; basemap key map number
-;key_current	    # 4 ; current key map number
+key_basemapdef	    # 4 ; basemap number of currently-being-defined keymap
+key_currentdef	    # 4 ; currently-being-defined keymap number
 key_maplist	    # 4 ; v 0 list of installed keymaps
 key_flags	    # 4 ; keys flags word
 key_last	    # 4 ; last pressed key
@@ -176,9 +179,11 @@ yank_file	    # 4 ; file last yanked
 
 menu_struct	    # 4 ; v 0 variable size menu structure
 menu_entries	    # 4 ; v 0 variable size menu entries
+menu_help	    # 4 ; v 0 variable size menu help text
 menu_handles	    # 4	; v 0 num of handles, addresses of menus
 menu_count	    # 4	; menu update count, incremented to update
 menu_memory	    # 4	; f 16 words - menu memories 0-15
+menu_mode	    # 4 ; used by MODELIST and menu building code
 
 tem_list	    # 4 ; v ? list of template index headers
 tem_defn	    # 4 ; v ? template definitions
@@ -205,8 +210,11 @@ font_name	    # 4 ; v default anti-aliased font name
 font_size	    # 4 ; default anti-aliased font size in points
 font_struct	    # 4 ; v 0 font menu structure
 font_entries	    # 4 ; v 0 font menu entries buffer
+font_help	    # 4 ; v 0 font menu help buffer
 font_ssstruct	    # 4 ; v 0 font sub-style menu structure
 font_ssentries	    # 4 ; v 0 font sub-style menu entries buffer
+font_sshelp	    # 4 ; v 0 font sub-style menu help buffer
+font_outlinelist    # 4 ; v 0 font outline menu structure/entries buffer
 
 font_charw	    # 4 ; font width in pixs
 font_charh	    # 4 ; font height in pixs
@@ -252,15 +260,87 @@ opt_minibac	    # 4 ; minibuffer background palette entry
 opt_minifor	    # 4 ; minibuffer foreground palette entry
 opt_end		    # 0
 
+default_mode        # 4 ; default mode name
+startup_command	    # 4 ; command string to execute on startup
+
 ;tem_offsets	    # 4			; offsets for templates string...
 ;tem_offsets2	    # 4			; offsets for templates string...
 
 opt_modedata	    # 4			; v Zap handled mode data
-opt_mode0	    # 4*max_mode	; one word per mode
+
+; Following wonderfully odd code by Dan Ellis :-)
+; (Hacked into a slightly more readable form, with automatic dependency
+;  on correct things like max_mode, by sja.)
+;
+; None of this can cope with max_mode > 99, so don't try it.
+		ASSERT	max_mode <= 99
+
+		GBLA	__modenum
+		GBLS	__modestr
+		GBLA	max_modeFUNT
+
+; Basically, __modenum will be something like 00000015 (a hex number) when
+; we mean 15 (a decimal number). So incrementing it over the 15 -> 20 boundary
+; has to be special cased.
+		MACRO
+		inc_modenum
+		[ __modenum:AND:15 = 9
+__modenum	SETA	__modenum+7
+		|
+__modenum	SETA	__modenum+1
+		]
+		MEND
+
+; If __modenum < 00000010, just use the last digit; otherwise use the last
+; two, making the decimal number we require.
+		MACRO
+		set_modestr
+		[ __modenum < 10
+__modestr	SETS	:STR:__modenum:RIGHT:1
+		|
+__modestr	SETS	:STR:__modenum:RIGHT:2
+		]
+		MEND
+
+; Set max_modeFUNT to be the same digits as max_mode, but in hex not dec.
+; ie: max_mode = 15 => max_modeFUNT = &15
+;
+; This bit is fairly evil, so I'd better take responsibility - sja.
+; Irritatingly, I have a choice between defining another macro, or making
+; max_modeTMP global. Why can't objasm accept locals inside conditionals?
+		[ max_mode < 10
+max_modeFUNT	SETA	max_mode
+		|
+		GBLA	max_modeTMP
+max_modeTMP	SETA	0
+__modenum	SETA	max_mode
+max_modeFUNT	SETA	0
+		WHILE __modenum > 0
+max_modeFUNT	SETA	max_modeFUNT + ((__modenum - 10*(__modenum / 10)):SHL:(4*max_modeTMP))
+__modenum	SETA	__modenum / 10
+max_modeTMP	SETA	max_modeTMP+1
+		WEND
+		]
+
+opt_modebase        # 0
+__modenum	SETA	0
+		WHILE	__modenum<max_modeFUNT
+		set_modestr
+opt_mode$__modestr  # 4
+		inc_modenum
+		WEND
 
 command_store	    # 4*max_ctable	; 1 word per ctable
 
 mode_store	    # 8*max_mode	; 2 words per mode
+
+opt_TMFbase         # 0
+__modenum	SETA	0
+		WHILE	__modenum<max_modeFUNT
+		set_modestr
+opt_TMF$__modestr   # 4
+		inc_modenum
+		WEND
 
 if_bits		    # 4
 if_count	    # 4
@@ -268,6 +348,8 @@ if_skip		    # 4
 if_stop		    # 4
 
 local_varlist	    # 4
+
+zap_logname         # 4			; -> log name, or 0 for no logging
 
 variable_size	    # 0			; size of the variable store
 

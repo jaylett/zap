@@ -1,7 +1,8 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.2 1999/01/12 18:23:54 dj Exp $
+; $Id: MiniBuff,fff,v 1.3 2000/02/22 15:04:04 james Exp $
 
  GET h.ZapHeader
+ GET h.Messages
  GET h.CreateFile
  GET h.Heap
  GET h.Strings
@@ -11,6 +12,7 @@
  GET h.Commands
  GET h.Execute
  GET h.StartCode
+ GET h.Boxes
 
  IMPORT call_back
  IMPORT convert_key
@@ -18,6 +20,7 @@
  IMPORT get_MiniBuf
  IMPORT check_object_type
  IMPORT message_reply
+ IMPORT menu_get_help
  IMPORT menu_decode
  IMPORT mode_name
  IMPORT test_forkey
@@ -25,13 +28,16 @@
  IMPORT command_primative	; not *my* spelling (DS)
 
  EXPORT warn_user
+ EXPORT warn_user_token
  EXPORT minibuffer_open
  EXPORT minibuffer_ensure
  EXPORT minibuffer_ensure_open
  EXPORT minibuffer_start
  EXPORT minibuffer_writec
  EXPORT minibuffer_write
+ EXPORT minibuffer_write_token
  EXPORT minibuffer_prompt
+ EXPORT minibuffer_prompt_token
  EXPORT minibuffer_update
  EXPORT minibuffer_show
  EXPORT minibuffer_setcaret
@@ -54,6 +60,7 @@
  EXPORT lineeditor_setpos
  EXPORT lineeditor_append
  EXPORT lineeditor_kill
+ EXPORT checkfortextop
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Filename completion code				    ;
@@ -82,8 +89,11 @@ find_completions
  MOV R10,R0			; save filename
  BL find_leaf_name
  LDMVSFD R13!,{R2-R11,PC}
- SUB R11,R0,R10			; offset of leaf part
+ SUBS R11,R0,R10		; offset of leaf part
  FNLDR R9,wimp_block		; place to put search strings
+ MOVEQ R1,#'@'
+ STREQ R1,[R9]
+ BEQ gotdir$l
  MOV R1,R10
  MOV R2,R9
  MOV R3,R11
@@ -97,6 +107,7 @@ find_completions
 fi22
  MOV R0,#0
  STRB R0,[R1]			; complete directory name
+gotdir$l
  FNLDR R1,wimp_print		; free...?
 ; ADD R1,R9,#&C0
  ADD R2,R10,R11
@@ -271,27 +282,37 @@ ad24
  LOCAL
 
 ;E R0=message R1=delay or 0 for default +flags R8/R9
-;  b31 => don't beep
+;  b31 => don't beep  b30 => no prefix  b29 => R0->token
 
+warn_user_token
+ ORR R1,R1,#warn_UseMessageTrans
 warn_user
  FNJSR "R1-R2,R10"
+ SYSLOGF "warn_user %0s", LOG_WARNING
  MOV R10,R0			; save address of message
- TST R1,#1<<31
+ TST R1,#warn_DontBeep
  BLEQ Beep
  ;SWIEQ &107			; beep when opening warning window
  BLVC minibuffer_clear
  FNRTS VS
- TST R1,#1<<30
+ TST R1,#warn_NoPrefix
  ADREQ R0,s$l
- BLEQ minibuffer_write
- MOVVC R0,R10
- BLVC minibuffer_write
+ BLEQ minibuffer_write_token
+ FNRTS VS
+ MOV R0,R10
+ TST R1,#warn_UseMessageTrans
+ BNE wt$l
+ BL minibuffer_write
+ B wn$l
+wt$l
+ BL minibuffer_write_token
+wn$l
  BLVC minibuffer_ensure_open
  FNRTS VS
  MOV R0,#1
  STR R0,local_callbackflag
  FNLDR R0,opt_switches
- ORR R0,R0,#1<<7		; mark closable
+ ORR R0,R0,#switch_MinibufferCloseable
  FNSTR R0,opt_switches
  BICS R1,R1,#&FF000000
  MOVEQ R1,#110			; 1s default to wait
@@ -303,7 +324,7 @@ warn_user
  BL call_back
  BL restore_carets		; input not lost any more...
  FNRTS
-s$l FNS ("Warning: ")
+s$l FNS ("zap_warning")
 sub$l
  LDR R0,local_callbacktime
  TEQ R0,R11
@@ -312,8 +333,14 @@ sub$l
  MOV R0,#0
  STR R0,local_callbackflag
  FNLDR R0,opt_switches
- TST R0,#1<<7		; still closable (hasn't been opened)
+ TST R0,#switch_MinibufferCloseable
+; [ LOGGING = SYSLOG
+; FNRTS EQ
+; BL minibuffer_close
+; SYSLOG "warn_user closed minibuffer", LOG_WARNING
+; |
  BLNE minibuffer_close
+; ]
  FNRTS
 
 local_callbackflag & 0
@@ -339,7 +366,7 @@ minibuffer_open
  MOV R14,#0
  STR R14,local_callbackflag
  FNLDR R14,opt_switches
- TST R14,#1 << 16		; autoload line editor switch
+ TST R14,#switch_Autoload_lineeditor
  BLNE loadlineeditor		; load it if needed/possible.
  LDMFD R13!,{R1-R7,PC}
 
@@ -397,14 +424,14 @@ mi11
 minibuffer_start
  FNJSR "R7"
  FNLDR R0,opt_switches
- BIC R0,R0,#1<<7
+ BIC R0,R0,#switch_MinibufferCloseable
  FNSTR R0,opt_switches
  FNSTR R7,mini_command
  BL minibuffer_ensure_open
  BLVC get_MiniBuf
  BLVC minibuffer_setcaret	; put caret in minibuffer
  FNLDR R0,opt_switches,VC
- ORRVC R0,R0,#1<<15		; save what's in buffer on a recall
+ ORRVC R0,R0,#switch_MinibufferStatus	; save what's in buffer on a recall
  FNSTR R0,opt_switches,VC
  FNLDR R0,mini_lineed,VC	; handle
  BLVC lineeditor_reset		; reset minibuffer pointer
@@ -543,10 +570,8 @@ mi_setmark
  FNSTR R7,mini_mark
  B mi4
 mi_histkill
- FNLDR R0,mini_lineed
+ ADD R0,R12,#mini_lineed
  BL lineeditor_kill
- MOV R0,#0
- FNSTR R0,mini_lineed
 ; SWI &107 ; ??????????????????????????????????
  B mi4
 mi_pastefrom
@@ -678,24 +703,53 @@ mi_paste$l
  ADD R1,R1,#1
  B mi_paste$l
 
+;E R0=pointer to token (GSTransed) R4-R7=parameters
+;X String written to minibuffer with codes as for minibuffer_write
+
+minibuffer_write_token
+	FNJSR	"R1-R7"
+	MOV	R1,R0
+	MOV	R4,R0
+	SUB	R13,R13,#256
+	MOV	R2,R13
+	MOV	R3,#256
+	BL	lookup_token_gs
+	MOVVC	R0,R2
+	MOVVS	R0,R4
+	BL	minibuffer_write
+	ADD	R13,R13,#256
+	FNRTS
+
 ;E R0=pointer to string of text only
 ;X Text replaces the text before mark, updating all offsets #
+;  ": " appended if necessary (unless b31 set)
 
 minibuffer_prompt
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R7"
  FNLDR R14,key_flags
  TST R14,#2			; are we in an execute strokes loop
- LDMNEFD R13!,{R1-R6,PC}
+ FNRTS NE
+ AND R7,R0,#1<<31
+ BIC R0,R0,#1<<31
  MOV R4,R0			; save string
  BL str_len			; find length
  MOV R5,R0			; save length
+ ADD R0,R4,R5
+ LDRB R14,[R0,#-1]
+ TEQ R14,#' '
+ LDREQB R14,[R0,#-2]
+ TEQEQ R14,#':'			; ends in ": "?
+ TSTEQ R7,#1<<31
+ SUBEQ R5,R5,#2			; ...ignore
  FNLDR R0,mini_mark		; mark offset
  SUB R6,R5,R0			; signed change
  FNLDR R3,mini_len
+ TST R7,#1<<31
+ ADDEQ R6,R6,#2			; allow for ": "
  ADD R2,R3,R6			; new length (after insert)
  FNLDR R1,mini_bufl
  CMP R2,R1			; will it fit?
- LDMGEFD R13!,{R1-R6,PC}
+ FNRTS GE
  FNSTR R2,mini_len		; update length
  ADD R2,R0,R6
  FNSTR R2,mini_mark		; update mark
@@ -713,7 +767,32 @@ minibuffer_prompt
  FNLDR R2,mini_ptr
  MOV R3,R5
  SWI XZapRedraw_MoveBytes ; BL move_bytes
- LDMFD R13!,{R1-R6,PC}
+ TST R7,#1<<31
+ FNLDR R1,mini_ptr,EQ
+ MOVEQ R0,#':'
+ STREQB R0,[R1,R5]!
+ MOVEQ R0,#' '
+ STREQB R0,[R1,#1]		; append ": " to prompt
+ FNRTS
+
+;E R0=pointer to token R4-R7=parameters
+;X Text replaces the text before mark, updating all offsets #
+
+minibuffer_prompt_token
+	FNJSR	"R1-R7,R11"
+	AND	R11,R0,#1<<31
+	BIC	R0,R0,R11
+	MOV	R1,R0
+	MOV	R4,R0
+	SUB	R13,R13,#256
+	MOV	R2,R13
+	MOV	R3,#256
+	BL	lookup_token
+	ORRVC	R0,R2,R11
+	ORRVS	R0,R4,R11
+	BL	minibuffer_prompt
+	ADD	R13,R13,#256
+	FNRTS
 
 ;X Minibuffer updated on screen (if open) with scroll offsets
 ;  set to ensure cursor in view etc WB #
@@ -822,6 +901,9 @@ show_mini_caret
  LDR R0,[R1,#w_minx]
  LDR R5,[R1,#w_scrollx]
  SUB R2,R2,R0			; width of visible area
+ CMP R4,R2
+ MOVLS R0,#0
+ BLS short$l
  SUB R14,R4,R2			; rightmost allowable scroll offset
  MOV R0,R5
  CMP R2,#128
@@ -846,6 +928,7 @@ ge$l
  MOVMI R0,#0
  CMP R0,R14
  MOVHI R0,R14
+short$l
  STR R0,[R1,#w_scrollx]
  FNRTS
 
@@ -863,7 +946,7 @@ font$l
  ADDVC R4,R0,#16
  LDMVCFD R13!,{R1,PC}
  LDR R1,[R13],#8
- LDMFD R13!,{R2-R4,PC}
+ FNRTS
 
 ;E R2=type
 ;X Command associated to minibuffer called with
@@ -1041,7 +1124,7 @@ close$l
 
 ;X Current contents of minibuffer appended to the history buffer,
 ;  Buffer pointer set to this line.
-;  b15 of opt_switches flag cleared.
+;  b15 of opt_switches flag cleared (MinibufferStatus)
 
 minibuffer_addline
  FNJSR "R1"
@@ -1055,7 +1138,7 @@ minibuffer_addline
  BLVC lineeditor_append		; add line to history
  FNSTR R0,mini_lineed,VC
  FNLDR R0,opt_switches,VC
- BICVC R0,R0,#1<<15
+ BICVC R0,R0,#switch_MinibufferStatus
  FNSTR R0,opt_switches,VC
  FNRTS
 
@@ -1150,7 +1233,7 @@ data$l = 0,"/*#-+",13,"."
  ALIGN
 send$l				; R0=character to write
  FNLDR R14,opt_switches
- ORR R14,R14,#1<<15		; the line has been changed
+ ORR R14,R14,#switch_MinibufferStatus	; the line has been changed
  FNSTR R14,opt_switches
  BL minibuffer_writec
  FNRTS
@@ -1165,7 +1248,7 @@ tab$l
  FNRTS
 arrow$l				; R1=bottom byte of key number
  FNLDR R0,opt_switches
- TST R0,#1<<15
+ TST R0,#switch_MinibufferStatus
  BLNE minibuffer_addline	; the line has been changed so save
  FNRTS VS
  TEQ R1,#&8E
@@ -1199,7 +1282,7 @@ recall$l			; recall a line from the history buffer
  FNSTR R0,mini_off		; put cursor at end
  FNRTS
 
-;E R7=window index
+;E R7=window index, R8/R9 or 0 to open at default coords
 ;X leaf window opened at minibuffer posn WB #
 
 open_mini_window
@@ -1225,8 +1308,13 @@ mi2
  SUB R3,R3,R2			; width of minibuffer
  LDR R2,[R8,#w_maxx]
  SUB R2,R2,R0			; width of window
- CMP R3,R2
+ FNLDR R14,opt_switches		; if auto-width is set for the minibuffer
+ TST R14,#switch_MinibufferAutoWidth
+ MOVNE R3,R2			; then the minibuffer width when opened is the window width
+ BNE post$l
+ CMP R3,R2			; otherwise ...
  MOVGE R3,R2			; min of the two
+post$l
  STR R0,[R1,#w_minx]
  ADD R0,R0,R3
  STR R0,[R1,#w_maxx]		; set up x coords of window
@@ -1326,13 +1414,6 @@ redraw_minibuffer
  MOV R3,#&80			; background
  MOV R4,#0			; action
  SWI XColourTrans_SetGCOL
- FNLDR R0,opt_minifor,VC
- MOVVC R3,#0			; foreground
- MOVVC R4,#0			; action
- SWIVC XColourTrans_SetGCOL
- FNRTS VS
- BL checkfortextop
- BLGE fontcolour$l
  MOV R1,R11
  BL find_leaf_area		; (R2,R3)=top left R5=num chars
  FNRTS VS			; R4=char offset
@@ -1352,6 +1433,10 @@ redraw_minibuffer
  MOV R1,R6
  MOV R2,R3
  SWI XOS_Plot			; move to top left
+ FNLDR R0,opt_minifor,VC
+ MOVVC R3,#0			; foreground
+ MOVVC R4,#0			; action
+ SWIVC XColourTrans_SetGCOL
  FNRTS VS
  FNLDR R0,mini_ptr		; minibuffer start
  ADD R0,R0,R4			; first char we're interested in
@@ -1359,8 +1444,12 @@ redraw_minibuffer
  SWINE XOS_WriteN		; write the chars to screen
  FNRTS				; go home!
 font$l
- MOV R0,#8
- SWI XWimp_ReadSysInfo
+ MOV R0,#0
+ FNLDR R1,opt_minifor
+ FNLDR R2,opt_minibac
+ SWI XWimp_TextOp
+ MOVVC R0,#8
+ SWIVC XWimp_ReadSysInfo
  FNRTS VS
  TEQ R0,#0
  MOV R0,#&40000002
@@ -1371,13 +1460,6 @@ font$l
  MVN R2,#0
  MVN R3,#0
  SWI XWimp_TextOp
- FNRTS
-fontcolour$l
- MOV R0,#0
- FNLDR R1,opt_minifor
- FNLDR R2,opt_minibac
- SWI XWimp_TextOp
- MOVVC PC,R14
  FNRTS
 
 ;E R1=wimp redraw block
@@ -1504,6 +1586,10 @@ menu$l				; menu stuff R1=menu tree
  MOV R9,R11			; save orginial wimp message
  MOV R11,R1			; menu tree
  FNLDR R1,wimp_menuptr		; address of current menu
+ BL menu_get_help
+ FNRTS VS
+ TEQ R0,#0
+ BNE gotmenu$l
  BL menu_decode			; R2=clicked item
  FNRTS VS
  LDR R10,[R2,#12]		; address of item text buffer
@@ -1520,13 +1606,15 @@ menu$l				; menu stuff R1=menu tree
  MOV R3,#0 ; temporary
  BL find_command_help
  FNLDR R0,wimp_data,VC
+gotmenu$l
  MOVVC R11,R9			; message to reply to
  BLVC send_help
  FNRTS
 
  LOCAL
 
-;E R0=pointer to command name or label (top bit set if function)
+;E R0=pointer to command name or label
+;     b31 => function, b30 => c-var
 ;  R1=command argument (if R2 valid)
 ;  R2=command flags (or 0 if no argument given,-1 if not a command)
 ;  R3=parameter type (only valid if command takes a parameter)
@@ -1539,7 +1627,7 @@ find_command_help
  MOV R7,#0			; current buffer offset
  MOV R5,R1			; save command argument
  MOV R4,R2			; save command flags
- AND R11,R0,#1<<31
+ AND R11,R0,#3<<30
  ORR R11,R11,R3
  BL find_help
  FNRTS VS
@@ -1549,10 +1637,14 @@ find_command_help
  MOV R3,R1			; para start
  CMP R4,#-1
  BEQ para$l			; not a command so insert the paragraph
- TST R11,#1<<31
- ADREQ R0,com$l
+ TST R11,#1<<31			; function?
  ADRNE R0,fn$l
-; ADR R0,com$l
+ BNE token_ready$l
+ TST R11,#1:SHL:30		; c-var?
+ ADREQ R0,com$l
+ ADRNE R0,var$l
+token_ready$l
+ BL lookup_token_R0
  BL str$l
  BLVC insert$l
  FNRTS VS
@@ -1560,12 +1652,14 @@ find_command_help
  ANDS R4,R4,#7			; command type
  BEQ para$l			; no argument
  ADR R0,arg$l
+ BL lookup_token_R0
  BL str$l
  FNRTS VS
  CMP R4,#3
  BLT byte$l
  BEQ string$l
  ADR R0,block$l
+ BL lookup_token_R0
  BL str$l
  FNRTS VS
 done$l				; argument done
@@ -1578,10 +1672,11 @@ para$l				; do main para
  BL insert$l
  MOVVC R0,R7
  FNRTS
-com$l	= "Command : ",0
-fn$l	= "Function: ",0
-arg$l	= "Argument: ",0
-block$l = "Data block",0
+com$l	= "zap_h_cmd",0
+fn$l	= "zap_h_fn",0
+var$l	= "zap_h_var",0
+arg$l	= "zap_h_arg",0
+block$l = "zap_h_db",0
 bra$l	FNS (" (' ')")		; aligns...
 byte$l
  TST R11,#8
@@ -1686,12 +1781,12 @@ display_help
  BLVC create_window_block
  FNRTS
 help$l = "Help",0
-nohelpmsg$l = "No help text found.",0
+nohelpmsg$l = "zap_NoHelpText",0
  ALIGN
 text$l DCD &FFF
 nohelp$l
  ADR R0,nohelpmsg$l
- MOV R1,#3<<30
+ MOV R1,#7<<29
  BL warn_user
  FNRTS
 
@@ -1704,8 +1799,8 @@ nohelp$l
 
 find_help
  FNJSR "R2,R11"
- AND R11,R0,#1<<31
- BIC R1,R0,#1<<31		; save search label
+ AND R11,R0,#3<<30
+ BIC R1,R0,#3<<30		; save search label
  BL load_help
  FNRTS VS
  FNLDR R2,wimp_helpdata		; file
@@ -1713,11 +1808,24 @@ a$l
  LDRB R0,[R2]
  TEQ R0,#0			; end of file?
  FNRTS EQ
- TEQ R11,#0
- BEQ n$l
- TEQ R0,#64
+ TST R11,#1:SHL:30		; c-var
+ BEQ not_var$l
+ TEQ R0,#35			; '#'
+ ADDEQ R2,R2,#1			; skip it
+ BNE b$l			; couldn't find it here
+ BL strcmpstr			; case sensitive, R1,R2 saved
  BNE b$l
- ADD R2,R2,#1
+ LDRB R0,[R0]			; character after string
+ CMP R0,#&20
+ BLE found$l			; found label
+ B b$l
+not_var$l
+ TST R11,#1:SHL:31		; function
+ BEQ n$l			; neither function nor c-var
+ TEQ R0,#64			; '@'
+ ADDEQ R2,R2,#1			; skip it
+ BEQ n$l
+ B b$l				; couldn't find it here
 n$l
  BL strCMPstr			; not case sensitive R1,R2 saved
  BNE b$l
@@ -1846,8 +1954,9 @@ help$l FNS ("<Zap$HelpData>")
 
 kill_lineeditor
  FNJSR
- FNLDR R0,mini_lineed
+ ADD R0,R12,#mini_lineed
  BL lineeditor_kill
+ BL kill_mbsearch_bufs
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1904,16 +2013,18 @@ lineeditor_reset
  SWI XLineEditor_SetPos
  FNRTS
 
-;E R0=buffer handle /0
+;E R0=ptr to buffer handle /0
 ;X Buffer killed
 
 lineeditor_kill
- FNJSR
- TEQ R0,#0
- FNRTS EQ
-; BL lineeditor_hack
- SWI XLineEditor_DeleteBuffer
- FNRTS
+	FNJSR	"R7"
+	MOV	R7,R0
+	LDR	R0,[R7]
+	TEQ	R0,#0
+	MOVNE	R14,#0
+	STRNE	R14,[R7]
+	SWINE	XLineEditor_DeleteBuffer
+	FNRTS
 
 ;E R0=buffer handle /0 R1=buffer position
 ;X Buffer pointer decreased by one
@@ -1974,7 +2085,7 @@ lineeditor_setpos
 checkfortextop
 	STMFD	R13!,{R14}
 	FNLDR	R14,opt_switches
-	TST	R14,#1<<27
+	TST	R14,#switch_MinibufferAntialiased
 	FNLDR	R14,wimp_realver,NE
 	MOVEQ	R14,#0
 	SUB	R14,R14,#320

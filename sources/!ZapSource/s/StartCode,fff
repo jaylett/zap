@@ -1,7 +1,9 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.2 1999/01/12 18:24:10 dj Exp $
+; $Id: StartCode,fff,v 1.3 2000/02/22 15:04:04 james Exp $
+; -*- armasm -*-
 
  GET h.ZapHeader
+ GET h.Messages
  GET h.StartUp
  GET h.ModeBits
  GET h.Menus
@@ -20,6 +22,10 @@
  GET h.TMTVars
  GET h.Commands
  GET h.Execute
+
+ IMPORT title_string
+ IMPORT help_string_1
+ IMPORT Module_header
 
  IMPORT correct_font
  IMPORT open_QuitBox
@@ -64,13 +70,17 @@
 ; a module task. See Service_Memory 3-68. Must init_wimp before setting
 ; up the stack.
 
+	[ LOGGING = SYSLOG
+zap_log$l FNS (|zap$|:CC:"$Log")
+	]
+
 start_code
  LDR R12,[R12]			; R12=module workspace
  SWI XHourglass_On
  SUBS R0,R0,R0			; clv...
  MOV R0,#&8000
  FNSTR R0,env_start		; save environment start
- BLVC init_wimp_vsn		; read wimp version (before init_wimp)
+ BL init_wimp_vsn		; read wimp version (before init_wimp)
  BLVC init_wimp			; log on as a wimp task (clears app memory)
  BLVC init_stack		; R13=stack now setup
  BLVC init_envstring		; read & store environment string
@@ -78,11 +88,45 @@ start_code
  BVS main_end
  BLVC init_fixed		; claim fixed buffers
  BLVC init_heap			; set up heap and dynamic areas
- BLVC init_vars			; set up variables (and variable buffers)
+
+ [ LOGGING = SYSLOG
+ ; Set up logging (we need the heap before we can do this) ...
+ MOVVC R0,#16			; maximum size of Zap$Log
+ BLVC heap_claim
+ BVS fatal_wimp_error		; next section can be done without checking V
+ MOV R1,R0
+ ADR R0,zap_log$l
+ MOV R2,#16
+ MOV R3,#0
+ MOV R4,#4
+ SWI XOS_ReadVarVal
+ CMP R2,#0
+ MOVGT R0,#0
+ STRGTB R0,[R1,R2]		; terminate
+ STRGT R1,[R12,#zap_logname]
+ MOVLE R0,R1
+ MOVLE R1,#0
+ STRLE R1,[R12,#zap_logname]	; 0 => no logging
+ BLLE heap_free
+
+ ADRL R4,title_string
+; ADRL R5,help_string_1
+ ADRL R6,Module_header
+ ADD R5,R6,#(help_string_1 - Module_header)
+ SYSLOGF "%4s %5s now starting; module base at %6x", LOG_STATUS
+
+ BL init_vars			; set up variables (and variable buffers)
+ |
+ BLVC init_vars
+ ]
+
+ ; Let's go with everything else
  BLVC init_config		; load !Config file / modedata (needs bufs)
- BLVC init_external		; load External file (needs vars)
+ BLVC init_templates		; read template file (before init_settings!)
+ BLVC init_settings		; read <Zap$Settings>
+ BLVC init_external		; load External file (needs vars & settings)
+ BLVC init_clones		; add clone modes to the external list
  BLVC init_icon			; put icon on iconbar
- BLVC init_templates		; read template file (before init_keys!)
  BLVC init_keys			; read key bindings and t_macros!!
 ; BLVC init_modes		; initialise any mode that have been added
 ; MOVVC R0,#0
@@ -107,7 +151,7 @@ start_code
  MOV R2,#0
  BL ClearGC			; no global clipboard contents, thank you.
  FNLDR R14,opt_switches
- TST R14,#1 << 23
+ TST R14,#switch_Autoload_iclear
  BLNE loadiclear
  BVS wimp_error
  BLVC init_load			; load file on startup (last thing to do)
@@ -127,18 +171,9 @@ main_loop
  TEQ R0,R14
  FNSTR R0,wimp_pollnum,NE	; if new poll number then store this
  BL dispatch_wimp_poll
- ;BL clrerror
- BVS wimp_error
-; SWI &107
- B main_loop
+ BVC main_loop
+ B wimp_error
 
-;clrerror
-; TSTP R14,#0
-; BIC PC,R14,#&3F<<26		; call the sub
-
- ;FNJSR
- ;ADD R14,R14,#0
- ;FNRTS
 
  LOCAL
 
@@ -155,6 +190,7 @@ main_exit			; unnecessary...
  BL storewkspandstack		; !
  ;TEQ R10,#0
  ;SWIEQ OS_ExitAndDie		; ???????
+ SYSLOG "Zap main_exit", LOG_STATUS
  SWI OS_Exit
 
 ;loopx				; ???????
@@ -170,6 +206,7 @@ main_end			; R10=0 to kill module - abort startup only
  ADR R3,t$l
  ;TEQ R10,#0
  ;SWIEQ OS_ExitAndDie
+ SYSLOG "Zap main_end", LOG_STATUS
  SWI OS_Exit
 t$l FNS |zap$|
 
@@ -234,6 +271,11 @@ clean_up
  LOCAL
 
 fatal_wimp_error
+	[ LOGGING = SYSLOG
+ ADD R0,R0,#4
+ SYSLOGF "Fatal error '%0s'",LOG_FATAL
+ SUB R0,R0,#4
+	]
  MOV R1,#2
  ADR R2,t$l
  SWI XWimp_ReportError
@@ -241,7 +283,12 @@ fatal_wimp_error
  B main_end
 
 near_fatal_wimp_error
- FNJSR
+ FNJSR "R1,R2"
+	[ LOGGING = SYSLOG
+ ADD R0,R0,#4
+ SYSLOGF "Near-fatal error '%0s'",LOG_ERROR
+ SUB R0,R0,#4
+	]
  MOV R1,#2
  ADR R2,t$l
  SWI XWimp_ReportError
@@ -265,10 +312,17 @@ a$l				; report the error
  MOV R2,R0
  SWI XHourglass_Smash
  MOV R0,R2
+ TST R0,#3
+ ADRNE R0,whatthe$l
  LDR R1,[R0]			; error number
  LDR R2,d$l
  TEQ R1,R2
  BEQ main_loop			; don't report it
+	[ LOGGING = SYSLOG
+ ADD R0,R0,#4
+ SYSLOGF "Error '%0s'",LOG_ERROR
+ SUB R0,R0,#4
+	]
  MOV R1,#1
  ADR R2,t$l
  SWI XWimp_ReportError
@@ -283,6 +337,11 @@ d$l
  DCD ENUM+12			; read only error - don't report
 t$l
  FNS |zap$|
+
+whatthe$l
+ & &7FFFFFFF
+ = "Bad error block!",0
+ ALIGN
 
 in_start_up
  DCD 0
@@ -302,35 +361,55 @@ are_we_initialising
 ;X All registers corrupted. Poll dealt with.
 
 dispatch_wimp_poll
-; PUSH "R14"
-; CMP R0,#6
-; BLCS dbgbeep
-; PULL "R14"
- CMP R0,#(end$l-start$l)/4
- ADDCC PC,PC,R0,LSL#2		; dispatch
- B wimp_passon			; out of range
+ FNJSR
+ CMP R0,#(end$l-start$l)/8
+ ADDCC PC,PC,R0,LSL #3		; dispatch
+ BL wimp_passon			; out of range
 start$l
- B call_null_events ; call_null_events
- B redraw_request
- B open_request
- B close_request
- B wimp_passon
- B wimp_passon
- B mouse_event
- B drag_box_event
- B key_event
- B menu_selection		; menu select
- B scroll_event			; scroll request
- B lose_caret
- B regain_caret
- B poll_word_changed
- B wimp_passon
- B wimp_passon
- B wimp_passon
- B user_message			; messages
- B user_message
- B user_message_reply
+ B end$l
+  & 0
+ BL redraw_request
+  FNRTS
+ BL open_request
+  FNRTS
+ BL close_request
+  FNRTS
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL mouse_event
+  FNRTS
+ BL drag_box_event
+  FNRTS
+ BL key_event
+  B end$l
+ BL menu_selection		; menu select
+  B end$l
+ BL scroll_event		; scroll request
+  FNRTS
+ BL lose_caret
+  B end$l
+ BL regain_caret
+  B end$l
+ BL poll_word_changed
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL wimp_passon
+  B end$l
+ BL user_message		; messages
+  B end$l
+ BL user_message
+  B end$l
+ BL user_message_reply
+  MOV R0,R0
 end$l
+ FNRTS VS
+ FNPULL
+ B call_null_events
 
 ;E R0=message number (0-19) R1=message block
 ;X message passed on to extension modes and command tables #
@@ -595,14 +674,14 @@ forfresco$l
 ; BEQ notforfresco$l
  FNRTS EQ			; previously passed on
  ADR R0,badmessage$l
- MOV R1,#1<<31
+ MOV R1,#5<<29
  MOV R8,#0
  MOV R9,#0
  BL warn_user
  FNRTS
 
 badmessage$l
- = "Zap received a reply to a message it never sent",0
+ = "zap_UnexpReply",0
 
  ALIGN
 
@@ -975,7 +1054,7 @@ icon$l				; iconbar Zap icon
  FNLDR R0,wimp_selecttype,EQ
  FNLDR R0,wimp_adjusttype,NE
 
- ORR R0,R0,#(1:SHL:31)		; don't learn
+ ORR R0,R0,#command_DontLearn
  BL command_string
 ; ; ought to have R1 = length for future, but
 ; ; Newfile doesn't actually use it.
@@ -986,7 +1065,11 @@ icon$l				; iconbar Zap icon
 ; BL create_empty
 ; BLVC create_window_caret
  FNRTS
+
+; E R2,R2 x/y mouse positions
 menu$l				; create menu on R8/R9
+ MOV R0,#-1
+ STR R0,localmodeptr$l
  TEQ R8,#0
  BEQ normalmenu$l
 ; SWI &107
@@ -994,26 +1077,52 @@ menu$l				; create menu on R8/R9
  MOV R11,#e_interrogate
  BL call_mode
  CMP R0,#&100
- BGT gotmenuhandle$l		; ?
- SUB R13,R13,#32
+ BGT gotmenuhandle$l		; mode supplied menu handle
+ SUB R13,R13,#32		; stack space
  MOV R1,R13
  SWI XWimp_GetPointerInfo	; being lied to by (eg.) Pinboard?
  FNLDR R0,wimp_buffer,VC
- LDRVC R0,[R0,#12]
- LDR R1,[R1,#12]
- ADD R13,R13,#32
+ LDRVC R0,[R0,#12]		; window handle returned by Wimp_Poll
+ LDR R1,[R1,#12]		; window handle returned by Wimp_GetPointerInfo
+ 				; different only if someone's been passing us messages
+ 				; (eg: Pinboard passing shift+Menu over iconised window)
+ ADD R13,R13,#32		; stack back up
  TEQ R0,R1
- BNE normalmenu$l
- MOV R0,#&2			; alt
+ BNE normalmenu$l		; being lied to - don't use modifiers
+
+ MOV R0,#&2			; alt (modes, but alt+shift over selection -> sel menu)
  BL test_forkey
- MOVCSS R0,#3			; mode menu.
- BCS specialmenu$l
+ BCC not_alt$l
+
+ PUSH "r2,r3,r7-r9"
+ MOV R7,R8
+ BL get_selection
+ TEQCC R7,R8			; is the selection in the same window?
+ CMPNE R7,#0			; set carry if not
+ PULL "r2,r3,r7-r9"
+ BCS openmodes$l
+
  MOV R0,#&0			; shift
  BL test_forkey
- BCS colourlist$l
- MOV R0,#&1			; ctrl
+ MOVCS R0,#5			; alt and shift - selection menu
+ BCS specialmenu$l		; Z will be clear, as required ...
+openmodes$l
+ PUSH "R1-R10"
+ MOV R2,#16
+ MOV R0,#0
+ MOV R1,#1
+ BL Modelist
+ PULL "R1-R10"
+ MOV R1,R0
+ B gotmenuhandle$l
+
+not_alt$l
+ MOV R0,#&0			; shift (colours, but ctrl+shift -> mode's menu)
  BL test_forkey
- MOVCSS R0,#4			; font menu.
+ BCS colourlist$l
+ MOV R0,#&1			; ctrl (fonts)
+ BL test_forkey
+ MOVCSS R0,#4
  BCS specialmenu$l
 normalmenu$l
  TEQ R8,#0
@@ -1026,8 +1135,9 @@ specialmenu$l
  BL read_menu_handle
 gotmenuhandle$l
  TEQ R1,#0
- FNRTS EQ			; no menu there
- BL create_menu			; update the ticks and open
+ ORRNE R3,R3,#1<<31
+ LDRNE R4,localmodeptr$l
+ BLNE create_menu		; update the ticks and open
  FNRTS
 colourlist$l
  MOV R0,#&1			; ctrl
@@ -1052,6 +1162,8 @@ modemenu$l
  PULL "R1-R10"
  MOVS R1,R0
  BEQ normalmenu$l
+ LDR R0,localmodeptr$l
+ BL set_mode_menu_title
  B gotmenuhandle$l
 
 localmodeptr$l
@@ -1387,6 +1499,7 @@ list$l
 ;		 R9=size of the data to save
 ;		 b16-b31 of R10=filetype of data to save.
 ;      b2 set => use R1 as the WIMP message reply field...
+;      b3 set => untyped file (if b1 set)
 ;      b16-b31 = extra data (see b1)
 ;  R11=data to pass to routine in R7 (if used).
 ;X Data transfer protocol initiated.
@@ -1407,6 +1520,14 @@ temp$l
  DCD 0
 send_data_save
  FNJSR "R1-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R1"
+ BL get_file_off
+ MOV R1,R0
+ BL get_wind_off
+ SYSLOGF "send_data_save wind %8x (%0d) file %9x (%1d) to %2s", LOG_FILE
+ PULL "R1"
+ ]
  TST R10,#4
  LDRNE R14,[R1,#4]
  STRNE R14,temp$l
@@ -1455,14 +1576,16 @@ send$l				; R0=offset (&C) R2=length (&14)
 
  LDR R0,[R9,#f_load]		; file/selection R9
  BL calc_ftype			; get filetype
- MOVCC R0,#&F00
- ADDCC R0,R0,#&0FD		; data
+ ORRCC R10,R10,#1:SHL:3		; untyped
  MOV R10,R10,LSL#16
- MOV R10,R10,LSR#16
- ORR R10,R10,R0,LSL#16
+ MOV R10,R10,LSR#16		; either way, clear the filetype field
+ ORRCS R10,R10,R0,LSL#16
+ BICCS R10,R10,#1:SHL:3
 type$l				; file type installed in R10
  STR R10,[R11,#8]		; save updated flags
- MOV R0,R10,LSR #16
+ TST R10,#1:SHL:3		; is it untyped?
+ MOVNE R0,#-1			; if so, use -1 as the filetype ...
+ MOVEQ R0,R10,LSR #16		; else use whatever was supplied / calculated
  STR R0,[R1,#40]		; save the file type
  MOVS R0,R7			; path name
  LDREQ R0,[R9,#f_name]
@@ -1525,6 +1648,7 @@ b$l
 
 data_save_ack			; save out data to a file
  FNJSR
+ SYSLOGF "Message: data_save_ack, message at %1x", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#&0C]		; window offset being saved
  CMP R0,#-1
@@ -1558,6 +1682,7 @@ data_save_ack			; save out data to a file
 
 ram_fetch			; save out data by Ram transfer
  FNJSR
+ SYSLOGF "Message: ram_fetch, message at %1x", LOG_FILE
  TEQ R0,#19
  BLEQ err$l			; repeat message bounced
  FNRTS VS
@@ -1607,18 +1732,21 @@ a$l				; data start address (set up)
  MOVS R14,PC
  MOV PC,R1			; call finish code (if it exists)
  FNRTS
-err$l ERR "RAM transfer failed - receiver died"
+err$l ERR "zap_e_ramxfer_receiver"
 
 data_saved			; app has called us back saying
  FNJSR				; all went well
+ SYSLOG "Message: data_saved", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#&0C]		; window offset
  CMP R0,#0
  FNRTS MI			; not interested
  BL conv_wind_off		; R8/R9 of window
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3
- STR R0,[R9,#f_flags]
+; LDR R0,[R9,#f_flags]
+; BIC R0,R0,#flags_Modified
+; STR R0,[R9,#f_flags]
+ MOV R0,#0
+ BL mark_changed_unchanged	; new modified system!
  BL new_file_title		; mark as saved successfully
  FNRTS
 
@@ -1634,11 +1762,7 @@ data_saved			; app has called us back saying
 
 data_save			; another app (or external edit) wants to
  FNJSR				; saving to me
-; SWI &107			; called when there's an EE...
-; FNLDR r14,opt_switches          ; opt_switches word
-; ORR r14,r14,#(bit_got_gclip*2)	; we no longer own it - (hmm...?!?!)
-; FNSTR r14,opt_switches		; opt_switches word
- 				; the above seems to be wrong to TT.
+ SYSLOGF "Message: data_save, message at %1x", LOG_FILE
  MOV R14,#1
  FNSTR R14,opt_temporary	; tell inject_file not to check Shift
  LDR R0,[R1,#20]		; window handle
@@ -1695,6 +1819,7 @@ abort_transfer
 
 ram_fetch_back			; ram fetch message bounced
  FNJSR
+ SYSLOG "Message: ram_fetch bounced (sending DataSaveAck)", LOG_FILE
  MOV R1,R11
  FNLDR R2,wimp_block
  MOV R3,#&100
@@ -1749,6 +1874,7 @@ data_load			; app/filer wants me to load a file
  FNSTR R11,opt_temporary	; tell inject_file to check Shift
 data_load_start			; reply to previous messages R11=block
  FNJSR
+ SYSLOGF "Message: data_load, message at %1x", LOG_FILE
  MOV R10,R1			; R10=save the message
  LDR R0,[R1,#20]		; window handle
  CMP R0,#-2			; the icon bar's icon number
@@ -1782,6 +1908,8 @@ b$l				; R8/R9=window to save to / R8=0 for iconbar
  LDR R0,[R9,#f_flags]
  ORR R0,R0,#1<<3
  STR R0,[R9,#f_flags]		; file has not been saved yet
+ MOV R0,#-1
+ STR R0,[R9,#f_chklen]		; store -1 in chklen; ie: always modified until saved
  ADD R0,R11,#44			; leaf name sent in data save message
  BL new_file_name
  BLVC new_file_title		; give leaf name as title
@@ -1798,17 +1926,19 @@ c$l
 ; SWI &107			; beep...
  TEQ R11,#0
  BEQ ack$l
+; !!! Removed because we shouldn't send DataSaved unless
+; !!! we have actually saved it ...
 d$l				; file loaded & R11=original message
- MOV R0,#20
- STR R0,[R11]			; len
- MOV R0,#13			; send data saved message
- MOV R1,R11
- BL message_reply		; use ref from original data save message
+; MOV R0,#20
+; STR R0,[R11]			; len
+; MOV R0,#13			; send data saved message
+; MOV R1,R11
+; BL message_reply		; use ref from original data save message
  BLVC abort_transfer		; free the buffer
  MOVVC R0,#6
  ADDVC R1,R10,#44		; filename of file we loaded in
  SWIVC XOS_File			; delete scrap file
-; FNRTS VS
+; FNRTS VS -- this was commented anyway ...
 ack$l				; acknowledge data load
  MOVVC R0,#4			; data load ack
  MOVVC R1,R10
@@ -1833,6 +1963,7 @@ f$l
 
 ram_transmit			; first reply to our ram fetch message
  FNJSR				; my buffer has been filled
+ SYSLOGF "Message: ram_transmit, message at %1x", LOG_FILE
 ; SWI &107
  MOV R0,#&100
  STR R0,[R11]
@@ -1900,20 +2031,24 @@ wind$l
 job$l				; R8/R9=window to insert into
  BL find_input
  MOV R1,R0			; offset to insert data
+ FNLDR R10,car_cursor
+ BL goto_file_offset		; hopefully simply works...
  MOV R0,#&11			; insert block
  SUB R2,R4,#&100		; length of text
  ADD R3,R11,#&100		; address of text
  BL execute_command		; insert the block
  FNRTS VS
 done$l				; R8/R9=window with file inserted
- MOV R0,#20
- STR R0,[R11]			; new length
- MOV R0,#13			; send data saved
- MOV R1,R11
- BL message_reply		; (using original data save ref)
+; !!! removed this, because we SHOULD NOT send DataSaved unless
+; !!! we have actually saved the file ...
+; MOV R0,#20
+; STR R0,[R11]			; new length
+; MOV R0,#13			; send data saved
+; MOV R1,R11
+; BL message_reply		; (using original data save ref)
  BL abort_transfer		; free the block
  FNRTS
-err$l ERR "RAM transfer failed - transmitter died"
+err$l ERR "zap_e_ramxfer_transmitter"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Are we interested in editing a given file?			;
@@ -1923,6 +2058,7 @@ err$l ERR "RAM transfer failed - transmitter died"
 
 data_open
  FNJSR
+ SYSLOG "Message: data_open", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#40]		; file type
  TEQ R0,#&3000
@@ -1957,6 +2093,7 @@ load$l
 
 pre_quit
  FNJSR
+ SYSLOG "Message: pre_quit", LOG_STATUS
  BL test_quit_ok
  FNRTS CC			; if quit ok then don't acknowledge
  LDR R0,[R11]			; get message length
@@ -1965,8 +2102,8 @@ pre_quit
  LDRCS R0,[R11,#20]		; get flags word
  FNLDR R14,opt_switches
  TST R0,#1
- ORREQ R14,R14,#1<<5		; quit all
- BICNE R14,R14,#1<<5		; only quit this task
+ ORREQ R14,R14,#switch_QuitMeansShutdown	; everyone
+ BICNE R14,R14,#switch_QuitMeansShutdown	; only quit this task
  FNSTR R14,opt_switches
  LDR R0,[R11,#8]
  STR R0,[R11,#12]		; copy my ref to your ref
@@ -1980,6 +2117,7 @@ pre_quit
 
 save_desktop
  FNJSR
+ SYSLOG "Message: save_desktop", LOG_STATUS
  FNLDR R9,wimp_block		; buffer
  MOV R1,R9
  ADR R2,sd_d0
@@ -2018,6 +2156,7 @@ sd_s0 FNS (|zap$|:CC:"$Dir")
 
 OLE_OpenSession
  FNJSR "R1-R12"
+ SYSLOG "Message: OLE_OpenSession", LOG_FILE
 
  LDR R6,[R11,#20]
  LDR R7,zapname$l
@@ -2044,9 +2183,13 @@ OLE_OpenSession
  BL find_file			; returns R9, preseves R0
  BVC ok$l
 
+ MOV R1,R0			; save error
+
  MOV R0,R7			; something went wrong, so
  BL heap_free			; free the data block and
- FNRTS				; return
+
+ MOV R0,R1			; restore error
+ FNRTV				; return, generating the error
 
 ok$l
  MOV R0,#0
@@ -2096,8 +2239,7 @@ find_ole_file
  ; /E R7 task handle, R8 session number
  ; /X R9 or CS
  FNJSR
- MOV R1,#9			; file_num, ie the number of valid file numbers
- BL read_var
+ FNLDR R0,file_num		; the number of valid file numbers
  SUB R10,R0,#1			; limit
  MOV R2,#0			; counter
 find$l
@@ -2133,6 +2275,7 @@ bad$l
 
 OLE_CloseSession
  FNJSR
+ SYSLOG "Message: OLE_CloseSession", LOG_FILE
  LDR R7,[R11,#4]		; task handle
  LDR R8,[R1,#24]		; session number
  CMP R8,#1			; all sessions
@@ -2146,8 +2289,7 @@ OLE_CloseSession
  BL discard_file
  FNRTS
 allsessions$l
- MOV R1,#9			; file_num
- BL read_var
+ FNLDR R0,file_num
  SUB R10,R0,#1			; limit
  MOV R2,#0			; counter
 find$l
@@ -2198,6 +2340,7 @@ find$l
 
 Edit_Rq
  FNJSR "R3"
+ SYSLOG "Message: Edit_Rq", LOG_FILE
  LDR R0,[R11,#20]		; data type
  MOV R0,R0,LSL#20
  MOV R0,R0,LSR#20		; clear extension in top 20 bits
@@ -2373,6 +2516,7 @@ ee_create_window_block$l
 
 Edit_Return
  FNJSR
+ SYSLOG "Message: Edit_Return", LOG_FILE
  LDR R0,[R11,#24]		; job handle
  BL convert_job_handle		; get R8/R9
  FNRTS CS			; no good
@@ -2402,6 +2546,7 @@ sub$l
 
 Edit_Abort
  FNJSR
+ SYSLOG "Message: Edit_Abort", LOG_FILE
  LDR	R0,[R11,#24]		; job handle
  BL	convert_job_handle		; get R8/R9
  FNRTS	CS			; no good
@@ -2414,6 +2559,7 @@ Edit_Abort
 
 Edit_Cursor
  FNJSR
+ SYSLOG "Message: Edit_Cursor", LOG_FILE
  LDR	R0,[R11,#24]		; job handle
  BL	convert_job_handle		; get R8/R9
  FNRTS	CS			; no good
@@ -2641,6 +2787,7 @@ message_log
 
 mode_changed
  FNJSR				; NB Can't use mode numbers any more
+ SYSLOG "Message: mode_changed", LOG_STATUS
  FNLDR	R1,scn_magx
  FNSTR	R1,scn_magxold
  FNLDR	R2,scn_magy
@@ -2713,6 +2860,7 @@ sub$l
 
 palette_changed			; called before a mode change + doesn't
  FNJSR				; redraw itself (contrary to the manual!)
+ SYSLOG "Message: palette_changed", LOG_STATUS
  ADR	R10,sub$l
  BL	do_allwindow
  FNRTS
@@ -2739,13 +2887,14 @@ sub$l				; R8,R9=next window
 
 init_opts
  FNJSR	"R1,R8-R11"
- LDRB	R10,[R12,#opt_format]	; current mode
- MOV	R0,R10
- BL	read_mode			; get the mode table
- FNRTS	VS
- CMP	R1,#0
- MOVLE	R10,#0
- STRLEB	R10,[R12,#opt_format]	; use text mode for default if not loaded
+ FNLDR	R0,default_mode
+ LDRB	R1,[R0]
+ TEQ	R1,#0
+ BLNE	test_mode_name
+ CMP	R0,#256
+ MOVHS	R10,#0
+ MOVLO	R10,R0
+ FNSTRB	R10,opt_format
  MOV	R8,#0
  MOV	R9,#0			; opt menu
  MOV	R11,#e_start		; set up entry point

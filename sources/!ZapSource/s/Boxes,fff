@@ -1,8 +1,9 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.3 1999/02/09 16:19:28 dj Exp $
+; $Id: Boxes,fff,v 1.4 2000/02/22 15:04:04 james Exp $
 
 	GET	h.ZapHeader
+	GET	h.Messages
 	GET	h.Strings
 	GET	h.CreateFile
 	GET	h.CreateWind
@@ -10,6 +11,7 @@
 	GET	h.KeyBits
 	GET	h.Menus
 	GET	h.StartCode
+	GET	h.StartUp
 	GET	h.Undo
 	GET	h.ModeBits
 	GET	h.MiniBuff
@@ -18,21 +20,12 @@
 	GET	h.TMTVars
 	GET	h.Search
 	GET	h.Redraw
+	GET	h.Commands
 
-	IMPORT	Lastcylinder
-	IMPORT	Lasttrack
-	IMPORT	Lastsector
-	IMPORT	Nextcylinder
-	IMPORT	Nexttrack
-	IMPORT	Nextsector
-	IMPORT	Tofront
 	IMPORT	err3
-	IMPORT	Beep
 	IMPORT	help_string_1
 	IMPORT	help_string_2
 	IMPORT	process_command
-	IMPORT	shade_no_sel
-	IMPORT	blat_cache_of_this_window
 	IMPORT	cln_readc
 	EXPORT	template_list
 	EXPORT	open_QuitBox
@@ -59,6 +52,7 @@
 	EXPORT	ctrllist
 	EXPORT	give_dbox_focus
 	EXPORT	poll_word_pdriverchanged
+	EXPORT	kill_mbsearch_bufs
 
 	EXPORT	Countmatches
 	EXPORT	Dzapbox
@@ -77,6 +71,7 @@
 	EXPORT	WCSel
 	EXPORT	WC
 	EXPORT	Movebox
+	EXPORT	Clonebox
 
 ; list template offsets $t=title $f=flags $c=create sub $i=interprate sub
 ; $ll=label
@@ -95,11 +90,27 @@ menu_num_off SETA menu_num_off + 1
 	MEND
 
 ; find the address of template offset $b and put it in register $a
+; the template list entries look something like:
+;  00 - address of window defn
+;  04 - flags (see below)
+;  08 - window handle
+;  0C - window off (?) - presumably temp space
+;  10 - file off (?) - ditto
+;  14 - create sub address
+;  18 - exec sub address
+;  1C - pointer to template name
+; See s.Template
 
 	MACRO
 $la	FNind $a,$b,$cc
 $la	LDR$cc $a,[R12,#tem_list]	; address of the template list
 	ADD$cc $a,$a,#$b<<5		; 32 bytes each entry
+	MEND
+
+	MACRO
+$la	FNindw $w,$a,$b,$cc
+$la	LDR$cc $a,[R12,#tem_list]	; address of the template list
+	LDR$cc $w,[$a,#$b<<5]!		; 32 bytes each entry; w = &defn
 	MEND
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -108,7 +119,10 @@ $la	LDR$cc $a,[R12,#tem_list]	; address of the template list
 
 ; template name,default flags,create offset,click offset,handle
 ; flags
-; b0 open?? b1-MZap? b2=Up/down cause update...? b3 = kill state
+; b0 open as part of a menu (I think - s.Template:close_leaf_window)
+; b1-MZap?
+; b2=Up/down cause update...?
+; b3 = kill state
 ; b4 delete swap window on dying
 ; b5 delete when get a chance flag (don't delete?)
 ; b7 unorthodox cursor keys...
@@ -116,26 +130,30 @@ $la	LDR$cc $a,[R12,#tem_list]	; address of the template list
 ; b9 don't place caret in window bg
 ;    (but allow window's click handler to if it wants)
 ; b10 adjuct-clicks gain the caret.
-; b11 does something...
+; b11 interpret Tab/sTab as down/up
+; b15 => window open, as best we can determine (sja, 1999-10-07)
+;
+; See the better documentation in s.Template
 
 template_list
  GBLA menu_num_off
 menu_num_off SETA 0
- FNtem "ColourBox",0,cw_ColourBox,lc_ColourBox,t_ColourBox
+ FNtem "CloneBox",0,cw_CloneBox,lc_CloneBox,t_CloneBox
+ FNtem "CloneCrBox",0,0,lc_CloneCrBox,t_CloneCrBox
+ FNtem "ColourBox",&800,cw_ColourBox,lc_ColourBox,t_ColourBox
  FNtem "DyingBox",&904,cw_DyingBox,lc_DyingBox,t_DyingBox
- FNtem "DzapBox",0,cw_DzapBox,lc_DzapBox,t_DzapBox
+ FNtem "DzapBox",&800,cw_DzapBox,lc_DzapBox,t_DzapBox
  FNtem "GotoBox",&84,cw_GotoBox,lc_GotoBox,t_GotoBox
  FNtem "InfoBox",0,cw_InfoBox,lc_InfoBox,t_InfoBox
  FNtem "LoadBox",&100,cw_LoadBox,lc_LoadBox,t_LoadBox ; was 0
- FNtem "MacroBox",6,0,0,t_MacroBox
+ FNtem "MacroBox",&806,0,0,t_MacroBox
  FNtem "Main",6,0,0,t_mode_0Box
  FNtem "MiniBuf",&200,cw_MiniBuf,lc_MiniBuf,t_MiniBuf
  FNtem "MoveBox",&500,0,lc_MoveBox,t_MoveBox
- FNtem "MzapBox",6,cw_MzapBox,lc_MzapBox,t_MzapBox
+ FNtem "MzapBox",&806,cw_MzapBox,lc_MzapBox,t_MzapBox
  FNtem "NextBox",&500,0,lc_NextBox,t_NextBox ; was 0,0 :?
-; FNtem "NextBox",&400,cw_NextBox,lc_NextBox,t_NextBox ; was 0,0 :?
- FNtem "PrintBox",0,cw_PrintBox,lc_PrintBox,t_PrintBox
- FNtem "QuickBox",0,cw_QuickBox,lc_QuickBox,t_QuickBox
+ FNtem "PrintBox",&800,cw_PrintBox,lc_PrintBox,t_PrintBox
+ FNtem "QuickBox",&800,cw_QuickBox,lc_QuickBox,t_QuickBox
  FNtem "QuitBox",&500,0,lc_QuitBox,t_QuitBox ; was &400
  FNtem "ReplaceBox",&884,cw_ReplaceBox,lc_ReplaceBox,t_ReplaceBox
  FNtem "SaveBox",&804,cw_SaveBox,lc_SaveBox,t_SaveBox
@@ -167,6 +185,7 @@ menu_num_off SETA 0
 ;    Arrow key movement is passed on by setting b31 of R4
 ;    Control keys are passed on by R5=-key value
 ;     key values are 9 = Tab and 'A' = 'a' or ^A or 'A'. etc
+;    Note that if VS, then it doesn't matter whether you use c_ret or s_ret
 
 c_ret
  ADDVCS R0,R0,#0
@@ -206,7 +225,7 @@ lc_InfoBox
  BL show_authors
  B s_ret
 
- DCD 7+(1<<16)
+ DCD 7+c_CanCreateSubMenu
 Infobox
  MOV R0,#t_InfoBox
  B open_leaf_com
@@ -276,10 +295,10 @@ back_selectionfn
  BCS typed$l			; file type
  ADR R0,load$l
  MOV R5,#8
- BL icon_bufferstr		; load
+ BL icon_buffertoken		; load
  ADR R0,exec$l
  MOV R5,#9
- BL icon_bufferstr		; exec
+ BL icon_buffertoken		; exec
  MOV R5,#6			; take info from icon 6!?
  BL lc_read
  MOV R1,#&F000
@@ -299,6 +318,8 @@ back_selectionfn
  MOVVC R5,#5
  BLVC icon_getind
  MOVVC R1,R0
+ LDRVC R2,[R9,#f_load]
+ LDRVC R3,[R9,#f_exec]
  MOVVC R0,#-1
  BLVC get_file_sprite		; and set sprite name
  BLVC icon_redraw
@@ -307,10 +328,10 @@ typed$l
  MOV R4,R0			; save file type
  ADR R0,date$l
  MOV R5,#8
- BL icon_bufferstr		; date
+ BL icon_buffertoken		; date
  ADRVC R0,time$l
  MOVVC R5,#9
- BLVC icon_bufferstr		; time
+ BLVC icon_buffertoken		; time
  MOVVC R1,#&10000000		; never(?!) grey background
  BLVC cols$l
  MOVVC R5,#6
@@ -366,11 +387,11 @@ typed$l
  ;BLVC icon_redraw
 
  FNRTS
-load$l FNS ("Load")
-exec$l FNS ("Exec")
-date$l FNS ("Date")
-time$l FNS ("Time")
-dformat$l FNS ("%dy-%m3-%ce%yr")
+load$l = "zap_i_l",0
+exec$l = "zap_i_x",0
+date$l = "zap_i_d",0
+time$l = "zap_i_t",0
+dformat$l = "%dy-%m3-%ce%yr",0
 tformat$l FNS ("%24:%mi:%se")
 cols$l				; R1=mask set icon colours for icons 1,2
  FNJSR
@@ -431,7 +452,7 @@ continue_selectionfn
  MOVVC R0,R8
  MOVVC R2,#16
  SWIVC XOS_ConvertSpacedCardinal4	; copy in file length
- BVS beatarapidexit
+; BVS beatarapidexit
  BLVC cnvrtspcsinstr
  MOVVC R0,R8
  MOVVC R5,#15
@@ -467,7 +488,7 @@ lc_SaveBox
  BEQ c_ret
  CMP R5,#1
  BEQ lc_Save_newexec
- BLO lc_Save_newname ; 0
+ BLO lc_Save_newname_ret ; 0
  CMP R5,#3
  BEQ lc_Save_newtypes
  BLO lc_Save_newload ; 2
@@ -611,6 +632,9 @@ to_cw_SaveBox
  BLPL cw_SaveBox
  FNRTS
 
+lc_Save_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Save_newname
  MOV R5,#11
  MOV R2,#&FF00
@@ -645,9 +669,8 @@ lc_Dying_newexec
 lc_Save_newexec
  MOV R5,#1
  BL lc_buffernum
- BVS c_ret
- STR R0,[R9,#f_exec]
- BL update_all_save_boxes ; leaf_update
+ STRVC R0,[R9,#f_exec]
+ BLVC update_all_save_boxes ; leaf_update
  B c_ret
 
 lc_SaveSel_newload
@@ -657,9 +680,8 @@ lc_Dying_newload
 lc_Save_newload
  MOV R5,#2
  BL lc_buffernum
- BVS c_ret
- STR R0,[R9,#f_load]
- BL update_all_save_boxes ; leaf_update
+ STRVC R0,[R9,#f_load]
+ BLVC update_all_save_boxes ; leaf_update
  B c_ret
 
 lc_SaveSel_newtypes
@@ -733,14 +755,14 @@ lc_Save_newtypeh
 lc_SaveSel_dragsprite
 lc_Dying_dragsprite
 lc_Save_dragsprite
- TST R4,#&50
- BEQ c_ret			; not a drag mouse code
- MOV R0,R4,LSR#4
- FNSTR R0,wimp_menub		; save button type
- BL initiate_drag
+ TST R4,#&50			; if a drag mouse code then...
+ MOVNE R0,R4,LSR#4
+ FNSTR R0,wimp_menub,NE		; save button type
+ BLNE initiate_drag
  B c_ret
 
 drag_SaveBox
+drag_DyingBox
  FNJSR
  BL conv_index_offs		; get R8/R9
  TEQ R9,#0			; SJA (was R8)
@@ -767,7 +789,7 @@ sub_save_filetype
  BL leaf_update
  FNRTS
 
- DCD 1+(1<<16)+(1<<28)
+ DCD 1+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Save
  MOV R0,#t_SaveBox	       ; save box
  B open_leaf_com
@@ -812,25 +834,12 @@ lc_QuitBox
  B lc_Quit_quit
  B lc_Dying_cancel
  B lc_quit_tofront
-
-; TEQ R5,#2
-;; CMNNE R5,#'Q'
-;; CMNNE R5,#'M'
-; BEQ lc_Quit_quit
-; TEQ R5,#3
-;; CMNNE R5,#'C'
-; BEQ lc_Dying_cancel
-; TEQ R5,#4
-;; CMNNE R5,#'T'
-;; CMNNE R5,#'F'
-; BEQ lc_quit_tofront
-; B c_ret
 keys$l = 'Q',2,'M',2,'C',3,'T',4,'F',4,0
  ALIGN
 
 lc_Quit_quit
  FNLDR R0,opt_switches
- TST R0,#1<<5
+ TST R0,#switch_QuitMeansShutdown
  BEQ lc_q1			; just quit this task
  FNLDR R1,wimp_block
  SWI XWimp_GetCaretPosition
@@ -860,7 +869,7 @@ lc_quit_tofront
 lc_OpeningSubroutine2a
  FNJSR
  LDR R0,[R9,#f_flags]
- TST R0,#1<<3 ; MODIFIED
+ TST R0,#flags_Modified ; MODIFIED
  FNRTS EQ
  MOV R0,#0
  STR R0,local_wcntr
@@ -895,13 +904,13 @@ open_QuitBox
  BL create_open_leaf
  FNRTS
 
- DCD 7+(1<<28)
+ DCD 7+c_MovesInputOrKeymap
 Quit
  FNJSR
  BL test_quit_ok
  BCC main_quit
  FNLDR R0,opt_switches
- BIC R0,R0,#1<<5		; ensure only this task is quit
+ BIC R0,R0,#switch_QuitMeansShutdown	; ensure only this task is quit
  FNSTR R0,opt_switches
  FNind R7,t_QuitBox
  BL create_open_leaf
@@ -967,7 +976,7 @@ lc_DyingBox
  TST R4,#1			; a mouse click...?
  BEQ c_ret
  CMP R5,#1
- BLO lc_Dying_newname
+ BLO lc_Dying_newname_ret
  BEQ lc_Dying_newexec
  CMP R5,#3
  BLO lc_Dying_newload
@@ -1026,6 +1035,9 @@ lc_Dying_tab
  BL leaf_next_icon
  B c_ret
 
+lc_Dying_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Dying_newname
  FNind R7,t_DyingBox
  LDR R0,[R7,#4]			; flags
@@ -1076,9 +1088,6 @@ lc_Dying_discard
  BL discard_file		; discard file
  B s_ret
 
-drag_DyingBox
- B drag_SaveBox
-
 get_DyingBox
  FNind R1,t_DyingBox
  MOV PC,R14
@@ -1117,7 +1126,7 @@ lc_SaveSelBox
  TST R4,#1
  BEQ c_ret
  CMP R5,#1
- BLO lc_SaveSel_newname
+ BLO lc_SaveSel_newname_ret
  BEQ lc_SaveSel_newexec
  CMP R5,#3
  BLO lc_SaveSel_newload
@@ -1130,6 +1139,9 @@ keys$l = 'M',11,0
 
  LOCAL
 
+lc_SaveSel_newname_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_SaveSel_newname
  MOV R5,#11
  MOV R2,#&FF00
@@ -1154,7 +1166,7 @@ get_SaveSelBox
  FNind R1,t_SaveSelBox
  MOV PC,R14
 
- DCD 7+(1<<16)+(1<<15)+(1<<28)
+ DCD 7+c_CanCreateSubMenu+c_TickableMenuEntry+c_MovesInputOrKeymap
 Savesel
  FNJSR
  MOV R4,R8
@@ -1175,7 +1187,7 @@ savesel_nosel
  BEQ abeepandexit
  MOV R8,R4
  ADR R0,saveselnoselmessage
- MOV R1,#0
+ MOV R1,#warn_UseMessageTrans
  BL warn_user
  FNRTS
 
@@ -1184,7 +1196,7 @@ abeepandexit
  FNRTS
 
 saveselnoselmessage
- FNS ("There is no selection to save")
+ FNS ("zap_NoSelToSave")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Goto box						;
@@ -1196,7 +1208,7 @@ cw_GotoBox
  FNJSR
 
  FNLDR R14,opt_switches
- TST R14,#1<<3
+ TST R14,#switch_ClearSearchWindow
  MOVNE R0,#0			; clear the buffer instead
  MOVNE R5,#11
  BLNE icon_bufferstr		; insert the string and update
@@ -1234,8 +1246,7 @@ update$l
 
 to_cw_Goto_update
  FNJSR
- FNind R7,t_GotoBox
- LDR R6,[R7]
+ FNindw R6,R7,t_GotoBox
  LDR R4,[R10,#c_off]
  MOV R0,R4
  BL cln_off
@@ -1246,8 +1257,7 @@ to_cw_Goto_update
 cw_Goto_update_update
  FNJSR "R0-R7,R10"
  MOV R10,R8
- FNind R7,t_GotoBox
- LDR R6,[R7]
+ FNindw R6,R7,t_GotoBox
  BL conv_index_offs
  BVS errorless$l
  CMP R8,R10			; comparing R8s.
@@ -1348,14 +1358,14 @@ cw_Goto_update3			; put in an & if needed.
  CMP R14,#32
  FNRTS CS
  LDR R14,[R8,#w_format]
- TST R14,#(1<<10)
+ TST R14,#format_LinesBase
  MOVNE R14,#'&'
  STRNE R14,[R0]
  FNRTS
 
 existingamp$l
  LDR R14,[R8,#w_format]
- TST R14,#(1<<10)
+ TST R14,#format_LinesBase
  FNRTS NE
  LDRB R14,[R0,#1]
  CMP R14,#32
@@ -1432,15 +1442,14 @@ maybenotdead$l
  MOV R4,R0			; save value
  MOV R0,#2
  BL lc_radioon			; get radioon icon in R0
- MOV R5,R0			; save icon number
+ SUB R5,R0,#7			; save icon number
  MOV R0,R4			; value
  MOV R3,#0			; X co-ordinate
- TEQ R5,#7
- BEQ lc_Goto_newlog
- TEQ R5,#8
- BEQ lc_Goto_newphy
- TEQ R5,#9
- BEQ lc_Goto_newoff
+ CMP R5,#1
+ BLO lc_Goto_newlog ; 7
+ BEQ lc_Goto_newphy ; 8
+ TEQ R5,#2
+ BEQ lc_Goto_newoff ; 9
  B c_ret
 
 commafound$l
@@ -1502,24 +1511,22 @@ lc_Goto_newphy
  ADD R14,R14,R3
  STR R14,[R10,#c_col]		; add in margin...
  BL plot_caret			; too many :(
- BVS c_ret
- BL leaf_update
+ BLVC leaf_update
  B s_ret
 ; B lc_Goto_off
 
 lc_Goto_newoff
  LDR R14,[R8,#w_addr]
  SUB R0,R0,R14
- B lc_Goto_off
+; B lc_Goto_off
 
 lc_Goto_off
  FNLDR R10,car_cursor		; caret to move
  BL goto_offset
- BVS c_ret
- BL leaf_update
+ BLVC leaf_update
  B s_ret
 
- DCD 1+(1<<16)+(1<<28)
+ DCD 1+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Goto
  FNJSR
  BL get_cursor_caret		; goto
@@ -1553,7 +1560,7 @@ create_sar
  FNLDR R0,fnd_string		; old search string
  MOV R5,#15
  FNLDR R14,opt_switches
- TST R14,#1<<3
+ TST R14,#switch_ClearSearchWindow
  MOVNE R0,#0			; clear the buffer instead
  BL icon_bufferstr		; insert the string and update
  FNRTS VS
@@ -1565,19 +1572,20 @@ create_sar
  MOV R5,#27
  BL icon_set			; replace macros
  FNLDR R1,opt_switches
- MOV R0,R1,LSR#9
+ MOV R0,R1,LSR#search_RawSearch
  MOV R5,#25
  BL icon_set			; raw search
- MVN R0,R1,LSR#10
+ MVN R0,R1,LSR#search_UseCommands
  MOV R5,#28
  BL icon_set			; use \commands
- MOV R0,R1,LSR#11
+ MOV R0,R1,LSR#search_DirAndExtent_shift
  AND R0,R0,#3
- ADD R5,R0,#8
+ ADD R5,R0,#8			; icon of base option
  BL icon_select			; select forward/backward etc
  TEQ R4,#0
- MOVNE R1,R1,LSR#1		; move global replace to search to buffer
- MOV R0,R1,LSR#13		; bit
+ MOVNE R1,R1,LSR#(search_GlobalReplace - search_ToBuffer)
+				; move global replace to search to buffer
+ MOV R0,R1,LSR#search_ToBuffer
  MOV R5,#12
  BL icon_set
  MOVVC R5,#3
@@ -1611,18 +1619,18 @@ interpret_sar
  CMN R5,#'I'
  BEQ tab$l			; recall previous string
  TEQ R5,#25
- MOVEQ R0,#1<<9
+ MOVEQ R0,#switch_SearchRawSearch
  BEQ switches$l
  TEQ R5,#26
- MOVEQ R0,#1<<12
+ MOVEQ R0,#flags_SearchCaseSensitive
  BEQ opts$l
  TEQ R5,#1
  BEQ to_simple_Search_count
  TEQ R5,#27
- MVNEQ R0,#1<<19
+ MVNEQ R0,#flags_NoSearchMacros
  BEQ opts$l
  TEQ R5,#28
- MVNEQ R0,#1<<10
+ MVNEQ R0,#switch_SearchUseCommands
  BEQ switches$l
  SUB R0,R5,#8
  CMP R0,#4
@@ -1652,23 +1660,19 @@ opts$l
  B set$l
 start$l				; start from position selection
  FNLDR R14,opt_switches
- BIC R14,R14,#3<<11
- ORR R14,R14,R0,LSL#11
+ BIC R14,R14,#switch_SearchDirAndExtent
+ ORR R14,R14,R0,LSL#search_DirAndExtent_shift
  FNSTR R14,opt_switches
- FNind R7,t_SearchBox
- LDR R6,[R7]
+ FNindw R6,R7,t_SearchBox
  BL icon_select
- FNind R7,t_ReplaceBox,VC
- LDRVC R6,[R7]
+ FNindw R6,R7,t_ReplaceBox,VC
  BLVC icon_select
  FNRTS
 set$l				; set according to bottom bit of R2
- FNind R7,t_SearchBox
- LDR R6,[R7]
+ FNindw R6,R7,t_SearchBox
  MOV R0,R2
  BL icon_set
- FNind R7,t_ReplaceBox,VC
- LDRVC R6,[R7]
+ FNindw R6,R7,t_ReplaceBox,VC
  MOVVC R0,R2
  BLVC icon_set
  FNRTS
@@ -1697,33 +1701,33 @@ tab$l
  BNE tabrepl$l
  FNLDR R4,fnd_string		; old search string
  MOV R0,R4
- FNind R7,t_SearchBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_SearchBox	; (TT fix or tab bug search box)
  MOV R5,#15
  BL icon_bufferstr
- FNind R7,t_ReplaceBox		; (TT fix or tab bug replace box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_ReplaceBox	; (TT fix or tab bug replace box)
  MOV R5,#15
  MOV R0,R4
  BL icon_bufferstr
  MOV R5,#15
  BL icon_checkcaret		; (TT fix or tab bug)
- FNind R7,t_SearchBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_SearchBox	; (TT fix or tab bug search box)
  MOV R5,#15
  BL icon_checkcaret		; (TT fix or tab bug)
  FNRTS
 tabrepl$l
  FNLDR R0,fnd_replace		; old search string
  MOV R5,#16
- FNind R7,t_ReplaceBox		; (TT fix or tab bug replace box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_ReplaceBox		; (TT fix or tab bug replace box)
  BL icon_bufferstr
  MOV R5,#16
  BL icon_checkcaret		; (TT fix or tab bug)
  FNRTS
 
-keys$l = 'N',1,'R',25,'C',26,'M',27,'\',28,'S',8,'F',9,'B',10,'A',11,'E',14,183,248,184,249,185,250,'V',254,'Z',253,'X',252,'D',251,0
+; :CHR:&5C is a literal \ character.
+; objasm calls this '\'
+; armasm calls it '\\'
+; as can probably cope with both, but this is easier.
+keys$l = 'N',1,'R',25,'C',26,'M',27,:CHR:&5c,28,'S',8,'F',9,'B',10,'A',11,'E',14,183,248,184,249,185,250,'V',254,'Z',253,'X',252,'D',251,0
  ALIGN
 
  LOCAL
@@ -1760,8 +1764,7 @@ sar_justprocesskey
 
  DCD 1
 Countmatches
- FNind R7,t_SearchBox
- LDR R6,[R7]
+ FNindw R6,R7,t_SearchBox
  B simple_Search_count
 
  ;FNJSR "R1-R7"
@@ -1899,12 +1902,14 @@ lc_Mini_histmenu
  ADR R1,histmake_m$l
  MOV R2,#0
  ADR R3,histclick_m$l
+lc_build_menu
+ ORR R1,R1,#1
  BL build_menu
+lc_open_menu
  MOV R7,R0
  FNLDR R1,wimp_block
  SWI XWimp_GetPointerInfo
- LDR R2,[R1]
- LDR R3,[R1,#4]
+ LDMIA R1,{R2,R3}
 ; SUB R2,R2,#32
  MOV R1,R7
  BL open_menu
@@ -1923,16 +1928,7 @@ lc_Goto_histmenu
  ADR R1,histmake_g$l
  MOV R2,#0
  ADR R3,histclick_g$l
- BL build_menu
- MOV R7,R0
- FNLDR R1,wimp_block
- SWI XWimp_GetPointerInfo
- LDR R2,[R1]
- LDR R3,[R1,#4]
-; ADD R2,R2,#32
- MOV R1,R7
- BL open_menu
- B c_ret
+ B lc_build_menu
 
 lc_Replace_histmenu
  BL recreate_the_leaf_window
@@ -1951,19 +1947,8 @@ lc_Replace_histmenu
  ADREQ R1,histmake_r$l
  ADRNE R1,histmake$l
  MOV R2,#0
- ;TST R8,#1
- ;ADREQ R3,histclick_$l
  ADR R3,histclick_r$l
- BL build_menu
- MOV R7,R0
- FNLDR R1,wimp_block
- SWI XWimp_GetPointerInfo
- LDR R2,[R1]
- LDR R3,[R1,#4]
-; ADD R2,R2,#32
- MOV R1,R7
- BL open_menu
- B c_ret
+ B lc_build_menu
 
 lc_choose_histmenu
  FNLDR R1,wimp_block
@@ -1992,18 +1977,9 @@ lc_Search_histmenu
  ADREQ R1,histmake$l
  MOV R2,#0
  ADR R3,histclick$l
- BL build_menu
- MOV R7,R0
- FNLDR R1,wimp_block
- SWI XWimp_GetPointerInfo
- LDR R2,[R1]
- LDR R3,[R1,#4]
-; ADD R2,R2,#32
- MOV R1,R7
- BL open_menu
- B c_ret
+ B lc_build_menu
 
-histnom$l FNS ("History")
+histnom$l FNS ("zap_m_hist")
 histclick$l
  FNJSR "R1-R10"
  MOV R0,R10
@@ -2108,10 +2084,11 @@ getlength$l
  FNRTS
 
 lc_Search_clearhist_Search
- LDR R0,mbsearchindex
+ MOV R5,#0
+lc_clearhist
+ ADR R0,mbsearchindex
+ ADD R0,R0,R5
  BL lineeditor_kill
- MOV R0,#0
- STR R0,mbsearchindex
  B c_ret
 
 lc_Search_clearhist_Replace
@@ -2120,56 +2097,39 @@ lc_Search_clearhist_Replace
  BVS c_ret
  LDR R5,[R1,#4]
  CMP R5,#15
- LDREQ R0,mbsearchindex
- LDRNE R0,mbsearchindex + 4
- BL lineeditor_kill
- CMP R5,#15
- MOV R0,#0
- STREQ R0,mbsearchindex
- STRNE R0,mbsearchindex + 4
- B c_ret
+ MOVEQ R5,#0
+ MOVNE R5,#4
+ B lc_clearhist
 
 lc_Goto_clearhist
- LDR R0,mbsearchindex+8
- BL lineeditor_kill
- MOV R0,#0
- STR R0,mbsearchindex+8
- B c_ret
+ MOV R5,#8
+ B lc_clearhist
 
 cursorkeyprocession_Goto
  MOV R5,#15
  CMP R14,#&9F ; pgup
  MOVEQ R1,#&80000001		; up (!wrapped)
- BEQ lc_Goto_recall_mb
- MOV R1,#&80000002		; down (!wrapped)
+ MOVNE R1,#&80000002		; down (!wrapped)
  B lc_Goto_recall_mb
 
 cursorkeyprocession_Goto2
  CMP R10,#1
  MOVEQ R1,#&80000001		; up (!wrapped)
- BEQ lc_Goto_recall_mb
- MOV R1,#&80000002		; down (!wrapped)
+ MOVNE R1,#&80000002		; down (!wrapped)
  B lc_Goto_recall_mb
 
 cursorkeyprocession_Search
  MOV R5,#15
  CMP R14,#&9F ; pgup
  MOVEQ R1,#&80000001		; up (!wrapped)
- BEQ lc_Search_recall_mb
- ;CMP R14,#&9E ; pgdown
- ;MOVEQ R5,#15
- MOV R1,#&80000002		; down (!wrapped)
+ MOVNE R1,#&80000002		; down (!wrapped)
  B lc_Search_recall_mb
- ;B c_ret
 
 cursorkeyprocession_Search2
  CMP R10,#1
  MOVEQ R1,#&80000001		; up (!wrapped)
- BEQ lc_Search_recall_mb
- ;CMN R10,#1
- MOV R1,#&80000002		; down (!wrapped)
+ MOVNE R1,#&80000002		; down (!wrapped)
  B lc_Search_recall_mb
- ;B c_ret
 
 cursorkeyprocession_Replace
  FNLDR R1,wimp_block
@@ -2177,22 +2137,17 @@ cursorkeyprocession_Replace
  BVS c_ret
  LDR R5,[R1,#4]			; get icon number...
  CMP R14,#&9F ; pgup
- ;CMP R10,#1
  MOVEQ R1,#&80000001		; up (!wrapped)
- BEQ lc_Replace_recall_mb
- ;CMP R14,#&9E ; pgdown
- ;CMN R10,#1
- MOV R1,#&80000002		; down (!wrapped)
+ MOVNE R1,#&80000002		; down (!wrapped)
  B lc_Replace_recall_mb
- ;B c_ret ; never fires...
 
  LOCAL
 
 lc_Search_out
  FNLDR R14,opt_switches
- EOR R14,R14,#1<<13		; new value
+ EOR R14,R14,#switch_SearchToBuffer	; new value
  FNSTR R14,opt_switches
- MOV R0,R14,LSR#13
+ MOV R0,R14,LSR#search_ToBuffer
  BL icon_set
  B c_ret
 
@@ -2204,16 +2159,14 @@ lc_Goto_recall_mb
  CMP R0,#0
  BEQ c_ret
  MOV R5,#11
- FNind R7,t_GotoBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_GotoBox		; (TT fix or tab bug search box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
  LDREQ R0,mbsearchindex + 8
  BLEQ retreive_from_le
  CMP R0,#0
  BEQ c_ret
- FNind R7,t_GotoBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_GotoBox		; (TT fix or tab bug search box)
  BL icon_bufferstr
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
@@ -2226,8 +2179,7 @@ lc_Search_recall_mb		; E R1=direction code, R5=icon number R6/R7
  CMP R0,#0
  BEQ c_ret
  MOV R5,#15
- FNind R7,t_SearchBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_SearchBox	; (TT fix or tab bug search box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
  LDREQ R0,mbsearchindex
@@ -2239,8 +2191,7 @@ lc_Search_recall_mb		; E R1=direction code, R5=icon number R6/R7
  ;BL icon_bufferstr
  ;MOV R5,#15
  ;BL icon_checkcaret		; (TT fix or tab bug)
- FNind R7,t_SearchBox		; (TT fix or tab bug search box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_SearchBox	; (TT fix or tab bug search box)
  BL icon_bufferstr
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
@@ -2251,15 +2202,13 @@ lc_Replace_recall_mb		; E R1=direction code, R5=icon number R6/R7
  BL to_retreive_from_le
  CMP R0,#0
  BEQ c_ret
- FNind R7,t_ReplaceBox		; (TT fix or tab bug Replace box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_ReplaceBox	; (TT fix or tab bug Replace box)
  BL cmpstr0withictxt
  MOVEQ R1,R3
  BLEQ to_retreive_from_le
  CMP R0,#0
  BEQ c_ret
- FNind R7,t_ReplaceBox		; (TT fix or tab bug Replace box)
- LDR R6,[R7]			; (TT fix or tab bug)
+ FNindw R6,R7,t_ReplaceBox	; (TT fix or tab bug Replace box)
  BL icon_bufferstr
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
@@ -2321,6 +2270,16 @@ mbsearchindex
  DCD 0
 ; DCD 0
 
+kill_mbsearch_bufs
+	FNJSR
+	ADR	R0,mbsearchindex
+	BL	lineeditor_kill
+	ADR	R0,mbsearchindex+4
+	BL	lineeditor_kill
+	ADR	R0,mbsearchindex+8
+	BL	lineeditor_kill
+	FNRTS
+
 resethistorypositions
  FNJSR
  LDR R0,mbsearchindex
@@ -2353,7 +2312,7 @@ lc_Search_search
  MOV R1,#1
  MOV R2,#0
  FNLDR R3,opt_switches
- TST R3,#1<<13
+ TST R3,#switch_SearchToBuffer
  ADREQ R7,Searchcur
  ADRNE R7,Searchbuf
  MOV R10,#0
@@ -2415,7 +2374,7 @@ error$l
  B c_ret
 ctrl$l
  FNLDR R0,opt_switches
- TST R0,#1<<10			; using \ commands?
+ TST R0,#switch_SearchUseCommands
  MOVNE R14,#32
  BNE insert$l
  MOV R0,#138
@@ -2441,15 +2400,15 @@ ctrllist$l
  = "24",  "25",  "26",  "27",  "28",  "29",  "30",  "31"
 cr$l
  FNLDR R0,opt_switches
- TST R0,#1<<9 ; raw mode
+ TST R0,#switch_SearchRawSearch
  MOVEQ R3,#1
- TST R0,#1<<10 ; \ commands
+ TST R0,#switch_SearchUseCommands
  BNE normal$l
  MOV R14,#'n'
  B cr_tab$l
 tab$l
  FNLDR R0,opt_switches
- TST R0,#1<<10
+ TST R0,#switch_SearchUseCommands
  BNE normal$l
  MOV R14,#'t'
 cr_tab$l
@@ -2460,7 +2419,7 @@ cr_tab$l
  B insert$l
 del$l
  FNLDR R0,opt_switches
- TST R0,#1<<10
+ TST R0,#switch_SearchUseCommands
  MOVNE R14,#32
  BNE insert$l
  MOV R0,#138
@@ -2471,7 +2430,7 @@ del$l
  B insert$l
 tick$l
  FNLDR R0,opt_switches
- TST R0,#1<<10
+ TST R0,#switch_SearchUseCommands
  MOVEQ R0,#138
  MOVEQ R1,#0
  MOVEQ R2,#'`'
@@ -2511,7 +2470,7 @@ simple_Search_count
  ;STR R11,atasetflag$l		; this file only so far...
  MOV R10,R0			; search string
  STR R9,startofsrccntoffs
- ORR R5,R5,#(1 << 25)		; don't beep if match found...
+ ORR R5,R5,#zsearch_DontBeep	; don't beep if match found...
 loopsearchcount$l
  BL reportonprogresscount
  ;TST R5,#(1 << 27)		; loop around windows...
@@ -2606,7 +2565,7 @@ negativedirection$l
 
  LOCAL
 
- DCD 1+(3<<3)+(1<<6)+(1<<10)+(1<<16)+(1<<28)
+ DCD 1+c_Param_String+c_PreMinibuffer+c_MinibufferKill+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Searchcur
  FNJSR
  TEQ R2,#0
@@ -2631,13 +2590,13 @@ search$l			; actually search for the string
 
 clearglobal$l
  FNLDR R0,opt_switches
- BIC R0,R0,#1<<13
+ BIC R0,R0,#switch_SearchToBuffer
  FNSTR R0,opt_switches
  MOV PC,R14
 
  LOCAL
 
- DCD 1+(3<<3)+(1<<6)+(1<<10)+(1<<16)+(1<<28)
+ DCD 1+c_Param_String+c_PreMinibuffer+c_MinibufferKill+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Searchbuf
  FNJSR
  TEQ R2,#0
@@ -2658,7 +2617,7 @@ search$l
 
 setglobal$l
  FNLDR R0,opt_switches
- ORR R0,R0,#1<<13
+ ORR R0,R0,#switch_SearchToBuffer
  FNSTR R0,opt_switches
  MOV PC,R14
 
@@ -2762,7 +2721,7 @@ lc_ReplaceBox
  TST R4,#1
  BEQ c_ret
  TEQ R5,#16			; return pressed in replace with box
- BEQ lc_Replace_replace
+ BEQ lc_Replace_replace_ret
  B c_ret
 keys$l = 'G',12,'K',99,'T',20,'P',98,0
  ALIGN
@@ -2788,9 +2747,9 @@ replshifttab$l
 
 lc_Replace_global
  FNLDR R14,opt_switches
- EOR R14,R14,#1<<14
+ EOR R14,R14,#switch_SearchGlobalReplace
  FNSTR R14,opt_switches
- MOV R0,R14,LSR#14
+ MOV R0,R14,LSR#search_GlobalReplace
  BL icon_set
  B c_ret
 
@@ -2813,6 +2772,9 @@ oww$l
  BL icon_checkcaret		; (TT fix or tab bug)
  B c_ret
 
+lc_Replace_replace_ret
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Replace_replace
  BL resethistorypositions
  BVS s_ret
@@ -2866,7 +2828,7 @@ noneedtokill$l
  BLVC replace_data		; perform replace (or start in sel case)
  B s_ret
 
- DCD 1+(1<<16)+(1<<28)
+ DCD 1+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Replace
  MOV R0,#t_ReplaceBox
  B open_leaf_com
@@ -2968,8 +2930,7 @@ lc_Next_Replace
  MOV R3,R0			; save
  LDR R1,[R10,#c_owidth]		; offset of match end
  BL replace_string		; R1=new end offset of replace string
- BVS c_ret
- BL replace_skip
+ BLVC replace_skip
  B c_ret
 
 lc_Next_Skip
@@ -2985,25 +2946,25 @@ lc_Next_Skip
 
 lc_Next_Undo
  LDR R14,[R9,#f_flags]
- ORR R14,R14,#1<<14
+ ORR R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; unlink input
  MOV R0,#1			; undo 1 step...
  MOV R1,#0			; fast undo
  BL undo_command
  LDR R14,[R9,#f_flags]		; save error pointer in R0
- BIC R14,R14,#1<<14
+ BIC R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; relink caret
  B c_ret
 
 lc_Next_Redo
  LDR R14,[R9,#f_flags]
- ORR R14,R14,#1<<14
+ ORR R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; unlink input
  MOV R0,#1			; redo 1 step...
  MOV R1,#0			; fast undo???
  BL redo_command
  LDR R14,[R9,#f_flags]		; save error pointer in R0
- BIC R14,R14,#1<<14
+ BIC R14,R14,#flags_UnlinkCursor
  STR R14,[R9,#f_flags]		; relink caret
  B c_ret
 
@@ -3080,10 +3041,6 @@ warn1$l
  BL Beep
  B c_ret			; finished?
 
-lc_Next_cancel
- BL clear_selection
- B lc_Dying_cancel
-
 lc_Next_Last			; Entire routine by Tim Tyler
  FNLDR R10,car_selection	; get the selected area (to replace)
  LDR R0,[R10,#c_wind]		;
@@ -3094,6 +3051,9 @@ lc_Next_Last			; Entire routine by Tim Tyler
  MOV R3,R0			; save
  LDR R1,[R10,#c_owidth]		; offset of match end
  BL replace_string		; R1=new end offset of replace string
+; fall through
+
+lc_Next_cancel
  BL clear_selection
  B lc_Dying_cancel
 
@@ -3456,7 +3416,7 @@ lc_Dzap_read
  BLVC create_open_leaf
  B c_ret
 
- DCD 7+(1<<16)+(1<<28)
+ DCD 7+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Dzapbox
  MOV R0,#t_DzapBox
  B open_leaf_com
@@ -3478,37 +3438,37 @@ cw_PrintBox_main
  BL	pnt_fit_pages
  FNRTS	VS
  LDR	R0,[R8,#w_height]	; total number of lines
- LDR	R2,[R10,#&14]		; lines per column
- LDR	R1,[R10,#&10]		; columns per page
+ LDR	R2,[R10,#print_lines_per_column]
+ LDR	R1,[R10,#print_columns_per_page]
  MUL	R1,R2,R1		; lines per page
  SWI	XZapRedraw_Divide
  TEQ	R2,#0
  ADDNE	R0,R0,#1		; last page not empty
- STR	R0,[R10,#&18]		; number of pages
+ STR	R0,[R10,#print_total_num_pages]
 
- LDR R0,[R10,#&14]
+ LDR R0,[R10,#print_lines_per_column]
  MOV R5,#11
  BL icon_buffernum
- LDRVC R0,[R10,#&18]
+ LDRVC R0,[R10,#print_total_num_pages]
  MOVVC R5,#13
  BLVC icon_buffernum
  FNRTS VS
  TEQ R11,#0
  BNE no_userbits$l		; R11!=0 - don't alter editable bits
 someuserbits$l
- LDR R0,[R10,#&10]
+ LDR R0,[R10,#print_columns_per_page]
  MOV R5,#5
  BL icon_buffernum
- LDRVC R0,[R10,#&1C]
+ LDRVC R0,[R10,#print_start_page]
  ADDVC R0,R0,#1
  MOVVC R5,#1
  BLVC icon_buffernum
- LDRVC R0,[R10,#&20]
+ LDRVC R0,[R10,#print_stop_page]
  MOVVC R5,#0
  BLVC icon_buffernum
  FNRTS VS
  FNLDR R11,opt_flags
- TST R11,#1<<15
+ TST R11,#flags_FancyPrintSideways
  MOVEQ R5,#7
  MOVNE R5,#8
  BL icon_select
@@ -3521,7 +3481,9 @@ no_userbits$l
  SWI &A0140 ; XPDriver_Info
  LDMFD R13!,{R6,R7}
  MOVVS R3,#0
- ADRVS R4,nodriver$l
+ ADRVS R0,nodriver$l
+ BLVS lookup_token_R0
+ MOVVS R4,R0
  MOV R0,#1<<22
  MOVVC R1,#0
  MOVVS R1,#1<<22
@@ -3546,14 +3508,13 @@ nonamesoquit$l
  BL icon_alter
  FNRTS
 
-nodriver$l = "No driver",0
+nodriver$l = "zap_i_nopdriver",0
 	ALIGN
 
 poll_word_pdriverchanged
 	FNJSR
 	MOV	R8,#0			; new code...!
-	FNind	R7,t_PrintBox
-	LDR	R6,[R7]
+	FNindw	R6,R7,t_PrintBox
 	MOV	R11,#1
 	BL	cw_PrintBox_main
 	FNRTS	VC
@@ -3579,6 +3540,8 @@ lc_PrintBox
  BEQ lc_Print_title
  TEQ R5,#10
  BEQ lc_Dying_cancel
+ TEQ R5,#14
+ BEQ lc_Print_colour
  TST R4,#1
  BEQ c_ret
  TEQ R5,#5
@@ -3587,22 +3550,29 @@ lc_PrintBox
  BEQ lc_Print_newstart
  BLO lc_Print_newend
  B c_ret
-keys$l = 'V',7,'S',8,'A',6,'C',10,'Q',10,0
+keys$l = 'V',7,'S',8,'A',6,'F',14,'C',10,'Q',10,0
  ALIGN
 
 lc_Print_title
  FNLDR R1,opt_flags
- EOR R1,R1,#1<<16
+ EOR R1,R1,#flags_FancyPrintNoTitle
  FNSTR R1,opt_flags
  MVN R0,R1,LSR#16
  BL icon_set
+ BLVC cw_PrintBox_main
+ B c_ret
+
+lc_Print_colour
+ MOV R0,#0
+ MOV R1,#1<<21
+ BL icon_alter
  B c_ret
 
 lc_Print_up
  FNLDR R1,opt_flags
  TEQ R5,#8
- BICNE R1,R1,#1<<15
- ORREQ R1,R1,#1<<15
+ BICNE R1,R1,#flags_FancyPrintSideways
+ ORREQ R1,R1,#flags_FancyPrintSideways
  FNSTR R1,opt_flags
  BL icon_select
  MOVVC R11,#1
@@ -3615,7 +3585,7 @@ lc_Print_newpps
  FNLDR R10,wimp_print
  CMP R0,#1
  MOVLT R0,#1
- STR R0,[R10,#&10]
+ STR R0,[R10,#print_columns_per_page]
  B c_ret
 
 lc_Print_newstart
@@ -3623,7 +3593,7 @@ lc_Print_newstart
 ; BVS c_ret
  FNLDR R10,wimp_print,VC
  SUBVC R0,R0,#1
- STRVC R0,[R10,#&1C]
+ STRVC R0,[R10,#print_start_page]
  B c_ret
 
 lc_Print_newend
@@ -3631,7 +3601,9 @@ lc_Print_newend
 	BL	lc_buffernum
 	BVS	c_ret
 	FNLDR	R10,wimp_print
-	STR	R0,[R10,#&20]		; end page
+	STR	R0,[R10,#print_stop_page]
+	TST	R4,#4			; return if (s)Tab
+	BNE	c_ret
 lc_Print_print
 	SWI	&A0140			; XPDriver_Info
 	BVS	s_ret
@@ -3647,16 +3619,16 @@ lc_Print_print
 	BL	print_file
 	B	s_ret
 
-	DCD	1+(1<<16)+(1<<28)
+	DCD	1+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Printfile
 	FNJSR
 	BL	pnt_get_pagesize
 	BLVC	check_font_manager
 	FNLDR	R10,wimp_print,VC
 	MOVVC	R0,#0
-	STRVC	R0,[R10,#&1C]		; start page
+	STRVC	R0,[R10,#print_start_page]
 	MOVVC	R0,#&10000
-	STRVC	R0,[R10,#&20]		; end page
+	STRVC	R0,[R10,#print_stop_page]
 	MOVVC	R0,#t_PrintBox
 	BLVC	open_leaf_com
 	FNRTS
@@ -3669,11 +3641,11 @@ cw_QuickBox
  FNJSR
  FNLDR R10,wimp_print
  LDR R2,[R8,#w_stline]
- LDR R0,[R10,#&58]
+ LDR R0,[R10,#print_start_line]
  ADD R0,R0,R2			; first line
  MOV R5,#1
  BL icon_buffernum
- LDRVC R0,[R10,#&5C]
+ LDRVC R0,[R10,#print_stop_line]
  ADDVC R0,R0,R2
  SUBVC R0,R0,#1			; last line (inc)
  MOVVC R5,#0
@@ -3684,6 +3656,7 @@ cw_QuickBox
  BLVC icon_set
  FNRTS
 
+ LOCAL
 lc_QuickBox
  CMP R5,#&180
  BGE passonafnkeythencret
@@ -3700,16 +3673,15 @@ lc_QuickBox
  CMNNE R5,#'H'	; Header
  BEQ lc_Quick_title
  TST R4,#1
- BEQ c_ret
- TEQ R5,#1
+ BEQ c_ret			; no adjust (which represents Return in an icon)
+ CMP R5,#1
  BEQ lc_Quick_newstart
- TEQ R5,#0
- BEQ lc_Quick_newend
+ BLO lc_Quick_newend ; R5=0
  B c_ret
 
 lc_Quick_title
  FNLDR R1,opt_flags
- EOR R1,R1,#1<<18
+ EOR R1,R1,#flags_QuickPrintNoTitle
  FNSTR R1,opt_flags
  MVN R0,R1,LSR#18
  MOV R5,#4
@@ -3717,24 +3689,42 @@ lc_Quick_title
  B c_ret
 
 lc_Quick_newstart
- BL lc_buffernum
- BVS c_ret
- FNLDR R10,wimp_print
- LDR R2,[R8,#w_stline]
- SUB R0,R0,R2
- STR R0,[R10,#&58]
+ BL newstart$l
  B c_ret
 
-lc_Quick_newend
+newstart$l
+ FNJSR
+ MOV R5,#1
+ BL lc_buffernum
+ FNLDR R10,wimp_print,VC
+ LDRVC R2,[R8,#w_stline]
+ SUBVC R0,R0,R2
+ STRVC R0,[R10,#print_start_line]
+ FNRTS
+
+newend$l
+ FNJSR
  MOV R5,#0
  BL lc_buffernum
+ FNLDR R10,wimp_print,VC
+ LDRVC R2,[R8,#w_stline]
+ SUBVC R0,R0,R2
+ ADDVC R0,R0,#1
+ STRVC R0,[R10,#print_stop_line]
+ FNRTS
+
+lc_Quick_newend
+ BL newend$l
  BVS c_ret
- FNLDR R10,wimp_print
- LDR R2,[R8,#w_stline]
- SUB R0,R0,R2
- ADD R0,R0,#1
- STR R0,[R10,#&5C]		; end line
+ TST R4,#4
+ BNE c_ret
+ B doprint$l
+
 lc_Quick_print
+ BL newstart$l
+ BLVC newend$l
+ BVS c_ret
+doprint$l
  MOV R5,#5
  MOV R2,#&FF00
  BL slab_icon_in_temporarily
@@ -3744,14 +3734,14 @@ lc_Quick_print
  BL slab_icon_in_temporarily
  B s_ret
 
- DCD 1+(1<<16)+(1<<28)
+ DCD 1+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Quickprint
  FNJSR
  FNLDR R10,wimp_print
  MOV R0,#0
- STR R0,[R10,#&58]		; start line
+ STR R0,[R10,#print_start_line]
  LDR R0,[R8,#w_height]
- STR R0,[R10,#&5C]		; end line
+ STR R0,[R10,#print_stop_line]
  MOV R0,#t_QuickBox
  BL open_leaf_com
  FNRTS
@@ -3772,9 +3762,8 @@ cw_MzapBox
  STR R0,[R10]
  FNLDR R0,env_top
  SUB R0,R0,#&8000
- STR R0,[R10,#4]
- LDR R0,zap$l
- STR R0,[R10,#8]
+ LDR R14,zap$l
+ STMIB R10,{R0,R14}
 setup$l
  MOV R0,#&8000
  MOV R5,#0
@@ -3803,9 +3792,10 @@ lc_MzapBox
  TST R4,#1
  BEQ c_ret
  TEQ R5,#1
- BEQ lc_Mzap_read
- B c_ret
+ BNE c_ret
 
+	TST	R4,#4			; ignore if (s)Tab
+	BNE	c_ret
 lc_Mzap_read
  MOV R5,#0
  BL lc_buffernum
@@ -3815,6 +3805,9 @@ lc_Mzap_read
  BLVC lc_buffernum
  BVS c_ret
  MOV R4,R0			; end address
+ CMP R2,R4
+ BEQ s_ret			; nothing to read
+ BHI endbeforestart$l
 
  LDR R0,[R6,#140]		; addr of string for icon 1.
  LDRB R1,[R0]
@@ -3831,17 +3824,18 @@ lc_Mzap_read
  MOVVC R1,R2			; start address
  MOVVC R2,R4			; end address
  BLVC read_memory
- BVS c_ret ;_error
- BL create_window_block
+ BLVC create_window_block
  BLVC create_window_caret
  B s_ret
+endbeforestart$l
+	BL	Beep		; warn user
+	B	c_ret		; don't close dbox
 
 lc_Mzap_dragsprite
- TST R4,#&50
- BEQ c_ret			; not a drag mouse code
- MOV R0,R4,LSR#4
- FNSTR R0,wimp_menub		; save button status
- BL initiate_drag		; pick up at process_leaf_drag
+ TST R4,#&50			; drag mouse code? (NE if so)
+ MOVNE R0,R4,LSR#4
+ FNSTR R0,wimp_menub,NE		; save button status
+ BLNE initiate_drag		; pick up at process_leaf_drag
  B c_ret			; which calls drag_MzapBox
 
  LOCAL
@@ -3892,9 +3886,8 @@ task_nameis
 	FNRTS	NE
 	FNLDR	R10,wimp_mzap
 	LDR	R0,[R1,#20]		; task handle
-	STR	R0,[R10]
-	LDR	R0,[R1,#24]		; slot size
-	STR	R0,[R10,#4]
+	LDR	R14,[R1,#24]		; slot size
+	STMIA	R1,{R0,R14}
 	ADD	R2,R1,#28			; source
 	ADD	R1,R10,#8			; dest
 	MOV	R3,#24			; len
@@ -3905,7 +3898,7 @@ task_nameis
 	FNRTS
 d$l	DCD &400C7			; TaskNameIs
 
-	DCD	7+(1<<16)+(1<<28)
+	DCD	7+c_CanCreateSubMenu+c_MovesInputOrKeymap
 Mzapbox
 	MOV	R0,#t_MzapBox
 	B	open_leaf_com
@@ -4002,7 +3995,9 @@ cw_SaveOBox
 	TEQ	R9,#0			; SJA (was R8)
 	MOVEQ	PC,R14			; file has been discarded (after save
 	FNJSR
-	LDR	R0,[R9,#f_name]
+	LDR	R0,[R9,#f_proposed_name]
+	CMP	R0,#0
+	LDREQ	R0,[R9,#f_name]
 	; MOV R1,#&100			;-(
 	; BL heap_ensure		; make room for new name
 	; STRVC R0,[R9,#f_name]
@@ -4036,7 +4031,9 @@ cw_SaveCBox ; E R6 => window defn yielding filename R9, FILE...
 	TEQ	R9,#0
 	MOVEQ	PC,R14		; file has been discarded (after save)
 	FNJSR
-	LDR	R0,[R9,#f_name]
+	LDR	R0,[R9,#f_proposed_name]
+	CMP	R0,#0
+	LDREQ	R0,[R9,#f_name]
 	MOVVC	R1,#0
 	BLVC	cw_bufferstr	; copy :-( as its address may change)
 	FNRTS
@@ -4084,8 +4081,6 @@ lc_SaveSC_overwrite
 	MOV	R5,#0
 	BL	icon_getind			; R0=address of icon data
 	BL	simply_save_selection
-	;BL	save_from_leaf
-	;BL	save_file_date
 	B	s_ret
 
 	LOCAL
@@ -4094,23 +4089,26 @@ get_SaveSCBox
 	FNind	R7,t_SaveSCBox
 	MOV	PC,R14
 
-	DCD	1 + (1<<16) + (1<<15)	; No R10, but opens a window + shade.
+	DCD	1 + c_CanCreateSubMenu + c_TickableMenuEntry	; No R10, but opens a window + shade.
 TotalSel
-	STMFD	R13!,{R14}
+	FNJSR
 	MOV	R7,R2			; Remember R2.
 	MOV	R4,R8
 	MOV	R5,R9
 	BL	shade_no_sel		; ...?
 	BCS	WCError
 	BL	findtotal$l
+	FNRTSS	VS			; don't report an error, just stop ...
 ;	MOV	R5,#&100		; the value...
 	MOV	R2,R7
 ;	MOV	R7,#16 ; don't close menu...?!?!?
 	MOV	R11,#2
-	B	WCOutput
+	B	WCOutput		; this wants R14 stacked for it ...
 
+; \X VS if user pressed escape
 findtotal$l
 	FNJSR	"R7,R11" ;R1=sel off R2=sel len R8/R9=sel
+	BL	long_op_on		; hourglass, enable escape
 	SUB	R6,R1,#1
 	ADD	R7,R1,R2
 	MOV	R5,#0			; returned total...
@@ -4120,9 +4118,11 @@ start$l
 	FNLDR	R4,wimp_block		; Where to write string.
 ;	LDR R2,[R9,#f_len]		; len
 totalloop$l
+	SWI	XOS_ReadEscapeState	; does the user want to break out? - on error, ignore
+	BCS	stop$l
 	ADDS	R6,R6,#1		; clv here!
 	CMP	R6,R7
-	FNRTS	CS			; exit
+	BCS	exit$l
 	MOV	R0,R6
 	BL	cln_readc
 ;	TEQ R11,#0
@@ -4168,8 +4168,12 @@ nofullstops$l
 	MOVNE	R2,#0
 	ADD	R5,R5,R2		; hopefully...
 	B	start$l
+exit$l	BL	long_op_off		; hourglass off, disable escape
+	FNRTSS				; exit, resetting flags to entrance ...
+stop$l	BL	long_op_off
+	FNRTV				; exit, setting V
 
-	DCD	1 + (1<<16) + (1<<15)	; No R10, but opens a window + shade.
+	DCD	1 + c_CanCreateSubMenu + c_TickableMenuEntry	; No R10, but opens a window + shade.
 WCSel
 	STMFD	R13!,{R14}
 	MOV	R7,R2			; Remember R2.
@@ -4203,7 +4207,7 @@ WCSel
 
 	B	WC_Primitive
 
-	DCD	1 + (1<<16)		; No R10, but opens a window.
+	DCD	1 + c_CanCreateSubMenu		; No R10, but opens a window.
 WC
 	STMFD	R13!,{R14}
 	; BL get2_WCBox ; set up r0.
@@ -4281,25 +4285,30 @@ WCOutput
 	MOV	R0,#' '
 	STRB	R0,[R1],#1
 
+	ADD	R3,R2,#WCString_End-WCString-16
+	MOV	R2,R1
 	CMP	R11,#0
-	BLEQ	wordsone$l
+	BLEQ	words$l
 	CMP	R11,#1
-	BLEQ	matchesone$l
-;	CMP	R11,#2
-;	BLEQ	totalone$l
-
-	; Catenate "s" if word count not 1.
-	TEQ	R5,#1
-	TEQNE	R11,#2		; Total...?
-	MOVNE	R0,#'s'
-	STRNEB	R0,[R1],#1
-
-	; NUL terminator.
-	MOV	R0,#0
-	STRB	R0,[R1],#1
+	BLEQ	matches$l
+	BL	lookup_token
 
 	; If Zap just wants a window handle, return.
+	; If not, close the menu now ...
+	CMP	R7,#16
+	BEQ	dontclose$l
+	MOV	R1,#-1
+	SWI	XWimp_CreateMenu
+	LDMVSFD	R13!,{PC}
+	; This isn't necessary, because we call Wimp_CreateMenu below
+	; which will do this job for us if necessary. However doing this
+	; now fails if the last menu was this window - because we've
+	; already deleted this window, and a bug in the wimp blows up
+	; when it tries to close a deleted window (I think it's just
+	; failing to track the delete window through the menu phase.)
+	; - sja
 
+dontclose$l
 	MOV	R0,#t_WCBox
 	MOV	R2,#16
 	BL	open_leaf_com ; returns handle in R0...
@@ -4311,15 +4320,6 @@ WCOutput
 
 	MOV R7,R0
 
-	; We're on our own...
-;	MOV	R1,#-1			; Remove any open menu.
-;	SWI	XWimp_CreateMenu
-;	LDMVSFD	R13!,{PC}		; Return on error.
-	; Don't need to do this - we call Wimp_CreateMenu later on.
-	; This can expose a bug in the Wimp if the menu is our window,
-	; because we have previously deleted it (in open_leaf_com above).
-	; - sja
-
 	; what about adjust clicks on a menu entry...?
 	MOV R0,#4
 	FNSTR R0,wimp_menub		; get button state
@@ -4327,24 +4327,17 @@ WCOutput
 
 	; Open the window at the pointer.
 	SWI	XOS_Mouse		; Where is the pointer?
-	MOV	R2,R0
-	SUB	R2,R2,#150
-	MOV	R3,R1
-	ADD	R3,R3,#50
+	SUB	R2,R0,#150
+	ADD	R3,R1,#50
 	MOV	R1,R7
 	SWI	XWimp_CreateMenu
 	; Return.
 	LDMFD	R13!,{PC}
 
-wordsone$l
-	MOV	R0,#'w'
-	STRB	R0,[R1],#1
-	MOV	R0,#'o'
-	STRB	R0,[R1],#1
-	MOV	R0,#'r'
-	STRB	R0,[R1],#1
-	MOV	R0,#'d'
-	STRB	R0,[R1],#1
+words$l
+	TEQ	R5,#1
+	ADREQ	R1,wordone_text$l
+	ADRNE	R1,wordmany_text$l
 	MOV	PC,R14
 
 ;totalone$l
@@ -4360,21 +4353,17 @@ wordsone$l
 ;	STRB	R0,[R1],#1
 ;	MOV	PC,R14
 
-matchesone$l
-	MOV	R0,#'m'
-	STRB	R0,[R1],#1
-	MOV	R0,#'a'
-	STRB	R0,[R1],#1
-	MOV	R0,#'t'
-	STRB	R0,[R1],#1
-	MOV	R0,#'c'
-	STRB	R0,[R1],#1
-	MOV	R0,#'h'
-	STRB	R0,[R1],#1
+matches$l
 	TEQ	R5,#1
-	MOVNE	R0,#'e'
-	STRNEB	R0,[R1],#1
+	ADREQ	R1,matchone_text$l
+	ADRNE	R1,matchmany_text$l
 	MOV	PC,R14
+
+wordone_text$l		= "zap_wc_word",0
+wordmany_text$l		= "zap_wc_words",0
+matchone_text$l		= "zap_wc_match",0
+matchmany_text$l	= "zap_wc_matches",0
+	ALIGN
 
 adjusttitledata
 	FNJSR	"R0,R1,R2"
@@ -4384,46 +4373,47 @@ adjusttitledata
 	SWI	XWimp_GetWindowInfo
 	LDR	R1,[R1,#76]		; inditected title bar text pointer
 	CMP	R11,#1
-	ADRLT	R2,wordcounttb
-	ADREQ	R2,matchcounttb
-	ADRGT	R2,totalcounttb
+	ADRLT	R0,wordcounttb
+	ADREQ	R0,matchcounttb
+	ADRGT	R0,totalcounttb
+	BL	lookup_token_R0
+	MOV	R2,R0
 	BL	strcopy
 	FNRTS
 
 wordcounttb
-	=	"Word count",0
+	=	"zap_i_wc",0
 
 matchcounttb
-	=	"Match count",0
+	=	"zap_i_mc",0
 
 totalcounttb
-	=	"Total",0
+	=	"zap_i_tc",0
 
 WCnoselmessage
-	FNS	("There is no selection to analyse")
+	FNS	("zap_NoSelToAnalyse")
 
 WCError
 	MOV	R8,R4
 	MOV	R9,R5
-	CMPCS	R7,#15
-	LDMEQFD	R13!,{PC}
-	ADR	R0,WCnoselmessage
-	MOV	R1,#0
-	BL	warn_user
+	CMP	R7,#15;CMPCS
+	ADRLO	R0,WCnoselmessage
+	MOVLO	R1,#warn_UseMessageTrans
+	BLLO	warn_user
 	LDMFD	R13!,{PC}
 
 WCString
 ;	=	"-- Nathalie L. Foster --"
 	=	10,"-- Sorry Elliot --",10
+WCString_End
 	ALIGN
 
 cw_WCBox
-	FNJSR
 ;	FNLDR	R0,wimp_block		; Where to write string.
 ;	ADD	R0,R0,#60
 	ADR	R0,WCString
 	STR	R0,[R6,#(88+20)]
-	FNRTS
+	MOV	PC,R14
 
 lc_WCBox			; hmm.
 	B	c_ret
@@ -4436,10 +4426,12 @@ lc_WCBox			; hmm.
 ; Mini buffer						;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+	LOCAL
+
 cw_MiniBuf
 	FNJSR
 	FNLDR	R0,opt_flags
-	TST	R0,#1<<23
+	TST	R0,#flags_PopupMinibuffer
 	LDR	R0,[R6,#28]		; get window flags
 	BICEQ	R0,R0,#1<<26		; remove title if popup
 	ORREQ	R0,R0,#1<<5		; it is a pane if popup
@@ -4453,7 +4445,7 @@ lc_MiniBuf
 	;BL	get_MiniBuf
 	;TEQ	R1,R7
 	;BNE	c_ret	; minibuffer...?
-	TST	R4,#4
+	TST	R4,#5
 	BNE	lc_Mini_select
 	TST	R4,#2
 	BNE	lc_Mini_histmenu
@@ -4474,8 +4466,7 @@ lc_Mini_drag
 	CMP	R0,#32			; near right hand edge?
 	MOVLE	R0,#2			; drag window size
 	MOVGT	R0,#1			; drag window posn
-	STR	R0,[R1,#4]
-	STR	R2,[R1,#8]
+	STMIB	R1,{R0,R2}
 	STR	R2,[R1,#16]		; min/max x
 	STR	R3,[R1,#12]
 	STR	R3,[R1,#20]		; min/max y
@@ -4483,6 +4474,42 @@ lc_Mini_drag
 	B	c_ret
 
 lc_Mini_select
+	MOV	R5,R2
+	MOV	R0,#129
+	MOV	R1,#255
+	MOV	R2,#255
+	SWI	XOS_Byte
+	BVS	c_ret
+	BCS	leave_caret$l
+	FNLDR	R1,wimp_block
+	LDR	R0,[R7,#8]
+	STR	R0,[R1]			; window handle
+	SWI	XWimp_GetWindowState
+	BVS	c_ret
+	LDR	R3,[R1,#4]		; left edge
+	LDR	R1,[R1,#20]		; x scroll offset
+	SUB	R2,R5,R3
+	ADD	R2,R2,R1		; calculate xpos
+	BL	checkfortextop
+	MOVLT	R5,R2,LSR #4		; system font - use xpos/16
+	BLT	sysfont$l
+	SUB	R3,R2,#8		; adjust for left margin
+	ADD	R2,R3,R3,LSL #3
+	ADD	R2,R2,R3,LSL #4		; xpos*25
+	MOV	R2,R2,LSL #4		; xpos*400 (ie. millipoints)
+	MOV	R3,#0
+	FNLDR	R1,mini_ptr
+	SWI	XFont_FindCaret
+	BVS	c_ret
+sysfont$l
+	FNLDR	R1,mini_mark
+	FNLDR	R2,mini_len
+	CMP	R5,R1
+	MOVLO	R5,R1
+	CMP	R5,R2
+	MOVHI	R5,R2
+	FNSTR	R5,mini_off
+leave_caret$l
 	BL	minibuffer_setcaret		; gain input focus
 	B	c_ret
 
@@ -4670,10 +4697,9 @@ lc_ColourBox
 	BCC	ColourBox_adjust	; click on an up/down adjust icon
 	TST	R4,#1+(1<<31)
 	BEQ	c_ret			; no return/move
-	TEQ	R5,#19
-	TEQNE	R5,#20
-	TEQNE	R5,#21
-	BEQ	ColourBox_enter
+	SUB	R0,R5,#19
+	CMP	R0,#3
+	BLO	ColourBox_enter
 	B	c_ret
 
 setitifsimple$l
@@ -4763,19 +4789,16 @@ click$l
 	B	c_ret
 sub$l
 	FNJSR	"R1-R7"
-	FNind	R7,t_ColourBox
-	LDR	R6,[R7]			; window
+	FNindw	R6,R7,t_ColourBox	; window
 	MOV	R5,R11			; icon handle was data
 	FNLDR	R1,wimp_block
 	SWI	XWimp_GetPointerInfo
-	LDRVC	R2,[R1]
-	LDRVC	R3,[R1,#4]		; x and y
+	LDMVCIA	R1,{R2,R3}		; x and y
 	BLVC	icon_get_coord		; convert R2/R3 to icon relative
 	FNRTS	VS
-	ADD	R0,R6,#88
-	ADD	R0,R0,R5,LSL#5		; icon data
-	LDR	R1,[R0,#8]
-	LDR	R0,[R0]
+	ADD	R0,R6,#88+8		; icon data + 8
+	LDR	R1,[R0,R5,LSL #5]!	; + icon num
+	LDR	R0,[R0,#-8]
 	SUB	R1,R1,R0		; icon width
 	MOV	R0,R2,LSL#8		; offset *256
 	SWI	XZapRedraw_Divide	; BL div_mod
@@ -4943,7 +4966,7 @@ set_colourbox			; make tem_colour the chosen one + update
 	AND	R1,R4,#&FF			; mode
 	CMP	R2,#9
 	BGE	a$l			; just this mode
-	TST	R4,#1<<30
+	TST	R4,#format_ColoursSetsGivenMode
 	MOVEQ	R1,#-1			; do all modes
 a$l
 	BL	mode_colour_all		; set the colour(s)
@@ -5034,13 +5057,338 @@ lc_MoveBox_tofront
 keys$l = 'X',3,'C',4,'R',5,'T',6,'A',7,'S',8,0
 	ALIGN
 
-	DCD	1+(1<<16)+(1<<28)
+	DCD	1+c_CanCreateSubMenu+c_MovesInputOrKeymap+c_TickableMenuEntry
 Movebox
+	TEQ	R2,#15
+	BEQ	disknav_tick
 	LDR	R0,[R9,#f_cmode]
 	TEQ	R0,#1			; is it a dzap created file?
 	MOVNE	PC,R14
 	MOV	R0,#t_MoveBox
 	B	open_leaf_com
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Clone box					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	DCD	7+c_CanCreateSubMenu+c_MovesInputOrKeymap
+Clonebox
+	MOV	R8,#0
+	MOV	R9,#0
+	MOV	R0,#t_CloneBox
+	B	open_leaf_com
+
+lc_CloneBox
+	CMP	R5,#&180
+	BGE	passonafnkeythencret
+	TST	R4,#2
+	MOVNE	R5,#4
+	SUB	R5,R5,#4
+	CMP	R5,#5
+	ADDLO	PC,PC,R5,LSL #2
+	B	c_ret
+	B	lc_CloneBox_menu
+	B	lc_CloneBox_create
+	B	lc_CloneBox_delete
+	B	lc_CloneBox_hide
+	B	lc_Dying_cancel
+
+	LOCAL
+
+lc_CloneBox_menu
+	BL	recreate_the_leaf_window
+	BVS	c_ret
+	ADR	R0,clone$l
+	ADR	R1,build$l
+	MOV	R2,#0
+	ADR	R3,click$l
+	MOV	R4,#16
+	FNLDR	R8,ext_clones
+	B	lc_build_menu
+clone$l	FNS	("zap_m_clone")
+build$l	FNJSR	"R1-R2,R5"
+	MOV	R5,R0
+	LDR	R2,[R8],#4
+	TEQ	R2,#0
+	MOVEQ	R0,#-1
+	FNRTS	EQ			; reached the end of the list
+	MOV	R1,R5			; buffer for string
+	BL	strcopy			; copy it in
+	LDR	R0,[R8,#-4]		; index -> mode name
+	FNRTS
+click$l	MOV	R1,R10
+	B	CloneBox_show
+
+lc_CloneBox_create
+	FNind	R7,t_CloneCrBox
+	BL	create_open_leaf
+	LDRVC	R0,[R7,#8]		; window handle
+	MOVVC	R1,#2
+	MOVVC	R2,#0
+	MOVVC	R3,#0
+	MVNVC	R4,#0
+	MVNVC	R5,#0
+	SWIVC	XWimp_SetCaretPosition
+	B	c_ret
+
+lc_CloneBox_delete
+	MOV	R5,#2
+	BL	icon_getind
+	MOV	R1,R0
+	MOV	R2,#0
+	BL	remove_clone_mode_entry
+	BLVC	CloneBox_findaclone
+	B	c_ret
+
+lc_CloneBox_hide
+	MOV	R5,#2
+	BL	icon_getind
+	MOV	R5,R0
+	MOV	R1,R0
+	MOV	R2,#1
+	BL	remove_clone_mode_entry
+	MOVVC	R0,R5
+	BLVC	CloneBox_shade
+	B	c_ret
+
+	LOCAL
+
+cw_CloneBox
+	FNJSR
+	MOV	R5,#2			; clone name icon
+	BL	icon_getind
+	BL	test_mode_name
+	TEQ	R0,#0
+	BMI	findaclone$l
+	MOV	R2,R0
+	BL	CloneBox_isthisaclone
+	FNPULL	NE			; OK, we have a clone...
+	LDRNE	R0,[R1,#e_title*2]
+	BNE	CloneBox_shade
+findaclone$l
+	FNPULL
+;fall through to CloneBox_findaclone
+
+	LOCAL
+
+CloneBox_findaclone
+	FNJSR
+	MOV	R2,#-1
+loop$l	ADD	R2,R2,#1
+	CMP	R2,#max_mode		; tried all mode numbers?
+	BHS	no$l
+	MOV	R0,R2
+	BL	CloneBox_isthisaclone
+	BEQ	loop$l			; no - try next mode number
+	LDR	R1,[R1,#2*e_title]	; get mode name
+	FNPULL
+	B	CloneBox_show
+no$l	FNLDR	R1,ext_clones
+	LDR	R1,[R1]
+	FNPULL
+; fall through to CloneBox_show
+
+	LOCAL
+
+;E R0->mode name
+CloneBox_show
+	FNJSR	"R2,R6,R7"
+	FNindw	R6,R7,t_CloneBox	; window
+	BL	find_clone_mode_entry
+	MOV	R4,R1
+	MOV	R5,#3
+	BL	icon_bufferstr
+	MOVVC	R0,R1
+	MOVVC	R5,#2
+	BLVC	icon_bufferstr
+	FNRTS	VS
+	MOV	R0,R4
+	BL	test_mode_name
+	TEQ	R0,#0
+	MOVMI	R0,R4
+	BMI	shade$l
+	BL	read_mode
+	LDR	R0,[R1,#2*e_title]
+shade$l	BL	CloneBox_shade
+	FNRTS
+
+;E R0->mode name, or null
+;X icons (un)shaded appropriately
+CloneBox_shade
+	MOVS	R1,R0
+	FNJSR	"R1"
+	MOV	R0,#1<<22
+	MOVEQ	R1,#1<<22
+	MOVNE	R1,#0
+	MOV	R5,#4
+	BL	icon_alter	; menu icon
+	MOVVC	R0,#1<<22
+	MOVVC	R5,#6
+	BLVC	icon_alter	; 'delete' icon
+	FNRTS	VS
+	LDR	R0,[R13]
+	TEQ	R0,#0
+	BLNE	test_mode_name
+	CMP	R0,#0
+	MOV	R0,#1<<22
+	MOVLE	R1,#1<<22	; OK since mode 0 (Text) is never a clone
+	MOVGT	R1,#0
+	MOV	R5,#7
+	BL	icon_alter	; 'hide' icon
+	FNRTS	VS
+	LDR	R0,[R13]
+	TEQ	R0,#0
+	FNRTS	NE
+	MOV	R5,#2
+	BL	icon_clear	; clone name
+	MOVVC	R5,#3
+	BLVC	icon_clear	; clone base name
+	FNRTS
+
+;E R0=R2=mode
+;X R1=0 or -> linked table; NE if mode is a clone (R0=base)
+CloneBox_isthisaclone
+	FNJSR
+	BL	read_mode
+	TEQ	R0,#0
+	LDRNE	R0,[R1,#d_clonebasemode]
+	TEQNE	R0,R2
+	FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Clone creation box				;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+lc_CloneCrBox
+	CMP	R5,#&180
+	BGE	passonafnkeythencret
+	TST	R4,#2
+	MOVNE	R5,#4
+	ADR	R0,keys$l
+	BL	key_to_click
+	SUB	R5,R5,#4
+	CMP	R5,#3
+	ADDLO	PC,PC,R5,LSL #2
+	B	c_ret
+	B	lc_CloneCrBox_menu
+	B	lc_Dying_cancel
+	B	lc_CloneCrBox_create
+keys$l	=	13,6,0
+	ALIGN
+
+	LOCAL
+
+lc_CloneCrBox_menu
+	ADR	R0,title$l
+	ADR	R1,build$l
+	MOV	R2,#0
+	ADR	R3,click$l
+	MOV	R4,#16
+	MOV	R8,#0
+	MOV	R9,#0
+	B	lc_build_menu
+title$l	FNS	("zap_m_mode")
+build$l	FNJSR	"R1-R2,R5"
+	MOV	R10,R0			; save buffer address
+	ADD	PC,PC,R9,LSL #2
+	FNRTS
+	B	mode$l
+	B	clone$l
+	B	unloaded$l
+mode$l	CMP	R8,#max_mode
+	ADDEQ	R9,R9,#1
+	FNLDR	R8,ext_clones,EQ	; list of clone modes
+	BEQ	clone$l
+	MOV	R0,R8
+	BL	read_mode
+	ADD	R8,R8,#1
+	TEQ	R0,#0
+	LDRNE	R0,[R1,#2*e_mode]
+	TSTNE	R0,#emode_MayBeCloned
+	BEQ	mode$l
+	LDR	R0,[R1,#d_clonebasemode]
+	ADD	R0,R0,#1
+	TEQ	R0,R8
+	BNE	mode$l
+	LDR	R2,[R1,#2*e_title]	; mode name
+	MOV	R1,R10
+	MOV	R10,R2
+	BL	strcopy
+	MOV	R0,R10			; index -> mode name
+	FNRTS
+clone$l	LDR	R2,[R8],#4
+	TEQ	R2,#0
+	ADDEQ	R9,R9,#1
+	FNLDR	R8,ext_modes,EQ		; list of external modes
+	BEQ	unloaded$l
+	LDRB	R1,[R6,#11]
+	EOR	R1,R1,#15		; set to blue
+	STRB	R1,[R6,#11]
+	MOV	R1,R10
+	BL	strcopy
+	LDR	R0,[R8,#-4]		; index -> mode name
+	FNRTS
+loaded$l
+	MOV	R0,R8
+	BL	str_len
+	ADD	R8,R8,R0
+	ADD	R8,R8,#12
+	BIC	R8,R8,#3
+unloaded$l
+	LDR	R14,[R8]
+	TEQ	R14,#0
+	MOVEQ	R0,#-1
+	FNRTS	EQ			; reached the end of the list
+	MOV	R0,R8
+	BL	test_mode_name
+	TEQ	R0,#0
+	BPL	loaded$l
+	MOV	R0,R8
+	BL	str_len
+	ADD	R11,R8,R0
+	ADD	R11,R11,#12		; skip terminator, flags & offset
+	BIC	R11,R11,#3		; align
+	LDR	R0,[R11,#-8]
+	TST	R0,#1<<31
+	BNE	loaded$l		; if flags unspecified, don't list
+	TST	R0,#emode_MayBeCloned
+	BEQ	loaded$l		; if not cloneable, don't list
+	LDRB	R1,[R6,#11]
+	BIC	R1,R1,#2		; set menu entry to grey-5
+	STRB	R1,[R6,#11]
+	MOV	R1,R10
+	MOV	R2,R8
+	BL	strcopy
+	MOV	R0,R8			; index -> mode name
+	MOV	R8,R11			; point at next name
+	FNRTS
+click$l	MOV	R0,R10
+	MOV	R5,#3
+	FNindw	R6,R7,t_CloneCrBox	; window
+	B	icon_bufferstr
+
+lc_CloneCrBox_create
+	FNLDR	R1,wimp_buffer
+	MOV	R5,#2
+	BL	icon_getind
+	MOV	R2,R0
+	BL	strcopy
+	MOV	R0,#32
+	STRB	R0,[R1,#-1]
+	MOV	R5,#3
+	BL	icon_getind
+	MOV	R2,R0
+	BL	strcopy
+	FNLDR	R0,wimp_buffer
+	MOV	R2,#0
+	BL	CloneCreate
+	BVS	c_ret
+	MOV	R5,#2
+	BL	icon_getind
+	BL	CloneBox_show
+	B	s_ret
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; End of boxes list					;
