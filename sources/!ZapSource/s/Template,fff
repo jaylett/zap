@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.0 2000/02/22 15:51:51 james Exp $
+; $Id: Template,fff,v 2.1 2000/10/11 15:29:07 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -59,6 +59,7 @@
  EXPORT conv_addr_str
  EXPORT key_to_click
  EXPORT free_font_handles
+ EXPORT window_info
 
  EXPORT icon_getind
  EXPORT icon_getflags
@@ -2543,6 +2544,32 @@ delete_swap_window
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Other subs							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ LOCAL
+
+;E R11=Message_WindowInfo block.
+window_info
+ FNJSR "R1-R12"
+ SYSLOG "Message: Message_WindowInfo", LOG_WINDOW
+
+ LDR R0,[R11,#20]	; window handle
+ BL	convert_leaf_wind_handle
+ FNRTS CS		; I don't understand it
+
+ LDR R1,[R0,#zapwindow_handle]
+ CMP R0,#-1
+ BEQ dead$l		; already been deleted?!
+ LDR R1,[R0,#zapwindow_flags]
+ TST R1,#zapwindow_StaticWindow
+ ORR R1,R1,#zapwindow_StaticWindow
+ STR R1,[R0,#zapwindow_flags]
+ MOVEQ R1,#-1		; was a menu leaf window
+ SWIEQ XWimp_CreateMenu	; so kill the menu
+ FNRTS
+
+dead$l
+ SYSLOG "Message: Message_WindowInfo on deleted window!", LOG_WINDOW
+ FNRTS
 
  LOCAL
 

@@ -1,5 +1,15 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.0 2000/02/22 15:51:51 james Exp $
+; $Id: Undo,fff,v 2.1 2000/10/11 15:29:07 james Exp $
+
+; *** Important notes on symbolisation ***
+;
+; I'm only part way through converting this to use symbols instead of
+; hard-coded constants. I've now got the command flags and masks working
+; (I think :-), and the next step is to figure out exactly what the
+; structure is, and start using constants wherever possible for that.
+; I have a feeling that's very tricky, since this is all variable-length
+; structure stuff, but we'll see.
+;			-- sja
 
  GET h.ZapHeader
  GET h.TMTVars
@@ -80,22 +90,56 @@ udata			* &07		; undo data block increment mask
 ; &07:	Start of a multiple operation marker. (see Zap_StartOp) No data.
 ; &17:	End of a muliple operation marker. (see Zap_StopOp) No data.
 
-			^	0
-undo_Length		#	4
-undo_Type		#	1
-undo_Offset		#	4	; used by everything that has data
-undo_Data		#	0	; most have one (or two same-sized) data area(s)
+; UNUSED LAYOUT STRUCTURE -- I'm fairly certain that the above
+; comments this is based on are actually totally wrong (see E-File).
+;			-- sja
+;			^	0
+;undo_Length		#	4
+;undo_Type		#	1
+;undo_Offset		#	4	; used by everything that has data
+;undo_Data		#	0	; most have one (or two same-sized) data area(s)
 
-undo_Type_fastundo	*	0x00
-undo_Type_fastredo	*	0x10
-undo_Type_insert	*	0x01
-undo_Type_delete	*	0x02
-undo_Type_replace_fwd	*	0x03
-undo_Type_replace_bwd	*	0x04
-undo_Type_delete_CAS	*	0x05
-undo_Type_insert_CAS	*	0x06
-undo_Type_startop	*	0x07
-undo_Type_stopop	*	0x17
+undo_Length		*	4	; length field tends to be here ...
+
+undo_Type_fastundo	*	(0x00)
+undo_Type_fastredo	*	(0x10)
+undo_Type_startop	*	(0x07)
+undo_Type_stopop	*	(0x17)
+
+command_mask		*	(0x7)	; extract the actual command number. Note that undo-internal
+					; commands (eg: undo_Type_stopop) come out as either 0 or 7
+					; when masked with this ... hence, below, we deal with them:
+command_Illegal		*	(7)	; a command number which cannot exist. It's used internally,
+					; yes, but not in the places you'd test for this. Note that
+					; you also want to test that the command number isn't 0 ...
+					; do this by:
+					;  ANDS Rn, Rn, #command_mask
+					;  CMPNE Rn, #command_Illegal
+					;  ... evasive action on EQ ...
+					; This is a little evil, and should probably be wrapped in
+					; a nice macro (IS_ILLEGAL Rn[, Rm] or something).
+
+command_LongOp		*	(command_Illegal)	; undo special op
+command_FastOp		*	(0)			; undo special op
+
+undo_Type_mask		*	(0x17)
+undo_Type_shift		*	(26)
+
+; These are within a de-shifted undo block. b0-b2 give
+; the command_ type.
+undo_Block_Start	*	(1:SHL:5)
+undo_Block_IsAtomic	*	(1:SHL:4)
+undo_Block_DontFreeData	*	(1:SHL:3)
+
+; To make life worse, we use b25 (ie: the top of the data area below the
+; command) to indicate that this is a region select action as well as whatever
+; else. ie: we transfer command_SelectRegion into undo_SelectRegion:
+undo_SelectRegion	*	(1:SHL:25)
+
+; Look at what we've got left of this first word. We've cleared out b25-b31,
+; so we're left with b0-b24. This is 0x01ffffff; the inverse is 0xfe000000.
+undo_Information_mask	*	(0xfe000000)
+undo_Data_mask		*	(0x01ffffff)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Undo and redo							;
@@ -147,20 +191,20 @@ un7
  ADD R0,R7,R6			; this command
  LDR R14,[R0]			; get command
 
- MOV R1,R14,LSR #26		; command number
- AND R1,R1,#&17			; actual command number
- TEQ R1,#&17
+ MOV R1,R14,LSR #undo_Type_shift
+ AND R1,R1,#undo_Type_mask	; actual command number
+ TEQ R1,#undo_Type_stopop
  BEQ un22			; multiop (end)
- TEQ   R1,#&07			; mutilop start (woops)
- TEQNE R1,#&10			; fast redo (woops)
+ TEQ   R1,#undo_Type_startop	; mutilop start (whoops)
+ TEQNE R1,#undo_Type_fastredo	; fast redo (whoops)
  BEQ un7			; loop
- TEQ R1,#0
+ TEQ R1,#undo_Type_fastundo
  LDRNE R8,[R0,#4]
  BNE un7			; proper command
  TEQ R10,#0
  BNE un7			; fast undo not requested
  LDR R8,[R0,#4]			; new undop
- MOV R0,#&10
+ MOV R0,#undo_Type_fastredo
  ADD R1,R6,#8			; next command (at end of fast redo)
  BIC R6,R14,#&FE000000		; new undo ; FC000
  BL buffer_command		; buffer fast redo pointer
@@ -170,16 +214,11 @@ un8
  BL undo_invert_command		; find inverse command
  LDMVSFD R13!,{R1-R11,PC}
  MOV R10,R0			; save command
-; STMFD R13!,{R1-R5}
  PUSH "R1-R5"
-; BIC R0,R0,#&40 ; XXX
  BL do_command
-; ORR R0,R0,#&40 ; XXX
-; LDMFD R13!,{R1-R5}		; save bit3 set command
  PULL "R1-R5"			; ???
  MOVVC R0,R10
  BLVC buffer_command		; execute and buffer command
-; LDMVSFD R13!,{R1-R11,PC}
  SUBVC R8,R8,R2			; reduce undop by number done
 un9
  STRVC R6,[R9,#f_undo]
@@ -187,14 +226,9 @@ un9
 un9a
 un9b
  LDMFD R13!,{R1-R11,PC}
- ;STR R6,[R9,#f_undo]
- ;STR R8,[R9,#f_undop]		; save vals
- ;SWI &107
- ;LDMFD R13!,{R1-R11,PC}
- ;LDMFD R13!,{R1-R11,PC}
 un22
  BL undo_start_operation	; start a multiop
- MOV R0,#&07
+ MOV R0,#undo_Type_startop
  BL buffer_command		; add marker for command start
  BVS un24
 ; try next command...
@@ -214,11 +248,7 @@ un23
  BEQ un24			; out of data
  MOV R10,R0			; save command
  PUSH "R1-R5"
-; STMFD R13!,{R1-R5}
-; BIC R0,R0,#&40 ; XXX
  BL do_command
-; ORR R0,R0,#&40 ; XXX
-; LDMFD R13!,{R1-R5}		; save bit3 set command
  PULL "R1-R5"			; ???
  BVS un24
  MOV R0,R10
@@ -226,14 +256,11 @@ un23
  BVC un23			; try next command
 un24
  BL undo_stop_operation		; display result
- MOVVC R0,#&17
+ MOVVC R0,#undo_Type_stopop
  BLVC buffer_command		; add marker at the end
  MOVVC R8,#0			; finished this command
  BVC un9			; save new pointers
  LDMFD R13!,{R1-R11,PC}
-
-;undowarning
-; = "No more to undo",0
 
 ;E R0=suggested number of chars to redo R9=file
 ;X last undo redone #
@@ -243,28 +270,22 @@ redo_command
  MOV R2,R0			; save suggested num chars
  BL pre_undo			; check text ready for input
  FNRTS VS
-; FNRTS CS		 	; no undo supported
  LDRCC R7,[R9,#f_uptr]
  LDRCC R6,[R9,#f_ulen]
  LDRCC R10,[R9,#f_undo]
  LDRCC R11,[R9,#f_undop]		; current undo/undop
  CMPCC R10,R6
-; FNRTS CS			; nothing to redo
  BLCC redo_back
  CMPCC R10,R6
  FNRTS CS			; nothing to redo
- TEQ R0,#&17			; end of multiop
+ TEQ R0,#undo_Type_stopop
  BEQ un25			; redo whole of multiop
- TEQ R0,#7			; start of multiop
+ TEQ R0,#undo_Type_startop
  BEQ un12			; skip it
  ADD R0,R7,R6
- LDR R8,[R0,#4]			; get length of command
+ LDR R8,[R0,#undo_Length]	; get length of command
  BL undo_invert_command		; find inverted command
-; PUSH "R1-R5"
-; BIC R0,R0,#&40 ; XXX
  BLVC do_command		; and do it
-; ORR R0,R0,#&40 ; XXX
-; PULL "R1-R5"
  BLVC unbuffer_command		; remove this command from the undo buffer
  FNRTS VS			; nothing to redo
  SUB R8,R8,R2			; number of chars left in this command
@@ -304,49 +325,30 @@ un26
  MOV R11,#0			; done none of the next
  BL redo_back
 
-; was...
-; not this...
-; CMP R10,R6
-
-; now...
-; but this...?
  LDR R14,[R9,#f_ulen]
  CMP R10,R14			; was compare with R6 - bug.
 				; hmm, this never seems to fire, though...
 
  BCS un27			; nothing left to redo...
  ADD R0,R7,R6			; command
- LDR R8,[R0,#4]			; get length of command
+ LDR R8,[R0,#undo_Length]
  MOV R2,R8			; amount to redo
  BL undo_invert_command		; find inverted command
  BVS un27
  ANDS R14,R0,#&07
  EORNES R14,R14,#7
  BEQ un27			; end of multiop
-; PUSH "R1-R11"
-; PUSH "R1-R5"			; ???
-; BIC R0,R0,#&40 ; XXX
  BLVC do_command		; and do it
-; ORR R0,R0,#&40 ; XXX
-; PULL "R1-R5"			; ???
  BLVC unbuffer_command		; remove this command from the undo buffer
-; BVS un27
  BVC un26				; loop to next command
-; B un27
 un27
  BL undo_stop_operation
-; SWI &107
  BVC un12			; this command done
  FNRTS
-;un27a
-; BL undo_stop_operation
-; SWI &107
-; BVC un12			; this command done
-; FNRTS
 
-; IN R6=ulen R7=uptr R10=undo R11=undop
-;OUT R6=first previous proper instruction (1-7)
-;    R0=instruction number &17, R10/R11 updaded by fast redos
+;\E R6=ulen R7=uptr R10=undo R11=undop
+;\X R6=first previous proper instruction (1-7)
+;   R0=instruction number &17, R10/R11 updaded by fast redos
 
 redo_back
  STMFD R13!,{R1,R14}
@@ -358,10 +360,10 @@ un11
  MOV R6,R0
  ADD R0,R7,R6			; address of previous instr
  LDR R14,[R0]			; previous instruction
- MOV R1,R14,LSR#26
- ANDS R0,R1,#&17		; instruction number
+ MOV R1,R14,LSR#undo_Type_shift
+ ANDS R0,R1,#undo_Type_mask
  BEQ un11			; a fast undo (shouldnt be there!!)
- TEQ R0,#&10
+ TEQ R0,#undo_Type_fastredo
  LDMNEFD R13!,{R1,PC}		; found a proper instruction
  BIC R10,R14,#&FE000000		; a fast redo to this point
  MOV R11,#0
@@ -378,15 +380,15 @@ local_yank_temp_col
 ;X last blocks before yank_off yanked #
 
 yank_command
- STMFD R13!,{R6,R14}
+ FNJSR "R6"
  BL possiblystorecolumn
  FNLDR R6,yank_off		; current yank offset
  BL yank_cancel			; pre_input and cancel _off=_len
  BLVC yank_paste_command
- LDMVSFD R13!,{R6,PC}
+ FNRTS VS
  CMP R6,#0			; was an entry found
  FNSTR R6,yank_off,PL		; new yank offset
- LDMFD R13!,{R6,PC}
+ FNRTS
 
 possiblystorecolumn
  FNJSR
@@ -421,7 +423,7 @@ un17
  LDR R3,[R9,#f_uptr]
  LDMFD R13!,{R9}		; get R3=start of undo
  ADD R3,R3,R2			; entry address
- LDR R2,[R3,#4]			; length
+ LDR R2,[R3,#undo_Length]
  LDR R3,[R3,#8]			; data address
  B un29
 un28
@@ -429,7 +431,7 @@ un28
 un29
  BL insertsomespaces		; code seems ok.
  ADD R1,R4,R0			; start of region (<cur) & allow for spaces
- MOV R0,#&39			; insert block without buf/cur &79 for sel.
+ MOV R0,#(command_Atomic :OR: command_DontUpdateInputCaret :OR: undo_Block_DontFreeData :OR: command_Insert)
  BL execute_command		; perform the yank by inserting text
  BVS un30
  TST R5,#1<<30
@@ -447,9 +449,6 @@ yank_cancel
  CMP R1,R0			; any yank to cancel?
  LDMCSFD R13!,{R1,R9,PC}
  FNLDR R0,yank_file		; last yanked file
-; CMP R0,#-1
-; LDMEQFD R13!,{R1,R9,PC}
-; BEQ noyank
  MOV R1,R9
  BL conv_file_off		; get R9
  CMP R1,R9			; in this file?
@@ -470,12 +469,7 @@ yank_cancel
  LDR R0,local_yank_temp_col
  STR R0,[R10,#c_col]
  BL plot_caret
-
  LDMFD R13!,{R1,R9,PC}
-
-;noyank
-; BL Beep
-; LDMFD R13!,{R1,R9,PC}
 
 ;E R8-R10 input caret to paste at
 ;X last deleted block pasted #
@@ -528,7 +522,7 @@ pastegc_command
  FNSTR R0,opt_temporary
  MOV r6,r10			; pass as r11 to reply$l
  MOV r0,#message_datarequest	; r0 needs to include flags, so:
- ORR r0,r0,#(3:SHL:30 + 1:SHL:28) ; recorded, call reply code
+ ORR r0,r0,#(sendmessage_RecordAndCall :OR: sendmessage_CallOnReply)
  MOV r3,#48			; length
 
  ADR r5,reply$l
@@ -586,7 +580,6 @@ gc_datarequest
 dr1
  SUBS r6,r6,#8			; back one
  BMI pullr1andreturn
-; FNRTS MI			; no more data
  ADD r1,r6,r7			; block address
 
  LDR r5,[r1]			; file/address
@@ -618,7 +611,6 @@ dr2
  ORR R10,R10,#&00FF0000
  ORR r10,r10,#6			; r8/r9 are block delimiters + reply!
  MOV r7,#0			; don't tell me after save finished
-; LDR R1,[R1,#8]			; get reference...
  BL send_data_save		; go
 
  FNRTS
@@ -660,7 +652,7 @@ gc_claimclip
 add_yank_region
  STMFD R13!,{R1-R7,R14}
  MOV R2,R0			; data pos start
- BICS R0,R2,#1<<30
+ BICS R0,R2,#addyank_In_KillSequence
  BNE ad17			; actual block
  BL get_file_off		; R0=file offset
  ADDVC R2,R2,R0			; data pos
@@ -671,10 +663,10 @@ ad18
  LDMCSFD R13!,{R1-R7,PC}
  LDMVSFD R13!,{R1-R7,PC}
  LDR R1,[R7,R0]			; first word
- MOV R1,R1,LSR #26		; get command number
- AND R1,R1,#7			; command number
- TEQ R1,#2			; some kind of delete operation (2 or 5)?
- TEQNE R1,#5
+ MOV R1,R1,LSR #undo_Type_shift
+ AND R1,R1,#command_mask
+ TEQ R1,#command_Delete
+ TEQNE R1,#command_Delete_MaintainCursor
  BNE ad18			; not yet found it
  MOV R3,R0			; offset in undo buffer
  B ad19
@@ -737,7 +729,6 @@ un2
 buffer_command
  STMFD R13!,{R1-R3,R6,R8-R11,R14}
  MOV R10,R0
-; BIC R10,R0,#&FF000000		; Darren's conditionals...?  No.
  MOV R11,R1
  MOV R8,R2			; (LENGTH TT)
  LDR R6,[R9,#f_ulen]
@@ -754,88 +745,69 @@ buffer_command
  ADD R0,R6,#ubuf_size
  STR R0,[R9,#f_ubufl]		; update undo buffer vals
 un3
- BIC R0,R10,#1<<3		; command number
- TEQ R0,#0
+ BIC R0,R10,#undo_Block_DontFreeData	; command number
+ TEQ R0,#command_FastOp
  BEQ buf_new_command
-; was...
-; CMP R0,#5			; !??? TT
-; now...
- CMP R0,#7			; !??? TT
-;
- BCS buf_new_command		; command not 1-4
+ CMP R0,#command_LongOp
+ BCS buf_new_command		; special command ... ?
+
  MOV R0,R6
  BL un_backward
-
  BCS buf_new_command		; no previous command
+
  LDR R14,[R7,R0]
+ TST R14,#undo_SelectRegion	; killing off yet another bit of the first data word ...
+ MOV R14,R14,LSR #undo_Type_shift
+ AND R14,R14,#&1F		; Get command number (0x1f = undo_Type_mask :OR: undo_Block_DontFreeData ... ?)
+ ORRNE R14,R14,#command_SelectRegion	; &40
 
-; was...
-; MOV R14,R14,LSR #26		;
-; AND R14,R14,#&1F		; Get command number
-
-; now...
- TST R14,#(1<<25)		;
- MOV R14,R14,LSR #26		;
- AND R14,R14,#&1F		; Get command number
- ORRNE R14,R14,#&40		;
-;
  TEQ R10,R14
  BNE buf_new_command		; not the same as the previous command
- BIC R14,R10,#1<<3		; command number (!?)
- TEQ R14,#1
- TEQNE R14,#3
- TEQNE R14,#6
+ BIC R14,R10,#undo_Block_DontFreeData	; command number
+ TEQ R14,#command_Insert
+ TEQNE R14,#command_Replace
+ TEQNE R14,#command_Insert_MaintainCursor
  BEQ buf_concat_top
- TEQ R14,#2			; ?
- TEQNE R14,#4			; ?
- TEQNE R14,#5			; ?
+ TEQ R14,#command_Delete
+ TEQNE R14,#command_ReplaceBackwards
+ TEQNE R14,#command_Delete_MaintainCursor
  BEQ buf_concat_bottom
-
+ ; else drop through ...
 buf_new_command
-; new...
- CMP R6,#0			; otherwse address exceptions!?
+ CMP R6,#0			; otherwise address exceptions!?
  CMPPL R7,#0
  LDMMIFD R13!,{R1-R3,R6,R8-R11,PC}
 
-;; BMI aproblem1$l		; nope
- ORR R14,R11,R10,LSL#26
- ORR R14,R14,#1<<31		; first word
+ ORR R14,R11,R10,LSL#undo_Type_shift
+ ORR R14,R14,#(undo_Block_Start:SHL:undo_Type_shift) ; start of undo block - 1<<31
 
-; causes big problems...
-
-; new...
- TST R10,#&40
- ORRNE R14,R14,#(1<<25)
+ TST R10,#command_SelectRegion	; &40
+ ORRNE R14,R14,#undo_SelectRegion
 
  ADD R6,R7,R6			; address of entry
  STR R14,[R6],#4		; command and file offset - exception...!!!
- TEQ R10,#&10
+ TEQ R10,#undo_Type_fastredo
  BEQ buf_new_end		; finished (fast redo)
- AND R14,R10,#7
-
-; was...
-; CMP R14,#5			; was 5 before X
-
-; now...
- CMP R14,#7			; was 5 before X
-
+ AND R14,R10,#command_mask
+ CMP R14,#command_LongOp
  BCS buf_new_end		; finished (marker)
- STR R8,[R6],#4			; length of data ; (!LENGTH!TT)
- TEQ R10,#0
+
+ STR R8,[R6],#undo_Length
+ TEQ R10,#undo_Type_fastundo
  BEQ buf_new_end		; finished
- TST R10,#1<<3
- BNE buf_no_claim		; bit3 set so no need to claim new buffers
+ TST R10,#undo_Block_DontFreeData
+ BNE buf_no_claim		; not set for freeing, so don't bother to duplicate
  MOV R0,R8			; (LENGTH TT)
  BL heap_claim			; get heap buffer for data
- STRVC R0,[R6],#4			; buffer address
+ STRVC R0,[R6],#4		; buffer address
  MOVVC R1,R3			; source data
  MOVVC R2,R0
  MOVVC R3,R8			; (LENGTH TT)
- BLVC move_bytes			; copy data
+ BLVC move_bytes		; copy data
  LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
- AND R14,R10,#&0F
- TEQ R14,#3			; test for replace
- TEQNE R14,#4
+ AND R14,R10,#command_mask
+ TEQ R14,#command_Replace
+ TEQNE R14,#command_ReplaceBackwards
  BNE buf_new_end		; finished
  MOV R0,R8			; (LENGTH TT)
  BL heap_claim
@@ -848,28 +820,23 @@ buf_new_command
  B buf_new_end
 buf_no_claim
  STR R3,[R6],#4			; save data block address
- AND R0,R10,#7			; get command
- CMP R0,#3
+ AND R0,R10,#command_mask	; get command
+ CMP R0,#command_Replace
  STRCS R4,[R6],#4		; original block for replace
 buf_new_end
  SUB R6,R6,R7			; new end offset
  STR R6,[R9,#f_ulen]
  LDMFD R13!,{R1-R3,R6,R8-R11,PC}
 
-;aproblem1$l
-; SWI &107
-; LDMFD R13!,{R1-R3,R6,R8-R11,PC}
-
 buf_concat_top
  ADD R0,R7,R0			; previous command
  LDR R1,[R0]
- BIC R1,R1,#&FE000000		; file offset for insert/replace
- LDR R14,[R0,#4]		; length of data
- ; BIC R14,R14,#(1 << 31)       ; (LENGTH TT)
+ BIC R1,R1,#undo_Information_mask; file offset for insert/replace
+ LDR R14,[R0,#undo_Length]	; length of data
  ADD R1,R1,R14			; file offset of last char
  TEQ R1,R11
  BNE buf_new_command		; doesnt concat
- TST R10,#1<<3
+ TST R10,#undo_Block_DontFreeData
  BNE buf_concat_top_no_claim
  MOV R6,R0			; alter previous command
  MOV R11,R14			; old len
@@ -892,7 +859,7 @@ un20
  ADD R2,R0,R11
  MOV R3,R8
  BL move_bytes			; add on new data
- TEQ R10,#3			; is it a replace
+ TEQ R10,#command_Replace
  BNE un4
  LDR R0,[R6,#12]		; add to second block
  MOV R1,R4
@@ -900,8 +867,8 @@ un20
  MOV R3,R8
  BL move_bytes			; add on new data
 un4
- ADD R0,R11,R8			; new block length
- STR R0,[R6,#4]
+ ADD R0,R11,R8
+ STR R0,[R6,#undo_Length]
  LDMFD R13!,{R1-R3,R6,R8-R11,PC}
 buf_concat_top_no_claim
  LDR R1,[R0,#8]			; address of data in previous command
@@ -909,21 +876,20 @@ buf_concat_top_no_claim
  TEQ R1,R3			; does it match the address given
  BNE buf_new_command		; no
  ADD R1,R8,R14			; new length of command
- STR R1,[R0,#4]			; save the new length
+ STR R1,[R0,#undo_Length]
  LDMFD R13!,{R1-R3,R6,R8-R11,PC}
 
 buf_concat_bottom
  ADD R0,R7,R0			; previous command
  LDR R1,[R0]
- BIC R1,R1,#&FE000000		; offset of old block
+ BIC R1,R1,#undo_Information_mask; offset of old block
  SUB R1,R1,R8
  TEQ R1,R11			; can new block be added on start
  BNE buf_new_command		; no
- TST R10,#1<<3
+ TST R10,#undo_Block_DontFreeData
  BNE buf_concat_bottom_no_claim
  MOV R6,R0			; address of block
- LDR R11,[R6,#4]		; old len ; (LENGTH TT)
- ; BIC R11,R11,#(1 << 31)       ; (LENGTH TT)
+ LDR R11,[R6,#undo_Length]
  ADD R1,R11,R8			; new len
  ADD R1,R1,#udata
  BIC R1,R1,#udata
@@ -931,7 +897,7 @@ buf_concat_bottom
  BL heap_ensure
  LDMVSFD R13!,{R1-R3,R6,R8-R11,PC}
  STR R0,[R6,#8]			; enlarge first block
- TEQ R10,#4
+ TEQ R10,#command_ReplaceBackwards
  BNE un21			; not a replace
  LDR R0,[R6,#12]
  BL heap_ensure
@@ -947,7 +913,7 @@ un21
  LDR R2,[R6,#8]
  MOV R3,R8
  BL move_bytes			; copy in new data
- TEQ R10,#4			; is it a replace
+ TEQ R10,#command_ReplaceBackwards
  BNE un19
  LDR R1,[R6,#12]
  ADD R2,R1,R8
@@ -959,7 +925,7 @@ un21
  BL move_bytes			; copy in new data
 un19
  ADD R0,R8,R11
- STR R0,[R6,#4]			; new length of block ; (LENGTH TT)
+ STR R0,[R6,#undo_Length]
  LDR R0,[R6]
  SUB R0,R0,R8
  STR R0,[R6]			; new file offset
@@ -969,15 +935,15 @@ buf_concat_bottom_no_claim
  SUB R1,R1,R8
  TEQ R1,R3			; does it match with new address
  BNE buf_new_command
- LDR R14,[R0,#4]
+ LDR R14,[R0,#undo_Length]
  ADD R14,R14,R8
- STR R14,[R0,#4]		; new command length ; (LENGTH TT)
+ STR R14,[R0,#undo_Length]
  LDR R14,[R0]
  SUB R14,R14,R8
  STR R14,[R0]			; new offset of action
  STR R3,[R0,#8]			; new command start
- AND R14,R10,#7
- CMP R14,#3
+ AND R14,R10,#command_mask
+ CMP R14,#command_Replace
  STRCS R4,[R0,#12]		; new second block for replace
  LDMFD R13!,{R1-R3,R6,R8-R11,PC}
 
@@ -990,38 +956,36 @@ undo_invert_command
  STMFD R13!,{R6,R10-R11,R14}
  ADD R6,R7,R6			; address of command to undo
  LDR R0,[R6]			; command
- TST R0,#(1<<25)		;
- BIC R1,R0,#&FE000000		; file offset (35MB limit here :|)
- MOV R0,R0,LSR #26		; command number
- ORRNE R0,R0,#&40		; this line is a causal one for problem
+ TST R0,#undo_SelectRegion
+ BIC R1,R0,#undo_Information_mask; file offset (35MB limit here :|)
+ MOV R0,R0,LSR #undo_Type_shift
+ ORRNE R0,R0,#command_SelectRegion	; causes problems?
  AND R0,R0,#&5F			; 6 bit command (?)
- ANDS R10,R0,#&07		; command
- ;LDMEQFD R13!,{R6,R10-R11,PC}	; out of range
- CMPNE R10,#7			; was 5...
+ ANDS R10,R0,#command_mask
+ CMPNE R10,#command_Illegal
  LDMEQFD R13!,{R6,R10-R11,PC}	; out of range
- ANDS R0,R0,#&50		; save concat bit and selected?
+ ANDS R0,R0,#(command_Atomic :OR: command_SelectRegion)	; save/test
  MOVNE R2,R8			; undo whole command if top bit set
  CMP R2,R8
  MOVGT R2,R8			; clip to max number of chars
  LDR R3,[R6,#8]			; pointer to block
- TEQ R10,#2
- TEQNE R10,#4
- TEQNE R10,#5
+ TEQ R10,#command_Delete
+ TEQNE R10,#command_ReplaceBackwards
+ TEQNE R10,#command_Delete_MaintainCursor
  SUBNE R11,R8,R2		; num chars left after this undo
- LDREQ R11,[R6,#4]		; OR buf len
+ LDREQ R11,[R6,#undo_Length]
  SUBEQ R11,R11,R8		; less num chars not done to give offset
  ADD R1,R1,R11
  ADD R3,R3,R11
- TEQ R10,#3
- TEQNE R10,#4			; if not replace then
+ TEQ R10,#command_Replace
+ TEQNE R10,#command_ReplaceBackwards
  EORNE R10,R10,#3		; change insert<->delete
  MOVEQ R4,R3			; else the new data becomes the old
  LDREQ R3,[R6,#12]
  ADDEQ R3,R3,R11		; and this is the new
  EOREQ R10,R10,#7		; opposite replace
  ORR R0,R0,R10			; complete command number
- ORR R0,R0,#1<<3		; and no need to rebuffer commands
-; ORR R0,R0,#&40			; this line is a causal one for problem
+ ORR R0,R0,#undo_Block_DontFreeData
  LDMFD R13!,{R6,R10-R11,PC}
 
 ;E R2=num of bytes to remove R6=buf off of command R7=uptr
@@ -1032,19 +996,18 @@ unbuffer_command
  STMFD R13!,{R1-R3,R6,R14}
  ADD R6,R7,R6			; address of the command
  LDR R0,[R6]
- MOV R3,R0,LSR #26		; top 6 bits - command number
- ANDS R1,R3,#&07		; command number
- LDMEQFD R13!,{R1-R3,R6,PC}	; command has no buffers
- CMP R1,#7			; was 5 :(
- LDMCSFD R13!,{R1-R3,R6,PC}	; command has no buffers
- TST R3,#1<<3			; don't complain if 0 because of yanks
- LDR R0,[R6,#4]			; num of bytes ; (LENGTH TT)
+ MOV R3,R0,LSR #undo_Type_shift
+ ANDS R1,R3,#command_mask
+ CMPNE R1,#command_Illegal
+ LDMEQFD R13!,{R1-R3,R6,PC}
+ TST R3,#undo_Block_DontFreeData
+ LDR R0,[R6,#undo_Length]
  SUBS R0,R0,R2			; number of bytes left
  LDMLEFD R13!,{R1-R3,R6,PC}	; none left
- STR R0,[R6,#4]			; reduce length of blk ; (LENGTH TT)
- TEQ R1,#2
- TEQNE R1,#4
- TEQNE R1,#5;
+ STR R0,[R6,#undo_Length]
+ TEQ R1,#command_Delete
+ TEQNE R1,#command_ReplaceBackwards
+ TEQNE R1,#command_Delete_MaintainCursor
  LDMNEFD R13!,{R1-R3,R6,PC}	; this is all for a concat top
  LDR R0,[R6]
  ADD R0,R0,R2
@@ -1075,24 +1038,13 @@ fr2
  BCS fr10			; finished
  ADD R6,R7,R0			; next instruction
  LDR R5,[R6]
-
-; now...
  MOV R1,#-1			; yes?
-
- MOV R5,R5,LSR #26		; top 6 bits
- TST R5,#1<<3			; command number
-
+ MOV R5,R5,LSR #undo_Type_shift	; top 6 bits
+ TST R5,#undo_Block_DontFreeData
  BNE fr2			; no buffered data
 
-; was...
-; ANDS R5,R5,#&07
-; BEQ fr2			; next data
-; CMP R5,#4
-; BHI fr2			; bad command/multiop marker
-
-; now...
- ANDS R5,R5,#&07
- TEQNE R5,#7
+ ANDS R5,R5,#command_mask
+ TEQNE R5,#command_Illegal
  BEQ fr2			; next data, or bad command/multiop marker
 
  LDR R0,[R6,#8]
@@ -1100,9 +1052,9 @@ fr2
  BL heap_free
  LDMVSFD R13!,{R1-R7,PC}
 
- TEQ R5,#3
- TEQNE R5,#4
- BNE fr2			; not a replace
+ TEQ R5,#command_Replace
+ TEQNE R5,#command_ReplaceBackwards
+ BNE fr2
 
  LDR R0,[R6,#12]
  STR R1,[R6,#12]
@@ -1132,11 +1084,6 @@ fr11
  LDR R14,[R1],#8
  BIC R14,R14,#1<<30		; clear multi flag
  TEQ R14,R0
-; was...
-; BNE fr11
-; MVN R14,#0
-; STR R14,[R1,#-8]
-; now...
  STREQ R3,[R1,#-8]		; if match
  B fr11
 
@@ -1146,24 +1093,11 @@ fr11
 turn_off_undo
  FNJSR
  LDR R0,[R9,#f_flags]
- BIC R0,R0,#1
+ BIC R0,R0,#flags_UndoSupported
  STR R0,[R9,#f_flags]
  BL new_file_title		; turn off the undo flag
  BLVC free_undo			; free all used undo buffers
  FNRTS
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; New undo protocol calls					;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;E R0=command number (block type)
-;  R1=file offset (if needed)
-;  R2=data length (if needed)
-;  R3=data pointer (first block)
-;  R4=data pointer (second block)
-;X Command buffered with data inlined if b3=0 in R0 #
-
-;buffer_command
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Manipulate size of undo buffers				;
@@ -1179,7 +1113,6 @@ ensure_undo_size
  LDR R14,[R9,#f_bufl]
  SUB R1,R1,R14			; current size
  CMP R0,R1
-; FNRTS LT			; enough free
  ADDGE R0,R0,#ubuf_size		; want more free + extra
  BICGE R0,R0,#3			; word align
  BLGE set_undo_size

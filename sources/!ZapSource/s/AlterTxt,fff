@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 2.2 2000/03/18 14:22:13 ds Exp $
+; $Id: AlterTxt,fff,v 2.3 2000/10/11 15:29:07 james Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -207,8 +207,6 @@ cln_writew
  BLNE reverse_word
  STMFD R13!,{R0}
  MOV R3,R13
-; ADR R3,cln_writew_d0
-; STR R0,[R3]
  LDR R2,[R9,#f_len]
  SUBS R2,R2,R1
  MOVMI R2,#0
@@ -216,18 +214,9 @@ cln_writew
  MOVCS R2,#4
  MOV R4,#4
  BL replace_area
-; ADD R0,R1,#4			; end offset after a replace
-; CMP R0,R2
-; MOVLE R0,#&13			; replace
-; MOVGT R0,#&11			; insert
-; MOV R2,#4			; len
-; BL execute_command
  ADD R13,R13,#4
  LDMFD R13!,{R1-R3,PC}
 
-;cln_writew_d0			; eugh - local storage :-(
-; DCD 0
-;
  LOCAL
 
 ;E R0=coltab width/0 for edit tab
@@ -314,13 +303,9 @@ offset_for_tabs
  SUBS R3,R3,#1			; previous /physical/(?) line
  MVNMI R0,#0
  MOVMI PC,R14
- ;FNRTS MI
  LDR R0,[R8,#w_margin]
  ADD R2,R2,R0			; add margin for find_offset
  B find_offset			; find file offset in R0 (from x,y)
- ;MOV R7,R0
- ;BL e_lineend
-; FNRTS
 
  LOCAL
 
@@ -329,25 +314,15 @@ offset_for_tabs
 
 copy_text
  STMFD R13!,{R1-R11,R14}
-; PUSH "R0"
  MOV R1,R0			; number of bytes to copy
  BL get_cursor_caret		; get copy caret
  MOVVC R11,#e_aligncaret
  BLVC call_mode			; align for the mode
-; PULL "R1"
  MOVVC R0,#1			; fetch
  MOVVC R11,#e_copy
  BLVC call_mode			; find out what to copy
  BLVC make_cursor_visible	; show the (input) cursor
-; doesn't work terribly well at the moment...
-;  LDRVC R14,[R10,#c_col]
-;  STRVC R14,local_regs$l
-;  LDRVC R14,[R10,#c_line]
-;  STRVC R14,local_regs$l + 4
-;  ADRVC R5,local_regs$l + 8
-;  STMVCIA R5,{R8-R10}
 
-; LDMFD R13!,{R1-R11,PC}		; ???????????????
  BLVC get_input_caret		; find dest
  MOVVC R0,#2
  MOVVC R11,#e_copy
@@ -355,8 +330,6 @@ copy_text
  LDMVSFD R13!,{R1-R11,PC}
  TEQ R0,#0
  LDMEQFD R13!,{R1-R11,PC}	; the mode's done it all
-; MOV R2,#1
-; ADR R3,copy_text
  TEQ R0,#2
  BEQ co12			; it wants me to enter as if typed
  MOV R0,#1
@@ -437,11 +410,6 @@ ta5
  STRPLB R2,[R3],#1
  BPL ta5
 ta6
-; MOV R3,R0
-; MOV R2,R1
-; LDR R1,[R10,#c_off]
-; MOV R0,#&11
-; BL execute_command
  LDR R4,[R8,#w_flags]
  MOV R5,R1
  LDR R6,[R8,#w_format]
@@ -474,10 +442,8 @@ execute_command
  STMFD R13!,{R10-R11,R14}
  LDR R10,[R9,#f_flags]
  MOV R14,R10
- TST R0,#&20
- ORRNE R14,R14,#1<<14		; delink caret
- ;TST R0,#&40
- ;SWINE &107			; beep if set...
+ TST R0,#command_DontUpdateInputCaret
+ ORRNE R14,R14,#flags_UnlinkCursor
  AND R0,R0,#&5F			; get the primative command
  STR R14,[R9,#f_flags]		; temporary flag format
  TEQ R8,#0
@@ -486,10 +452,10 @@ execute_command
  BL call_mode			; do the command (via the mode)
 ex11
  LDR R14,[R9,#f_flags]
- BIC R14,R14,#1<<14
- AND R10,R10,#1<<14
- ORR R14,R14,R10		; restore these two(?) flags to their vals
- STR R14,[R9,#f_flags]		; restore default flag status regardless
+ BIC R14,R14,#flags_UnlinkCursor
+ AND R10,R10,#flags_UnlinkCursor
+ ORR R14,R14,R10
+ STR R14,[R9,#f_flags]		; restore cursor linkage
  LDMFD R13!,{R10-R11,PC}	; return (possibly with error)
 ex10
  BL command_primative		; no window given so use primative
@@ -518,8 +484,8 @@ command_primative
  BLNE buffer_command		; set up fast undo pointer
  LDMVSFD R13!,{R1-R11,PC}
  LDR R0,[R9,#f_flags]
- TST R0,#1
- BEQ un14			; no undo
+ TST R0,#flags_UndoSupported
+ BEQ un14
  MOV R0,R10
  MOV R1,R11			; command buffered if undo on or a block
  MOV R2,R6			; delete for yank/paste command
@@ -536,21 +502,14 @@ maybe_rapid_not_preinput
  FNJSR "R8-R9"
  MOV R7,R9
  FNLDR R10,car_cursor
-; BL get_file_off		; R0=file offset ; RIDICULOUS.
  LDR R0,[R10,#c_wind]		; This code doesn't appear to work properly
  BL conv_wind_off		; Get R8/R9
-; LDR R14,[R14,#w_file]
  TEQ R7,R9
- ;TEQ R0,R14			; (is cursor caret in this file?)
  FNRTS EQ
  FNLDR R10,car_input
  LDR R0,[R10,#c_wind]		; This code doesn't appear to work properly
  BL conv_wind_off		; Get R8/R9
  TEQ R7,R9
- ;LDR R14,[R10,#c_wind]		; sake of making the behaviour consistent
- ;TEQ R0,R14			; but messed up redraw when output in other.
- ;BEQ pr26			; when there are several views onto a file
- ;LDMFD R13!,{R10,PC}		; why return here...?
  FNRTS
 
 ;E R9=file

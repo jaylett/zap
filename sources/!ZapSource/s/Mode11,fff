@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Mode11,fff,v 2.1 2000/10/11 15:29:07 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -469,15 +469,10 @@ init_throwback
  FNLDR R0,wimp_task
  SWI XDDEUtils_ThrowbackRegister; &62585
  MOV R8,#0
- ;MVN R0,#0
- ;MOV R1,#11
- ;FNcall Zap_ModeColourNum
  MOV R0,#MODE11_COLNUMBS
  MOV R1,#11
  BL mode_colour_num
-; FNcall Zap_ModeColourNum	; change palette size
  CMP R0,#MODE11_COLNUMBS
- ;BEQ mode11_dontchangeathing
  BLNE mode11_UnkPreColBit	; define them
 mode11_dontchangeathing
  LDMFD R13!,{R0,R1,R8,PC}^	; return no error
@@ -501,8 +496,6 @@ mode11_PreZModColBit
 mode11_ZModColBit
  LDR  R0,[R3],#4
  BL mode_colour
-; BL mode_colour_num		; ??????????
-; FNcall Zap_ModeColour		; Read colour definitions
  FNRTS VS
  ADD R2,R2,#1
  TEQ R2,#MODE11_COLNUMBS	; max colours
@@ -601,7 +594,6 @@ mode11_adjdelentry
  CMP R1,#&FF
  FNRTS CS			; not a single adjust click
  BL find_offset			; find file offset in R0
-; FNcall Zap_FindOffset		; find file offset in R0
  FNRTS VS
  ADR R14,mode11_locstsp1
  STMIA R14,{R0,R8,R9}
@@ -716,7 +708,6 @@ jump_to_match
  FNLDR R10,car_cursor
  MOV R0,R6
  BL goto_file_offset
-; FNcall Zap_JumptoOffset,R11
  LDMVSFD R13!,{R1-R11,PC}
  LDR R0,[R7,#12]		; flags
  TST R0,#2
@@ -729,16 +720,6 @@ check_if_tb_file		; works by checking for /any/ links...
  CMP R14,#11
  MOVNES R14,#-1
  FNRTS
-
- ;f_links]
- ;CMP R14,#0
- ;BLE nottbfile$l
- ;LDR R14,[R14]
- ;CMP R14,#0
- ;FNRTS
-;nottbfile$l
- ;MOVS R14,#-1
- ;FNRTS
 
 dospell
  ADR R0,spellcmdnamed
@@ -765,16 +746,6 @@ throwback_afilename
  BL get_linked_file		; set up R8-R9
  BLVC convert_links		; convert lines to offsets
  BLVC offset_to_match
- ;CMP R6,#0			; invalid offset?
- ;LDMMIFD R13!,{R1-R11,PC}
- ;BMI throwback_beep_then
- ;MOV R1,#5			; cursor block
- ;FNcall Zap_ReadVar
- ;LDMVSFD R13!,{R1-R11,PC}
- ;MOV R10,R0			; cursor
- ;MOV R0,R6
- ;FNcall Zap_JumptoOffset
- ;LDMVSFD R13!,{R1-R11,PC}
  LDMFD R13!,{R1-R11,PC}
 
 throwback_beep_then
@@ -855,25 +826,18 @@ va2
 ;X R8/R9=assosiated file #
 
 get_linked_file
- FNJSR ;"R11"
+ FNJSR
  LDR R0,[R7,#8]			; file offset
  CMP R0,#0
  BPL va3			; found
  LDR R0,[R7]			; file name
  BL find_file
-; FNcall Zap_FindFile,R11	; find the file
-; FNRTS VS
  BLVC get_file_off
-; FNcall Zap_GetFileOff,R11
-; FNRTS VS
  STRVC R0,[R7,#8]		; file offset
  FNRTS
 va3
  BL conv_file_off
-; FNcall Zap_ConvFileOff,R11	; set up R9
-; FNRTS VS
  BLVC find_window
-; FNcall Zap_FindWindow,R11	; find a window in R9
  FNRTS
 
 ;E R7=links table entry R8-R9=assosiated file
@@ -893,7 +857,6 @@ co13
  MOVMI R0,#0			; line offset starting from 0
  MOV R11,#e_clnlog
  BL call_mode
-; FNcall Zap_CallMode		; find file off
  LDMVSFD R13!,{R1-R11,PC}
  STR R0,[R6],#4
  B co13
@@ -919,9 +882,6 @@ of1
  MOV R6,R0
  LDMFD R13!,{R1,PC}
 
-;typeofdeletion
-; EQUD 0
-
  LOCAL
 
 ;E R0=offset in throwback buffer R8/R9=throwback buffer
@@ -938,7 +898,6 @@ delete_match
  MOVMI R0,#0
  LDMMIFD R13!,{R1-R11,PC}	; return 0
  BL delete_link
- ;STR R0,typeofdeletion
  LDMVSFD R13!,{R1-R11,PC}
  CMP R0,#1			; invalid?
  LDMLOFD R13!,{R1-R11,PC}	; return 0
@@ -953,11 +912,8 @@ delete_match
  CMP R1,#0
  MOVMI R1,#0			; to avoid another bug.
  SUB R2,R2,R1			; length
-; BL mode11_insprepare
  MOV R0,#&12			; delete block
  BL command_primative
-; FNcall Zap_DoCommand,R11
-; BL mode11_inspostpare
  LDMVSFD R13!,{R1-R11,PC}
  LDRB R0,[R8,#w_format]
  STR R0,[R9,#f_cmode]		; claim the file so deletes ok
@@ -1001,10 +957,8 @@ de19
  LDMPLFD R13!,{R1-R3,PC}
  LDR R0,[R7]
  BL heap_free
-; FNcall Zap_Free,R2
  LDRVC R0,[R7,#4]
  BLVC heap_free
-; FNcallc Zap_Free,VC,R2	; free that link entry
  LDMVSFD R13!,{R1-R3,PC}
  ADD R1,R7,#16			; source
  MOV R2,R7			; dest
@@ -1015,13 +969,9 @@ de32
  BPL de32
  SUB R3,R3,R1
  ADD R3,R3,#4			; amount to move
- SWI XZapRedraw_MoveBytes ; BL move_bytes
-; FNcall Zap_MoveBytes
+ SWI XZapRedraw_MoveBytes
  MOV R0,#2
  LDMFD R13!,{R1-R3,PC}
-
-;mode11_command
-; B command_primative		; do the original command
 
 local_insdelmsgflg
  DCD 0
@@ -1055,7 +1005,7 @@ mode11_message
 
 DDEutils_ErrorsIn
  ADD R0,R1,#20			; file name
-; B dde_fname ; fall through
+ ; fall through
 
 ;E R0=filename
 ;X filename save in throw_name
@@ -1100,10 +1050,8 @@ DDEutils_ErrorDetails
  MOV R2,R0
  LDR R1,[R9,#f_len]
  SUB R1,R1,#1			; put in before the final return
-; BL mode11_insprepare
  MOV R0,#&11
  BL execute_command		; enter description
-; BL mode11_inspostpare
  FNRTS
 err$l	  = "zap_tb_errs",0
 after$l	  = 0
@@ -1154,7 +1102,6 @@ get_throwback
  CMP R0,#-1			; CS if none (-1)
  FNRTS CS
  BL conv_wind_off
-; FNcall Zap_ConvWindOff,R9	; set up R8/R9 from the window offset
  ADDS R0,R0,#0			; clc
  FNRTS
 
@@ -1164,12 +1111,10 @@ get_throwback
 finish_throwback
  FNJSR "R8-R9"
  BL get_throwback
-; FNRTS CS			; none
  LDRCC R0,[R9,#f_flags]
  BICCC R0,R0,#1<<3		; unaltered
  STRCC R0,[R9,#f_flags]
  BLCC new_file_title
-; FNcall Zap_NewFileTitle
  FNRTS
 
  LOCAL
@@ -1210,7 +1155,6 @@ find_throwback_file
  MOV R1,R11			; workspace address
  ADR R10,find_throwback_file_sub
  BL do_allwindow
-; FNcall Zap_AllWindow		; try each window in turn
  LDMFD R13!,{R1,R10,PC}
 
 find_throwback_file_sub
@@ -1225,7 +1169,6 @@ find_throwback_file_sub
  TEQ R14,R0
  FNRTS NE
  BL get_wind_off
-; FNcall Zap_GetWindOff
  STR R0,[R1,#throw_file]
  FNRTS
 
@@ -1250,7 +1193,6 @@ titledata$l
 
 create_throwback
  FNJSR "R1-R4,R10-R11"
-; ADDS R10,R0,#0
  AND R11,R0,#throwback_FlagBits
  STR R11,flags$l		; save flags
  STR R1,titledata$l
@@ -1367,7 +1309,7 @@ restore$l
 add_throwback_entry
  FNJSR "R1,R10-R11"
  MOV R10,R0			; save line number/file offset
- BIC R0,R0,#1<<31		; clear flag
+ BIC R0,R0,#zthrowback_SuppressOffset
  BL new_link_entry		; R0=0 for same block 1 for new block
  MOVVC R11,R0			; save this
  FNRTS VS
@@ -1376,14 +1318,13 @@ add_throwback_entry
  BLVC start_operation
  LDRVC R0,[R10,#c_off]
  PULL "R10"
-; BLVC mode11_insprepare
  FNRTS VS
  LDR R14,[R9,#f_len]
  CMP R0,R14
  BGE add$l
 unlink$l			; unlink cursor
  LDR R0,[R9,#f_flags]
- ORR R0,R0,#1<<14		; unlink
+ ORR R0,R0,#flags_UnlinkCursor
  STR R0,[R9,#f_flags]
 add$l
  LDR R0,[R9,#f_len]
@@ -1401,66 +1342,44 @@ add$l
  CMP R0,#0
  ADRNE R0,ret$l
  BLNE insert_string		; add blank line if needed
- ; f$l
  BVS end$l
 a$l
- ; TST R5,#2			; minus 1 = no linennumber...
- ; BNE b$l
  MOV R0,R3			; "Errors in file" (or similar text...)
  BL insert$l
  MOVVC R0,R1			; filename
  BLVC insert_string
- ;TST R5,#2
- ;BNE b$l
  BVS end$l
  MOV R0,R7
  CMP R0,#0
- ;BEQ b$l
  BLNE insert$l			; "Search string: fred"
-;b$l
- ;TST R5,#2
- ;BNE e$l
  ADRVC R0,ret2$l		; end + leave blank line
  BLVC insert_string
-;e$l
  MOVVC R0,R6
- ;CMP R0,#0
- ;BEQ c$l
  BLVC insert$l			; "Line num  Error"
-;d$l
- ;TST R5,#2
- ;BNE c$l
- ;TST R5,#2			; minus 1 = no linennumber...
- ;BNE entry$l ; b$l		; no juice...
  ADRVC R0,ret$l
  BLVC insert_string		; move to next line
-;c$l
 entry$l				; now ready to insert entry
  MOVVC R0,R10			; line number
  MOVVC R1,#0			; flags
  BVS end$l
- ;TST R5,#2			; minus 1 = no linennumber...
- ;BNE end$l
- TST R0,#1<<31
+ TST R0,#zthrowback_SuppressOffset
  BLEQ insert_line_number
- ; BL mode11_insprepare
  MOVVC R0,R2			; error details
  BLVC insert$l
  ADRVC R0,ret$l
  BLVC insert_string
 end$l				; may be at error here
- ; BL mode11_inspostpare
  LDR R11,[R9,#f_flags]
- BIC R11,R11,#1<<14
+ BIC R11,R11,#flags_UnlinkCursor
  STR R11,[R9,#f_flags]		; relink even if error
 enderror$l
  BL stop_operation
  FNRTS
 insert$l
- TST R0,#1<<31
+ TST R0,#zap_IsToken
  BEQ insert_string
  FNJSR "R1-R3"
- BIC R1,R0,#1<<31
+ BIC R1,R0,#zap_IsToken
  FNLDR R2,wimp_data
  MOV R3,#256
  BL lookup_token_gs
@@ -1473,13 +1392,6 @@ ret$l = 10,0
  ALIGN
 
  LOCAL
-
-;tw_insert_string
-; FNJSR
-; ;MOV R14,#-1
-; ;STR R14,local_insdelmsgflg
-; BL insert_string		; move to next line
-; FNRTS
 
 ;E R0=line number
 ;  R1=flags b0  => number is in hex
@@ -1517,9 +1429,7 @@ done$l
  LDR R1,[R9,#f_len]
  SUB R1,R1,R5,LSR#8
  MOV R0,#&11
-; BL mode11_insprepare
  BL execute_command		; type the line number in the file
-; BL mode11_inspostpare
  FNRTS
 
 mode11_insprepare
@@ -1616,120 +1526,26 @@ ne18
  FNRTS
 
 mode11_interrogate
- CMP R0,#11
+ CMP R0,#einterrogate_ElaborateSubStyles
  MOVEQ PC,R14
- CMP R0,#14
- MOVEQ R0,#4
+ CMP R0,#einterrogate_ModeType
+ MOVEQ R0,#modetype_Throwback
  MOVEQ PC,R14
- CMP R0,#0
- CMPNE R0,#3
+ CMP R0,#einterrogate_WindowWrapWidth
+ CMPNE R0,#einterrogate_PreSetWidth
  MOVEQ R0,R1
  MOVEQ PC,R14
- CMP R0,#12
- CMPNE R0,#2
- CMPNE R0,#5 ; ConfineH
- CMPNE R0,#6 ; ConfineV
- CMPNE R0,#7 ; Free click
- CMPNE R0,#8 ; Smart cursors
- CMPNE R0,#13
- CMPNE R0,#23
- CMPNE R0,#24
- MOVEQ R0,#0
+ CMP R0,#einterrogate_LineSelect
+ CMPNE R0,#einterrogate_SoftWrap
+ CMPNE R0,#einterrogate_ConfineH
+ CMPNE R0,#einterrogate_ConfineV
+ CMPNE R0,#einterrogate_FreeClick
+ CMPNE R0,#einterrogate_SmartCursor
+ CMPNE R0,#einterrogate_SpellAsYouType
+ CMPNE R0,#einterrogate_BlockEdit
+ CMPNE R0,#einterrogate_AutoIndent
+ MOVEQ R0,#0			; don't want them
  MOV PC,R14
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; cln subs							;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
- LOCAL
-
-;E R4=current offset in buffer
-;  R5=start address of buffer
-;  R6=logical line num
-;  R7=physical line num
-;  R8=window block
-;  R9=file block
-;  R10=split offset in buffer
-;  R11=file length
-;X R0-R2 corrupted
-;  R3=column reached
-;  R4-R11 preserved/updated
-;  Moves onto next physical line
-
-;mode11_clnforward
-; FNJSR "R8-R9"
-; MOV R3,#0			; current column
-; LDR R8,[R8,#w_bpl]		; end column
-; LDR R9,[R8,#w_splite]
-; ADD R9,R5,R9			; address of second half of split
-; SUB R4,R4,#1
-;next$l
-; ADD R4,R4,#1			; next character
-;loop$l
-; CMP R4,R11
-; FNRTS CS			; reached the end of the file
-; SUBS R0,R4,R10			; offset into second half of split
-; LDRCCB R0,[R5,R4]
-; LDRCSB R0,[R9,R0]		; get the next byte
-; CMP R0,#&20
-; BCC ctrl$l			; control character
-;char$l				; ordinary character
-; CMP R3,R8
-; ADDCC R3,R3,#1
-; BCC next$l
-; FNRTS				; run out of room
-;ctrl$l
-; ADD PC,PC,R0,LSL#2
-; DCD 0
-; B loop$l			; ignore 0
-; B skip$l			; 1 = skip string
-; B skip$l
-; B skip$l
-; B skip$l
-; B skip$l
-; B skip$l
-; B skip$l			; 7 = skip
-; B char$l			; 8 = ignore
-; B tab$l			; 9
-; B end$l			; 10 = end of line
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l			; 16
-; B skip1$l			; set foregound col
-; B skip2$l			; set background col
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l
-; B char$l			; 31
-;skip$l				; skip string
-; ADD R4,R4,#1
-; CMP R4,R11
-; FNRTS CS			; reached the end of the file
-; SUBS R0,R4,R10			; offset into second half of split
-; LDRCCB R0,[R5,R4]
-; LDRCSB R0,[R9,R0]		; get the next byte
-; TEQ R0,#0
-; BNE skip$l
-; B next$l
-;tab$l
-; ADD R3,R3,#8
-; BIC R3,R3,#7
-; CMP R3,R8
-; MOVGT R3,R8
-; FNRTS GT			; off the end of the line
-; B next$l
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Commands							;
