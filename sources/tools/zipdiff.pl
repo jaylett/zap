@@ -22,13 +22,13 @@ GetOptions('inzip=s' => \$inzip,
 #pod2usage(1) if $help;
 #pod2usage(-exitstatus => 0, -verbose => 2) if $man;
 
-$zip1 = shift or die "Missing operand (try --help).";
-$zip2 = shift or die "Missing operand (try --help).";
+$zip1 = shift or die "Missing operand (try --help).\n";
+$zip2 = shift or die "Missing operand (try --help).\n";
 
 my ($zh1, $zh2);
 
-$zh1 = Archive::Zip->new($zip1) or die "Couldn't open zip '$zip1' for reading.";
-$zh2 = Archive::Zip->new($zip2) or die "Couldn't open zip '$zip2' for reading.";
+$zh1 = Archive::Zip->new($zip1) or die "Couldn't open zip '$zip1' for reading.\n";
+$zh2 = Archive::Zip->new($zip2) or die "Couldn't open zip '$zip2' for reading.\n";
 
 # Okay, let's figure out the manifest:
 #  (1) Files in zip1 but not zip2 (REMOVE)
@@ -69,10 +69,10 @@ foreach $file (@mem1) {
 		    if ($verbose) { print "$file: file unchanged\n"; }
 		  }
 		} else {
-		  warn "Couldn't extract '$file' from '$zip2'";
+		  warn "Couldn't extract '$file' from '$zip2' (or it was empty)\n";
 		}
 	      } else {
-		warn "Couldn't extract '$file' from '$zip1'";
+		warn "Couldn't extract '$file' from '$zip1' (or it was empty)\n";
 	      }
 	    }
 	  }
@@ -80,10 +80,10 @@ foreach $file (@mem1) {
 	  if ($verbose) { print "$file: directory unchanged\n"; }
 	}
       } else {
-	warn "Couldn't read '$file' from '$zip2'";
+	warn "Couldn't read '$file' from '$zip2'\n";
       }
     } else {
-	warn "Couldn't read '$file' from '$zip1'";
+	warn "Couldn't read '$file' from '$zip1'\n";
     }
   } else {
     my $member1 = $zh1->memberNamed($file);
@@ -145,12 +145,12 @@ if (scalar @changelist > 0) {
 if ($outzip) {
   my $ozh;
 
-  warn "Cannot merge directly into a zipfile (use different filenames)." if ($outzip eq $inzip);
+  warn "Cannot merge directly into a zipfile (use different filenames).\n" if ($outzip eq $inzip);
 
   if ($inzip) {
-    $ozh = Archive::Zip->new($inzip) or die "Couldn't open zip '$inzip' for merging with output.";
+    $ozh = Archive::Zip->new($inzip) or die "Couldn't open zip '$inzip' for merging with output.\n";
   } else {
-    $ozh = Archive::Zip->new() or die "Couldn't create output zip.";
+    $ozh = Archive::Zip->new() or die "Couldn't create output zip.\n";
   }
   my $member;
     
@@ -181,7 +181,7 @@ if ($outzip) {
   }
   $cmt .= "Diffs between '$zip1' ('" . $zh1->zipfileComment() . "') and '$zip2' ('" . $zh2->zipfileComment() . "')";
   $ozh->zipfileComment($cmt);
-  $ozh->writeToFileNamed($outzip)==AZ_OK or die "Couldn't write diffzip to '$outzip'";
+  $ozh->writeToFileNamed($outzip)==AZ_OK or die "Couldn't write diffzip to '$outzip'\n";
 } else {
   if ($verbose) { print "\n\n"; }
   print $manifest;
