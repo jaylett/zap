@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.1.2.11 1999/03/18 09:36:20 james Exp $
+; $Id: MiniBuff,fff,v 1.1.2.12 1999/08/04 13:53:37 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -285,21 +285,22 @@ ad24
 ;  b31 => don't beep  b30 => no prefix  b29 => R0->token
 
 warn_user_token
- ORR R1,R1,#1<<29
+ ORR R1,R1,#warn_UseMessageTrans
 warn_user
  FNJSR "R1-R2,R10"
+ SYSLOGF "warn_user %0s", LOG_WARNING
  MOV R10,R0			; save address of message
- TST R1,#1<<31
+ TST R1,#warn_DontBeep
  BLEQ Beep
  ;SWIEQ &107			; beep when opening warning window
  BLVC minibuffer_clear
  FNRTS VS
- TST R1,#1<<30
+ TST R1,#warn_NoPrefix
  ADREQ R0,s$l
  BLEQ minibuffer_write_token
  FNRTS VS
  MOV R0,R10
- TST R1,#1<<29
+ TST R1,#warn_UseMessageTrans
  BNE wt$l
  BL minibuffer_write
  B wn$l
@@ -333,7 +334,13 @@ sub$l
  STR R0,local_callbackflag
  FNLDR R0,opt_switches
  TST R0,#switch_MinibufferCloseable
+; [ LOGGING = SYSLOG
+; FNRTS EQ
+; BL minibuffer_close
+; SYSLOG "warn_user closed minibuffer", LOG_WARNING
+; |
  BLNE minibuffer_close
+; ]
  FNRTS
 
 local_callbackflag & 0

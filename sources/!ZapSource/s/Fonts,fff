@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 1.1.2.9 1999/06/09 08:35:48 james Exp $
+; $Id: Fonts,fff,v 1.1.2.10 1999/08/04 13:53:36 james Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -18,13 +18,12 @@
  IMPORT Beep
 
  EXPORT correct_font
- EXPORT load_font_file
+; EXPORT load_font_file
  EXPORT ensure_workarea
  EXPORT ensure_workarea_sprite
  EXPORT setup_red_blk
  EXPORT find_zap_font
  EXPORT choose_fontm
- EXPORT correct_font
  EXPORT conv_font_off
  EXPORT get_font_off
  EXPORT minimise_font_memory
@@ -56,6 +55,40 @@
 ; #&18 reserved 0
 ; #&1C reserved 0
 
+		^ 0
+fb_offset	# 4	; 0
+fb_name		# 4	; 4
+fb_width	# 4	; 8
+fb_height	# 4	; 12 0C
+fb_bpp		# 4	; 16 10 (log2bpp)
+fb_flags	# 4	; 20 14
+fb_res0		# 4	; 24 18
+fb_res1		# 4	; 28 1C
+fb_end		# 0
+
+	GBLA	fb_shift
+	GBLA	fb_size
+	FNLOG	fb_end, fb_shift, fb_size
+
+	ASSERT	fb_end = fb_size
+
+; Use fb_shift when you need to multiply a number of font blocks
+; into the space they take; fb_size is this size in bytes.
+; You can use fb_end in the obvious way (the assert ensures this will
+; be valid everywhere).
+
+; Font file header format ...
+
+		^ 0
+ff_zapfont	# 8	; "ZapFont", 13
+ff_width	# 4	; 8
+ff_height	# 4	; 12 0C
+ff_firstchar	# 4	; 16 10
+ff_lastchar	# 4	; 20 14
+ff_res0		# 4	; 24 18
+ff_res1		# 4	; 28 1C
+ff_end		# 0
+
 ;E R7=font block
 ;X R0=address of the font cache
 
@@ -72,6 +105,7 @@ get_font_addr
 
 create_font_block
  FNJSR "R1-R6"			; returns R7
+ SYSLOG "create_font_block",LOG_FONT
  FNLDR R4,font_list
  FNLDR R6,font_num
  MOV R5,#0			; current number
@@ -79,33 +113,34 @@ loop$l
  CMP R5,R6
  BGE new$l
  ADD R7,R4,R5,LSL#5
- LDR R0,[R7,#4]
+ LDR R0,[R7,#fb_name]
  TEQ R0,#0
  BEQ found$l
  ADD R5,R5,#1
  B loop$l
 new$l				; need to claim a new block
  MOV R0,R4
- MOV R1,R6,LSL#5		; current amount used
+ MOV R1,R6,LSL#fb_shift		; current amount used
  ADD R1,R1,#256
  BIC R1,R1,#127			; claim some more
  BL heap_ensure
  FNRTS VS
  FNSTR R0,font_list
  MOV R5,R6
- ADD R7,R0,R5,LSL#5
+ ADD R7,R0,R5,LSL#fb_shift
  ADD R6,R6,#1
  FNSTR R6,font_num
  FNLDR R0,font_end
  FNLDR R14,font_start
  SUB R0,R0,R14
- STR R0,[R7]
+ STR R0,[R7,#fb_offset]
 found$l
  MOV R1,#0
- ADD R2,R7,#4
- MOV R3,#32-4
+ ADD R2,R7,#fb_name
+ MOV R3,#(fb_end-fb_name)
  BL fill_words
  MOV R0,R5
+ SYSLOGF "create_font_block returns block offset %0d, address %7x", LOG_FONT
  FNRTS
 
  LOCAL
@@ -115,6 +150,13 @@ found$l
 
 set_font_block_size
  FNJSR "R1-R7"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_font_off
+ MOV R1,R0
+ PULL "R0"
+ SYSLOGF "set_font_block_size %7x (%1d) to %0d", LOG_FONT
+ ]
  ADD R1,R0,#3
  BIC R1,R1,#3			; R1=wanted block size aligned
  FNLDR R4,font_end
@@ -122,23 +164,23 @@ set_font_block_size
  SUB R4,R4,R0			; R4=current length of font area
  FNLDR R6,font_list
  FNLDR R0,font_num
- ADD R6,R6,R0,LSL#5		; R6=end of list pointer
- ADD R0,R7,#32
+ ADD R6,R6,R0,LSL#fb_shift	; R6=end of list pointer
+ ADD R0,R7,#fb_size
  CMP R0,R6
  MOVGE R2,R4
  LDRLT R2,[R0]			; R2=offset of next block
  SUB R3,R4,R2			; R3=amount of data sitting above this block
- LDR R5,[R7]			; offset of this block
+ LDR R5,[R7,#fb_offset]		; offset of this block
  SUB R5,R2,R5			; current length of this block
  SUBS R5,R1,R5			; R5=size change required
  BGT inc$l
  BLT dec$l
 done$l				; update following blocks
- ADD R7,R7,#32
+ ADD R7,R7,#fb_size
  CMP R7,R6
- LDRLT R0,[R7]
+ LDRLT R0,[R7,#fb_offset]
  ADDLT R0,R0,R5
- STRLT R0,[R7]
+ STRLT R0,[R7,#fb_offset]
  BLT done$l
  FNRTS
 inc$l				; increase block size
@@ -168,7 +210,7 @@ dec$l
 get_font_off
  FNLDR R0,font_list
  SUB R0,R7,R0
- MOV R0,R0,LSR#5
+ MOV R0,R0,LSR#fb_shift
  MOV PC,R14
 
 ;E R0=offset in font list 0,1,2,etc
@@ -176,7 +218,7 @@ get_font_off
 
 conv_font_off
  FNLDR R7,font_list
- ADD R7,R7,R0,LSL#5
+ ADD R7,R7,R0,LSL#fb_shift
  MOV PC,R14
 
 ;E R7=font block
@@ -184,10 +226,17 @@ conv_font_off
 
 kill_font_block
  FNJSR "R1-R3"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_font_off
+ MOV R1,R0
+ PULL "R0"
+ SYSLOGF "kill_font_block %7x (%1d)", LOG_FONT
+ ]
 ; SWI &107
  MOV R1,#0
- ADD R2,R7,#4
- MOV R3,#32-4
+ ADD R2,R7,#fb_name
+ MOV R3,#(fb_end-fb_name)
  BL fill_words			; clear the entries in the block
  MOV R0,#0
  BL set_font_block_size		; free the memory
@@ -203,6 +252,7 @@ kill_font_block
 
 minimise_font_memory
  FNJSR "R7-R10"
+ SYSLOG "minimise_font_memory", LOG_FONT
 
  ADR R10,sub$l
  BL do_allwindow
@@ -210,31 +260,31 @@ minimise_font_memory
 
  FNLDR R7,font_list
  FNLDR R8,font_num
- ADD R8,R7,R8,LSL#5		; end of list
+ ADD R8,R7,R8,LSL#fb_shift	; end of list
 loop$l
  CMP R7,R8
  FNRTS CS
 
 ; a mode change bug seems to cause exits here...!
 
- LDR R0,[R7,#4]
+ LDR R0,[R7,#fb_name]
  CMP R0,#0
  BLE next$l			; not being used...!?!
 
 ; and here...!
 
- LDR R0,[R7,#&10]		; bpp
+ LDR R0,[R7,#fb_bpp]		; bpp
  TEQ R0,#0
  BEQ next$l			; keep
 
- LDRB R0,[R7,#&14]
+ LDRB R0,[R7,#fb_flags]
  TST R0,#1			; that flag bit...
  BIC R0,R0,#1
- STRB R0,[R7,#&14]
+ STRB R0,[R7,#fb_flags]
  BLEQ kill_font_block		; don't need this block any more
  FNRTS VS
 next$l
- ADD R7,R7,#32
+ ADD R7,R7,#fb_size
  B loop$l
 
 sub$l
@@ -259,9 +309,9 @@ setthebit$l
  FNRTS EQ
 
  BL conv_font_off		; R7=block used by this window
- LDRB R14,[R7,#&14]
+ LDRB R14,[R7,#fb_flags]
  ORR R14,R14,#1			; keep
- STRB R14,[R7,#&14]
+ STRB R14,[R7,#fb_flags]
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -303,13 +353,14 @@ ensure_workarea_sprite
 
 load_font_file
  FNJSR "R1-R6,R8"		; R7 returned
+ SYSLOGF "load_font_file %0s", LOG_FONT
  MOV R1,R0
  MOV R0,#15
  ADR R4,zap_font_path
  SWI XOS_File			; find info on the file R4=length
  BLVC check_object_type
  FNRTS VS
- CMP R4,#&20
+ CMP R4,#ff_end			; size of a Zap font file header
  BLLT err$l
  BLVC create_font_block		; R7=font block to put it in
  MOVVC R0,R4
@@ -329,28 +380,28 @@ load_font_file
  MOVVC R0,R1
  BLVC str_len
  ADDVC R0,R0,#1
- BLVC heap_claim			; claim a buffer for the font name
- STRVC R0,[R7,#4]			; name buffer address
+ BLVC heap_claim		; claim a buffer for the font name
+ STRVC R0,[R7,#fb_name]		; name buffer address
  MOVVC R2,R1
  MOVVC R1,R0
  BLVC strcopy			; copy in name string
- LDRVC R2,[R6,#8]
- LDRVC R3,[R6,#12]
- STRVC R2,[R7,#8]			; width of characters
- STRVC R3,[R7,#12]		; height of characters
- LDRVC R4,[R6,#&10]		; first character code
- LDRVC R5,[R6,#&14]		; last character code (+1)
+ LDRVC R2,[R6,#ff_width]
+ LDRVC R3,[R6,#ff_height]
+ STRVC R2,[R7,#fb_width]		; width of characters
+ STRVC R3,[R7,#fb_height]	; height of characters
+ LDRVC R4,[R6,#ff_firstchar]	; first character code
+ LDRVC R5,[R6,#ff_lastchar]	; last character code (+1)
  MOVVC R0,#0
  SWIVC XZapRedraw_CachedCharSize	; R2=cbpl R3=cbpc
  MOVVC R8,R3			; save cbpc
  SUBVC R5,R5,R4			; number of characters given
- ADDVC R1,R6,#&20
+ ADDVC R1,R6,#ff_end		; end of header; start of data
  MOVVC R2,R6
  MULVC R3,R5,R8			; shift bitmaps to start of buffer
  SWIVC XZapRedraw_MoveBytes	; BL move_bytes
  MOVVC R0,R8,LSL#8		; 256 chars
  ADDVC R0,R0,R8,LSL#4		; &110 chars
- BLVC set_font_block_size		; make big enough to contain all the chars
+ BLVC set_font_block_size	; make big enough to contain all the chars
  MOVVC R1,R6
  MULVC R2,R4,R8
  ADDVC R2,R2,R1
@@ -370,13 +421,19 @@ err$l ERR "zap_e_notzfont"
 
 add_vdu_bitmaps
  FNJSR "R1-R5"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_font_off
+ SYSLOGF "add_vdu_bitmaps for %7x (%0d) from %4d to %5d", LOG_FONT
+ PULL "R0"
+ ]
  ADD R1,R12,#red_flags		; start of redraw block
- LDR R2,[R7,#8]
- LDR R3,[R7,#12]
+ LDR R2,[R7,#fb_width]
+ LDR R3,[R7,#fb_height]
  FNSTR R2,red_charw
  FNSTR R3,red_charh
  CMP R5,#&20
- BLLE add_system_bitmaps	; add system characters if needed
+ BLLE add_system_bitmaps	; add system characters (ctrl codes) if needed
  BLVC ensure_workarea_sprite	; ensure workarea big enough for this font
  FNRTS VS
  BL get_font_addr
@@ -403,6 +460,12 @@ add_vdu_bitmaps
 
 add_system_bitmaps
  FNJSR "R1-R4"			; returns R5
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_font_off
+ SYSLOGF "add_system_bitmaps for %7x (%0d) for chars %2d by %3d", LOG_FONT
+ PULL "R0"
+ ]
  TEQ R2,#8
  TEQEQ R3,#8
  FNRTS NE			; wrong size
@@ -421,8 +484,14 @@ add_system_bitmaps
 
 setup_red_blk
  FNJSR "R2-R3"
- LDR R2,[R7,#8]			; width
- LDR R3,[R7,#12]		; height
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_font_off
+ SYSLOGF "setup_red_blk for %7x (%0d)", LOG_FONT+1
+ PULL "R0"
+ ]
+ LDR R2,[R7,#fb_width]
+ LDR R3,[R7,#fb_height]
  FNSTR R2,red_charw
  FNSTR R3,red_charh
  FNLDR R0,scn_bpp
@@ -430,7 +499,7 @@ setup_red_blk
  FNSTR R2,red_cbpl,VC
  FNSTR R3,red_cbpc,VC
  FNLDR R2,font_start,VC
- LDRVC R3,[R7]
+ LDRVC R3,[R7,#fb_offset]
  ADDVC R2,R2,R3
  FNSTR R2,red_caddr,VC
 ; SWI &107
@@ -443,26 +512,27 @@ setup_red_blk
 
 look_for_zap_font
  FNJSR "R1-R6"			; R7 returned
+ SYSLOGF "look_for_zap_font %1s at %0d log2bpp", LOG_FONT
  MOV R3,R0			; R3=log2bpp
  MOV R4,R1			; R4=font name
  FNLDR R7,font_list
  FNLDR R6,font_num
- ADD R6,R7,R6,LSL#5		; end of the list
+ ADD R6,R7,R6,LSL#fb_shift	; end of the list
 loop$l
  CMP R7,R6
  MOVGE R7,#0
  FNRTS GE			; not found
- LDR R1,[R7,#4]
+ LDR R1,[R7,#fb_name]
  TEQ R1,#0
  BEQ next$l			; no font here
  MOV R2,R4
  BL strCMP
  BNE next$l
- LDR R0,[R7,#&10]		; log bpp
+ LDR R0,[R7,#fb_bpp]		; log bpp
  TEQ R0,R3			; a match?
  FNRTS EQ			; found a match
 next$l
- ADD R7,R7,#32
+ ADD R7,R7,#fb_size
  B loop$l
 
  LOCAL
@@ -476,11 +546,12 @@ next$l
 
 find_zap_font
  FNJSR "R1-R6"
+ SYSLOGF "find_zap_font %1s at %0d log2bpp", LOG_FONT
  MOV R4,R0			; save bpp asked for
  BLVC look_for_zap_font
  BVS finalex$l
  TEQ R7,#0
- BNE finalex$l
+ BNE finalex$l			; was already loaded
 
  MOV R0,R4
  BL checktoseeifalink
@@ -504,22 +575,22 @@ zero$l				; R7=mode 0 form
  FNRTS EQ			; that was all that was asked for!
  BL get_font_off		; convert to an offset
  MOVVC R6,R0			; save the source font block
- LDRVC R1,[R7,#4]
- LDRVC R2,[R7,#8]
- LDRVC R3,[R7,#12]		; get name,width,height
+ LDRVC R1,[R7,#fb_name]
+ LDRVC R2,[R7,#fb_width]
+ LDRVC R3,[R7,#fb_height]
  BLVC create_font_block		; create new font block (all moves)
- STRVC R2,[R7,#8]
- STRVC R3,[R7,#12]		; store in new block
- STRVC R4,[R7,#&10]		; and bpp it's going to be cached at
+ STRVC R2,[R7,#fb_width]
+ STRVC R3,[R7,#fb_height]
+ STRVC R4,[R7,#fb_bpp]
  MOVVC R0,R4
  SWIVC XZapRedraw_CachedCharSize; R3=size of a character
  MOVVC R0,R3,LSL#8
  ADDVC R0,R0,R3,LSL#4		; &110 characters
  BLVC set_font_block_size	; claim memory for font to live in
- STRVC R1,[R7,#4]		; name now valid
+ STRVC R1,[R7,#fb_name]		; name now valid
  BLVC setup_red_blk
  FNLDR R0,font_list,VC
- ADDVC R6,R0,R6,LSL#5		; source font block (moved)
+ ADDVC R6,R0,R6,LSL#fb_shift	; source font block (moved)
  FNLDR R4,font_start,VC
  LDRVC R0,[R6]
  ADDVC R4,R4,R0			; source bitmap
@@ -539,9 +610,12 @@ finalex$l
 
  LOCAL
 
-;returns ptr to real filename in R1...
+; !!! FIXME: but something like:
+;\E r1 filename of font file to consider
+;\X r1 updated to real filename if it was a link
 checktoseeifalink
  FNJSR "R2-R7"
+ SYSLOG "checktoseeifalink", LOG_FONT+1
  MOV R7,R1
  MOV R0,#15
  ADR R4,zap_font_path
@@ -557,7 +631,7 @@ checktoseeifalink
  MOV R1,R7
  MOV R2,R6
  MOV R3,#0
- ADR R4,zap_font_path		; ZapFont$Path..
+ ADRL R4,zap_font_path		; ZapFont$Path..
  SWI XOS_File
  BVS err$l
  LDR R14,[R6]
@@ -579,7 +653,7 @@ chkforzflk$l = "ZFLK"
 check_file_exists
  FNJSR "R1-R5"			; not needed :(
  MOV R0,#15
- ADR R4,zap_font_path
+ ADRL R4,zap_font_path
  SWI XOS_File			; find info on the file R4=length
  TEQ R0,#1			; NE object R1 doesn't exist as a file
  FNRTS
@@ -590,7 +664,7 @@ check_file_exists
 ; Choose fonts for newly created/reopened window		;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;X font blk blatted with -1s
+;X R8 - window's font blk blatted with -1s
 ; FIXME: why isn't this using Zap_FillWords?
 
 clear_font_block
@@ -618,6 +692,7 @@ loop$l
 ;  ie: knowfontexists = -1 unless we can add substyle suffices for this font.
 pre_add_font_suffix
  FNJSR "R0-R2,R7,R11"
+ SYSLOGF "pre_add_font_suffix %0s", LOG_FONT
  MOV R11,R0
  MOV R14,#-1
  STR R14,knowfontexists
@@ -657,6 +732,7 @@ knowfontexists
 
 quick_add_font_suffix
  FNJSR "R2,R5-R7,R11"
+ SYSLOGF "quick_add_font_suffix %11s for substyle #%10d", LOG_FONT
  MOV R7,R1
  MOV R1,R11
 
@@ -703,6 +779,7 @@ quick_add_font_suffix
 ; Like quick, but does all suffices required.
 add_font_suffix
  FNJSR "R2,R5-R7,R11"
+ SYSLOGF "add_font_suffix %11s for substyle #%10d", LOG_FONT
  MOV R7,R1
  MOV R1,R11
 
@@ -784,6 +861,12 @@ masks_end$l
 
 setup_fontmc_with_extras	; alternate entry point, used by redraw code
  FNJSR "R1,R6,R7,R10"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ SYSLOGF "setup_fontmc_with_extras wind %8x (%0d)", LOG_FONT
+ PULL "R0"
+ ]
  LDR R14,[R8,#w_flags]		; get flags
  ANDS R14,R14,#redraw_font_mask
  TEQ R14,#redraw_vdu_font
@@ -832,17 +915,18 @@ maybeneedssetup
  BLVC get_font_off
 maybe_notsetup_yet
  STRVC R0,[R6,R10,LSR #1]	; setup w_fontc
- SWI XHourglass_Off
+ SWI XHourglass_Off		; swallows VS state
  FNRTS
 
 ;E R8 R10 0 - 60  R6 = w_font (block ptr)
 ;X R0 = number of font.
 setup_this_font_now
  FNJSR "R1,R2,R10,R11"
+ SYSLOGF "setup_this_font_now substyle #%10d, w_font = %6x", LOG_FONT
  LDR R1,[R6,#font_data0]
  FNLDR R14,font_list
- ADD R14,R14,R1,LSL #5
- LDR R2,[R14,#4]		; pointer to name of base font :-)
+ ADD R14,R14,R1,LSL #fb_shift
+ LDR R2,[R14,#fb_name]		; pointer to name of base font :-)
 
  FNLDR R11,wimp_data		; buffer
  ADD R11,R11,#&60
@@ -900,30 +984,36 @@ local_ss_info_word
 
 correct_font
  FNJSR "R1-R4,R7"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ SYSLOGF "correct_font wind %8x (%0d)", LOG_FONT
+ PULL "R0"
+ ]
  LDR R1,[R8,#w_flags]
- AND R1,R1,#&00320000		; font bits
- TEQ R1,#&00120000
- TEQNE R1,#&00200000
+ AND R1,R1,#redraw_font_mask
+ TEQ R1,#redraw_vdu_font
+ TEQNE R1,#redraw_fast_font
  BEQ aafont$l			; anti-aliased font
- TEQ R1,#&00020000
+ TEQ R1,#redraw_vdu_system
  BEQ vdusys$l			; vdu system redraw font
  LDR R0,[R8,#w_font]
  LDR R0,[R0,#font_data0]	; sufficient
  BL conv_font_off		; R7=font block
 ; CMP R7,#0	; ????
 ; FNRTS LE	; ????
- LDR R4,[R7,#8]			; width of font
- LDR R2,[R7,#12]		; height of font
+ LDR R4,[R7,#fb_width]		; width of font
+ LDR R2,[R7,#fb_height]		; height of font
  LDR R0,[R8,#w_linesp]		; line spacing in pixels
  ADD R3,R2,R0			; total line height inc line spacing
- TEQ R1,#&00100000
+ TEQ R1,#redraw_dsa_system_scaled
  BEQ scaled$l			; vertically scaled quick draw font
- TEQ R1,#&00220000
+ TEQ R1,#redraw_dsa_system_doubleheight
  BEQ double$l			; double height
  B end$l			; must be standard size
 scaled$l
  LDR R0,[R8,#w_format]
- BIC R0,R0,#1<<28
+ BIC R0,R0,#format_UseDoubleHeightScaling
  STR R0,[R8,#w_format]		; clear the double height bit FIRST
  CMP R2,#8
  BGT end$l			; don't try scaling large fonts
@@ -931,7 +1021,7 @@ scaled$l
  CMP R0,#1
  BGT end$l			; lowres mode so don't double
  LDR R0,[R8,#w_format]
- ORR R0,R0,#1<<28
+ ORR R0,R0,#format_UseDoubleHeightScaling
  STR R0,[R8,#w_format]		; mark as a double height font
 double$l			; double the font height
  MOV R2,R2,LSL#1
@@ -976,6 +1066,12 @@ end$l				; R2=charh R3=charh+linesp R4=charw
 
 choose_fontm
  FNJSR "R1,R7,R10,R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ SYSLOGF "choose_fontm wind %8x (%0d)", LOG_FONT
+ PULL "R0"
+ ]
  FNLDR R0,scn_magy		; get Y Eig
  CMP R0,#1
  FNLDR R0,font_namehigh,LE
@@ -1005,10 +1101,11 @@ Bitmapfont			; R3=address of prev item start R10=text
  BLVC new_window_status		; update the window
  FNRTS VC
 error_cantfindthat$l
+ BL choose_fontm
+ FNRTS VS			; this will go _very_ badly, since we can't do redraws
  ADR R0,err_nofontfound$l
  MOV R1,#warn_UseMessageTrans
- BL warn_user
- BL choose_fontm
+ BL warn_user			; warn the user. Do this after the choose_fontm so there isn't a redraw event anywhere
  FNRTS
 err_nofontfound$l
  FNS ("zap_NoFont")
@@ -1031,6 +1128,7 @@ loop$l
 ;X font set up for default style
 change_bmf_core
  FNJSR "R10,R11"
+ SYSLOGF "change_bmf_core %0s", LOG_FONT
  MOV R11,R0
  BL clear_font_block		; ... for this window
 
@@ -1052,6 +1150,7 @@ loop$l
 err$l
  MOV R10,R0
  SWI XHourglass_Off		; this shouldn't ever return VS
+; SYSLOGF "change_bmf_core failed with error pointer %0x", LOG_FONT
  MOV R0,R10			; however I'd rather not risk it ...
  FNRTV
 
@@ -1059,6 +1158,7 @@ err$l
 ;\E R1 -> after 0 at end of fontname, R10 substyle, R11 fontname
 ;\X r0 = -1 => couldn't find it, else -> font data?
 do_one_font_pass
+ SYSLOGF "do_one_font_pass %11s, substyle #%10d", LOG_FONT
  FNJSR
  PUSH "R1"
  BL quick_add_font_suffix	; B, I or U depending on R10, \X r1 -> correct font name
@@ -1079,6 +1179,10 @@ store_font_off$l
  ADDVC R14,R14,#font_data0
  STRVC R0,[R14,R10,LSR #1]	; that font's data...
  FNRTS
+; FNRTS VC
+; SYSLOGF "do_one_font_pass failed with error pointer %0x", LOG_FONT
+; FNRTV				; restore VS
+
 
  LOCAL
 

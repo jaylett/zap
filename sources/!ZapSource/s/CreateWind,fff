@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 1.1.2.9 1999/03/18 09:36:19 james Exp $
+; $Id: CreateWind,fff,v 1.1.2.10 1999/08/04 13:53:36 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -106,6 +106,14 @@
 
 new_view
  FNJSR "R1-R3,R7"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ MOV R1,R0
+ BL get_wind_off
+ SYSLOGF "new_view on window %8x (%0d) file %9x (%1d)", LOG_WINDOW
+ PULL "R0"
+ ]
  TEQ R8,#0
  BNE ne2			; clone
  BL create_window_block
@@ -171,6 +179,12 @@ ne3
 
 create_window_block
  FNJSR "R1-R3,R7"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ SYSLOGF "create_window_block for file %9x (%1d)", LOG_WINDOW
+ PULL "R0"
+ ]
  BL check_scn_valid		; may be needed if zr not loaded yet...
  ;BL get_mode_0Box
  ;BL create_leaf_window
@@ -281,6 +295,7 @@ ext3$l DCD winfo_mask			; allow mode forcing here
 claim_window_buffers
  FNJSR
  BL get_wind_off
+ SYSLOGF "claim_window_buffers for window %8x (%0d)", LOG_WINDOW
  STRVC R0,[R8,#w_pwind]		; window offset of point caret
  MOVVC R0,#0
  BLVC heap_claim		; claim cache
@@ -331,7 +346,7 @@ copy_a_mode_buffer
  CMP R1,#0
  FNRTS LE			; not valid
  LDR R0,[R1,#e_mode*2]
- TST R0,#1<<10
+ TST R0,#emode_ModeWordIsBlock
  STREQ R4,[R5]
  FNRTS EQ			; finished - it was a single word
  MOV R1,R4			; source block
@@ -348,6 +363,12 @@ copy_a_mode_buffer
 
 create_window
  STMFD R13!,{R2-R3,R7,R14}
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ SYSLOGF "create_window for wind %8x (%0d) into buffer at %1x", LOG_WINDOW
+ PULL "R0"
+ ]
  BL get_mode_0Box
  LDR R3,[R7]
  ADD R3,R3,#20			; was 24
@@ -1184,6 +1205,10 @@ calculate_open_change
 
 delete_window
  STMFD R13!,{R9,R14}
+ [ LOGGING = SYSLOG
+ BL get_wind_off
+ SYSLOGF "delete_window wind %8x (%0d)", LOG_WINDOW
+ ]
  BL test_delete_file		; set up R9 and R0
  LDMVSFD R13!,{R9,PC}
  TEQ R0,#0
@@ -1247,6 +1272,14 @@ test_delete_window
  DCD 1
 discard_window
  STMFD R13!,{R1,R14}
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ MOV R1,R0
+ BL get_wind_off
+ SYSLOGF "discard_window wind %8x (%0d) file %9x (%1d)", LOG_WINDOW
+ PULL "R0"
+ ]
  MOV R1,#4
  BL issue_service
  BLVC delete_leafs
@@ -1284,6 +1317,7 @@ test_open_dir
 Openparent
  LDR R0,[R9,#f_name]
  ;B filer_open			; open the parent directory
+ ; Explicit drop-through!
 
  LOCAL
 
@@ -1336,6 +1370,12 @@ fo_s2
 
 free_window
  FNJSR
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ SYSLOGF "free_window wind %8x (%0d)", LOG_WINDOW
+ PULL "R0"
+ ]
  BL free_mode_buffers
  LDRVC R0,[R8,#w_txt]
  BLVC heap_free
@@ -2198,6 +2238,10 @@ rt_task = "TASK"
 
 find_window
  STMFD R13!,{R1-R2,R14}
+ [ LOGGING = SYSLOG
+ BL get_file_off
+ SYSLOGF "find_window file %9x (%0d)", LOG_WINDOW
+ ]
  FNLDR R0,file_list
  SUB R0,R9,R0
  MOV R0,R0,LSR#f_shift
@@ -2415,6 +2459,7 @@ al4
 
 new_font
  STMFD R13!,{R10,R14}
+ SYSLOGF "new_font (windows about to be updated)", LOG_WINDOW
  BL read_font_info
  ADRVC R10,new_font_sub
  BLVC do_allwindow
@@ -2586,7 +2631,7 @@ new_format_select
 
 test_for_ww
  PUSH "R0"
- MOV R0,#1
+ MOV R0,#einterrogate_WindowWrap
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2594,7 +2639,7 @@ test_for_ww
 
 test_for_sw
  PUSH "R0"
- MOV R0,#2
+ MOV R0,#einterrogate_SoftWrap
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2602,7 +2647,7 @@ test_for_sw
 
 test_for_sayt
  PUSH "R0"
- MOV R0,#13
+ MOV R0,#einterrogate_SpellAsYouType
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2610,7 +2655,7 @@ test_for_sayt
 
 test_for_linesel
  PUSH "R0"
- MOV R0,#12
+ MOV R0,#einterrogate_LineSelect
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2618,7 +2663,7 @@ test_for_linesel
 
 test_for_be
  PUSH "R0"
- MOV R0,#23
+ MOV R0,#einterrogate_BlockEdit
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2626,7 +2671,7 @@ test_for_be
 
 test_for_ai
  PUSH "R0"
- MOV R0,#24
+ MOV R0,#einterrogate_AutoIndent
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2634,7 +2679,7 @@ test_for_ai
 
 test_for_ch
  PUSH "R0"
- MOV R0,#5
+ MOV R0,#einterrogate_ConfineH
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2642,7 +2687,7 @@ test_for_ch
 
 test_for_cv
  PUSH "R0"
- MOV R0,#6
+ MOV R0,#einterrogate_ConfineV
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2650,7 +2695,7 @@ test_for_cv
 
 test_for_fc
  PUSH "R0"
- MOV R0,#7
+ MOV R0,#einterrogate_FreeClick
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2658,7 +2703,7 @@ test_for_fc
 
 test_for_sc
  PUSH "R0"
- MOV R0,#8
+ MOV R0,#einterrogate_SmartCursor
  BL testandsee$l
  PULL "R0"
  ORRNE R0,R0,#2
@@ -2696,26 +2741,26 @@ into_new_info_set2
 check_info
 	FNJSR	"R1"
 	MOV	R1,R0
-	TST	R1,#1<<6	; line select
-	MOVNE	R0,#12
+	TST	R1,#info_LineSelection
+	MOVNE	R0,#einterrogate_LineSelect
 	BLNE	testandsee$l
-	TEQNE	R0,#12
-	BICNE	R1,R1,#1<<6
-	TST	R1,#1<<7	; SAYT
-	MOVNE	R0,#13
+	TEQNE	R0,#einterrogate_LineSelect
+	BICNE	R1,R1,#info_LineSelection
+	TST	R1,#info_SpellAsYouType
+	MOVNE	R0,#einterrogate_SpellAsYouType
 	BLNE	testandsee$l
-	TEQNE	R0,#13
-	BICNE	R1,R1,#1<<7
-	TST	R1,#1<<9	; strong SW (hardwired)
-	MOVNE	R0,#2
+	TEQNE	R0,#einterrogate_SpellAsYouType
+	BICNE	R1,R1,#info_SpellAsYouType
+	TST	R1,#info_StrongSoftWrap
+	MOVNE	R0,#einterrogate_SoftWrap
 	BLNE	testandsee$l
-	TEQNE	R0,#2
-	BICNE	R1,R1,#1<<9
-	TST	R1,#1<<10	; block edit
-	MOVNE	R0,#23
+	TEQNE	R0,#einterrogate_SoftWrap
+	BICNE	R1,R1,#info_StrongSoftWrap
+	TST	R1,#info_BlockEdit
+	MOVNE	R0,#einterrogate_BlockEdit
 	BLNE	testandsee$l
-	TEQNE	R0,#23
-	BICNE	R1,R1,#1<<10
+	TEQNE	R0,#einterrogate_BlockEdit
+	BICNE	R1,R1,#info_BlockEdit
 	MOV	R0,R1
 	FNRTS
 
@@ -2760,7 +2805,7 @@ into_new_format_set2
  BNE test_for_sw
  ;TST R1,#bit_windowwrap
  ;BNE test_for_ww
- TST R1,#1<<16			; strong SW (hardwired)
+ TST R1,#format_AutoIndent
  BNE test_for_ai
  TST R1,#bit_smartcursors
  BNE test_for_sc

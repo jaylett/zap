@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.24 1999/07/06 11:36:01 james Exp $
+; $Id: StartCode,fff,v 1.1.2.25 1999/08/04 13:53:38 james Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -117,9 +117,9 @@ start_code
 
  BL init_vars			; set up variables (and variable buffers)
  |
- BLVC init_vars	
+ BLVC init_vars
  ]
-	
+
  ; Let's go with everything else
  BLVC init_config		; load !Config file / modedata (needs bufs)
  BLVC init_templates		; read template file (before init_settings!)
@@ -271,7 +271,7 @@ clean_up
  LOCAL
 
 fatal_wimp_error
-	[ LOGGING = SYSLOG  
+	[ LOGGING = SYSLOG
  ADD R0,R0,#4
  SYSLOGF "Fatal error '%0s'",LOG_FATAL
  SUB R0,R0,#4
@@ -284,7 +284,7 @@ fatal_wimp_error
 
 near_fatal_wimp_error
  FNJSR "R1,R2"
-	[ LOGGING = SYSLOG  
+	[ LOGGING = SYSLOG
  ADD R0,R0,#4
  SYSLOGF "Near-fatal error '%0s'",LOG_ERROR
  SUB R0,R0,#4
@@ -316,7 +316,7 @@ a$l				; report the error
  LDR R2,d$l
  TEQ R1,R2
  BEQ main_loop			; don't report it
-	[ LOGGING = SYSLOG  
+	[ LOGGING = SYSLOG
  ADD R0,R0,#4
  SYSLOGF "Error '%0s'",LOG_ERROR
  SUB R0,R0,#4
@@ -1513,6 +1513,14 @@ temp$l
  DCD 0
 send_data_save
  FNJSR "R1-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R1"
+ BL get_file_off
+ MOV R1,R0
+ BL get_wind_off
+ SYSLOGF "send_data_save wind %8x (%0d) file %9x (%1d) to %2s", LOG_FILE
+ PULL "R1"
+ ]
  TST R10,#4
  LDRNE R14,[R1,#4]
  STRNE R14,temp$l
@@ -1633,6 +1641,7 @@ b$l
 
 data_save_ack			; save out data to a file
  FNJSR
+ SYSLOGF "Message: data_save_ack, message at %1x", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#&0C]		; window offset being saved
  CMP R0,#-1
@@ -1666,6 +1675,7 @@ data_save_ack			; save out data to a file
 
 ram_fetch			; save out data by Ram transfer
  FNJSR
+ SYSLOGF "Message: ram_fetch, message at %1x", LOG_FILE
  TEQ R0,#19
  BLEQ err$l			; repeat message bounced
  FNRTS VS
@@ -1719,14 +1729,17 @@ err$l ERR "zap_e_ramxfer_receiver"
 
 data_saved			; app has called us back saying
  FNJSR				; all went well
+ SYSLOG "Message: data_saved", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#&0C]		; window offset
  CMP R0,#0
  FNRTS MI			; not interested
  BL conv_wind_off		; R8/R9 of window
- LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3
- STR R0,[R9,#f_flags]
+; LDR R0,[R9,#f_flags]
+; BIC R0,R0,#flags_Modified
+; STR R0,[R9,#f_flags]
+ MOV R0,#0
+ BL mark_changed_unchanged	; new modified system!
  BL new_file_title		; mark as saved successfully
  FNRTS
 
@@ -1742,6 +1755,7 @@ data_saved			; app has called us back saying
 
 data_save			; another app (or external edit) wants to
  FNJSR				; saving to me
+ SYSLOGF "Message: data_save, message at %1x", LOG_FILE
  MOV R14,#1
  FNSTR R14,opt_temporary	; tell inject_file not to check Shift
  LDR R0,[R1,#20]		; window handle
@@ -1798,6 +1812,7 @@ abort_transfer
 
 ram_fetch_back			; ram fetch message bounced
  FNJSR
+ SYSLOG "Message: ram_fetch bounced (sending DataSaveAck)", LOG_FILE
  MOV R1,R11
  FNLDR R2,wimp_block
  MOV R3,#&100
@@ -1852,6 +1867,7 @@ data_load			; app/filer wants me to load a file
  FNSTR R11,opt_temporary	; tell inject_file to check Shift
 data_load_start			; reply to previous messages R11=block
  FNJSR
+ SYSLOGF "Message: data_load, message at %1x", LOG_FILE
  MOV R10,R1			; R10=save the message
  LDR R0,[R1,#20]		; window handle
  CMP R0,#-2			; the icon bar's icon number
@@ -1940,6 +1956,7 @@ f$l
 
 ram_transmit			; first reply to our ram fetch message
  FNJSR				; my buffer has been filled
+ SYSLOGF "Message: ram_transmit, message at %1x", LOG_FILE
 ; SWI &107
  MOV R0,#&100
  STR R0,[R11]
@@ -2034,6 +2051,7 @@ err$l ERR "zap_e_ramxfer_transmitter"
 
 data_open
  FNJSR
+ SYSLOG "Message: data_open", LOG_FILE
 ; SWI &107
  LDR R0,[R11,#40]		; file type
  TEQ R0,#&3000
@@ -2068,6 +2086,7 @@ load$l
 
 pre_quit
  FNJSR
+ SYSLOG "Message: pre_quit", LOG_STATUS
  BL test_quit_ok
  FNRTS CC			; if quit ok then don't acknowledge
  LDR R0,[R11]			; get message length
@@ -2091,6 +2110,7 @@ pre_quit
 
 save_desktop
  FNJSR
+ SYSLOG "Message: save_desktop", LOG_STATUS
  FNLDR R9,wimp_block		; buffer
  MOV R1,R9
  ADR R2,sd_d0
@@ -2129,6 +2149,7 @@ sd_s0 FNS (|zap$|:CC:"$Dir")
 
 OLE_OpenSession
  FNJSR "R1-R12"
+ SYSLOG "Message: OLE_OpenSession", LOG_FILE
 
  LDR R6,[R11,#20]
  LDR R7,zapname$l
@@ -2247,6 +2268,7 @@ bad$l
 
 OLE_CloseSession
  FNJSR
+ SYSLOG "Message: OLE_CloseSession", LOG_FILE
  LDR R7,[R11,#4]		; task handle
  LDR R8,[R1,#24]		; session number
  CMP R8,#1			; all sessions
@@ -2311,6 +2333,7 @@ find$l
 
 Edit_Rq
  FNJSR "R3"
+ SYSLOG "Message: Edit_Rq", LOG_FILE
  LDR R0,[R11,#20]		; data type
  MOV R0,R0,LSL#20
  MOV R0,R0,LSR#20		; clear extension in top 20 bits
@@ -2486,6 +2509,7 @@ ee_create_window_block$l
 
 Edit_Return
  FNJSR
+ SYSLOG "Message: Edit_Return", LOG_FILE
  LDR R0,[R11,#24]		; job handle
  BL convert_job_handle		; get R8/R9
  FNRTS CS			; no good
@@ -2515,6 +2539,7 @@ sub$l
 
 Edit_Abort
  FNJSR
+ SYSLOG "Message: Edit_Abort", LOG_FILE
  LDR	R0,[R11,#24]		; job handle
  BL	convert_job_handle		; get R8/R9
  FNRTS	CS			; no good
@@ -2527,6 +2552,7 @@ Edit_Abort
 
 Edit_Cursor
  FNJSR
+ SYSLOG "Message: Edit_Cursor", LOG_FILE
  LDR	R0,[R11,#24]		; job handle
  BL	convert_job_handle		; get R8/R9
  FNRTS	CS			; no good
@@ -2754,6 +2780,7 @@ message_log
 
 mode_changed
  FNJSR				; NB Can't use mode numbers any more
+ SYSLOG "Message: mode_changed", LOG_STATUS
  FNLDR	R1,scn_magx
  FNSTR	R1,scn_magxold
  FNLDR	R2,scn_magy
@@ -2826,6 +2853,7 @@ sub$l
 
 palette_changed			; called before a mode change + doesn't
  FNJSR				; redraw itself (contrary to the manual!)
+ SYSLOG "Message: palette_changed", LOG_STATUS
  ADR	R10,sub$l
  BL	do_allwindow
  FNRTS

@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 1.1.2.10 1999/04/17 23:29:50 ds Exp $
+; $Id: CreateFile,fff,v 1.1.2.11 1999/08/04 13:53:35 james Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -88,6 +88,7 @@ USE_WRITE_FILES * 0
 
 install_file
  FNJSR "R1,R7-R10"
+ SYSLOGF "install_file %0s",LOG_FILE
  MOV R10,R0			; save filename
  BL find_file_look		; already loaded?
  TEQ R9,#0
@@ -131,6 +132,7 @@ s$l FNS ("zap_MultipleCopies")
 
 install_new_file
  FNJSR "R1-R10"
+ SYSLOGF "install_new_file %0s",LOG_FILE
  MOV R1,R0			; filename
  FNLDR R0,wimp_version
  CMP R0,#300
@@ -269,6 +271,15 @@ simplyexit$l
 
 inject_file
  FNJSR "R1-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R2,R0
+ PULL "R0"
+ SYSLOGF "inject_file %0s into wind %8x (%1d) file %9x (%2d)",LOG_FILE
+ ]
  MOV R11,R0			; save file name
 ; SWI &107
  BL find_input			; get input offset in R0
@@ -380,6 +391,7 @@ name$l				; insert name instead of file
 
 create_file_block
  FNJSR "R1-R5,R10"		; careful - explicit pull below
+ SYSLOGF "create_file_block length %0x for %1s, l %2x e %3x",LOG_FILE
  MOV R10,R0			; save required length
  FNLDR R0,file_list
  FNLDR R1,file_num
@@ -445,6 +457,7 @@ ext1$l DCD fflags_mask
 
 create_file
  FNJSR "R1-R5"
+ SYSLOGF "create_file type %0x, flags BIC %1x EOR %2x, format BIC %3x",LOG_FILE
  FNLDR R5,opt_flags
  BIC R1,R5,R1
  EOR R1,R1,R2
@@ -464,6 +477,7 @@ create_file
 
 create_empty
  FNJSR
+ SYSLOGF "create_empty type %0x",LOG_FILE
  BL create_empty_file
  BLVC create_window_block
  FNRTS
@@ -475,6 +489,7 @@ create_empty
 
 create_empty_file
  STMFD R13!,{R1-R4,R14}
+ SYSLOGF "create_empty_file type %0x",LOG_FILE
  MOV R4,R0			; save filetype
  BL calc_load			; R2/R3=load/exec
 ; LDMVSFD R13!,{R1-R4,PC}
@@ -518,6 +533,15 @@ name$l FNS ("NewFile")
 
 delete_file
  FNJSR "R1,R7,R10-R11";"R1,R7,R8-R11";
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R7,R0
+ PULL "R0"
+ SYSLOGF "delete_file wind %8x (%1d) file %9x (%7d)",LOG_FILE
+ ]
 ; BL conv_wind_off		; ?!?!?!?!?! bug
  BL test_changed
  BEQ kill$l			; unaltered
@@ -552,6 +576,12 @@ kill$l
  DCD 1
 discard_file
  FNJSR "R1,R10-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ SYSLOGF "discard_file file %9x (%0d)",LOG_FILE
+ PULL "R0"
+ ]
  LDR R10,[R9,#f_cmode]		; mode 'owning' file
  CMP R10,#0
  BMI checked$l			; hopefully...
@@ -589,6 +619,12 @@ link$l				; discard a link
 
 free_file
  FNJSR "R1"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ SYSLOGF "free_file file %9x (%0d)",LOG_FILE
+ PULL "R0"
+ ]
  BL get_file_off		; R0=file offset
  MOV R1,#0
  BL set_block_size		; set the file block size to 0
@@ -653,6 +689,15 @@ get_file_off
 
 save_text
  FNJSR "R1,R7,R10-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R7,R0
+ PULL "R0"
+ SYSLOGF "save_text wind %8x (%1d) file %9x (%7d)",LOG_FILE
+ ]
  LDR R10,[R9,#f_cmode]
  CMP R10,#0
  BMI checked$l
@@ -707,6 +752,14 @@ a$l
 
 save_file_date
  FNJSR "R7"
+ [ LOGGING = SYSLOG
+ PUSH "R0-R1"
+ BL get_file_off
+ MOV R1,R0
+ BL get_wind_off
+ SYSLOGF "save_file_date wind %8x (%0d) file %9x (%1d)",LOG_FILE
+ PULL "R0-R1"
+ ]
  BL check_date
  TEQ R0,#0
  BEQ save$l
@@ -803,6 +856,25 @@ returnnull$l
 
 save_file_buffer
  FNJSR "R1-R6,R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ TST R0,#1
+ BNE syslog_unsafe$l
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R2,R0
+ SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d)",LOG_FILE
+ B syslog_skip$l
+syslog_unsafe$l
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R2,R0
+ SYSLOGF "save_file_buffer wind %8x (%1d) file %9x (%2d) (unsafe)",LOG_FILE
+syslog_skip$l
+ PULL "R0"
+ ]
  MOV R6,R0			; save the flags
  BL pre_save			; get it into correct form for saving
  BVS stop$l
@@ -903,6 +975,12 @@ initialise_checksums
 
 save_file
  FNJSR "R1-R5"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ SYSLOGF "save_file %9x (%0d)",LOG_FILE
+ PULL "R0"
+ ]
 ; LDR R0,[R9,#f_flags]
 ; TST R0,#1<<28
 ; BNE access$l
@@ -1269,6 +1347,15 @@ new_switches
 
 save_from_leaf
  FNJSR "R1,R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ MOV R1,R0
+ BL get_file_off
+ MOV R2,R0
+ PULL "R0"
+ SYSLOGF "save_from_leaf wind %8x (%1d) file %9x (%2d) to %0s (leaf index %7d)",LOG_FILE
+ ]
  MOV R1,#0
  BL save_to_file
  FNRTS VS
@@ -1309,6 +1396,15 @@ update_after_save
 
 save_to_file
  FNJSR "R1-R11"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_wind_off
+ MOV R2,R0
+ BL get_file_off
+ MOV R3,R0
+ PULL "R0"
+ SYSLOGF "save_to_file wind %8x (%2d) file %9x (%3d) to %0s (flags %1x)",LOG_FILE
+ ]
  TST R1,#2
  BNE m$l			; just save area of memory
  CMP R8,#0
@@ -1373,6 +1469,7 @@ notdirok$l
 
 simply_save_selection
  FNJSR
+ SYSLOGF "simply_save_selection to %0s",LOG_FILE
  MOV R6,R0
  BL get_selection		; set up R8/R9
  FNRTS CS			; no selection
@@ -1412,6 +1509,7 @@ err$l
 
 find_file
  STMFD R13!,{R1,R14}
+ SYSLOGF "file_find %0s",LOG_FILE
  MOV R1,R0			; save file name
  BL find_file_look
  LDMVSFD R13!,{R1,PC}
@@ -1431,6 +1529,7 @@ fi20
 
 find_file_look
  STMFD R13!,{R1-R5,R14}
+ SYSLOGF "file_file_look %0s",LOG_FILE
  MOV R3,R0			; save name pointer
  FNLDR R0,wimp_version
  CMP R0,#300
@@ -1471,6 +1570,7 @@ fi16
 
 dump_file
  STMFD R13!,{R1-R11,R14}
+ SYSLOGF "dump_file window offset %0d",LOG_FILE
  MOV R6,R0			; save window offset
  FNLDR R1,opt_flags
  BIC R0,R1,#1			; no undo on yet
@@ -1754,6 +1854,12 @@ find$l	LDRB	R14,[R1],#1
 
 init_kill_buffer
  FNJSR
+; [ LOGGING = SYSLOG
+; PUSH "R0"
+; BL get_file_off
+; SYSLOGF "init_kill_buffer for file %9x (%0d)", LOG_FILE+1
+; PULL "R0"
+; ]
  MOV R0,#0
  STR R0,[R9,#f_ubufl]		; null buffer
  STR R0,[R9,#f_ulen]
@@ -1800,6 +1906,12 @@ delete_file_leafs_sub
 
 free_link_entry
  FNJSR "R1-R3"
+ [ LOGGING = SYSLOG
+ PUSH "R0"
+ BL get_file_off
+ SYSLOGF "free_link_entry for file %9x (%0d)",LOG_MEMORY
+ PULL "R0"
+ ]
  LDR R1,[R9,#f_links]		; start of buffer
  MOVS R2,R1			; pointer
  FNRTS MI
@@ -1964,6 +2076,7 @@ new_file_flags_set
 
 backup_file
  FNJSR "R1-R11"
+ SYSLOGF "backup_file %0s",LOG_FILE+1
  MOV R10,R0			; save the file name
  MOV R11,R0			; save the file name
  BL check_file_name
