@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.10 1999/02/06 18:17:40 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.11 1999/02/10 00:33:27 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -33,6 +33,7 @@
  EXPORT call_given_base_mode
  EXPORT broadcast
  EXPORT read_mode
+ EXPORT isthisaclonebase
  EXPORT kill_modes
  EXPORT kill_commands
  EXPORT add_new_mode
@@ -612,12 +613,12 @@ call_mode
  STMFD R13!,{R14}		; save return address
  STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
  LDRB R0,[R8,#w_format]		; display mode
- ADD R1,R12,#(command_store + 4)
- ADD R1,R1,#(mode_store - command_store); start of list+4
+ ADD R1,R12,#(mode_store+4):AND:&FF00
+ ADD R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R0,[R1,R0,LSL #3]		; mode dispatch table in R0
 call_mode_common
  LDR R2,[R0,#2*e_mode+4]
- LDR R2,[R2,R11,LSR #2]		; mode supplying the entry point
+ LDRB R2,[R2,R11,LSR #2]		; mode supplying the entry point
  LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
  LDR R11,[R0,#4]		; workspace pointer to use
  STR R1,[R13,#12]		; overwrite the blanks with the address
@@ -631,8 +632,8 @@ call_mode_common
 call_given_mode
  STMFD R13!,{R14}		; save return address
  STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
- ADD R1,R12,#(command_store + 4); start of list+4
- ADD R1,R1,#(mode_store - command_store); start of list+4
+ ADD R1,R12,#(mode_store+4):AND:&FF00
+ ADD R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R0,[R1,R10,LSL #3]		; mode dispatch table in R0
  CMP R0,#0			; do nothing if mode blank
  BGT call_mode_common
@@ -659,13 +660,13 @@ callbasemode$l = "Zap_CallBaseMode",0
 call_given_base_mode
  STMFD R13!,{R14}		; save return address
  STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
- ADD R1,R12,#(command_store + 4) ; start of list+4
- ADD R1,R1,#(mode_store - command_store) ; start of list+4
+ ADD R1,R12,#(mode_store+4):AND:&FF00
+ ADD R1,R1,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R0,[R1,R9,LSL #3]		; linked table
- LDRB R0,[R0,#2*e_basemode]	; base mode
+ LDR R0,[R0,#2*e_basemode]	; base mode
  LDR R0,[R1,R0,LSL #3]		; linked table
  LDR R2,[R0,#2*e_mode+4]
- LDR R2,[R2,R11,LSR #2]		; mode supplying the entry point
+ LDRB R2,[R2,R11,LSR #2]		; mode supplying the entry point
  LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
  LDR R11,[R0,#4]		; workspace pointer
  STR R1,[R13,#12]		; address to jump to
@@ -726,6 +727,32 @@ mode_name
  LDRVC R2,[R1,#e_title*2]	; mode name address
  FNRTS
 err$l ERR "zap_e_badmoden"
+
+	LOCAL
+
+;E R0=mode number
+;X Z set if mode is the clone base of (or is!) the current mode
+;  R0=current mode R14=menu mode
+
+isthisaclonebase
+	FNJSR	"R1-R3"
+	TEQ	R8,#0
+	FNLDRB	R3,opt_format,EQ	; get current mode number
+	LDRNEB	R3,[R8,#w_format]
+	TEQ	R3,R0			; same mode?
+	BEQ	ret$l
+	MOV	R2,R0
+	MOV	R0,R3
+	BL	read_mode
+	LDR	R0,[R1,#2*e_basemode+4]	; get clone base of current mode
+	TEQ	R0,R2			; same mode?
+	MOV	R0,R3			; get current mode anyway
+	ADDNE	R3,R3,#1
+ret$l	FNLDR	R14,menu_mode
+	TEQ	R14,#0
+	MOVMI	R14,R0
+	TEQ	R0,R3			; restore Z flag
+	FNRTS
 
  LOCAL
 
@@ -1206,8 +1233,8 @@ new_mode
  CMP R7,#max_mode
  BLGE err23
  FNRTS VS
- ADD R11,R12,#(command_store + 4)	; start of list+4 ; ?? TT
- ADD R11,R11,#(mode_store - command_store)	; start of list+4
+ ADD R11,R12,#(mode_store+4):AND:&FF00
+ ADD R11,R11,#(mode_store+4):AND:&00FF ; start of list + 4
  LDR R14,[R11,R7,LSL #3]
  CMP R14,#0
  BLLE err23			; no such mode
@@ -1458,8 +1485,8 @@ badclonebase$l
 test_mode_name
  FNJSR "R1-R10"
  MOV R10,R0			; save mode name pointer
- ADD R7,R12,#(command_store + 4)	; start of list+4
- ADD R7,R7,#(mode_store - command_store)	; start of list+4
+ ADD R7,R12,#(mode_store+4):AND:&FF00
+ ADD R7,R7,#(mode_store+4):AND:&00FF ; start of list + 4
  MOV R6,#0			; mode number
 loop$l
  LDR R0,[R7],#8			; load mode linked table

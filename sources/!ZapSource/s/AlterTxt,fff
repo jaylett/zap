@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 1.1.2.2 1999/01/12 00:27:44 ds Exp $
+; $Id: AlterTxt,fff,v 1.1.2.3 1999/02/10 00:33:19 ds Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -2076,11 +2076,12 @@ main$l
  EOR R10,R0,#3			; save flags NOTing the bottom two
  MOV R7,#0			; current file_offset
  LDRB R4,[R8,#w_cr]		; return symbol
+ LDRB R6,[R8,#w_tabc]		; tab symbol
  BL read$l			; R1=buff R2=splito R3=second bit R5=len
 line$l				; do next line
  MOV R11,#0			; b0-b15=current col b16-b31=white space col
  AND R10,R10,#&0F		; b6=in" b7=in' b8+ file off of white space
- MOV R6,R7			; off of start of strippable characters
+ MOV R8,R7			; off of start of strippable characters
  ADD R10,R10,R7,LSL#8		; offset of current tabbable region
 a$l
  CMP R7,R5
@@ -2098,12 +2099,12 @@ b$l				; update space stripping vals
  TEQEQ R0,#&20
  BEQ a$l			; the character was strippable
  TST R10,#2
- TEQEQ R0,#9
- MOVNE R6,R7			; not strippable so reset
+ TEQEQ R0,R6
+ MOVNE R8,R7			; not strippable so reset
  B a$l
 t$l				; extra code when checking for tabs as well
  ADD R11,R11,#1			; next column (cos we're keeping count)
- TEQ R0,#9			; tab?
+ TEQ R0,R6			; tab?
  ADDEQ R11,R11,#7
  BICEQ R11,R11,#7		; move to next tab stop
  TEQNE R0,#&20
@@ -2117,8 +2118,9 @@ t$l				; extra code when checking for tabs as well
  PUSH "R0"
  BL tabify$l			; compress
  BLVC quit$l
- PULL "R0"
+ PULL "R14",VS
  FNRTS VS
+ PULL "R0"
  FNRTS CS
 u$l				; sorted tabs out up to this non white space
  TEQ R0,#'''			; update quote state
@@ -2133,13 +2135,14 @@ u$l				; sorted tabs out up to this non white space
 endfile$l			; reached end of file
  ADD R7,R7,#1			; go one off end (to fake LF)
 end$l				; reached the end of a line
- SUB R0,R7,R6
+ SUB R0,R7,R8
  SUBS R0,R0,#1			; number of bytes to strip
  BLE s$l
  MOV R2,R0			; number of bytes to delete
  MOV R0,#&12			; delete block
- MOV R1,R6			; offset
+ MOV R1,R8			; offset
  SUB R7,R7,R2			; new current offset
+ LDR R8,[R13,#28]
  BL command_primative		; don't let wordwrap get at it!
  BLVC quit$l
  FNRTS VS
@@ -2157,7 +2160,7 @@ read$l
  LDR R5,[R9,#f_len]		; end offset
  MOV PC,R14
 tabify$l			; possible tab compression
- FNJSR "R4"			; R1-R3,R5 are updated
+ FNJSR "R4,R8"			; R1-R3,R5 are updated. Note R8 read below...
  MOV R1,R11,LSR#16		; start column
  BIC R2,R11,R1,LSL#16
  SUB R2,R2,#1			; end column (taking off terminator)
@@ -2169,7 +2172,7 @@ y$l
  BIC R0,R0,#7			; next tab stop
  CMP R0,R2
  MOVLE R1,R0			; can fit a tab in
- MOVLE R0,#9
+ MOVLE R0,R6
  ADDGT R1,R1,#1
  MOVGT R0,#&20
  STRB R0,[R3],#1
@@ -2181,6 +2184,7 @@ z$l				; replacement data constructed
  FNLDR R0,wimp_kbdbuf
  SUB R4,R3,R0			; data length
  MOV R3,R0			; data
+ LDR R8,[R13,#28+12]		; stacked R8
  BL replace_area
  SUBVC R0,R4,R2			; change in data length
  ADDVC R7,R7,R0			; update the search offset

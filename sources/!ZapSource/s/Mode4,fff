@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.1.2.7 1999/02/05 18:25:39 ds Exp $
+; $Id: Mode4,fff,v 1.1.2.8 1999/02/10 00:33:25 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -45,7 +45,7 @@ mode_table_4
 	DCD	mode4_title
 	DCD	mode4_author
 	DCD	1			; based on Word mode...
-	DCD	4+emode_BinaryMode+emode_UsesMessageTrans
+	DCD	4+emode_BinaryMode+emode_UsesMessageTrans+emode_MayBeCloned
 	DCD	mode4_init
 	DCD	0
 	DCD	mode4_table_end-mode_table_4
@@ -129,7 +129,7 @@ mode4_init
 	MOVNE	PC,R14
 	FNJSR	"R0-R4,R8"
 	MOV	R8,#0
-	MOV	R1,#4
+	MOV	R1,R0			; mode number
 ; BL like_init_mode_word
 	BL	ensure_colours_correct
  ;MOV R0,#MODE4_COLNUMBS
@@ -138,7 +138,7 @@ mode4_init
  ;BLNE mode4_UnkPreColBit		; define them
 
 	MOV	r8,#0
-	MOV	R1,#4			; hardwired mode number R0
+	LDR	R1,[R13]		; mode number
 	BL	get_mode_word
 ; FNcall Zap_GetModeWord
 	BVS	mode4_dontchangeathing
@@ -154,9 +154,11 @@ mode4_init_13				; set up for redraw
 	FNJSR
 ; SWI &107
 	BL	getdisasmdata
-	STRVC	R0,local_disassemblerflags
-	LDRVC	R2,[R8,#w_mode4]
-	BLVC	readandputdisasmdata
+	STR	R0,local_disassemblerflags
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
+	BL	readandputdisasmdata
 	FNRTS
 
 mode4_init_14				; end of redraw data
@@ -258,7 +260,6 @@ mode4_col_sup$l
 ensure_colours_correct
 	FNJSR	"R1-R4,R8"
 	MOV	R8,#0			; default options
-	MOV	R1,#4
 	MOV	R2,#0
 ; ADR R3,mode4_col_sup$l
 ; LDR R4,[R3],#4			; number of extra colours
@@ -384,16 +385,18 @@ mode4_width
 	MOV	R0,#4
 	STR	R0,[R8,#w_bpl]
 	MOV	R0,#-1
-	MOV	R1,#4
+	LDRB	R1,[R8,#w_format]	; mode number
 	MOV	R2,#0
 	BL	mode_data		; read the first word of mode data
 	AND	R0,R0,#&FF
 	CMP	R0,#1
 	MOVLT	R0,#1			; width
-	LDR	R1,[R8,#w_mode4]	; load in our mode word
-	BIC R1,R1,#255
+	LDRB	R1,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R1,[R14,R1,LSL #2]!	; load in our mode word
+	BIC	R1,R1,#255
 	ORR	R1,R1,R0
-	STR	R1,[R8,#w_mode4]	; save in our mode word
+	STR	R1,[R14]		; save in our mode word
 	ADD	R0,R0,#18
 	TST	R1,#1 << 28		; binary?
 	ADDNE	R0,R0,#27
@@ -472,25 +475,19 @@ hex2$l					; hex dump loop
 readandputdisasmdata
 	LDR	R1,[R8,#w_format]
 	TST	R1,#bit_windowwrap	; non-global...?
-	MOVEQ	R1,R2,LSR #8
-	BICEQ	R1,R1,#(&F << 20)	; options - need to update if these change
-	ORREQ	R1,R1,#1<<23		; allow those lower-case letters!
-	BEQ	putdisasmdata
-	MOV	PC,R14
+	MOVNE	PC,R14
+	MOV	R1,R2,LSR #8
+	BIC	R1,R1,#(&F << 20)	; options - need to update if these change
+	ORR	R1,R1,#1<<23		; allow those lower-case letters!
+	B	putdisasmdata
 
 search_readandputdisasmdata
 	LDR	R1,[R8,#w_format]
 	TST	R1,#bit_windowwrap	; non-global...?
-	MOVEQ	R1,R2,LSR #8
-	BICEQ	R1,R1,#(&F << 20)	; options - need to update if these change
-	BEQ	putdisasmdata
-	MOV	PC,R14
-
-readandrestoredisasm
-	LDR	R0,[R8,#w_format]
-	TST	R0,#bit_windowwrap
-	BEQ	restoredisasm
-	MOV	PC,R14
+	MOVNE	PC,R14
+	MOV	R1,R2,LSR #8
+	BIC	R1,R1,#(&F << 20)	; options - need to update if these change
+	B	putdisasmdata
 
 carefully_readandputdisasmdata
 	FNJSR
@@ -510,6 +507,12 @@ carefully_readandrestoredisasm
 	BLEQ	restoredisasm
 	SUBS	R14,R14,R14
 	FNRTS
+
+readandrestoredisasm
+	LDR	R0,[R8,#w_format]
+	TST	R0,#bit_windowwrap
+	MOVNE	PC,R14
+; fall through
 
 restoredisasm
 	FNJSR	"R0,R1"
@@ -548,12 +551,10 @@ local_disassemblerflags
 mode4_redrawline
 	FNJSR
 	STR	R11,local_temp4r6 + 24	; save it...
-	LDR	R14,[R8,#w_mode4]
-	STR	R14,localmodeword
-; MOV R3,R2
-; BL getdisasmdata
-; STR R0,local_disassemblerflags
-; BL readandputdisasmdata
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R2,R8,R2,LSL #2
+	LDR	R2,[R2,#w_mode0]
+	STR	R2,localmodeword
 	MOV	R1,#0			; important r1=0?
 	STR	R1,local_bgcol_please
 	MOV	R2,#7
@@ -702,9 +703,9 @@ dis$l					; disassemble the instruction
 	ORREQ	R2,R2,#2
 colouring_colour
  ; LDR R4,[R8,#w_txtw]		; offset to foreground mask
-	LDR	R3,[R8,#w_mode4]	; width of instructions
-	MOV	R3,R3,LSL #24
-	MOV	R3,R3,LSR #24		; bottom 16 bits
+	LDRB	R3,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDRB	R3,[R14,R3,LSL #2]	; width of instructions
 dis_loop_in_redraw
 	LDRB	R0,[R1],#1		; load next character from R1 index.
 	TEQ	R0,#0
@@ -869,7 +870,6 @@ just_exit_from_redraw
 	LDR	R11,local_temp4r6 + 24	; save it...
 	ADD	R11,R11,#1		; next log line
  ;STR R2,local_bgcol_please
-; BL readandrestoredisasm
 	FNRTSS				; return no error
 
 ;theundef
@@ -1254,7 +1254,9 @@ stored_blank_string
 	DCD	0
 
 mode4_lineoff
-	LDR R1,[R8,#w_mode4]
+	LDRB R1,[R8,#w_format]	; mode number
+	ADD R0,R8,#w_mode0
+	LDR R1,[R0,R1,LSL #2]
 	MOV R0,#0
 	TST R1,#1 << 28		; binary?
 	AND R1,R1,#255			; bottom 8 bits
@@ -1443,7 +1445,9 @@ mode4_return
 	TEQ	R0,#0
 	BNE	inmode2_return
 inmode4_return
-	LDR	R2,[R8,#w_mode4]
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
 	STR	R2,localmodeword
 	BL	getdisasmdata ; carefully_getdisasmdata VC
 	STR	R0,local_disassemblerflags
@@ -1462,25 +1466,26 @@ mo_s0
 	FNS	("ASSEMBLE")
 
 mode4_start
-	FNJSR
- ;LDR R0,localcopyof_mode_code	; mode number
-	MOV	R0,#4
+	FNJSR	"R1"
+	TEQ	R8,#0
+	FNLDRB	R0,opt_format,EQ
+	LDRNEB	R0,[R8,#w_format]	; mode number
 	BL	restore_mode_word
 	BL	loaddisasmwithcare	; load it if needed/possible.
 	CMP	R8,#0
 	FNRTS	EQ
-	FNLDR	R0,opt_mode4
-;	BL	getdefaultdata
-	STR	R0,[R8,#w_mode4]
+	LDRB	R1,[R8,#w_format]	; mode number
+	ADD	R14,R12,#opt_mode0
+	LDR	R0,[R14,R1,LSL #2]
+	ADD	R14,R8,#w_mode0
+	STR	R0,[R14,R1,LSL #2]
 	FNRTS
 
 mode4_end
-	FNJSR
-	MOV	R0,#4
-	BL	save_mode_word
- ;LDR R0,localcopyof_mode_code	; mode number
- ;BL modes_end
-	FNRTS
+	TEQ	R8,#0
+	FNLDRB	R0,opt_format,EQ
+	LDRNEB	R0,[R8,#w_format]	; mode number
+	B	save_mode_word
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Search through a line (detokenise)			;
@@ -1506,7 +1511,9 @@ mode4_search
 start$l					; get line to search through
 	FNJSR
 	PUSH	"R1-R10"		; hmm...
-	LDR	R2,[R8,#w_mode4]
+	LDRB	R2,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R2,[R14,R2,LSL #2]
   ; STR R2,localmodeword
 	MOV	R3,R2
 	BL	getdisasmdata
@@ -1871,8 +1878,8 @@ redrawallcodemodewindows
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
-	LDRB	R0,[R8,#w_format]
-	CMP	R0,#4			; mode number...
+	MOV	R0,#4
+	BL	isthisaclonebase
 	BLEQ	Updatewindow
 	FNRTS
 
@@ -1892,46 +1899,40 @@ redrawmostcodemodewindows	; 'global' ones anyway...
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
-	LDR	R14,[R8,#w_format]
-	AND	R0,R14,#&FF
-	CMP	R0,#4			; mode number...
+	MOV	R0,#4
+	BL	isthisaclonebase
 	FNRTS	NE
+	LDR	R14,[R8,#w_format]
 	TST	R14,#bit_windowwrap	; ???
 	BLNE	Updatewindow
 	FNRTS
 
 	DCD	&8017
 Code_disasmtoggle		; global cases dealt with here...
-	FNJSR
-	LDR	R6,[R0]		; REM gets word argument...
+	LDR	R6,[R0]		; gets word argument...
 	CMP	R6,#&1C
 	BCS	backtonormal$l
-; TST	R6,#&80
-; BNE	specialcasestosdeal
-
-; BL	getdisasmdata
-	CMP	R8,#0
-	LDRNE	R0,[R8,#w_mode4]
-	FNLDR	R0,opt_mode4,EQ
-;	BLEQ	getdefaultdata
-	MOV	R7,R0
-
+	FNJSR
+	MOV	R0,#4
+	BL	isthisaclonebase
+r$l	MOVNE	R0,#2		; in case R2=15
+	FNRTS	NE		; return if not (a clone of) Code mode
 	CMP	R2,#15
-	BEQ	but_tickquery2		; REM bit 15 of R2 indicates a 'tickquery'
-
-; LDR	R6,[R0]		; REM gets word argument...
-
-; CMP	R8,#0
-; LDRNE	R0,[R8,#w_mode4]
-; BLEQ	getdefaultdata
+	MOVLO	R14,R0
+	TEQ	R0,R14		; menu - right mode?
+	BNE	r$l
+	CMP	R8,#0
+	ADDEQ	R11,R12,#opt_mode0
+	ADDNE	R11,R8,#w_mode0
+	LDR	R0,[R11,R0,LSL #2]! ; mode word
+	MOV	R7,R0
+	CMP	R2,#15
+	BEQ	but_tickquery2		; R2=15 indicates a 'tickquery'
 	MOV	R5,R7,LSR #28
-
 	BL	getdisasmdata
-
 	MOV	R7,R0,LSL #8
 	BIC	R7,R7,#(&F << 28)
 	ORR	R7,R7,R5,LSL #28
-
 	MOV	R5,#0
 	AND	R1,R6,#&FF
 	BL	mode4_execute
@@ -1946,16 +1947,10 @@ Code_disasmtoggle		; global cases dealt with here...
 	MOV	R1,R6,LSR #24
 	TST	R1,#&80
 	BLNE	mode4_execute
-
 	MOV	R1,R7,LSR #8
 	BIC	R7,R7,#(&F << 20)
 	BL	putdisasmdata
-
 	BL	redrawmostcodemodewindows
-; REM window redraw if needed...
-
-; SWI &107 ; fires OK...
-
 	FNRTS
 
 specialcasestosdeal
@@ -1964,29 +1959,16 @@ specialcasestosdeal
 	CMP	R6,#254
 	BEQ	but_tickquery3a
 	CMP	R6,#253
-	FNRTS  NE
-	TEQ	R8,#0
-	LDRNEB	R0,[R8,#w_format]
-	LDREQB	R0,[R12,#opt_format]
-	CMP	R0,#4
-	BNE	lastresort$l
+	FNRTS	NE
 	MOV	R0,#0		; clear nothing
 	MOV	R1,#(1<<25)	; free click?
- ;CMP	 R2,#15
- ;BEQ	jusflagchk$l
 	BL	new_wind_format_set
 	BIC	R0,R0,#2
 	CMP	R2,#15
-	FNRTS  EQ
+	FNRTS	EQ
 	CMP	R8,#0
 	BLNE	Updatewindow
 	FNRTS
-lastresort$l
-	CMP R8,#0
-	MOVEQ R0,#2
-	MOVNE R0,#0
-	FNRTS
-;jusflagchk$l
 
 but_tickquery3a
 	TEQ	R2,#15
@@ -2037,42 +2019,35 @@ but_sortwwout
 	BL	Updatewindow
 	FNRTS
 
-;ensuredisassemblerthere
-; FNJSR  "R0-R5"
-; MOV	  R0,#18
-; ADR	  R1,disassemblermodnam
-; SWI	 XOS_Module
-; CMP	  R5,#0
-; FNRTS
-;
-;disassemblermodnam FNS ("Debugger") ; duplicated information :(
-
 	DCD	&8017
 CmdCODEflagstoggle
-	FNJSR
 	TEQ	R8,#0
-	LDREQ	R14,[R12,#opt_format]
-	LDRNE	R14,[R8,#w_format]
-	TST	R14,#bit_windowwrap	; global?
-	BNE	Code_disasmtoggle + 4	; yes...
+	LDREQ	R11,[R12,#opt_format]
+	LDRNE	R11,[R8,#w_format]
+	TST	R11,#bit_windowwrap	; global?
+	BNE	Code_disasmtoggle	; yes...
 backtonormal$l
-	LDR	R6,[R0]		; REM gets word argument...
+	FNJSR
+	LDR	R6,[R0]		; gets word argument...
+	MOV	R0,#4
+	BL	isthisaclonebase
+	MOVNE	R0,#2		; in case R2=15
+	FNRTS	NE		; return if not (a clone of) Code mode
+	CMP	R2,#15
+	MOVLO	R14,R0
+	TEQ	R0,R14		; menu - right mode?
+	BNE	r$l
 	TST	R6,#&80
 	BNE	specialcasestosdeal
-;	LDR	R6,[R0]		; REM gets word argument...
 	TEQ	R8,#0
-	LDRNE	R0,[R8,#w_mode4]
-	FNLDR	R0,opt_mode4,EQ
-;	BLEQ	getdefaultdata
-
+	ADDEQ	R11,R12,#opt_mode0
+	ADDNE	R11,R8,#w_mode0
+	LDR	R0,[R11,R0,LSL #2]!
 	MOV	R7,R0
-
 	CMP	R2,#15
 	MOVEQ	R14,R6
-	BEQ	but_tickquery		; REM bit 15 of R2 indicates a 'tickquery'
-
+	BEQ	but_tickquery		; R2=15 indicates a 'tickquery'
 	MOV	R5,#0
-
 	AND	R1,R6,#&FF
 	BL	mode4_execute
 	MOV	R1,R6,LSR #8
@@ -2086,34 +2061,11 @@ backtonormal$l
 	MOV	R1,R6,LSR #24
 	TST	R1,#&80
 	BLNE	mode4_execute
-
 	MOV	R0,R7
+	STR	R0,[R11]
 	CMP	R8,#0
-	STRNE	R0,[R8,#w_mode4]
-	FNSTR	R0,opt_mode4,EQ
-;	BLEQ	putdefaultdata
-
-	CMP	R8,#0
-
-	BLNE	but_sortwwout		; REM window redraw if needed...
-
+	BLNE	but_sortwwout		; window redraw if needed...
 	FNRTS
-
-;putdefaultdata
-; FNJSR "R11"
-;	MOV	R1,#4
-;	ADD	R1,R1,#&100		; variable number
-;	B	write_var
-; FNcall Zap_WriteVar,R11	; R0=mode word
-; FNRTS
-
-;getdefaultdata
- ;FNJSR
-;	MOV	R1,#4
-;	ADD	R1,R1,#&100		; variable number
-;	B	read_var
-; FNcall Zap_ReadVar,R0		; R0=mode word
-; FNRTS
 
 but_tickquery
 	AND	R2,R6,#&1F
@@ -2122,7 +2074,7 @@ but_tickquery
 	TST	R7,R3 ; r7?
 	MOVNE	R0,#1
 	MOVEQ	R0,#0
-	LDMFD	R13 !,{PC}
+	FNRTSS
 
 but_tickquery2
 	CMP	R6,#255
@@ -2131,9 +2083,6 @@ but_tickquery2
 	CMP	R6,#&1C
 	BCS	but_tickquery
 	SUB	R6,R6,#8
-; BL	 checkseeifdisasmloaded	; ???
-; BVS	 itsureaint$l		; ???
-; PUSH	 "R7"
 	MOV	R7,#1
 	MOV	R7,R7,LSL R6 ; ???
 	MOV	R0,#0
@@ -2144,9 +2093,8 @@ but_tickquery2
 	MOVVC	R0,#0
 	MOVVS	R0,#2
 	ORRNE	R0,R0,#1
-	LDMFD	R13 !,{PC}^
+	FNRTSS
 skipd_codestf
-; BL getdisasmdata
 	MOV	R0,#0
 	MOV	R1,#0
 	SWI	XDebugger_63
@@ -2154,26 +2102,14 @@ skipd_codestf
 	MOVVC	R0,#0
 	SUBS	R14,R14,R14
 	ADDS	R0,R0,#0
-	LDMFD	R13 !,{PC}^
-
-;itsureaint$l
-; MOV	 R0,#2
-; SUBS	 R14,R14,R14
-; LDMFD	 R13 !,{PC}^
-
-;disassemblertest
-; MOV	  R0,#2
-; LDMFD	  R13 !,{PC}
+	FNRTSS
 
 mode4_execute
 	AND	 R2,R1,#&1F
-
 	MOV	 R3,#1
 	MOV	 R3,R3,LSL R2
-
 	MOV	 R2,#0
 	MOV	 R4,#0
-
 	MOV	 R1,R1,LSR #5
 	AND	 R1,R1,#3
 	CMP	 R1,#1
@@ -2183,7 +2119,6 @@ mode4_execute
 	BIC	 R7,R7,R2
 	ORR	 R7,R7,R4
 	EOR	 R7,R7,R3
-
 	MOV	 PC,R14
 
 insertbinarydata
@@ -2449,11 +2384,14 @@ tertiaryproblems2$l
 	B	colouring_colour
 
 binarytest$l
-	LDR	R0,[R8,#w_mode4]		; load in our mode word
+	FNJSR
+	LDRB	R0,[R8,#w_format]	; mode number
+	ADD	R14,R8,#w_mode0
+	LDR	R0,[R14,R0,LSL #2]	; load in our mode word
 	TST	R0,#1 << 28		; binary?
 	MOVNE	R0,#2
 	MOVEQ	R0,#16
-	MOV	PC,R14
+	FNRTS
 
 colourquery$l
 	CMP	R1,#26
