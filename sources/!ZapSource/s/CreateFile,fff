@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 1.1.2.7 1999/03/11 18:11:26 james Exp $
+; $Id: CreateFile,fff,v 1.1.2.8 1999/03/18 09:36:18 james Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -28,6 +28,7 @@ USE_WRITE_FILES * 0
  IMPORT get_SaveOBox
  IMPORT warn_user
  IMPORT	Beep
+ IMPORT BeepAndPause
 
  EXPORT Killfiles
 
@@ -1008,7 +1009,7 @@ mark_changed
  LDR R14,[R9,#f_chklen]
  CMP R10,#CHECKSUM_MAX		; too big to checksum? *** HARDWIRED
  BHS largefile$l
- TST R0,#1<<3
+ TST R0,#flags_Modified
  BEQ notchanged$l
  CMP R10,R14
  FNRTS NE
@@ -1025,7 +1026,7 @@ manual_check
  TEQ R0,R10
  BNE clean_exit
  LDR R0,[R9,#f_flags]
- BIC R0,R0,#1<<3
+ BIC R0,R0,#flags_Modified
  STR R0,[R9,#f_flags]
  BL new_file_title		; update all window titles ; !???
  FNRTS
@@ -1038,7 +1039,7 @@ notchanged$l
  BEQ clean_exit
  LDR R0,[R9,#f_flags]
 ischanged$l
- ORR R0,R0,#1<<3
+ ORR R0,R0,#flags_Modified
  STR R0,[R9,#f_flags]
  BL new_file_title		; update all window titles ; !???
  FNRTS
@@ -1046,8 +1047,8 @@ clean_exit
  FNPULL
  BICS PC,R14,#&FC000000
 largefile$l
-	TST	R0,#1<<3
-	ORR	R0,R0,#1<<3
+	TST	R0,#flags_Modified
+	ORR	R0,R0,#flags_Modified
 	STR	R0,[R9,#f_flags]
 	BEQ	redraw_anyway$l
 	LDR	R0,[R9,#f_change]
@@ -1887,21 +1888,18 @@ new_file_flags
  BEQ new_opt_flags
  FNJSR "R11"
  LDR R11,[R9,#f_flags]
- BIC R0,R11,R0
- EOR R0,R0,R1
+ BIC R0,R11,R0			; flags mask
+ EOR R0,R0,R1			; flags eor
  STR R0,[R9,#f_flags]
 
- EOR R0,R0,R1
- TST R0,#5 << 27
-; PUSH "R0"
- BLNE mark_changed
-; PULL "R0"
+ TST R1,#(flags_DOSFile :OR: flags_SpoolFile)
+ BLNE mark_changed		; changed if either of these bits have flipped
 
  LDR R0,[R9,#f_flags]
- EOR R11,R0,R11
- TST R11,#8			; 'changed' state changed?
- BEQ new_file_flags_done
- TST R0,#8			; marked as changed?
+ EOR R11,R0,R11			; flags which have changed
+ TST R11,#flags_Modified
+ BEQ new_file_flags_done	; modified hasn't changed
+ TST R0,#flags_Modified		; currently marked as changed?
  MOVNE R0,#-1
  STRNE R0,[R9,#f_chklen]	; yes - set check length to -1
  BLEQ initialise_checksums	; else init checksums

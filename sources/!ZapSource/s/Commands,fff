@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.22 1999/03/11 10:26:10 james Exp $
+; $Id: Commands,fff,v 1.1.2.23 1999/03/18 09:36:16 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -238,6 +238,7 @@ key_command_table
 	FNcom	"HELPCOM",Helpcom
 	FNcom	"HELPFN",Helpfn
 	FNcom	"HELPKEY",Helpkey
+	FNcom	"HELPVAR",Helpvar
 	FNcom	"HEXASCII",Hexascii
 	FNcom	"ICONISE",Iconise
 	FNcom	"INDENT",Indent
@@ -1373,7 +1374,7 @@ Confinehorizontally
 	DCD	7+(1<<15)
 Colonseparator
 	MOV	R0,#0			; clear zilch
-	MOV	R1,#1<<3		; toggle separating colons
+	MOV	R1,#info_LineNumberColons
 	B	new_info_set
 
 	LOCAL
@@ -2499,6 +2500,9 @@ Help
  TEQ R0,#'C'
  ADREQ R7,Helpcom
  BEQ helpon$l
+ TEQ R0,#'V'
+ ADREQ R7,Helpvar
+ BEQ helpon$l
  TEQ R0,#'M'
  BEQ mode$l
  TEQ R0,#'D'
@@ -2589,6 +2593,24 @@ p$l	ADR	R0,s$l
 	FNRTS
 s$l	FNS	("zap_p_helpfn")
 
+ LOCAL
+
+ DCD 7+(3:SHL:3)+(1:SHL:6)
+Helpvar
+ FNJSR
+ TEQ R2,#6
+ BEQ p$l
+ MOV R2,#0
+ ORR R0,R0,#1:SHL:30
+ BL find_command_help
+ BLVC display_help
+ FNRTS
+p$l
+ ADR R0,s$l
+ BL minibuffer_prompt_token
+ FNRTS
+s$l
+ FNS ("zap_p_helpvar")
 
  LOCAL
 
@@ -4062,10 +4084,10 @@ returnifonibmenu
 Readonly
  FNJSR
  LDR R0,[R9,#f_flags]
- TST R0,#1<<4		; fixed as read only?
+ TST R0,#flags_PermanentReadOnly
  MOV R0,#0			; mask
  MOV R1,#0			; eor
- MOVEQ R1,#1<<8		; can change the state
+ MOVEQ R1,#flags_ReadOnly	; allowed to change state
  BL new_file_flags_set
  FNRTS
 

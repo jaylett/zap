@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.10 1999/03/11 11:45:19 james Exp $
+; $Id: Boxes,fff,v 1.1.2.11 1999/03/18 09:36:14 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -3635,6 +3635,7 @@ cw_QuickBox
  BLVC icon_set
  FNRTS
 
+ LOCAL
 lc_QuickBox
  CMP R5,#&180
  BGE passonafnkeythencret
@@ -3651,7 +3652,7 @@ lc_QuickBox
  CMNNE R5,#'H'	; Header
  BEQ lc_Quick_title
  TST R4,#1
- BEQ c_ret
+ BEQ c_ret			; no adjust (which represents Return in an icon)
  TEQ R5,#1
  BEQ lc_Quick_newstart
  TEQ R5,#0
@@ -3668,15 +3669,22 @@ lc_Quick_title
  B c_ret
 
 lc_Quick_newstart
+ BL newstart$l
+ B c_ret
+
+newstart$l
+ FNJSR
+ MOV R5,#1
  BL lc_buffernum
  BVS c_ret
  FNLDR R10,wimp_print
  LDR R2,[R8,#w_stline]
  SUB R0,R0,R2
  STR R0,[R10,#&58]
- B c_ret
+ FNRTS
 
-lc_Quick_newend
+newend$l
+ FNJSR
  MOV R5,#0
  BL lc_buffernum
  BVS c_ret
@@ -3685,7 +3693,16 @@ lc_Quick_newend
  SUB R0,R0,R2
  ADD R0,R0,#1
  STR R0,[R10,#&5C]		; end line
+ FNRTS
+
+lc_Quick_newend
+ BL newend$l
+ B doprint$l
+
 lc_Quick_print
+ BL newstart$l
+ BL newend$l
+doprint$l
  MOV R5,#5
  MOV R2,#&FF00
  BL slab_icon_in_temporarily

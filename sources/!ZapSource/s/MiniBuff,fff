@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.1.2.10 1999/03/10 11:28:09 james Exp $
+; $Id: MiniBuff,fff,v 1.1.2.11 1999/03/18 09:36:20 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1608,7 +1608,8 @@ gotmenu$l
 
  LOCAL
 
-;E R0=pointer to command name or label (top bit set if function)
+;E R0=pointer to command name or label
+;     b31 => function, b30 => c-var
 ;  R1=command argument (if R2 valid)
 ;  R2=command flags (or 0 if no argument given,-1 if not a command)
 ;  R3=parameter type (only valid if command takes a parameter)
@@ -1621,7 +1622,7 @@ find_command_help
  MOV R7,#0			; current buffer offset
  MOV R5,R1			; save command argument
  MOV R4,R2			; save command flags
- AND R11,R0,#1<<31
+ AND R11,R0,#3<<30
  ORR R11,R11,R3
  BL find_help
  FNRTS VS
@@ -1631,10 +1632,13 @@ find_command_help
  MOV R3,R1			; para start
  CMP R4,#-1
  BEQ para$l			; not a command so insert the paragraph
- TST R11,#1<<31
- ADREQ R0,com$l
+ TST R11,#1<<31			; function?
  ADRNE R0,fn$l
-; ADR R0,com$l
+ BNE token_ready$l
+ TST R11,#1:SHL:30		; c-var?
+ ADREQ R0,com$l
+ ADRNE R0,var$l
+token_ready$l
  BL lookup_token_R0
  BL str$l
  BLVC insert$l
@@ -1665,6 +1669,7 @@ para$l				; do main para
  FNRTS
 com$l	= "zap_h_cmd",0
 fn$l	= "zap_h_fn",0
+var$l	= "zap_h_var",0
 arg$l	= "zap_h_arg",0
 block$l = "zap_h_db",0
 bra$l	FNS (" (' ')")		; aligns...
@@ -1789,8 +1794,8 @@ nohelp$l
 
 find_help
  FNJSR "R2,R11"
- AND R11,R0,#1<<31
- BIC R1,R0,#1<<31		; save search label
+ AND R11,R0,#3<<30
+ BIC R1,R0,#3<<30		; save search label
  BL load_help
  FNRTS VS
  FNLDR R2,wimp_helpdata		; file
@@ -1798,11 +1803,24 @@ a$l
  LDRB R0,[R2]
  TEQ R0,#0			; end of file?
  FNRTS EQ
- TEQ R11,#0
- BEQ n$l
- TEQ R0,#64
+ TST R11,#1:SHL:30		; c-var
+ BEQ not_var$l
+ TEQ R0,#35			; '#'
+ ADDEQ R2,R2,#1			; skip it
+ BNE b$l			; couldn't find it here
+ BL strcmpstr			; case sensitive, R1,R2 saved
  BNE b$l
- ADD R2,R2,#1
+ LDRB R0,[R0]			; character after string
+ CMP R0,#&20
+ BLE found$l			; found label
+ B b$l
+not_var$l
+ TST R11,#1:SHL:31		; function
+ BEQ n$l			; neither function nor c-var
+ TEQ R0,#64			; '@'
+ ADDEQ R2,R2,#1			; skip it
+ BEQ n$l
+ B b$l				; couldn't find it here
 n$l
  BL strCMPstr			; not case sensitive R1,R2 saved
  BNE b$l
