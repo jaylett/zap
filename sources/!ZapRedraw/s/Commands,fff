@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.9 2004/04/12 13:19:36 christian Exp $
+; $Id: Commands,fff,v 1.10 2004/04/15 11:52:14 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -83,14 +83,13 @@ syn_install	=	"SZRDINS",0
 
 		[ DEBUG
 hlp_describe	=	"*",27,0," describes the font blocks in the cache",13
-syn_describe	=	27,1,0
 hlp_die		=	"*",27,0," kills all font handles, without releasing their "
 		=	"memory, so that the module may die",13
-syn_die		=	27,1,0
 hlp_debug	=	"*",27,0," prints the value of the variable 'debug'",13
+
+syn_describe
+syn_die
 syn_debug	=	27,1,0
-hlp_dump	=	"*",27,0," lists the internal cache of font names",13
-syn_dump	=	27,1,0
 		ALIGN
 		]
 
@@ -464,9 +463,31 @@ loop$l		LDR	R0,[R1,R2,LSL #2]
 		TEQ	R2,#handles
 		BNE	loop$l
 
+		; list the encodings
+		SWI	XOS_WriteS
+		= 	10,13,10,13," Encodings:",10,13,0
+		ALIGN
+		LDR	R11,[R12,#encodings]
+encs$l		TEQ	R11,#0
+		BEQ	free$l
+		SWI	XOS_WriteS
+		=	"    ",0
+		ALIGN
+		LDR	R0,[R11,#enc_name]
+		SWI	XOS_Write0
+		SWIVC	&20120
+		SWIVC	&20120
+		SWIVC	&20128
+		LDR	R0,[R11,#enc_name]
+		BL	hex8c
+		SWI	&20129
+		SWI	XOS_NewLine
+		LDR	R11,[R11,#enc_next]
+		B	encs$l
+
 		; do the free list
 
-		MOV	R11,#0				; total free space
+free$l		MOV	R11,#0				; total free space
 		MOV	R10,#0				; largest block size
 
 		SWI	XOS_WriteS

@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.15 2004/03/30 00:43:37 christian Exp $
+; $Id: DSARedraw,fff,v 1.16 2004/04/15 11:52:14 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -368,6 +368,7 @@ redraw_raster
 
 	BIC	R0,R0,#&FF
 	ORR	R0,R0,R9,LSR #24	; patch in initial style mask
+	STR	R0,[R1,#r_caddr]
 	BL	handle_to_caddr		; we have colour information
 	ADDS	R0,R0,R4		; get initial char offset
 	MOVEQ	R0,#1			; chunk doesn't exist, but distinguish
@@ -1143,11 +1144,17 @@ control_code_1
 	MOV	PC,R14			; do this char
 
 control_code_2
-	ADR	R3,terminating_string	; spaces to finish off with
+	LDR	R3,[R1,#r_workarea]
+	LDR	R3,[R3,#a_chunk]
+	TEQ	R3,#0
+	ADRNE	R3,terminating_string	; switch to chunk 0 first
+	ADREQ	R3,terminating_string_1	; spaces to finish off with
 	B	redraw_control_code
 
 terminating_string
-	=	11,0,"                                              ",0,2,0
+	=	11,0
+terminating_string_1
+	=	"                                              ",0,2,0
 	ALIGN
 
 control_code_3

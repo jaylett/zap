@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.23 2004/04/12 10:40:34 christian Exp $
+; $Id: ZapRedraw,fff,v 1.24 2004/04/15 11:52:14 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -1146,8 +1146,8 @@ skip_ctrl_10
 
 skip_ctrl_11
  LDRB R5,[R1],#1		; new chunk
- MOV R5,R5,LSL #8               ;
- MVN R0,#0                      ; not a char
+ MOV R5,R5,LSL #8		;
+ MVN R0,#0			; not a char
  MOV PC,R14
 
 ; space save above...?
@@ -1161,7 +1161,7 @@ skip_ctrl_11
 ;  R2=input string
 ;  R3=foreground mask
 ;  R4=background mask
-;  R5=input length
+;  R5=input length in BYTES
 ;  R6=dest buffer (size 6*R5+16)
 ;  R7=substyle list (not supplied if b3 of r_flags is zero)
 ;X R0=highest char code used
@@ -1185,7 +1185,10 @@ skip_ctrl_11
 pdlws_ctl_col	#	4				; control colour
 pdlws_max	#	4				; highest used char
 pdlws_last_ctl	#	4				; pointer to end of last control sequence
-pdlws_output	#	4				; pointer to end of last control sequence
+pdlws_output	#	4				; -> output buffer
+pdlws_chunk	#	4				; current chunk
+pdlws_enc	#	4				; -> encoding data
+pdlws_getchar	#	4				; -> code to get the next character
 
 prepare_data_line
 		FNJSR	"R1-R4,R6-R11"
@@ -1196,11 +1199,45 @@ prepare_data_line
 		STR	R6,[R12,#pdlws_last_ctl]	; last control sequence pointer
 		STR	R6,[R12,#pdlws_output]		; output buffer start
 
-		LDRB	R8,[R1,#r_for]			; read initial colours
+		MOV	R0,#0				; start in chunk 0
+		STR	R0,[R12,#pdlws_chunk]		;
+
+		LDR	R10,[R1,#r_flags]		; sort out the encoding
+		TST	R10,#rf_extend			;
+		MOVEQ	R0,#0				;
+		LDRNE	R0,[R1,#r_length]		;
+		CMP	R0,#r_encoding			;
+		MOVLO	R0,#0				;
+		LDRHS	R0,[R1,#r_encoding]		;
+		TEQ	R0,#0				;
+		BLNE	get_encoding			;
+		FNRTS	VS				;
+		MOV	R1,R0				;
+		TEQ	R0,#1				;
+		TEQNE	R0,#2				;
+		MOVEQ	R0,#0				;
+		STR	R0,[R12,#pdlws_enc]		;
+
+		BNE	notutf$l			; sort out get char code in UTF mode
+		TEQ	R1,#1				;
+		ADREQ	R0,getchar8_utf$l		;
+		ADRNE	R0,getchar16_utf$l		;
+		TST	R10,#rf_char32			;
+		ADRNE	R0,getchar32$l			;
+		STR	R0,[R12,#pdlws_getchar]		;
+		B	ok$l				;
+
+notutf$l	ADR	R0,getchar8$l			; sort out get char code in non-UTF mode
+		TST	R10,#rf_char16			;
+		ADRNE	R0,getchar16$l			;
+		TST	R10,#rf_char32			;
+		ADRNE	R0,getchar32$l			;
+		STR	R0,[R12,#pdlws_getchar]		;
+
+ok$l		LDRB	R8,[R1,#r_for]			; read initial colours
 		LDRB	R9,[R1,#r_bac]
 
-		LDR	R10,[R1,#r_flags]		; and initial style if present
-		TST	R10,#rf_substyles
+		TST	R10,#rf_substyles		; add initial style if present
 		MOVEQ	R7,#0
 		MOVEQ	R10,#0
 		BEQ	loop$l
@@ -1210,9 +1247,34 @@ prepare_data_line
 		ANDLO	R10,R10,#&FF
 		MOVHS	R10,#0
 
-loop$l		LDRB	R1,[R2],#1			; get input character
+loop$l		MOV	R14,PC				; get input character
+		LDR	PC,[R12,#pdlws_getchar]
 
-		LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
+		LDR	R0,[R12,#pdlws_enc]		;
+		TEQ	R0,#0				;
+		BEQ	chunk$l				;
+
+		SUB	R14,R1,#128			; perform the encoding translation
+		CMP	R14,#128			;
+		ADDLO	R0,R0,R14,LSL #1		;
+		LDRLOB	R1,[R0]				;
+		LDRLOB	R0,[R0,#1]			;
+		ORRLO	R1,R1,R0,LSL #8			;
+
+chunk$l		LDR	R0,[R12,#pdlws_chunk]		; see if we've changed chunk
+		EOR	R14,R0,R1			;
+		BICS	R14,R14,#&FF			;
+
+		STRNE	R1,[R12,#pdlws_chunk]		; make the change
+		MOVNE	R0,#0				;
+		STRNEB	R0,[R6],#1			; 0,11,<new chunk>
+		MOVNE	R0,#11				;
+		STRNEB	R0,[R6],#1			;
+		MOVNE	R14,R1,LSR #8			;
+		STRNEB	R14,[R6],#1			;
+		STRNE	R6,[R12,#pdlws_last_ctl]	;
+
+gotchar$l	LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
 		CMN	R0,#0				; and ctl colour > -1
 		CMPGE	R1,#&20				;
 		LDRGEB	R0,[R3],#1			; check fg colour same
@@ -1233,15 +1295,19 @@ loop$l		LDRB	R1,[R2],#1			; get input character
 		MOVNE	R10,R0
 		BNE	new_style$l
 
-storechar$l	TEQ	R1,#0				; 0 -> 0,0
+storechar$l	TST	R1,#&FF				; 0 -> 0,0
 		STREQB	R1,[R6],#1
 		STRB	R1,[R6],#1
 		LDR	R11,[R12,#pdlws_max]		; update highest char
-		CMP	R0,R11
-		STRHI	R0,[R12,#pdlws_max]
+		CMP	R1,R11
+		STRHI	R1,[R12,#pdlws_max]
 
-		SUBS	R5,R5,#1
+		CMP	R5,#0
 		BNE	loop$l
+
+		LDR	R11,[R12,#pdlws_chunk]		; nothing to strip if not in chunk 0
+		BICS	R11,R11,#&FF			;
+		BNE	done$l				;
 
 		LDR	R11,[R12,#pdlws_last_ctl]
 shorten_loop$l	CMP	R6,R11				; strip space characters from the end
@@ -1261,7 +1327,6 @@ done$l		MOV	R0,#0				; terminate with 0,2
 
 		LDR	R0,[R12,#pdlws_max]		; and the hightest printable character
 		FNRTS
-
 
 ; new foreground colour (and possibly bg and style)
 new_fg$l	TEQ	R7,#0
@@ -1327,6 +1392,135 @@ new_style$l	MOV	R0,#0				; use 0,10,f,b,s
 aftercode$l	STR	R6,[R12,#pdlws_last_ctl]
 		B	storechar$l			; store the actual character
 
+
+; get a character from 8 bit input
+getchar8$l	LDRB	R1,[R2],#1			; get the character
+		SUB	R5,R5,#1			;
+		MOV	PC,R14				;
+
+; get a character from 16 bit input
+getchar16$l	LDRB	R1,[R2],#1			; get the character
+		LDRB	R0,[R2],#1			;
+		ORR	R1,R1,R0,LSL #8			;
+		SUB	R5,R5,#2			;
+
+		ADD	R4,R4,#1			; advance the colour / style pointers
+		ADD	R3,R3,#1			;
+		TEQ	R7,#0				;
+		ADDNE	R7,R7,#1			;
+		MOV	PC,R14
+
+; get a character from 32 bit input
+getchar32$l	LDRB	R1,[R2],#1			; get the character
+		LDRB	R0,[R2],#1			;
+		ORR	R1,R1,R0,LSL #8			;
+		LDRB	R0,[R2],#1			;
+		ORR	R1,R1,R0,LSL #16		;
+		LDRB	R0,[R2],#1			;
+		ORR	R1,R1,R0,LSL #24		;
+		SUB	R5,R5,#4			;
+
+		ADD	R4,R4,#3			; advance the colour / style pointers
+		ADD	R3,R3,#3			;
+		TEQ	R7,#0				;
+		ADDNE	R7,R7,#3			;
+		MOV	PC,R14
+
+
+; get a character from UTF8 input
+getchar8_utf$l	LDRB	R1,[R2],#1			; get the character
+		SUB	R5,R5,#1			;
+		CMP	R1,#&80				;
+		MOVLO	PC,R14				; ascii
+
+		FNJSR	"R10,R11"
+		SUBS	R14,R1,#&C0
+		BMI	err$l
+
+		ADR	R0,table$l			; get count of bytes
+		LDRB	R10,[R0,R14]			;
+		CMP	R10,#6				;
+		BHS	err$l				;
+
+		MOV	R11,R10
+
+		ADD	R14,R14,#64			; get mask for 1st byte
+		LDRB	R14,[R0,R14]			;
+		AND	R1,R1,R14
+
+gc8loop$l	LDRB	R0,[R2],#1			; get next byte
+
+		AND	R14,R0,#&C0			; validate
+		TEQ	R14,#&80			;
+		SUBNE	R2,R2,#1			;
+		BNE	err$l				;
+
+		SUB	R5,R5,#1			;
+		ADD	R4,R4,#1			; advance the colour / style pointers
+		ADD	R3,R3,#1			;
+		TEQ	R7,#0				;
+		ADDNE	R7,R7,#1			;
+
+		BIC	R0,R0,#&C0			; add in
+		ORR	R1,R0,R1,LSL #6			;
+
+		SUBS	R10,R10,#1			; loop
+		BNE	gc8loop$l			;
+
+		ADR	R0,max$l-4			; check for non-canonical input
+		LDR	R0,[R0,R11,LSL #2]		;
+		CMP	R1,R0				;
+		BLO	err$l				;
+
+		CMP	R1,#&D800			; check for UTF-16 surrogates
+		RSBHSS	R0,R1,#&E000			;
+		BHS	err$l
+
+		SUB	R0,R1,#&FF00			; check for FFFE and FFFF
+		TEQ	R0,#&FF				;
+		TEQNE	R0,#&FE				;
+		FNRTS	NE				;
+
+err$l		MOV	R1,#&FF00			; replacement character
+		ORR	R1,R1,#&FD			;
+		FNRTS					;
+
+		; number of further bytes to read
+table$l		=	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1	; 110xxxxx
+		=	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ;
+		=	2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2	; 1110xxxx
+		=	3,3,3,3,3,3,3,3			; 11110xxx
+		=	4,4,4,4				; 111110xx
+		=	5,5				; 1111110x
+		=	&FF,&FF				; invalid
+
+		; mask for first character
+		=	&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F
+		=	&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F
+		=	&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F
+		=	&07,&07,&07,&07,&07,&07,&07,&07
+		=	&03,&03,&03,&03
+		=	&01,&01
+		=	0,0
+
+		; minimum character number for this encoding sequence
+max$l		DCD	&00000080
+		DCD	&00000800
+		DCD	&00010000
+		DCD	&00200000
+		DCD	&04000000
+
+; get a character from UTF16 input - TODO
+getchar16_utf$l	LDRB	R1,[R2],#1			; get the character
+		LDRB	R0,[R2],#1			;
+		ORR	R1,R1,R0,LSL #8			;
+		SUB	R5,R5,#2			;
+
+		ADD	R4,R4,#1			; advance the colour / style pointers
+		ADD	R3,R3,#1			;
+		TEQ	R7,#0				;
+		ADDNE	R7,R7,#1			;
+		MOV	PC,R14
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2864,7 +3058,7 @@ done$l		MOVVC	R11,#0
 		MOV	R0,#0				; done - close file and return
 		MOVS	R1,R10
 		SWINE	XOS_Find
-                FNRTS	VS
+		FNRTS	VS
 
 		MOV	R0,#18				; set type
 		MOV	R1,R7

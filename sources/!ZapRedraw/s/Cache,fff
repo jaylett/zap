@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.16 2004/04/12 10:40:34 christian Exp $
+; $Id: Cache,fff,v 1.17 2004/04/15 11:52:14 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -37,6 +37,7 @@
  EXPORT read_char_size
  EXPORT read_font_info
 
+ EXPORT get_encoding
 
 ; the cache memory allocate/free routines are based on the first-fit method
 ; routines described in Knuth, vol.1 p.437. The modification is that we
@@ -1223,7 +1224,7 @@ load_chunk_given_handle
 		;DEBUGF	"loading chunk from %2s"
 		;ADD	R13,R13,#256
 		;PULL	"R0-R6"
-		;
+                ;
 		;PUSH	"R5-R11"
 		;LDMIA	R0,{R5-R8}
 		;LDMIA	R2,{R9,R10}
@@ -1317,7 +1318,7 @@ err$l		MOV	R7,R0
 ; E r0 -> filename  r1 -> chunk directory entry  r2 -> charw, charh
 ; X r0 -> glyph data
 load_chunk_given_name
-		FNJSR	"R10,R11"
+		FNJSR	"R4,R10,R11"
 		MOV	R11,R1
 		MOV	R10,R2
 
@@ -1522,6 +1523,14 @@ add_font_suffix	FNJSR	"R1,R7-R11"
 		LDR	R2,[R11,#fb_name]
 		ADD	R1,R12,#buffer
 		BL	strcpy
+
+		LDR	R2,[R11,#fb_flags]		; don't add anything if no substyles
+		TST	R2,#ff_ssallowed		;
+		MOVEQ	R0,#0                           ;
+		STREQB	R0,[R1]				;
+		ADDEQ	R0,R12,#buffer			;
+		FNRTS	EQ				;
+
 		MOV	R0,#'.'
 		STRB	R0,[R1]
 		ADD	R9,R1,#1
@@ -1716,6 +1725,10 @@ loop$l		LDR	R3,[R1,R2,LSL #2]
 
 		LDR	R1,[R13]
 		LDR	R3,[R1,#r_workarea]
+
+		LDR	R2,[R0,#fd_null_glyph]		; keep the null glyph
+		STR	R2,[R3,#a_null_glyph]		;
+
 		BL	find_chunk			; get the bitmaps
 		TEQ	R0,#0
 		STREQ	R0,[R3,#a_tx_table]
@@ -1845,7 +1858,6 @@ loop$l		LDR	R2,[R0,#cde_num]
 		ADDVC	R2,R1,#fb_charw			; load the chunk
 		MOVVC	R1,R11				;
 		BLVC	load_chunk_given_name		;
-
 		MOVVC	R0,R11
 		PULL	"R11"
 		FNRTS
@@ -2256,7 +2268,16 @@ loop$l		LDR	R0,[R4,#4]!			; must leave r4 pointing to pointer
 		SUBS	R5,R5,#1
 		BNE	loop$l
 
-		FNRTS
+		ADD	R4,R12,#encodings		; fix the encodings list
+		LDR	R0,[R4]				;
+		BL	check_pointer			;
+							;
+encs$l		TEQ	R0,#0				;
+		FNRTS	EQ				;
+		LDR	R4,[R0,#enc_next]		;
+		BL	correct_encoding		;
+		MOV	R0,R4				;
+		B	encs$l				;
 
 		LOCAL
 
@@ -2304,6 +2325,20 @@ loop$l		LDR	R4,[R0],#cde_len
 		ADD	R4,R0,#cde_data-cde_len
 		BL	check_pointer
 		B	loop$l
+
+
+		LOCAL
+
+; check pointers in an encoding block
+; E r0 -> block  r1-r3 as above
+; X pointers corrected
+correct_encoding
+		FNJSR	"R0,R4"
+		ADD	R4,R0,#enc_name
+		BL	check_pointer
+		MOV	R4,R0
+		BL	check_pointer
+		FNRTS
 
 
 		LOCAL
@@ -2686,6 +2721,177 @@ read_font_info	FNJSR	"R1,R2,R11"
 
 badindex$l	FNPULL
 		ERROR	err_badfontinfo,"BadFontInfo"
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;  Encoding management						;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+
+; return the data for a given encoding
+; E r0 -> encoding name
+; X r0 -> data table / 1 for UTF8 / 2 for UTF16
+get_encoding	FNJSR	"R1-R4"
+		LDRB	R1,[R0]				; check for UTF encoding
+		BIC	R1,R1,#&20			;
+		TEQ	R1,#'U'				;
+		LDREQB	R1,[R0,#1]			;
+		BICEQ	R1,R1,#&20			;
+		TEQEQ	R1,#'T'				;
+		LDREQB	R1,[R0,#2]			;
+		BICEQ	R1,R1,#&20			;
+		TEQEQ	R1,#'F'				;
+		BNE	notutf$l			;
+		LDRB	R1,[R0,#3]			;
+		TEQ	R1,#'8'				;
+		MOVEQ	R0,#1				;
+		MOVNE	R0,#2				;
+		FNRTS					;
+
+notutf$l	LDR	R3,[R12,#encodings]
+
+find$l		TEQ	R3,#0
+		BEQ	none$l
+		LDR	R1,[R3,#enc_name]
+		BL	strcasecmp
+		LDRNE	R3,[R3,#enc_next]
+		BNE	find$l
+
+		ADD	R0,R3,#enc_data
+		FNRTS
+
+none$l		BL	load_encoding
+		ADDVC	R0,R3,#enc_data
+		FNRTS
+
+
+		LOCAL
+
+; encoding header
+;   0 'ZENC'   magic word
+;   4  }
+;   8  } reserved must be 0
+;  12  }
+
+; load an encoding
+; E r0 -> name
+; X r0 -> encoding block
+load_encoding	FNJSR	"R9-R11"
+		MOV	R11,R0
+		MOV	R9,#0
+
+		MOV	R0,#enc_length+8		; alloc the encoding block
+		BL	cache_alloc			;
+		FNRTS	VS				;
+							;
+		MOV	R10,R0				;
+
+		MOV	R0,R11				; deal with the name
+		BL	strlen				;
+		ADD	R0,R1,#1			;
+		BL	cache_alloc			;
+		BVS	err$l				;
+		STR	R0,[R10,#enc_name]		;
+		MOV	R2,R11				;
+		MOV	R1,R0				;
+		BL	strcopy				;
+
+		MOV	R0,#&4D				; open the file
+		MOV	R1,R11				;
+		ADRL	R2,fonts_path			;
+		SWI	XOS_Find			;
+		BVS	err$l				;
+
+		MOV	R9,R0				; keep handle
+
+		MOV	R0,#3				; load in the header
+		MOV	R1,R9				;
+		ADD	R2,R12,#buffer			;
+		MOV	R3,#16				;
+		MOV	R4,#0				;
+		SWI	XOS_GBPB			;
+		BVS	err$l				;
+
+		ADD	R1,R12,#buffer			; validate it
+		LDR	R2,enc$l			;
+		LDR	R0,[R1],#4			;
+		TEQ	R0,R2				;
+		LDREQ	R0,[R1],#4			;
+		TEQEQ	R0,#0				;
+		LDREQ	R0,[R1],#4			;
+		TEQEQ	R0,#0				;
+		LDREQ	R0,[R1],#4			;
+		TEQEQ	R0,#0				;
+		ADRNE	R0,notenc$l			;
+		BLNE	messages_error			;
+
+		MOVVC	R0,#4				; load the data
+		MOVVC	R1,R9				;
+		ADDVC	R2,R10,#enc_data		;
+		MOVVC	R3,#256				;
+		SWIVC	XOS_GBPB			;
+		BVS	err$l				;
+
+		TEQ	R3,#0				; check we loaded enough data
+		ADRNE	R0,notenc$l			;
+		BLNE	messages_error			;
+
+		MOVVC	R0,#0				; close the file
+		MOVVC	R1,R9				;
+		SWIVC	XOS_Find			;
+
+		LDRVC	R0,[R12,#encodings]		; link in
+		STRVC	R0,[R10,#enc_next]		;
+		STRVC	R10,[R12,#encodings]		;
+
+		MOVVC	R0,R10				; return the block
+		FNRTS	VC				;
+
+err$l		MOV	R11,R0				; keep the error
+							;
+		MOV	R0,#0				; close the file
+		MOVS	R1,R9				;
+		SWINE	XOS_Find			;
+							;
+		MOVS	R0,R10				; free the block
+		BLNE	cache_free			;
+							;
+		MOV	R0,R11				; return the error
+		FNRTV					;
+
+enc$l		=	"ZENC"
+notenc$l	ERRTOK	err_notfont,"NotEnc"
+
+
+		LOCAL
+
+
+; free an encoding
+; E r0 -> encoding block
+; X
+free_encoding	FNJSR	"R11"
+		MOV	R11,R0
+		LDR	R0,[R0,#enc_name]
+		BL	cache_free
+		MOV	R0,R11
+		BL	cache_free
+		FNRTS
+
+
+; free all loaded encodings
+; E
+; X
+free_encodings	FNJSR	"R11"
+		LDR	R11,[R12,#encodings]
+
+loop$l		MOVS	R0,R11
+		FNRTS	EQ
+		LDR	R11,[R11,#enc_next]
+		BL	free_encoding
+		B	loop$l
 
 
 
