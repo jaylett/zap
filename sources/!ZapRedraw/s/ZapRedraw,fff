@@ -1,10 +1,11 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.6 2000/10/11 15:31:35 james Exp $
+; $Id: ZapRedraw,fff,v 1.6.2.1 2001/06/11 22:36:08 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
  GET h.ZapRedHdr
  GET h.Version
+ GET h.Commands
 
  EXPORT div_mod
  EXPORT find_character
@@ -12,6 +13,14 @@
  EXPORT move_bytes
  EXPORT strcopy
  EXPORT strcpy
+ EXPORT strcasecmp
+ EXPORT strlen
+
+ EXPORT add_vdu_bitmaps
+ EXPORT read_vdu_vars
+ EXPORT read_system_chars
+
+ EXPORT get_r12
 
  IMPORT redraw_area_vdu
  IMPORT sprite_size
@@ -27,6 +36,19 @@
  IMPORT cached_char_size
  IMPORT plotrect
 
+ IMPORT find_font					; following in s.Cache
+ IMPORT lose_font
+ IMPORT init_cache
+ IMPORT kill_cache
+ IMPORT check_kill_cache
+ IMPORT mode_change
+ IMPORT read_char_size
+ IMPORT list_fonts
+
+ IMPORT messages_init
+ IMPORT messages_kill
+ IMPORT messages_error
+
 ; module header
 
  AREA |!!!Module_Header_Area|,CODE,READONLY
@@ -35,12 +57,12 @@
 
 Module_header
 Start_code		DCD 0
-Initialisation_code	DCD 0
-Finalisation_code	DCD 0
-Service_call_handler	DCD 0
+Initialisation_code	DCD init_code
+Finalisation_code	DCD final_code
+Service_call_handler	DCD service_code
 Title_string		DCD title_string
 Help_string		DCD help_string
-Command_keyword_tab	DCD 0
+Command_keyword_tab	DCD command_table
 
  [ |zap$|="Zap"
 
@@ -55,6 +77,7 @@ SWI_chunk_number	DCD &48440		; text X SWI number
 SWI_handler_code	DCD swi_code
 SWI_decoding_table	DCD swi_table
 SWI_decoding_code	DCD 0
+Messages_File		DCD messages_filename
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TITLES AND COMMAND TABLES				       ;
@@ -83,6 +106,13 @@ help_string = |zap$|,"Redraw",9
 	    = " © Zap Developers",0
 
 title_string = |zap$|:CC:"Redraw",0
+
+		ALIGN
+
+messages_filename  ;= |zap$|:CC:"FontsMessages:Messages",0
+		   = "ZapFontsMessages:Messages",0
+		ALIGN
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Swi table						    ;
@@ -113,8 +143,82 @@ swi_table
  = "Divide",0			; 20
  = "PlotRectangle",0		; 21
  = "AddCursorSmart",0		; 22
+ = "FindFont",0			; 23
+ = "LoseFont",0	                ; 24
+ = "ReadCharSize",0		; 25
+ = "Version",0			; 26
+ = "ListFonts",0		; 27
  = 0
  ALIGN
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; initialisation / finalisation code			    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+init_code	LDR	R0,[R12]
+		TEQ	R0,#0
+		MOVNE	PC,R14				; after a non-fatal finalisation
+		FNJSR					; svc mode
+		MOV	R0,#6				; claim workspace
+		MOV	R3,#workspace_size
+		SWI	XOS_Module
+		FNRTS	VS
+		STR	R2,[R12]
+		MOV	R12,R2
+
+		MOV	R0,#0				; clear it
+		MOV	R1,#workspace_size
+loop$l		STR	R0,[R2],#4
+		SUBS	R1,R1,#4
+		BPL	loop$l
+
+		MOV	R1,R12				; initialise fake redraw block
+		ADD	R0,R12,#buffer
+		STR	R0,[R1,#r_workarea]
+		BL	read_vdu_vars			; init cache vdu vars
+
+		ADRVC	R0,messages_filename
+		BLVC	messages_init			; open messages file
+		FNRTS	VS
+
+		FNPULL
+		B	init_cache			; init DA
+
+		LOCAL
+
+
+; kill the module, if allowed
+final_code	TEQ	R10,#0
+                MOVEQ	PC,R14                          ; non-fatal
+		FNJSR					; svc mode
+		LDR	R12,[R12]
+		BL	check_kill_cache		; ok to kill the cache?
+		FNRTS	VS				; nope
+		BL	messages_kill			; close messages file
+		BLVC	kill_cache			; kill cache if empty
+		MOVVC	R0,#7                           ; free workspace
+		MOVVC	R2,R12
+		SWIVC	XOS_Module
+		MOV	R0,#0
+		STR	R0,[R12]			; null private word
+		FNRTS
+
+
+; service call handler - listens to Service_ModeChange
+service_code	TEQ	R1,#&46
+		MOVNE	PC,R14
+
+		LDR	R12,[R12]
+		B	mode_change
+
+
+get_r12		LDR	R12,local_r12
+		MOV	PC,R14
+
+local_r12	DCD	0				; yuck
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SWI code						    ;
@@ -126,6 +230,8 @@ swi_table
 ; should I MOVS on returning incase user mode? X form
 
 swi_code
+ LDR R12,[R12]
+ STR R12,local_r12		; eugh
  CMP R11,#(end$l-start$l)/4
  ADDCC PC,PC,R11,LSL#2
  B unknown$l
@@ -153,8 +259,13 @@ start$l
  B div_mod
  B plotrect
  B add_cursor_smart
+ B find_font
+ B lose_font
+ B read_char_size
+ B version_swi
+ B list_fonts
 end$l
-unknown$l ERRlit "Unknown ZapRedraw SWI"
+unknown$l ERROR err_ukswi,"UKSWI"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Get palette entry SWI					    ;
@@ -184,9 +295,23 @@ get_palette_entry
 redraw_area
  ;SWI &107
  LDR R0,[R1,#r_flags]
- TST R0,#1
+ TST R0,#rf_vdu
  BEQ redraw_area_dsa		; direct screen access
  B redraw_area_vdu		; vdu mode
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Version SWI   					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; read the version of the module
+; E
+; X R0 = version number  R1 -> div_mod  R2 -> move_bytes
+version_swi	MOV	R0,#version_number		; version number (decimal * 100)
+		ADR	R1,div_mod
+		ADRL	R2,move_bytes
+		MOV	PC,R14
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Division/Modulo - optimised routine written by Darren Salt ;
@@ -921,7 +1046,7 @@ skip_ctrl_10
 ; space save above...?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Perpare data line for drawing				    ;
+; Prepare data line for drawing				    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R0=colour to use for ctrl chars / -1 if none
@@ -929,7 +1054,7 @@ skip_ctrl_10
 ;  R2=input string
 ;  R3=foreground mask
 ;  R4=background mask
-;  R5=input length + flags
+;  R5=input length + flags     (flags??)
 ;  R6=dest buffer (size 6*R5+16)
 ;  R7=font mask... (not supplied if b3 of r_flags is zero)
 ;X R0=highest char code used
@@ -946,15 +1071,18 @@ prepare_data_line
  LDR R7,[R1,#r_for]		; current foreground
  AND R7,R7,#&FF
  LDR R8,[R1,#r_bac]		; current background
- LDR R1,[R1,#r_flags]		; current flags
- TST R1,#&8
+ LDR R11,[R1,#r_flags]		; current flags
+ TST R11,#rf_substyles		; &8
  BEQ ordinary_prepare_data_line
-; STR R0,[R13,#-28] 		; ctrl chars col (R1 not needed)
+; STR R0,[R13,#-28]		; ctrl chars col
  STR R0,local_ctrl_colour
  MOV R9,R6			; save start of output
  MOV R14,#&20			; highest used code (space always)
  STR R14,local_max_out
- MOV R1,#-1			; dummy fonts flag (never match...!)
+ LDR R11,[R1,#r_caddr]
+ CMP R11,#&8000
+ ANDLO R1,R11,#&FF		; use initial substyles if present
+ MOVHS R1,#-1			; dummy fonts flag (never match...!)
 pdl_loop
  CMP R5,#0
  BLE pdl_end
@@ -1062,7 +1190,7 @@ pdl_just_change_font
 ; DCD 0
 
 ;E R0=colour to use for ctrl chars / -1 if none
-;  R1=redraw block giving start for/bac cols
+;  (R1=redraw block giving start for/bac cols)
 ;  R2=input string
 ;  R3=foreground mask R4=background mask
 ;  R5=input length
@@ -1691,7 +1819,8 @@ fc_2
 create_palette
  FNJSR "R1-R7"
  MOV R5,R1			; save redraw block
- LDR R6,[R5,#r_workarea]	; wimp palette &BBGGRRXX
+ ;LDR R6,[R5,#r_workarea]	; wimp palette &BBGGRRXX
+ ADD R6,R12,#buffer		; use our own workspace
  MOV R7,R0			; save reason code
  MOV R1,R6
  SWI XWimp_ReadPalette		; read the 20 word palette
@@ -1755,8 +1884,10 @@ ic_0
 read_system_chars
  FNJSR "R1-R9"
  MOV R3,R0			; R3=output buffer
- LDR R1,[R1,#r_workarea]	; 16 byte work area
- ADD R1,R1,#3			; R1=work (with +1 is word aligned)
+ ;LDR R1,[R1,#r_workarea]	; 16 byte work area
+ ;ADD R1,R1,#3			; R1=work (with +1 is word aligned)
+ ADD R1,R12,#buffer		; use our own workspace
+ ADD R1,R1,#3
  ADR R0,init_def_masks
  LDMIA R0,{R4-R6}		; R4-R6=masks
  MOV R2,#&20			; character number
@@ -1826,7 +1957,8 @@ read_vdu_vars
  FNJSR "R1-R4"
  MOV R2,R1			; save red block
  ADR R0,rvv_d1
- LDR R1,[R2,#r_workarea]
+ ;LDR R1,[R2,#r_workarea]
+ ADD R1,R12,#buffer		; use our own buffer
  SWI XOS_ReadVduVariables
  FNRTS VS
  LDR R3,[R1]			; XEig (log2 of num of xos per pix)
@@ -1898,21 +2030,63 @@ get_rectangle
  ADD R2,R2,R0			; x os offset in work area
  MOV R0,R2,ASR R5
  STR R0,[R1,#r_scrollx]
- LDR R0,[R4,#16]		; y max
- SUB R3,R3,R0			; y os offset in vis area
- LDR R0,[R4,#24]		; y scroll
- ADD R3,R3,R0			; y os offset in work area
+ LDR R7,[R4,#16]		; y max
+ SUB R3,R3,R7			; y os offset in vis area
+ LDR R7,[R4,#24]		; y scroll
+ ADD R3,R3,R7			; y os offset in work area
  RSB R3,R3,#0			; y os downward
- MOV R0,R3,ASR R6		; y pix signed
+ MOV R7,R3,ASR R6		; y pix signed
+ STR R7,[R1,#r_scrolly]
+
+ LDR R3,[R1,#r_flags]
+ TST R3,#rf_rtol
+ BNE rtol$l
+
+margin$l
+ LDR R3,[R1,#r_flags]		; subtract left margin if present
+ TST R3,#rf_extend		; is length present?
+ FNRTS EQ			; nope
+ LDR R3,[R1,#r_length]
+ CMP R3,#r_lmargin		; do we have left margin parameter?
+ FNRTS LO
+ LDR R2,[R1,#r_lmargin]
+ SUB R0,R0,R2
+ STR R0,[R1,#r_scrollx]
+
+ CMP R3,#r_tmargin		; do we have the top margin?
+ FNRTS LO
+ LDR R2,[R1,#r_tmargin]
+ SUB R0,R7,R2
  STR R0,[R1,#r_scrolly]
+
  FNRTS
+
+rtol$l
+ PUSH "R1"
+ LDR R0,[R4,#0]			; handle
+ ADD R1,R12,#buffer
+ STR R0,[R1],#1			; no icons
+ SWI XWimp_GetWindowInfo
+ FNRTS VS
+ LDR R0,[R1,#51]		; wa maxx (b0 set)
+ PULL "R1"
+ LDR R2,[R4,#4]                 ; visible minx
+ ADD R2,R2,R0
+ LDR R0,[R4,#20]		; scrollx
+ SUB R2,R2,R0			; screen coords of wa maxx
+ LDR R3,[R4,#36]		; rectangle maxx
+ SUB R0,R2,R3
+ MOV R0,R0,ASR R5
+ STR R0,[R1,#r_scrollx]
+ B margin$l
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Add Vdu Bitmaps SWI					    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=redraw block (r_height/r_width)
-;  r_workarea=64 bytes + room for sprite
+;  r_workarea=64 bytes + room for sprite ??? is this true?
 ;  R2=first char R3=last char (inc) R4=bitmap at 1 bpp to convert
 ;X Extra characters in the interval created #
 
@@ -2348,6 +2522,64 @@ strcpy
  STRCSB R0,[R1],#1
  BCS strcpy
  MOVCC PC,R14
+
+ LOCAL
+
+
+; compares two strings case insesnsitive
+; E r0,r1 -> strings
+; X Z = same  r1 -> after r1's terminator  r0 preserved
+; null pointers are handled and are equivalent
+strcasecmp
+  FNJSR "R0,R2-R4"			; preserve
+  TEQ R0,#0
+  TEQEQ R1,#0
+  FNRTS EQ
+  TEQ R0,#0
+  TEQNE R1,#0
+  BNE loop$l
+  CMP R14,#0				; clear Z
+  FNRTS
+loop$l
+  LDRB R2,[R0],#1			; load char
+  LDRB R3,[R1],#1			;
+  CMP R2,#31				; fin?
+  CMPLS R3,#31				; other one fin also?
+  BHI nope$l				; nope
+  MOVS R0,#0                            ; yes - set Z
+  FNRTS					; done
+nope$l
+  CMP R2,#'z'				; lower than z?
+  RSBLSS R4,R2,#'a'			; and higher than a?
+  BICLS R2,R2,#&20			; yes - make upper case
+  CMP R3,#'z'				; same for other
+  RSBLSS R4,R3,#'a'			;
+  BICLS R3,R3,#&20			;
+  ;STMFD R13!,{R0}
+  ;MOV R0,R2
+  ;SWI XOS_WriteC
+  ;MOV R0,R3
+  ;SWI XOS_WriteC
+  ;LDMFD R13!,{R0}
+  CMP R2,R3				; same?
+  BEQ loop$l				; try again
+  FNRTS					; no - return ne
+
+  LOCAL
+
+
+; find the length of a string
+; E r0 -> string
+; X r1 = length
+strlen
+ FNJSR "R0"
+ MOV R1,#-1
+loop$l
+ ADD R1,R1,#1
+ LDRB R14,[R0],#1
+ CMP R14,#32
+ BHS loop$l
+ FNRTS
 
  LOCAL
 

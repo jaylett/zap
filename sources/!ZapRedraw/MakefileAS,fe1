@@ -1,0 +1,95 @@
+# Make file for ZapRedraw
+# using freeware tools make, AS, DRLink
+# (c) Zap Developers
+# $Id: MakefileAS,fe1,v 1.1.2.1 2001/06/11 22:36:08 ds Exp $
+
+# For the standard build name:
+#	make -r -f MakefileAS
+# For alternative build names:
+#	make -r -f MakefileAS BUILD=foo
+#	make -r -f MakefileAS BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+# BTW, give 'make' lots of memory ;-)
+
+# Targets:
+#	Redraw		Assemble .s files and link. This is the default
+#	Headers		Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+##	Rebuild		Wipe o.ModuleBits. Useful for changing the build name
+#	Revision	Stamps h.Version
+
+# Where to get the tools:
+# 	AS:     <URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
+# 	Make:   <URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/riscos/unixtools/gnu/make.absolute>
+# 	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
+
+Hs	= t.Cache t.Commands t.DSARedraw t.Messages t.VDURedraw t.ZapRedraw 
+
+OBJECTS	= o.Cache o.Commands o.DSARedraw o.Messages o.VDURedraw o.ZapRedraw 
+
+TARGET		= ZapRedraw
+ZapS		= <ZapSource$$Dir>
+link		= drlink
+#linkPartFlags	= -aof
+linkFlags	= -bin -b &00000000 -nounused
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic -D__ZAP__ -DASSEMBLER=AS -target ARM3
+
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
+
+
+Redraw:		$(OBJECTS)
+		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
+		Settype $(TARGET) Module
+		Run $(ZapS).data.MCopy $(TARGET) ZapXRedraw
+		@Echo <7>Finished
+
+Headers:	$(Hs)
+		@Echo Made headers
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+#Rebuild:
+#		Remove o.ModuleBits
+#		chain:make -r -f MakefileAS $(NEWBUILD)
+
+Revision:
+		Stamp h.Version
+		chain:make -r -f MakefileAS $(NEWBUILD)
+
+
+s.% o.%:
+	$(as) $(asFlags) $(__BUILD) s.$*
+
+s.% t.%:
+	@Run $(ZapS).data.StoH s.$* h.$*
+	Create t.$* 0
+
+
+o.objects:	$(OBJECTS)
+	$(link) $(linkPartFlags) -o o.objects1 $(OBJECTS1)
+
+t.Cache:	s.Cache
+t.Commands:	s.Commands
+t.DSARedraw:	s.DSARedraw
+t.Messages:	s.Messages
+t.VDURedraw:	s.VDURedraw
+t.ZapRedraw:	s.ZapRedraw
+
+$(ZapS).h.ZapLibrary:	ZapCode:Tools.Technical.E-Library
+	Run $(ZapS).data.BasicToAsm ZapCode:Tools.Technical.E-Library $(ZapS).h.ZapLibrary
+
+
+# Generated dependencies:
+o.Cache: s.Cache h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.ZapRedraw h.DSARedraw h.VDURedraw h.Messages
+o.Commands: s.Commands h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.ZapRedraw h.Messages h.Cache
+o.DSARedraw: s.DSARedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Cache
+o.Messages: s.Messages h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors
+o.VDURedraw: s.VDURedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Cache
+o.ZapRedraw: s.ZapRedraw h.ZapRedHdr <ZapSource$Dir>.h.System <ZapSource$Dir>.h.ZapLibrary <ZapSource$Dir>.h.Macros h.Errors h.Version h.Commands
+
+
+
