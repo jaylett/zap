@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.4 2003/05/12 19:07:45 christian Exp $
+; $Id: module,fff,v 1.5 2003/05/13 17:13:26 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -10,7 +10,11 @@
 
 ; opt to enable ImageSize stuff on Buttons bars
 		GBLL	WITH_IMAGESIZE
-WITH_IMAGESIZE	SETL	{FALSE}
+WITH_IMAGESIZE	SETL	{TRUE}
+
+		GBLL	GIFMAGIC_LONG
+GIFMAGIC_LONG	SETL	{TRUE}
+
 
 	GET	h.HoTMeaL
 
@@ -233,9 +237,10 @@ backinactione
 	LDMEQFD	sp!, {r1, r7, r8, pc}
 		;  REM no !Config...
 nocfginit
-	MOV	r0, #0x11
+	MOV	r0, #num_colours
 	FNcall	Zap_ModeColourNum	;  REM change palette size.
 	LDMVSFD	sp!, {r1, r7, r8, pc}
+	BL	UnkPreColBit		; to set up colours with zmcs
 	TEQ	r7, #0
 	BEQ	noheapblkatall
 	LDR	r1, [r7, #0]
@@ -243,44 +248,41 @@ nocfginit
 	BEQ	justendtheresnoneed
 	MOV	r1, #zizeofcfgwksp	;  REM all vc
 	MOV	r0, r7
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #8	;  REM zap call - ensure heap block
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
-	MOV	r7, r0
-	STR	r1, [r7, #0]
-	BL	OnToWrtMdeWrd
+	FNcall	Zap_Ensure
 	LDMVSFD	sp!, {r1, r7, r8, pc}
+	B	write_default_config
 noheapblkatall
 	MOV	r0, #zizeofcfgwksp
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #4	;  REM zap call - start heap block
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
+	FNcall	Zap_Claim
+	LDMVSFD	sp!, {r1, r7, r8, pc}
+write_default_config
+	MOV	lr,#zizeofcfgwksp
+	STR	lr,[r0]
 	MOV	r7, r0
 	BL	OnToWrtMdeWrd
-	LDMVSFD	sp!, {r1, r7, r8, pc}
-	MOV	r0, #zizeofcfgwksp	;  REM vc
-	STR	r0, [r7]
-	MOV	r0, #0
-	STR	r0, [r7, #4]
-	MOV	r0, #0x0D
-	STR	r0, [r7, #8]
-	LDR	r0, startupformatwd
-	STR	r0, [r7, #0x0C]
-	LDRVC	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
-	LDRVC	r1, [r11, #4]
-	MOVVC	r2, #0
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #Zap_ModeData	;  REM call - RD/WRT Zap Dater mode words.
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
+	ADR	lr,default_config
+	ADD	r7,r7,r1
+	ADD	lr,lr,r1
+0	CMP	r1,#zizeofcfgwksp
+	LDRLO	r2,[lr],#4
+	STRLO	r2,[r7],#4
+	ADDLO	r1,r1,#4
+	BLO	%BT0
+	LDR	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
+	LDR	r1, [r11, #4]
+	MOV	r2, #0
+	FNcall	Zap_ModeData
 justendtheresnoneed
 	LDMFD	sp!, {r1, r7, r8, pc}
+default_config
+	&	zizeofcfgwksp
+	&	0
+	&	13
+	&	&779E0000	; format word
+	&	0
+	&	0
+default_config_end
+zizeofcfgwksp	*	default_config_end - default_config
 		;     return pointer in R1...
 ;amenucreation
 ;	STMFD	sp!, {r0, lr}
@@ -297,22 +299,21 @@ basemode
 	FNjump	Zap_BaseMode
 modenumberlocal
 	DCD	0
-startupformatwd
-	DCD	0x779E0000
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 UnkPreColBit
 	STMFD	sp!, {r1-r4, lr}
 	ADR	r3, DefaultColours
-	LDR	r1, [r11, #4]	;  REM normally 0
-PreZModColBit
-	MOV	r2, #0x09	;  REM start colours
+	ADD	r3,r3,r0
+	SUB	r3,r3,#9	; index of first undefined colour
+	LDR	r1, [r11, #4]	; REM normally 0
+	MOV	r2, r0		; start colours (R0=prev.def.)
 ZModColBit
+	CMP	r2,#num_colours
+	LDMHSFD	sp!,{r1-r4,pc}
 	LDRB	r0, [r3], #1
-	FNcall	Zap_ModeColour	;  REM Read colour definitions
-	LDMVSFD	sp!, {r1-r4, pc}
-	ADD	r2, r2, #1
-	TEQ	r2, #0x13	;  REM max colours
-	BNE	ZModColBit
+	FNcall	Zap_ModeColour
+	ADDVC	r2, r2, #1
+	BVC	ZModColBit
 	LDMFD	sp!, {r1-r4, pc}
 DefaultColours
 		;  REM Colour Numbers :
@@ -326,7 +327,8 @@ DefaultColours
 	=	0x02	;  REM Error colour   =&10
 	=	0x0E	;  REM GSTrans        =&11
 	=	0x00	;  REM Unknown        =&12
-	=	0x00, 0x00	;  REM double zero termination !
+DefaultColours_end
+num_colours	*	DefaultColours_end - DefaultColours
 	ALIGN
 
 ;CursorPriority
@@ -2522,7 +2524,7 @@ intotherawbit
 	MOVMI	pc, lr
 	STMFD	sp!, {r0-r12, lr}
 	ADR	r0, pwrsrchfish2
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	STR	r8, R8tmp
 	STR	r9, R9tmp
 	MOV	r0, #0
@@ -2923,11 +2925,11 @@ CmdAct5
 	ADD	sp, r0, #(newstksiz / 2)
 	FNcall	Zap_StartOp
 	ADRL	r0, leadzerosstrip
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	ADRL	r0, leadzerosstrip2
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	ADRL	r0, andandstring
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	SWI	Hourglass_On
 	MOV	r10, #140
 _altered_33
@@ -2971,7 +2973,7 @@ loop1
 	MOV	r3, #numemsp
 	BL	insertnamedchar
 	ADRL	r0, fishstring
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	MOV	r10, #'"'
 	MOV	r3, #numquot
 	BL	insertnamedchar
@@ -3028,14 +3030,14 @@ _altered_35
 	STRB	r0, [r4], #1
 	BL	insertanumberinstr
 	ADR	r0, searchstring
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	LDMFD	sp!, {pc}
 insertnamedcharaschar
 	STMFD	sp!, {lr}	;  also R10...?
 	BL	insertanumbertwo
 	BL	insertanumberinstr
 	ADR	r0, searchstring
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	LDMFD	sp!, {pc}	;  also R10...?
 insertanumbertwo
 		;  /E R10 = number.
@@ -3292,7 +3294,7 @@ secondendofent
 ;	SWI	XOS_Module
 ;	LDMVSFD	sp!, {r0-r12, pc}
 ;	ADR	r0, buttndelhere
-;	FNcall	Zap_CommandString
+;	BL	zap_command_string
 ;nojuice4
 ;	LDMFD	sp!, {r0-r12, pc}
 ;closeanypanes
@@ -3306,7 +3308,7 @@ secondendofent
 ;	SWI	XOS_Module
 ;	LDMVSFD	sp!, {r0-r12, pc}
 ;	ADR	r0, buttnclohere
-;	FNcall	Zap_CommandString
+;	BL	zap_command_string
 ;	LDMFD	sp!, {r0-r12, pc}
 ;buttndelhere
 ;	=	"BUTTONS_DELETE.."
@@ -3511,6 +3513,8 @@ CmdTable
 	FNcom	"HTMLSTRIPENTITIES", CmdAct5
 	FNcom	"HTMLSTRIPSCRIPT", CmdStripScript
 	FNcom	"HTMLSTRIPTAGS", CmdAct4
+	FNcom	"HTMLLINK", CmdHTMLLink
+	FNcom	"HTMLIMAGE", CmdHTMLImage
 	DCD	0
 
 MenuExtension
@@ -3550,19 +3554,16 @@ wimpmessagerecvd
 	TEQNE	r0, #3
 	LDMNEFD	sp!, {r0-r12, pc}
 	STR	r1, localblkstore
-	MOV	r1, #0
-	STR	r1, localblkstore + 4
-	MOV	r0, #2
-	ADR	r1, callforeachbb
-	BL	callmiscentrypt
-	LDR	r1, localblkstore + 4
-	CMP	r1, #0
-	LDMEQFD	sp!, {r0-r12, pc}
-	MOV	r11, r1
-	LDR	r0, [r11, #b_window]
-	FNcall	Zap_ConvWindOff
-	CMP	r8, #0
-	BLE	dontexecutecmd
+	LDR	r0,[r1,#20]
+	MOV	r7,#5
+	ORR	r7,r7,#&200
+	MOV	r11,r1
+	FNcall	Zap_CallExtension
+	TEQ	r8,#0
+	LDMEQFD	sp!,{r0-r12,pc}
+	FNcall	Zap_GetWindOff
+	MOVS	r11,r0
+	LDMMIFD	sp!,{r0-r12,pc}
 	LDRB	r1, [r8, #w_format]
 	ADRL	r5, modenumberlocal
 	LDRB	r5, [R5]
@@ -3604,10 +3605,8 @@ wimpmessagerecvd
 	BNE	dothatgifbit
 	LDMFD	sp!, {r0-r12, pc}
 cutandstoresel
-	STMFD	sp!, {lr}
 	ADR	r0, storedcuthere
-	FNcall	Zap_CommandString
-	LDMFD	sp!, {pc}
+	B	zap_command_string
 storedcuthere
 	=	"CUT",0
 storedlinkhere
@@ -3646,12 +3645,12 @@ straightup
 	CMP	r5, r3
 	BEQ	maybenotimage
 	BL	testsel
-	MOVCS	lr, #0
-	BLCC	cutandstoresel
+	MOVCS	lr, #-1
 	STR	lr, localblkstore + 12
+	BLCC	cutandstoresel
 maybenotimage
 	LDR	r0, localblkstore + 8
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	STMFD	sp!, {r0-r12}
 	LDR	r3, htmlfiletype
 	CMP	r5, r3
@@ -3664,10 +3663,8 @@ maybenotimage
 	LDR	r5, [r0, #0xC]
 	ADR	r1, storedwlabel
 	BL	changethecaseofit
-	ADR	r1, storedhlabel
+	ADRL	r1, storedhlabel
 	BL	changethecaseofit
-	LDR	r2, localblkstore
-	ADD	r2, r2, #44
 		;   On image_dims Entry; R1 => file name
 		;   On image_dims Exit;  R0 => Error block if V set Else unchanged
 		;                        R2 = RISC OS 12 bit filetype
@@ -3676,8 +3673,12 @@ maybenotimage
 	LDR	lr, giforhtmlflag
 	CMP	lr, #0
 	BEQ	retfromtoreporterror
-	BL	callimagesizer%
+	LDR	r1, localblkstore
+	ADD	r1, r1, #44
+	BL	image_dims
 	BVS	toreporterror
+	TEQ	r3,#0
+	BEQ	retfromtoreporterror
 	ADR	r1, widthtogohere
 	BL	clear_overwrite
 	MOV	r0, r4
@@ -3686,12 +3687,16 @@ maybenotimage
 	MOV	r0, r3
 	BL	convertcardforwh
 	ADR	r0, storedweqhere
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	ADR	r0, storedheqhere
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	LDR	lr, localblkstore + 12
-	CMP	lr, #0
-	BLEQ	nosel_to_simp
+	CMN	lr, #1
+	BNE	nojustsayright
+	ADRL	r0, justsayright
+	BL	zap_command_string
+	B	retfromtoreporterror
+nojustsayright
 	BL	maybeinsertalttext
 	BL	restore_overwrite
 
@@ -3720,7 +3725,7 @@ restore_overwrite
 	STR	r0, [r8, #w_flags]
 	MOV	pc, lr
 storedweqhere
-	=	"LEFT:INSERT ",34," "	;  ...
+	=	"LEFT:LEFT:LEFT:INSERT ",34," "	;  ...
 storedwlabel
 	=	"WIDTH="
 widthtogohere
@@ -3731,6 +3736,7 @@ storedhlabel
 	=	"HEIGHT="
 heighttogohere
 	%	8
+rightx2	=	"RIGHT:RIGHT",0
 	ALIGN
 dothathtmlbit
 	LDR	r0, storedlinkhere
@@ -4046,7 +4052,7 @@ _altered_46
 	FNcall	Zap_FindInput
 	FNcall	Zap_PutCaret
 	SUB	r0, r5, #10
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 uri_error
 	MOVVS	r1, r0
 	MOVVC	r1, #0
@@ -4496,10 +4502,13 @@ tickquery
 ;	BL	callmiscentrypt
 ;	LDMFD	sp!, {r5, pc}
 tmt_updatewindow
-	STMFD	sp!, {lr}
 	ADR	r0, tmtupdwstr
+zap_command_string
+	FNJSR	"R1"
+	MOV	r1,#0
 	FNcall	Zap_CommandString
-	LDMFD	sp!, {pc}
+	FNRTS
+
 
 modehtml_interrogate
 	CMP	r0, #4
@@ -5021,14 +5030,6 @@ mode_prevline2
 		;
 		;     B       CursorPriority%
 
-;	CALLIMAGESIZER%	= P%
-;	TMPO%	= O%
-;	IMAGESIZECODE%	= O%
-;	PROCASMAWIMAGESIZESTUFF
-;	SIZE%	= P% - imagesizecode%
-;	P%	= callimagesizer% + size%
-;	O%	= tmpo% + size%
-;	[OPT	pass%
 HTMLLabeled
 	=	"HoTMeaL",0
 
@@ -5428,7 +5429,7 @@ maybeinsertalttext
 	MOV	r0, r1
 	FNcall	Zap_JumptoOffset
 	ADR	r0, storedmovesel
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	ADR	r0, storedendoftag
 	MOV	r1, #0
 	LDR	r3, [r10, #c_off]
@@ -5440,18 +5441,18 @@ maybeinsertalttext
 	MOV	r0, r1
 	FNcall	Zap_JumptoOffset
 	ADR	r0, justsayDELETE
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	ADR	r0, justsayCHAR62
-	FNcall	Zap_CommandString
+	BL	zap_command_string
 	LDMFD	sp!, {pc}
 storedsrchalt
 	=	"ALT=",34,0
 storedendoftag
-	=	"\\[0-9]>",0	;  secimal the '>',0
+	=	"\\[0-9] />",0	;  secimal the '>',0
 storedmovesel
 	=	"PASTE",0
 justsayright
-	=	"RIGHT",0
+	=	"RIGHT:RIGHT:RIGHT",0 ; moving past " />", not just ">"
 justsayDELETE
 	=	"DELETE",0
 justsayCHAR62
@@ -5461,22 +5462,856 @@ justsayCHAR62
 		;  E R8
 
 ;  returns CS if the selection is not in this doc...
+; also return length in R14
 testsel
 	FNJSR	"R2-R4,R8,R9"
 	MOV	r4, r8
 	FNcall	Zap_GetSel
 	FNRTS	CS
-	CMP	r4, r8
-	FNPULL
-	BNE	ARM32_CSRet		; FIXME: this want's to be FNRTCS, but the amcros
-	RTCC				; import ARM32_CSRet and ObjAsm objects since it's
-					; already a symbol in this file.
+	MOV	lr,r2
+	TEQ	r4,r8
+	CMPNE	r0,r0	; set carry
+	FNRTS
 
 
-nosel_to_simp
-	ADR	r0, justsayright
-	FNcall	Zap_CommandString
-	B	retfromtoreporterror
+	[ WITH_IMAGESIZE
+; Adapted from [IMG_Lib]
+;	Andrew Ward, Feb-April 1996
+;	Version 0.12f
+
+; Data structures
+; ---------------
+;
+; You are responsible for allocating space for the following structures, and
+; labeling them. The first two can be written to by the controlling code to
+; specify where the code should find the images etc.
+;
+; img_file_open: one byte used to flag whether a file has been opened. (Used
+;	in case there's a major error). Don't touch this byte yourself.
+
+
+; ******* image_dims ****************************************************
+; * Description; Entry point of func to extract an image's dimensions	*
+; *		 Copes with all GIF8[79]a , JFIF and PNG files.		*
+; * On Entry;	 R1=pointer to RISC OS format filename.			*
+; *									*
+; * On Exit;	 R3=image width, R4=Image height, All other regs	*
+; *		 preserved. V set & R0->error if failed.		*
+; *		 R2 now points to RISC OS 12 bit filetype		*
+; *									*
+; * Overview;	 Checks file exists. Open file. Check filetype.		*
+; *		 Dispatch to correct handler according to type.		*
+; *		 If type unknown, have a guess.				*
+; ***********************************************************************
+image_dims
+	STMFD	sp!,{r0-r1,r5-r8,lr}	; Store return addr & ZapHTML stuff
+	STMFD	sp!,{r2-r5}
+	MOV	r0,#17
+	SWI	XOS_File
+	STRVS	r0,[sp,#16]!		; Leaves status word in r7
+	BVS	image_end
+	TST	r0,#1
+	MOV	r0,r2
+	LDMFD	sp!,{r2-r5}		; if not a file, return r2=r3=r4=0
+	MOVEQ	r2,#0
+	MOVEQ	r3,#0
+	MOVEQ	r4,#0
+	BEQ	image_end
+	MOV	r2,r0,LSR #20
+	CMN	r2,#1
+	MOVEQ	r2,r0,LSL #12
+	MOVEQ	r2,r2,LSR #20		; filetype
+	MOVNE	r2,#0			; unknown type
+	BL	apw_open_file		; Open file R/O
+	STRVS	r0,[sp]
+	BVS	image_end		; Stop if failed to open file
+	; R0=filehandle on exit
+	; If img_path_swap% bit is set, do the path swap.
+	; useful for ZapHTML if you use filename completion.
+	MOV	r1,R0			; Handle was in R0 from image_open
+	; *** R1 is filehandle for rest of the _entire_ routine ***
+	; See if we recognize the filetype and branch to
+	; appropriate routine if we do.
+	; R2 still filetype (from apw_file_find above)
+	; Sanity check first.
+	ADRL	r3,sprtype		; Don't try and guess if Sprite
+	LDR	r3,[r3]			; filetype!!
+	TEQ	r2,r3
+	BLNE	apw_guess_type
+image_check_type
+	ADRL	r3,jpegtype		; Load JPEG constant
+	LDR	r3,[r3]
+	TEQ	r2,R3			; JPEG?
+	BNE	img_gif_test
+	BL	jpeg_magic		; Hard work ahead!
+	B	image_filetype_end
+img_gif_test
+	ADRL	r3,giftype		; Load GIF constant
+	LDR	r3,[r3]
+	TEQ	r2,R3			; GIF?
+	BNE	img_png_test
+	BL	gif_magic
+	B	image_filetype_end
+img_png_test
+	ADRL	r3,pngtype		; Load PNG constant
+	LDR	r3,[r3]
+	TEQ	r2,r3
+	BNE	img_sprite_test
+	BL	png_magic		; This one's a doddle
+	B	image_filetype_end
+img_sprite_test
+	ADRL	r3,sprtype
+	LDR	r3,[r3]
+	TEQ	r2,r3
+	BNE	img_unknown_type
+	BL	sprite_magic
+	B	image_filetype_end
+	; Anything else and I can't help, yet!
+img_unknown_type
+	BL	img_set_v
+	ADRL	r0,err_bad_filetype
+	STR	r0,[sp]
+	B	image_dims_ending
+image_filetype_end
+	STRVS	r0,[sp]			; Store any error block.
+image_dims_ending
+	BL	apw_shut_file		; Shut the file
+image_end
+	LDMFD	sp!,{r0-r1,r5-r8,pc}	; Done!
+; ####### !image_dims ####################################################
+
+; ******* jpeg_magic ****************************************************
+; * Description; Parses a JFIF file looking for the section containing	*
+; *		 the image data stream, and returns dims.		*
+; * On Entry;	 On entry R1 = file handle				*
+; *									*
+; * On Exit;	 R3=Height, R4=Width, R0 & R5-R8 corrupted.		*
+; *									*
+; * Overview;	 Blocks are started with 0xFF plus a marker byte to	*
+; *		 determine what sort of stream it is. 0xCn are image	*
+; *		 streams. n=4 & C are not encoding formats so are	*
+; *		 special cases. The next two bytes of all streams are	*
+; *		 the stream length, MSB first. The length includes	*
+; *		 these two bytes, but does not include the two previous	*
+; *		 markers definition bytes.				*
+; *									*
+; *		 After the first 0xFF of a stream marker can be other	*
+; *		 0xFFs for padding. Skip over these until get to a non-	*
+; *		 0xFF byte, which will be the marker definition		*
+; *		 Setup R5-R8 with pointers and call size_lookup		*
+; ***********************************************************************
+jpeg_magic
+	STMFD	sp!,{r2,lr}
+	MOV	r2,#2			; Update index into file
+jpeg_examine_marker
+	BL	apw_set_fileptr		; R2 = index to look at
+	; Now find next marker.
+	; watch out for duplicated 0xFFs
+	BVS	jpeg_magic_end
+	SWI	XOS_BGet		; Get byte
+	BVS	jpeg_magic_end
+	ADD	r2,r2,#1		; update ptr
+	TEQ	r0,#0xFF
+	BNE	jpeg_examine_marker	; Ignore garbage.
+jpeg_find_marker
+	SWI	XOS_BGet		; Next byte
+	BVS	jpeg_magic_end
+	ADD	r2,r2,#1		; Update index
+	TEQ	r0,#0xFF		; 0xFF can be used as 'padding'
+	BEQ	jpeg_find_marker
+	; What sort of marker? 0xC0 - 0xCF are what we want. (Frame data)
+	; with the exception of 0xC4 and 0xCC which we _don't_ want ;-)
+	AND	r3,r0,#0xF0		; Examine top 4 bits of byte
+	TEQ	r3,#0xC0		; Was it &C0
+	BNE	jpeg_skip_mark
+	TEQ	r0,#0xC4		; Not an encoding type (DHT)
+	BEQ	jpeg_skip_mark
+	TEQ	r0,#0xCC		; Not an encoding type (DAC)
+	BEQ	jpeg_skip_mark
+	ADRL	r3,jpeg_byteorder
+	; R2 points to byte after marker &Cx
+	LDMIA	r3!,{r5-r8}		; Load relative offsets.
+	ADD	r5,r5,R2		; And add our base offset
+	ADD	r6,r6,R2		; and to each.
+	ADD	r7,r7,r2
+	ADD	r8,r8,r2
+	BL	size_lookup		; Do the lookup
+	B	jpeg_magic_end		; End of routine
+jpeg_skip_mark
+	;	To jump to next marker
+	SWI	XOS_BGet		; Get MSB
+	BVS	jpeg_magic_end
+	MOV	r3,r0,LSL #8
+	SWI	XOS_BGet		; Now LSB
+	BVS	jpeg_magic_end
+	ORR	r3,r3,R0		; Delta
+	ADD	r3,r2,R3		; Update pointer
+	; Store result in R3 for a minute
+	MOV	r0,#2
+	SWI	XOS_Args		; Get file extent
+	BVS	jpeg_magic_end
+	CMP	r3,R2			; Check next read is not outside.
+	MOVLT	r2,R3			; Re - instate R2
+	BLT	jpeg_examine_marker	; Look at next marker
+	BL	img_set_v
+	ADRL	r0,err_early_eof	; Give an error and bug out
+jpeg_magic_end
+	LDMFD	sp!,{r2,pc}
+; ####### !jpeg_magic ####################################################
+
+; ******* png_magic *****************************************************
+; * Description; Extracts PNG dimensions from their fixed address       *
+; * On Entry;	 R1=File Handle						*
+; *									*
+; * On Exit;	 R3=Height, R4=Width, R5-R8 corrupted.			*
+; *									*
+; * Note;	 PNG supports dimensions of upto 2^30 x 2^30 pixels!	*
+; *		 I'm ignoring B3 and B2 (the MSBs) of the 4 byte dims.  *
+; *		 Anyone with an image with width or height > 65535	*
+; *		 pixels can rewrite this routine if they feel like it!	*
+; ***********************************************************************
+png_magic
+	STMFD	sp!,{lr}
+	ADRL	r3,png_location
+	LDMIA	r3!,{r5-r8}
+	BL	size_lookup
+	LDMFD	sp!,{pc}
+; ####### !png_magic #####################################################
+
+	[ GIFMAGIC_LONG
+
+; ******* gif_magic *****************************************************
+; * Description; Finds the addresses of GIF dimension data in the	*
+; *		_images_ first stream rather than the header. Returns   *
+; *		dimensions found in the addresses			*
+; * On Entry;	R1 = file handle					*
+; *									*
+; * On Exit;	R3=Height, R4=Width, R0 & R5-R8 corrupted		*
+; *									*
+; * Overview;	GIF consists of a mandatory header (12 bytes followed	*
+; *		by an optional and variable length header (colour	*
+; *		table) the length of which can be worked out from byte	*
+; *		0x0A. After this header is the the data stream. Within	*
+; *		the data stream can be many different blocks, where a	*
+; *		block is an image descriptor and data, private color	*
+; *		maps, textual descriptions, extra control blocks etc.	*
+; *		Each block is preceded by an identifier byte. Blocks	*
+; *		can be in any order. To complicate things there can be	*
+; *		sub-blocks as well. Basically I go from the first	*
+; *		known block id, evaluate its length and find the next,	*
+; *		until I hit a image id. From there it's a constant	*
+; *		offset to the start of the image dimensions data.	*
+; *		There may be more than one image per GIF, but I quit	*
+; *		after the first. GIF87 is just a subset of the GIF89	*
+; *		format. So, by parsing a '89 format we get the 87 for	*
+; *		free.							*
+; ***********************************************************************
+gif_magic
+	STMFD	sp!,{r2,lr}
+	; Byte 0x0A contains info about pixel depth & hence colour table size
+	; +---------------+
+	; |M|  cr |0|pixel|	<= byte 0x0A
+	; +---------------+
+	; 7 6 5 4 3 2 1 0	<= bit numbers
+	;
+	; 'M' = global colour map present?
+	; 'pixel' = (bits/pixel -1)
+	; ignore 'cr'
+	; Table size= 2^(pixel+1) * 3   [choice from 24bit colour]
+	MOV	r2,#0x0A
+	BL	apw_set_fileptr
+	BVS	gif_magic_end
+	SWI	XOS_BGet
+	BVS	gif_magic_end
+	; R3 is going to be used to store the offset into the file
+	MOV	r3,#0			; Initial offset into file
+	TST	r0,#1<<7		; 'M' flag
+	ADDEQ	r3,r3,#0xD		; If missing, here starts data
+	BEQ	gif_stream		; No global col table
+	AND	r0,r0,#7		; Select bottom 3 bits
+	MOV	r2,#2			; Entries = 2^R0
+	MOV	r2,r2,LSL r0		; No. of entries in table
+	MOV	r3,#3			; Three bytes per table entry
+	MUL	r0,r3,r2
+	ADD	r0,r0,#0xD		; Add on file header and
+					; image datastream header.
+	MOV	r3,R0			; Store R0
+	; R3 now points to first block after header.
+gif_stream
+gif_offset_loop
+	; R1 already file handle
+	MOV	r2,r3
+	BL	apw_set_fileptr
+	BVS	gif_magic_end
+	SWI	XOS_BGet
+	BVS	gif_magic_end
+gif_ext
+	TEQ	r0,#0x21		; Extension label
+	BNE	gif_img
+	BL	gif_offset_ext		; It's an extension. Aghhh!
+	BVS	gif_magic_end
+	B	gif_offset_loop		; Examine next block marker.
+gif_img
+	TEQ	r0,#0x2C		; Image Separator Label
+	BNE	gif_trailer
+	B	gif_offset_end		; Report home with R3 set
+gif_trailer
+	TEQ	r0,#0x3B		; Trailer
+	BNE	gif_other
+	BL	img_set_v
+	ADRL	r0,err_early_eof
+	B	gif_magic_end		; terminate routine
+gif_other
+	; Pretty fatal. So lets clean up and bug out.
+	BL	img_set_v
+	ADRL	r0,err_corrupt_file	; Corrupt file err.
+	B	gif_magic_end		; terminates routine
+gif_offset_end
+	ADD	r0,r3,#5		; The offset we want is 5
+					; bytes after the block label.
+	ADRL	r3,gif_byteorder
+loadgif
+	LDMIA	r3!,{r5-r8}		; Load relative offsets.
+	ADD	r5,r5,r0		; And add our base offset
+	ADD	r6,r6,r0		; to each.
+	ADD	r7,r7,r0
+	ADD	r8,r8,r0
+	BL	size_lookup
+gif_magic_end
+	LDMFD	sp!,{r2,pc}
+; ####### !gif_magic #####################################################
+
+; ******* gif_offset_ext ************************************************
+; * Description; Called when 'gif_offset' comes across an extension	*
+; *		 (x21) type. When called R3 is at the 'Extension	*
+; *		 Introducer' and the file handle is pointing to the	*
+; *		 next byte. This function examines the extension type,	*
+; *		 and from that works out the length of the block. Then	*
+; *		 we update R3 to point at the byte after the		*
+; *		 terminator						*
+; *									*
+; * On Entry;	 R3 = offset so far. R1 = file handle.			*
+; *									*
+; * On Exit;	 R3 = new offset. R0,R2 corrupted. All others preserved	*
+; *									*
+; * Overview;	 See below						*
+; ***********************************************************************
+gif_offset_ext
+	; Typical extension block. R3 points to first byte. Next
+	; 'BGET' accesses the extension label. Having determined block
+	; type we then find block length, and add that number & the
+	; number bytes not included to R3. e.g. 'Graphic Control
+	; Extension' (0xF9) has a fixed block size of 4. Add to that
+	; the bytes of'Introducer', 'Label', 'Terminator' and 'block
+	; size' itself to get 8 characters which is where the next
+	; label will be.
+	; 	Field Name			Type
+	; 0	Extension Introducer	(0x21)	Byte
+	; 1	<Extension> Label		Byte
+	;
+	; 0	Block Size		(n)	Byte
+	; 1...n	Data
+	;
+	; 0	Block Terminator	(0x00)	Byte
+	;
+	; Next byte is a new block/extension/image-description
+	;
+	; Get the next byte to see what extension type it is
+	STMFD	sp!,{lr}
+	SWI	XOS_BGet		; get next char
+	BVS	gif_ext_end
+	; switch
+gif_ext_cntrl
+	TEQ	r0,#0xF9
+	BNE	gif_ext_app
+	ADD	r3,r3,#8		; This block has total fixed
+					; length of 8 bytes.
+	B	gif_ext_end
+gif_ext_app
+	TEQ	r0,#0xFF
+	BNE	gif_ext_comm
+	; should always have an 11 byte header. However some prats at Adobe
+	; have written an encoder that uses a 10 byte header so I have to
+	; double-check.
+	SWI	XOS_BGet
+	BVS	gif_ext_end
+	ADD	r3,r3,R0		; Fixed length (usually 11) plus 3.
+	ADD	r2,r3,#3
+	; R1=handle
+	BL	apw_set_fileptr		; Move on to where the comment
+	BVS	gif_ext_end		; starts. Length is first byte
+	SWI	XOS_BGet
+	BVS	gif_ext_end
+	ADD	r2,r2,r0
+	ADD	r3,r2,#2		; Jump over Terminator block
+	B	gif_ext_end
+gif_ext_comm
+	TEQ	r0,#0xFE
+	BNE	gif_ext_pl_text
+	SWI	XOS_BGet		; Get the next byte
+	BVS	gif_ext_end
+	ADD	r3,r3,R0		; Add length of comment
+	ADD	r3,r3,#4
+	B	gif_ext_end
+gif_ext_pl_text
+	TEQ	r0,#0x01
+	BNE	gif_ext_other
+	ADD	r2,r3,#0x0F
+	; R1=handle
+	BL	apw_set_fileptr
+	BVS	gif_ext_end
+	SWI	XOS_BGet
+	BVS	gif_ext_end
+	ADD	r2,r2,r0
+	ADD	r3,r2,#2		; Jump over Terminator block
+	B	gif_ext_end
+gif_ext_other
+	BL	img_set_v
+	ADRL	r0,err_corrupt_file
+gif_ext_end
+	LDMFD	sp!,{pc}
+; ####### !gif_offset_ext ################################################
+
+	|
+
+; ******* gif_magic (simple) ********************************************
+; * Description; Most GIFs get this right, and put largest GIF size in	*
+; *		 Logical Screen size part of header.			*
+; * On Entry;	 R1=Filehandle						*
+; *									*
+; * On Exit;	 R3=Height R4=Width, R5 corrupted			*
+; *									*
+; * Overview;	 Just rips the data straight out of the fixed header	*
+; ***********************************************************************
+gif_magic
+	STMFD	sp!,{r2,lr}
+	MOV	r2,#6			; Goto Byte 6
+	BL	apw_set_fileptr
+	BVS	gif_magic_end
+	BL	apw_readword		; Put 4 bytes in 'scratch'
+	BVS	gif_magic_end
+	ADRL	R5,img_scratch		; FIXME: function
+	LDR	r4,[r5]
+	MOV	r3,r4,LSR #16		; Bits 31-16 Height
+	MOV	r2,#0xFF
+	ORR	r2,r2,#0xFF00		; Bits 15-0 are Width
+	AND	r4,r4,r2
+gif_magic_end
+	LDMFD	sp!,{r2,pc}
+; ####### !gif_magic2 ####################################################
+
+	]
+
+; ******* sprite_magic **************************************************
+; * Description; Finds the size of the first sprite in a RISCOS sprite	*
+; *		 file. Supports 1,2,4,8[1], 16 and 32 sprites		*
+; *									*
+; *		 [1] Both old 64x4Tints and new true 8 bit images.	*
+; *									*
+; * On Entry;	 R1 = filehandle					*
+; *									*
+; * On Exit;	 R3=Height, R4=Width, R0 & R5 corrupted.		*
+; *									*
+; * Overview;	 Find number of _bits_ wide. Find bit depth. Shift by	*
+; *		 relevant amount to give number of pixels wide. Height	*
+; *		 is easier just extract and add 1.			*
+; ***********************************************************************
+sprite_magic
+	STMFD	sp!,{r1,r2,lr}
+	ADRL	r5,img_scratch		; Keep a pointer to the scratch area
+	MOV	r2,#4			; Go to Byte 4 of file.
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword		; Read word into scratch
+	BVS	sprite_magic_end
+	LDR	r2,[r5]			; Offset to first image.
+	ADD	r2,r2,#0xC		; Jump to correct Word (Jump name)
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword		; Read word into scratch
+	BVS	sprite_magic_end
+	LDR	r4,[r5]
+	MOV	r4,r4,LSL #5		; Multiply by 32 to get no. of bits
+	ADD	r2,r2,#4		; Next word
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword		; Read word into scratch
+	BVS	sprite_magic_end
+	LDR	r3,[r5]
+	ADD	r3,r3,#1
+	ADD	r2,r2,#4		; Now read LH wasteage
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword
+	BVS	sprite_magic_end
+	LDR	r0,[r5]
+	SUB	r4,r4,R0		; Subtract left - hand wasteage.
+	ADD	r2,r2,#4		; Find last bit used
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword
+	BVS	sprite_magic_end
+	LDR	r0,[r5]
+	ADD	r4,r4,R0		; Add Right hand bits.
+	ADD	r4,r4,#1		; Add one, since bits start from 0
+	ADD	r2,r2,#0xC
+	BL	apw_set_fileptr
+	BVS	sprite_magic_end
+	BL	apw_readword
+	BVS	sprite_magic_end
+	LDR	r0,[r5]
+	MOV	r1,#9			; Log2 BPP
+	SWI	XOS_ReadModeVariable
+	ADRCSL  r0,err_bad_spr_mode
+	BLCS	img_set_v
+	MOV	r4,r4,LSR r2
+sprite_magic_end
+	LDMFD	sp!,{r1,r2,pc}
+; ####### !sprite_magic ##################################################
+
+; ******* size_lookup ***************************************************
+; * Description; Looks up data at addresses in registers R5-R8 and	*
+; *		 assembles the actual dimensions of the image.		*
+; * On Entry;	 R1 = file handle. R5-R8 = locations to lookup.		*
+; *									*
+; * On Exit;	 R3 = Height, R4 = width in pixels. R0 Corrupted	*
+; ***********************************************************************
+size_lookup
+	STMFD	sp!,{r2,lr}
+	; R1 already filehandle
+	MOV	r2,R5			; Height MSB
+	BL	apw_set_fileptr
+	BVS	size_lookup_end
+	SWI	XOS_BGet		; Get MSByte
+	BVS	size_lookup_end
+	MOV	r3,r0,LSL #8		; Boot along 8
+		; Get LSB
+	MOV	r2,R6			; Height LSB
+	BL	apw_set_fileptr
+	BVS	size_lookup_end
+	SWI	XOS_BGet		; Get byte + OR it
+	BVS	size_lookup_end
+	ORR	r3,r3,R0		; R3 = Hex Height
+	; Same routine for width
+	MOV	r2,r7
+	BL	apw_set_fileptr
+	BVS	size_lookup_end
+	SWI	XOS_BGet
+	BVS	size_lookup_end
+	MOV	r4,r0,LSL #8
+	; Get LSB
+	MOV	r2,r8
+	BL	apw_set_fileptr
+	BVS	size_lookup_end
+	SWI	XOS_BGet
+	BVS	size_lookup_end
+	ORR	r4,r4,r0		; R4 = Hex Width
+size_lookup_end
+	LDMFD	sp!,{r2,pc}
+; ####### !size_lookup ###################################################
+
+; ******* img_set_v *****************************************************
+; * Description; Sets the V flag in the PC, to signal an error		*
+; *									*
+; * On Entry;	No conditions						*
+; *									*
+; * On Exit;	V flag set.						*
+; ***********************************************************************
+img_set_v
+	SWI	XOS_GenerateError
+	MOV	pc, lr
+; ####### !img_set_v #####################################################
+
+
+; **** Lookup Table data ***
+; should be OK in ZapHTML module
+
+filetypes
+	&	0xFFF00000
+jpegtype
+	&	0x00000C85
+giftype
+	&	0x00000695
+pngtype
+	&	0x00000B60
+sprtype
+	&	0x00000FF9
+img_system_var
+	=	"ImageSize$Path", 0
+	ALIGN
+
+; Absolute address of HeightMSB    HeightLSB	WidthMSB	WidthLSB
+png_location
+	&	0x00000016
+	&	0x00000017
+	&	0x00000012
+	&	0x00000013
+; Relative address of HeightMSB    HeightLSB	WidthMSB	WidthLSB
+; (From established marker)
+gif_byteorder
+	&	0x00000003
+	&	0x00000002
+	&	0x00000001
+	&	0x00000000
+jpeg_byteorder
+	&	0x00000003
+	&	0x00000004
+	&	0x00000005
+	&	0x00000006
+
+
+apw_guess_type
+	STMFD	R13!,{R0-R1,R14}
+	MOV	R2,#0			; go to beginning of file.
+	BL	apw_set_fileptr
+	STRVS	R0,[R13]		; Check for errors
+	BVS	apw_guess_type_end
+	BL	apw_readword		; Get first 4 bytes and put in
+	STRVS	R0,[R13]		; scratch. Check for errors
+	BVS	apw_guess_type_end
+
+	ADRL	R2,img_scratch
+	LDR	R1,[R2]			; Load that word
+
+	ADR	R0,gif_sig		; Load GIF signature reference
+	LDR	R2,[R0],#4
+	TEQ	R1,R2			; Compare
+	BNE	apw_guess_type_png
+	ADRL	R2,giftype
+	LDR	R2,[R2]
+	B	apw_guess_type_end
+
+apw_guess_type_png			; same again for PNG
+	LDR	R2,[R0],#4
+	TEQ	R1,R2
+	BNE	apw_guess_type_jpeg
+	ADRL	R2,pngtype
+	LDR	R2,[R2]
+	B	apw_guess_type_end
+
+apw_guess_type_jpeg
+	LDR	R2,[R0],#4
+	TEQ	R1,R2
+	BNE	apw_guess_type_unknown
+	ADRL	R2,jpegtype
+	LDR	R2,[R2]
+	B	apw_guess_type_end
+
+apw_guess_type_unknown
+	MOV	R2,#&F0000000		; Illegal filetype
+
+apw_guess_type_end
+	LDMFD	R13!,{R0-R1,PC}
+
+; Hex values of the first four bytes of recognised filetypes.
+
+gif_sig		&	&38464947
+png_sig		&	&474E5089
+jpeg_sig	&	&E0FFD8FF
+
+
+; ******* apw_open_file *************************************************
+; * Description; Opens a file up, taking note of whether the user wants *
+; *		 to read from CSD of directory of his choice. Makes a	*
+; *		 note that there is a file open so we can shut it if	*
+; *		 need be.						*
+; *									*
+; * On Entry;	 R1=Ptr to filename. R7=options word.			*
+; *									*
+; * On Exit;	 R0=filehandle. R3 and R4 corrupted			*
+; ***********************************************************************
+
+apw_open_file
+	STMFD	R13!,{R2,R14}
+	MOV	R0,#&43			; open r-o, no path
+	SWI	XOS_Find		; Open file
+	; now record as open in case of error
+	MOVVC	R3,#1			; flag
+	ADRVC	R4,img_file_open
+	STRVC	R3,[R4]			; Record file as open in
+					; case of errors.
+apw_open_file_end
+	LDMFD	R13!,{R2,PC}
+
+; ####### !apw_file_open #################################################
+
+
+; ******* apw_shut_file *************************************************
+; * Description; Closes file if open					*
+; *									*
+; * On Entry;	 R1=file handle to shut					*
+; *									*
+; * On Exit;	 R0 corrupted, R1 preserved				*
+; *									*
+; * Overview;	 Called at end of routine. Only updates flag on success *
+; ***********************************************************************
+
+apw_shut_file
+	; R1=handle still
+	STMFD	R13!,{R0,R2,R3,R14}
+	ADR	R2,img_file_open
+	LDR	R0,[R2]
+	TEQ	R0,#0
+	BEQ	apw_shut_file_end
+	MOVVS	R3,#1
+	MOVVC	R3,#0
+	MOV	R0,#0			; Close the file
+	SWI	XOS_Find
+	TEQ	R3,#0
+	SWINE	XOS_GenerateError	; preserve or set V
+	MOVVC	R0,#0
+	STRVC	R0,[R2]			; Update Flag
+apw_shut_file_end
+	LDMFD	R13!,{R0,R2,R3,PC}
+
+; ####### !apw_shut_file ###############################################
+
+
+; ******* apw_readword **************************************************
+; * Description; Reads a word from current file ptr into img_scratch	*
+; *									*
+; * On Entry;	 R1=filehandle						*
+; *									*
+; * On Exit;	 img_scratch updated. All regs preserved		*
+; ***********************************************************************
+
+apw_readword
+	STMFD	R13!,{R0,R2-R4,R14}
+	MOV	R0,#4			; Read current from ptr
+	ADRL	R2,img_scratch
+	MOV	R3,#4			; Read 4 bytes
+	SWI	XOS_GBPB		; Get first 4 bytes and put in
+	BLCS	img_set_v		; If read failed
+	ADRVSL	R0,err_early_eof	; Setup an error block
+	STRVS	R0,[R13]
+	LDMFD	R13!,{R0,R2-R4,PC}
+
+; ####### !apw_readword ##################################################
+
+
+; ******* apw_set_fileptr ***********************************************
+; * Description; Updates the file pointer				*
+; *									*
+; * On Entry;	 R2 = new pointer into file				*
+; *									*
+; * On Exit;	 All regs preserved.					*
+; ***********************************************************************
+
+apw_set_fileptr
+	STMFD	R13!,{R0,R14}
+	MOV	R0,#1
+	SWI	XOS_Args
+	STRVS	R0,[R13]
+	LDMFD	R13!,{R0,PC}
+
+; ####### !apw_set_fileptr ###############################################
+
+
+img_file_open	&	0
+img_scratch	&	0,0
+
+err_not_found
+err_found_dir
+err_bad_filetype
+err_early_eof
+err_corrupt_file
+err_bad_spr_mode
+	&	0x40000001
+	=	"An error occurred in ImageSize", 0
+	ALIGN
+
+	]
+
+
+	LOCAL
+
+miniprompt
+	FNjump	Zap_MiniPrompt
+
+	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
+CmdHTMLLink
+	TEQ	r2,#6
+	ADREQ	r0,enter_link
+	BEQ	miniprompt
+	FNJSR
+	MOV	r11,r0
+	FNcall	Zap_StartOp
+	BL	testsel
+	MOVCC	r6,lr
+	MOVCS	r6,#-1		; length of sel, or -1 if none
+	BLCC	cutandstoresel
+	BVS	CmdHTMLLink_fail
+	FNcall	Zap_FindInput
+	MOV	r7,r0
+	ADR	r3,a_href_pre
+	BL	Cmd_insert
+	BLVC	Cmd_insert_variable
+	ADRVC	r3,a_href_mid
+	BLVC	Cmd_insert
+	BVS	CmdHTMLLink_fail
+	MOVS	r2,r6
+	ADRPLL	r0,storedmovesel
+	MOVPL	r1,#1<<31
+	ADDPL	r7,r7,r6
+	FNcallc	Zap_CommandString,PL
+	ADRVC	r3,a_href_post
+	BLVC	Cmd_insert
+CmdHTMLLink_fail
+	FNcall	Zap_StopOp
+	FNRTS
+
+	&	c_Param_String :OR: c_PreMinibuffer :OR: c_MinibufferTabCompletion
+CmdHTMLImage
+	TEQ	r2,#6
+	ADREQ	r0,enter_src
+	BEQ	miniprompt
+	FNJSR
+	MOV	r11,r0
+	FNcall	Zap_StartOp
+	FNcallc	Zap_FindInput,VC
+	MOVVC	r7,r0
+	ADRVC	r3,img_src_pre
+	BLVC	Cmd_insert
+	BLVC	Cmd_insert_variable
+	ADRVC	r3,img_src_post
+	BLVC	Cmd_insert
+	FNcall	Zap_StopOp
+	FNRTS
+
+enter_link	=	"Enter link URL: ",0
+enter_src	=	"Enter image URL: ",0
+a_href_pre	=	9,"<a href=",34
+a_href_mid	=	2,34,">"
+a_href_post	=	4,"</a>"
+img_src_pre	=	17,"<img alt=",34,34," src=",34
+img_src_post	=	4,34," />"
+	ALIGN
+
+	; R3 -> length byte + string (unterm)
+	; R7 -> insert offset
+	; R7 updated, R0-R2 corrupted
+Cmd_insert
+	LDRB	r2,[r3],#1
+Cmd_insert_common
+	MOV	r0,#1
+	MOV	r1,r7
+	ADD	r7,r7,r2
+	FNjump	Zap_Command
+
+	; R7 -> insert offset
+	; R11 -> string (NUL-term)
+	; R7 updated, R0-R3+R11 corrupted
+Cmd_insert_variable
+	MOV	r3,r11
+getlen	LDRB	r2,[r11],#1
+	TEQ	r2,#0
+	BNE	getlen
+	SUB	r2,r11,r3
+	SUB	r2,r2,#1
+	B	Cmd_insert_common
+
+
+
 indexentitylist
 	=	115 	; 140 " "
 	=	100 	; 141 "  "
@@ -6039,211 +6874,5 @@ TableHere
 	=	"**", 10
 	ALIGN
 
-
- END
-
-; the following code doesn't exist yet
-
-	DEFPROCASMAWIMAGESIZESTUFF
-		;   >Demo_Code
-		;
-		;   How to use the image size code. Standalone version
-		;   Andy Ward. 31 March 1997.
-		;   Versions - Glue code  0.03.
-		;              Core code  0.12f
-		;
-		;   Various internals of the core code require the ADRL directive
-		;   provided by ExtBasDis. I could (should) macro round this, but
-		;   I haven't the time at the right now. Besides ExtBasDis is
-		;   totally transparent when running, so it's no great hardship.
-		;   Main
-	PROCINIT_IMAGESIZE
-	REM	See below. Includes code library and check that ADRL is available.
-	PROCAPW_CONSTANTS
-	REM	See below. Constants required by imagesize library.
-		;   DIM code% 4000
-	FOR	pass=8 TO 10 STEP 2
-	P%=IMAGESIZECODE%
-	L%=IMAGESIZECODE%	+ 4000
-	[OPT	pass
-	B	let_the_fun_begin
-		;   Storage mandated by the image_size code.
-		;   ---------------------------------------
-		;   .img_file_open  Byte used by imagesize to recover when all goes pair-shaped
-		;                   Leave alone! ;-)
-		;   .img_opts       One word used by image size as options flags.
-		;   .img_directory  Directory to look for files in when img_directory_path% bit is set.
-		;                   If you don't use the img_directory_flag opton the the allocated space
-		;                   can be nil, as it's read-only in image_dims.
-		;   .img_scratch    Destn buffer for "XOS_ConvertInteger2" and general scratch pad. Be
-		;                   aware that the image_dims code itself will corrupt this scratch memory!
-img_file_open
-	=	0
-	ALIGN
-img_opts
-	DCD	0
-img_directory
-	=	STRING$(240, CHR$0)
-	ALIGN
-img_scratch
-	DCD	0
-	DCD	0
-	ALIGN
-		;   Storage required by this utility only.
-		;   -------------------------------------
-		;   The image filename can be explicit or relative depending on how img_directory_path%
-		;   bit is set. If set img_directory must be some RISC OS directory.
-		;    .some_image_file EQUS "SCSI;;Work.$.Data.MultiMedia.Images.00-49.sa00"
-		; .some_image_file ;EQUS "Demo":;EQUB 0:;ALIGN
-		; .width_text EQUS "Width  :; ":;EQUB 0:;ALIGN
-		; .height_text EQUS "Height :; ":;EQUB 0:;ALIGN
-		;   The code proper.
-		;   ---------------
-let_the_fun_begin
-	STMFD	sp!, {lr}
-	MOV	r0, #(0 OR img_path_swap% ) REM OR any other options together that you require.
-		;   e.g img_directory_path% OR img_mode_creator%
-	ADR	r1, img_opts
-	STR	r0, [[r1]                    rEM Store the options]
-		;   To recap...
-		;   On image_dims Entry; R1 => file name
-		;   On image_dims Exit;  R0 => Error block if V set Else unchanged
-		;                        R2 = RISC OS 12 bit filetype
-		;                        R3 = Image Width
-		;                        R4 = Image Height
-		; ADR     R1,some_image_file
-	MOV	r1, r2
-	BL	image_dims
-		; BVS     error_handler
-		;   Now print out
-		;   First do the height.
-		; ADR     R0,height_text
-		; SWI     "XOS_Write0"
-		; MOV     R0,R3
-		; ADR     R1,img_scratch
-		; MOV     R2,#8
-		; SWI     "XOS_ConvertInteger2"
-		; SWI     "XOS_Write0"
-		; SWI     "XOS_NewLine"
-		; REM Now the width.
-		; ADR     R0,width_text
-		; SWI     "XOS_Write0"
-		; MOV     R0,R4
-		; ADR     R1,img_scratch
-		; MOV     R2,#8
-		; SWI     "XOS_ConvertInteger2"
-		; SWI     "XOS_Write0"
-		; SWI     "XOS_NewLine"
-		; .the_end
-	LDMFD	sp!, {pc}
-		; .error_handler
-		; SWI     "XOS_GenerateError"
-		; B       the_end
-		;   This function in-lines the code that actually does the business. Coo!
-	FNimg_code	; FIXME: function
-	]
-	NEXT
-	ENDPROC
-		;   *************************************************************************
-	DEF	PROCinit_imagesize
-	LIBRARY	"<ImageSize$Dir>.[IMG_Lib]"
-	LIBRARY	"<ImageSize$Dir>.[File_Lib]"
-		;   Cheesy hack ahead!
-	ON	ERROR
-	REPORT
-	PRINTERL
-	PRINT"IMAGESIZE	needs the ADRL extensions of either BAX of ExtBas to Assemble.""
-	END
-	DIM	adrl_test 4
-	P%=ADRL_TEST
-	[OPT	r0
-	EXT	r1
-	ADRL	r0, fooX
-	]
-	ON	ERROR REPORT
-	PRINT"	at ""	; ERL:END
-	ENDPROC
-		;   *************************************************************************
-	DEF	PROCAPW_constants
-		;   Image size expects the following constants to be set. It doesn't matter
-		;   what they're set to, as long as each is unique and and the bits don't
-		;   overlap.
-		;   img_directory_path%   Look for files in dir img_directory if set.
-		;   img_directory_var%    Look for files in <ImageSize$Dir> if set.
-		;                         If neither set, we default to CSD.
-		;   img_path_swap%        If set, swaps '/'s and '.'s in the filename passed in R1
-		;                         (This is cosmetic only.)
-		;   img_mode_creator%     Are we using the Creator 1 compatability code?
-		;   img_Standalone%       Used in a utility if true, else part of module.
-		;   img_workspace%        Used only when img_Standalone%=TRUE, as the register used
-		;                         for workspace.
-	IMG_DIRECTORY_PATH%=1<<1
-	IMG_DIRECTORY_VAR%=1<<2
-	IMG_PATH_SWAP%=1<<3
-	IMG_MODE_CREATOR%=1<<4
-	IMG_STANDALONE%=TRUE
-	IMG_WORKSPACE%=11
-	REM	Value doesn't matter in this case as we are Standalone
-	R0=0
-	R1=1
-	R2=2
-	R3=3
-	R4=4
-	R5=5
-	R6=6
-	R7=7
-	R8=8
-	R9=9
-	R10=10
-	R11=11
-	R12=12
-	R13=13
-	R14=14
-	R15=15
-	PC=15
-	ENDPROC
-		;   ********** MACROS ***********
-		;   All my debugging is done in macros so I can get rid of it with
-		;   null macros like the following:
-	DEF	FNimg_debug(a$)
-	[OPT	pass
-		;   Do nothing
-	]
-	=""
-	DEF	FNimg_debug2(a$)
-	[OPT	pass
-		;   Do nothing
-	]
-	=""
-	DEF	FNimg_peek(a$, temp)
-	[OPT	pass
-		;   Do nothing
-	]
-	=""
-	DEF	FNimg_peekstr(a$, temp)
-	[OPT	pass
-		;   Do nothing
-	]
-	=""
-	DEF	FNimg_hexout
-	[OPT	pass
-		;   Do nothing
-	]
-	=""
-	DEF	FNimg_err_mesg
-		;   Used by ImageSize core for reporting terminal errors.
-		;   If you're keen you could provide different error block for each potential error
-	[OPT	pass
-err_not_found
-err_found_dir
-err_bad_filetype
-err_early_eof
-err_corrupt_file
-err_bad_spr_mode
-	DCD	0x40000001
-	=	"An error occurred in ImageSize", 0
-	ALIGN
-	]
-	=""
 
 	END
