@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.3 2000/06/03 23:29:45 ds Exp $
+; $Id: Menus,fff,v 2.4 2000/09/12 23:06:32 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -2591,7 +2591,7 @@ icon$l DCD &00009131		; icon flags (indirect text)
 ;X key short cuts shown on this one menu (not recursive) #
 
 show_menu
- FNJSR "R1,R2,R6,R7,R11"
+ FNJSR "R1,R2,R6-R11"
  LDR R6,[R1,#-12]		; get menu max width
  ADD R1,R1,#28			; first item in menu
 loop$l
@@ -2603,7 +2603,9 @@ loop$l
  AND R11,R11,#15
  BIC R7,R0,#&FC<<24		; address of the command
  LDR R0,[R14,#-8]		; data for the command
- BL find_key			; get associated key in R0
+ LDR R14,ouch$l
+ TEQ R8,R14
+ BL find_key$l			; get associated key in R0
  CMP R0,#0
  BL hide_key$l
  BMI next$l			; no key
@@ -2620,6 +2622,11 @@ next$l
  TST R0,#&80			; are we at end?
  BEQ loop$l			; next item
  FNRTS
+ouch$l	& &ABC00DEF		; the dummy value used during initialisation
+
+find_key$l
+	BEQ	find_key
+	B	find_key_w_currentmap
 
 hide_key$l			; find last double space
 	FNJSR	"R0-R3"
@@ -2740,6 +2747,7 @@ nohelp$l
  PULL "R1"
 gotmenu$l			; menu has been copied if need be
  MOV R11,R1			; save the menu start
+ BL show_menu
  ADD R6,R11,#28			; first item
  MOV R9,#0			; entry number (for help text shuffling)
  MOV R10,#0			; no cursor
@@ -3737,7 +3745,7 @@ me1
 ;X Menu file read into heap blocks and then linked #
 
 load_menus
- FNJSR "R1,R10-R11"
+ FNJSR "R1,R8-R11"
 ; FNLDR R0,menu_handles
 ; CMP R0,#0
 ; BLNE heap_free

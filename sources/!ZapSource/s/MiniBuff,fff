@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 2.1 2000/09/07 22:21:20 ds Exp $
+; $Id: MiniBuff,fff,v 2.4 2000/09/17 22:39:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -13,6 +13,7 @@
  GET h.Execute
  GET h.StartCode
  GET h.Boxes
+ GET h.KeyBits
 
  IMPORT call_back
  IMPORT convert_key
@@ -26,6 +27,7 @@
  IMPORT test_forkey
  IMPORT loadlineeditor
  IMPORT command_primative	; not *my* spelling (DS)
+ IMPORT show_key
 
  EXPORT warn_user
  EXPORT warn_user_token
@@ -1623,13 +1625,14 @@ gotmenu$l
 ;  R0=length of help data / 0 if no help data found
 
 find_command_help
- FNJSR "R1-R7,R11"
+ FNJSR "R1-R7,R10-R11"
  FNLDR R6,wimp_data		; buffer start
  MOV R7,#0			; current buffer offset
  MOV R5,R1			; save command argument
  MOV R4,R2			; save command flags
  AND R11,R0,#3<<30
  ORR R11,R11,R3
+ MOV R10,R0			; keep comand name
  BL find_help
  FNRTS VS
  TEQ R0,#0
@@ -1651,6 +1654,8 @@ token_ready$l
  FNRTS VS
  MOV R4,R4,LSR#3
  ANDS R4,R4,#7			; command type
+ BL key$l			; add attached key (CHEL)
+ FNRTS VS			; oops
  BEQ para$l			; no argument
  ADR R0,arg$l
  BL lookup_token_R0
@@ -1755,6 +1760,80 @@ insert$l			; insert text between R2 and R3
  ADDVC R7,R7,R3
  SWIVC XZapRedraw_MoveBytes ; BL move_bytes
  FNRTS
+key$l
+	TST	R11,#3<<30		; return early if not a command
+	MOVNES	PC,R14
+	TEQ	R4,#0
+	MOVMIS	PC,R14
+	FNJSR	"R1-R4,R11"		; add key shortcut to help
+	MOV	R0,R6
+	ADD	R1,R7,#12		; big enough
+	BL	heap_ensure
+	FNRTS	VS			; nope
+	MOV	R6,R0
+	MOV	R0,R10			; restore name
+	BL	look_key_command	; get address
+	TEQ	R0,#0
+	FNRTSS	EQ			; not found
+	PUSH	"R7"			; keep text pointer
+	MOV	R7,R0			; get address
+	MOV	R0,R5			; get argument data
+	MOV	R11,R4			; argument type
+	BL	find_key_w_currentmap	; get key number
+	CMP	R0,#-1			; none?
+	MOVEQ	R0,R5
+	MOVEQ	R11,#-1			; try first match
+	BLEQ	find_key_w_currentmap	; get key number
+	CMP	R0,#-1			; still none?
+	BNE	foundkey$l
+	MOV	R0,R10
+	BL	look_key_command	; set up wimp_block
+	TST	R0,#1
+	BNE	foundcmdname$l
+	PUSH	"R4,R5"
+	FNLDR	R4,ext_comms
+	FNLDR	R5,wimp_block
+	BL	search_command_table	; try the External info
+	MOV	R0,R4
+	PULL	"R4,R5"
+	MOVCS	R0,#-1
+	BCS	foundkey$l		; we haven't really
+foundcmdname$l
+	ORR	R7,R0,#1
+	MOV	R0,R5			; get argument data
+	MOV	R11,R4			; argument type
+	BL	find_key_w_currentmap	; get key number
+	CMP	R0,#-1			; none?
+	MOVEQ	R0,R5
+	MOVEQ	R11,#-1			; try first match
+	BLEQ	find_key_w_currentmap	; get key number
+foundkey$l
+	PULL	"R7"
+	CMP	R0,#-1			; none?
+	FNRTSS	EQ
+	ADD	R1,R6,R7
+	SUB	R1,R1,#2
+	MOV	R2,#12			; max length inc terminator
+	BL	show_key		; add string preserves r1
+	ADD	R1,R1,#2		; keep pointer
+	ADD	R2,R1,#1		; allow for bracket
+	ADD	R3,R1,#10		; and end
+keyloop1$l
+	LDRB	R0,[R1],#1		; find beginning of key
+	CMP	R0,#32
+	BLS	keyloop1$l
+	SUB	R1,R1,#1		; point to first char
+	SUB	R3,R3,R1		; length of key
+	MOV	R4,#'('
+	STRB	R4,[R2,#-1]
+	ADD	R4,R2,R3		; after key
+	SWI	XZapRedraw_MoveBytes	; copy back
+	MOV	R0,#')'
+	STRB	R0,[R4,#-1]
+	MOV	R0,#10
+	STRB	R0,[R4],#1
+	SUB	R7,R4,R6
+	FNRTSS				; must preserve flags
 
  LOCAL
 

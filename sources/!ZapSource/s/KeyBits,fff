@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.2 2000/09/08 22:39:05 ds Exp $
+; $Id: KeyBits,fff,v 2.3 2000/09/12 23:06:32 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -26,6 +26,7 @@
  EXPORT show_key
  EXPORT get_key_string
  EXPORT find_key
+ EXPORT find_key_w_currentmap
  EXPORT do_ntimes
  EXPORT do_allfiles
  EXPORT do_eachleaf
@@ -542,8 +543,13 @@ $l = :LEN:"$y","$y"
 
 show_key
  FNJSR "R1-R3"
+ MOV R3,#2
 a$l
  LDRB R14,[R1],#1
+ TEQ R14,#32
+ MOVNE R3,#2
+ SUBEQS R3,R3,#1
+ BEQ s$l			; hmm...
  CMP R14,#&1F
  SUBCS R2,R2,#1
  BCS a$l
@@ -738,13 +744,24 @@ ge_s0 % 12
  LOCAL
 
 ;E R0=data for key command (types byte/word) R7=address of key command
-;  R11=parameter type
-;X R0=key code of lowest key with this command in default map / -1 if none |
+;  R11=parameter type (-n for 'nth match')
+;X R0=key code of lowest key with this command in current map / -1 if none |
+
+find_key_w_currentmap
+ FNJSR "R1-R5,R11"
+ MOV R3,R0			; save key command data
+ TEQ R8,#0
+ FNLDR R0,key_default,EQ	; default key map (for menus)
+ LDRNEB R0,[R8,#w_currentmap]	; default key map (for menus)
+ B find$l
+
+;E,X as find_key_w_currentmap, but searches default keymap
 
 find_key
- FNJSR "R1-R5"
+ FNJSR "R1-R5,R11"
  MOV R3,R0			; save key command data
  FNLDR R0,key_default		; default key map (for menus)
+find$l
  BL find_key_table_maybe_name
  FNRTS MI			; not found
  LDR R1,[R0,#8]			; first char
@@ -761,15 +778,17 @@ d$l				; failed match
  MOV R0,#-1
  FNRTS
 b$l				; commands match
+ TEQ R11,#0
+ BMI count$l
  LDR R0,[R7,#-4]
  TST R0,#7<<3			; parameter type (0=none)
  BEQ c$l
  TEQ R3,R5			; check data matches
  TEQEQ R11,R14			; ...and actual parameter types too
-; MOV R0,R0,LSR#3
-; ANDS R0,R0,#7			; paramter type
-; BEQ c$l			; none
-; TEQ R3,R14			; check data matches
+ BNE d$l
+ B c$l
+count$l
+ ADDS R11,R11,#1		; -nth match
  BNE d$l
 c$l				; got a match
  MOV R0,R1
