@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: docsrc.pl,v 1.2 1999/01/02 13:57:20 dj Exp $
+# $Id: docsrc.pl,v 1.3 1999/03/17 13:00:50 james Exp $
 #
 # docsrc.pl
 # Written by Simon Tatham; generalised a little by James Aylett
@@ -775,7 +775,7 @@ sub html_foot {
 
 # Print out the map ...
   print "<MAP NAME=\"docmap\">\n";
-  print "<AREA ALT=\"Latest release\" SHAPE=RECT COORDS=\"463,7,585,25\" HREF=\"ftp://ftp.zap.uk.eu.org/pub/stable/zap.zip\">\n";
+  print "<AREA ALT=\"Latest release\" SHAPE=RECT COORDS=\"463,7,585,25\" HREF=\"ftp://ftp.zap.uk.eu.org/pub/stable/\">\n";
   print "<AREA ALT=\"Download\" SHAPE=RECT COORDS=\"497,35,586,52\" HREF=\"/download.html\">\n";
   print "<AREA ALT=\"Documentation\" SHAPE=RECT COORDS=\"275,7,405,25\" HREF=\"/documentation/\">\n";
   print "<AREA ALT=\"Contact\" SHAPE=RECT COORDS=\"335,35,405,52\" HREF=\"/contact.html\">\n";
