@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 2.14 2003/06/30 15:09:16 christian Exp $
+; $Id: Mode0,fff,v 2.15 2005/02/14 11:58:20 christian Exp $
 
  GET h.ZapHeader
  GET h.Commands
@@ -46,7 +46,8 @@
  EXPORT logical_line_number
  EXPORT char_del_dispatch
  EXPORT redraw_tab
-
+ EXPORT utf8_table
+ EXPORT utf8_max
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Default modes added and their blocks			      ;
@@ -118,7 +119,7 @@ mode_table_0
 mode0_table_end
 
 mode0_author
-	=	"Dominic Symes, Tim Tyler, Daniel Wagenaar and James Aylett",0
+	=	"Dominic Symes, Tim Tyler, Daniel Wagenaar, James Aylett and Christian Ludlam",0
 	ALIGN
 
 mode0_title
@@ -321,9 +322,10 @@ mode0_redrawlnum
 	ANDS	R14,R14,#bit_softwrap
 	FNPULL  NE
 	BNE	modesw_redrawlnum
-	SUBS	R0,R7,#1		; file off of char before start of line
-	BMI	mo1
-	BL	cln_readc		; get char
+	MOVS	R1,R7
+	MOVEQ	R0,#0			; check for SOF
+	BEQ	mo1
+	BL	minus			; get char before start of line
 	LDRB	R1,[R8,#w_cr]
 	TEQ	R0,R1
 	BEQ	mo1			; match so we are at line start
@@ -335,27 +337,30 @@ mo1	ADDS	R0,R0,#0		; clc
 
 	FNAME	mode0_redrawline
 mode0_redrawline
-	FNJSR	"R12"
+	FNJSR	"R11"
+	LDR	R11,[R8,#w_info]
 	MOV	R1,#0			; col offset
 	LDRB	R2,[R8,#w_cr]		; get return code
 	LDR	R3,[R8,#w_bpl]		; length of line
 	LDRB	R4,[R8,#w_tabc]		; get tab code
 	ORR	R2,R2,R4,LSL #24
-	LDR	R4,[R8,#w_txtw]		; width of cache as line width
-	ADD	R12,R6,R4		; colour fg mask buffer...
-	ADD	R4,R12,R4		; colour bg mask buffer...
+	LDR	R0,[R8,#w_txtw]		; width of cache as line width
+	ADD	R4,R0,R0,LSL #2		;
+	ADD	R4,R4,R6		; colour bg mask buffer...
 red_c0_l1
 	CMP	R7,R10
 	BLCS	red_overflow		; off buffer section
 	BVS	red_c0_6		; hit file end
-	LDRB	R0,[R7],#1		; get next char
+	BL	cln_readc_addr_auto	; get next char
 	AND	R14,R2,#&FF
 	TEQ	R0,R14			; is it a cr
 	BEQ	red_c0_6		; end of this line
 	TEQ	R0,R2,LSR #24		; is it a tab
 	BEQ	red_c0_1
 red_c0_3
-	STRB	R0,[R6,R1]		; write character
+	TST	R11,#info_WideRedraw	; write character
+	STRNE	R0,[R6,R1,LSL #2]	;
+	STREQB	R0,[R6,R1]		;
 	MOV	R0,#1			; bg coloured...
 	STRB	R0,[R4,R1]
 	ADD	R1,R1,#1		; update column count
@@ -365,34 +370,39 @@ red_c0_4
 	CMP	R7,R10
 	BLCS	red_overflow		; off buffer section
 	BVS	red_c0_6		; off end of file
-	LDRB	R0,[R7]
+	PUSH	"R7"
+	BL	cln_readc_addr_auto	; get next char
 	AND	R14,R2,#&FF
 	TEQ	R0,R14
-	ADDEQ	R7,R7,#1		; skip return if follows
+	PULL	"R7",NE
+	ADDEQ	R13,R13,#4		; skip return if follows
 	BEQ	red_c0_6
-	LDR	R1,[R8,#w_bpl]		; length remember margin!!!
-	B	red_c0_8
+	FNRTS
 
 red_c0_1
 	BL	redraw_tab
 	B	red_c0_4
 
 red_c0_6
+	FNPULL
 	ADDS	R11,R11,#1		; new logical line & clv
-red_c0_8
-	FNRTS
+	MOV	PC,R14
 
 	LOCAL
 
 ; redraw a tab
-; E r1 = column  r6 -> output buffer  r8
+; E r1 = column  r6 -> output buffer / 0  r8
 ; X r1 = new column
 	FNAME	redraw_tab
 redraw_tab
-	FNJSR	"R0,R2-R4,R12"
+	FNJSR	"R0,R2-R5,R12"
+	LDR	R5,[R8,#w_info]
+	TST	R5,#info_WideRedraw
+
 	MOV	R0,#9			; an arrow
 	LDR	R3,[R8,#w_txtw]
-	ADD	R12,R6,R3		; fg colour list
+	ADDEQ	R12,R6,R3		; fg colour list
+	ADDNE	R12,R6,R3,LSL #2	; fg colour list
 	ADD	R4,R12,R3		; bg colour list
 	LDR	R3,[R8,#w_bpl]		; limit
 
@@ -411,11 +421,14 @@ redraw_tab
 	FNRTS	EQ
 
 	TEQ	R2,#2			; '->    '
+	BNE	not2$l
+	TST	R5,#info_WideRedraw
 	STREQB  R0,[R6,R1]		; arrow at start
-	MOVEQ	R0,#1			; colour background
-	STREQB  R0,[R4,R1]
+	STRNE	R0,[R6,R1,LSL #2]	;
+	MOV	R0,#1			; colour background
+	STRB	R0,[R4,R1]
 
-	TEQ	R2,#3
+not2$l	TEQ	R2,#3
 	BNE	spaces$l
 
 loop$l	CMP	R1,R3
@@ -424,23 +437,29 @@ loop$l	CMP	R1,R3
 	SUBS	R14,R14,#1		; zero when "there"
 	MOVNE	R0,#"-"
 	MOVEQ	R0,#9
-	STRB	R0,[R6,R1]		; visible chr
+	TST	R5,#info_WideRedraw
+	STREQB	R0,[R6,R1]		; visible chr
+	STRNE	R0,[R6,R1,LSL #2]	;
 	MOV	R0,#8
 	STRB	R0,[R12,R1]		; FG colour
 	MOV	R0,#1
 	STRB	R0,[R4,R1]		; BG colour
 
 	ADD	R1,R1,#1
+	TEQ	R14,#0
 	BNE	loop$l
 	CMP	R1,R3
 	FNRTS	LO
 
 done$l	TEQ	R6,#0
-	SUBNE	R14,R1,#1
-	MOVNE	R0,#9			; store -> char
-	STRNEB	R0,[R6,R14]
-	MOVNE	R0,#1			; colour background
-	STRNEB	R0,[R4,R14]
+	FNRTS	EQ
+	SUB	R14,R1,#1
+	TST	R5,#info_WideRedraw
+	MOV	R0,#9			; store -> char
+	STREQB	R0,[R6,R14]
+	STRNE	R0,[R6,R14,LSL #2]
+	MOV	R0,#1			; colour background
+	STRB	R0,[R4,R14]
 	FNRTS
 
 spaces$l
@@ -506,7 +525,7 @@ logical_line_number
 
 	FNAME	mode0_clnphy
 mode0_clnphy
-	FNJSR	"R2-R11"
+	FNJSR	"R2-R12"
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
 	FNPULL  NE
@@ -519,6 +538,7 @@ mode0_clnphy
 	LDR	R6,[R8,#w_clogl]
 	LDR	R7,[R8,#w_cline]
 	LDR	R9,[R8,#w_coff]
+	LDR	R12,[R8,#w_info]
 	MOV	R10,R0			; search phy line
 	CMP	R10,R7,LSR#1
 	MOVLS	R6,#0
@@ -551,7 +571,7 @@ err$l	ERRlit  "Internal error: cln_phy"
 
 	FNAME	mode0_clnlog
 mode0_clnlog
-	FNJSR	"R2-R11"
+	FNJSR	"R2-R12"
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
 	FNPULL  NE
@@ -564,6 +584,7 @@ mode0_clnlog
 	LDR	R6,[R8,#w_clogl]
 	LDR	R7,[R8,#w_cline]
 	LDR	R9,[R8,#w_coff]
+	LDR	R12,[R8,#w_info]
 	MOV	R10,R0			; search log line
 	CMP	R10,R6,LSR#1
 	MOVLS	R6,#0
@@ -596,11 +617,10 @@ err$l	ERRlit  "Internal error: cln_log"
 
 	FNAME	mode0_clnoff
 mode0_clnoff
-	FNJSR	"R3-R11"
-	LDR	R14,[R8,#w_format]
-	ANDS	R14,R14,#bit_softwrap
-	FNPULL  NE
+	LDR	R1,[R8,#w_format]
+	TST	R1,#bit_softwrap
 	BNE	modesw_clnoff
+	FNJSR	"R3-R12"
 	LDR	R1,[R9,#f_len]
 	TEQ	R1,#0			; null length file special case
 	BEQ	cln_off_0
@@ -615,6 +635,7 @@ mode0_clnoff
 	LDR	R6,[R8,#w_clogl]
 	LDR	R7,[R8,#w_cline]
 	LDR	R9,[R8,#w_coff]
+	LDR	R12,[R8,#w_info]
 	CMP	R10,R9,LSR#1		; if offset nearer start of file
 	MOVLS	R6,#0
 	MOVLS	R7,#0
@@ -661,13 +682,16 @@ cln_off_0
 ;;;; middle level forward/backward subs & split buffer handling ;;;;
 
 ;E R1 = tabstops R2=fileblk R3=line len R4=tab mask R5=ret mask R6=log ln R7=phy ln
-;  R9=file off of start of phy line
+;  R9=file off of start of phy line  R12 = w_info
 ;X Vals updated to the start of the next physical line. R8=len of this
 ;  phy line (exc 0A). It returns VS if the end of the buffer lies on
 ;  this line. Saves R10-R11.
 	FNAME	cln_FORWARD
 cln_FORWARD
-	FNJSR	"R10-R11"
+	FNJSR	"R10-R12"
+	TST	R12,#info_UTF8		; quick check for UTF-8
+	ADRNE	R12,cln_forward_utf8
+	ADREQ	R12,cln_forward
 	MOV	R8,#0			; current column offset
 	LDR	R10,[R2,#f_ptr]
 	LDR	R11,[R2,#f_splito]
@@ -675,7 +699,8 @@ cln_FORWARD
 	ADD	R9,R10,R9
 	BCS	cln_FO_1
 	ADD	R11,R10,R11
-	BL	cln_forward		; first half of buffer
+	MOV	R14,PC
+	MOV	PC,R12			; first half of buffer
 	SUBVC	R9,R9,R10
 	FNRTS	VC
 cln_FO_1
@@ -684,7 +709,8 @@ cln_FO_1
 	LDR	R0,[R2,#f_splits]
 	ADD	R10,R10,R0		; aparant start of second half
 	ADD	R9,R9,R0
-	BL	cln_forward		; second half of buffer
+	MOV	R14,PC
+	MOV	PC,R12			; second half of buffer
 	SUB	R9,R9,R10		; file offset
 	FNRTS	VC
 	CMP	R8,R3			; is the last line full
@@ -840,6 +866,121 @@ cln_fo_tab
 	MOVCS	R8,R3			; align to edge
 	B	cln_fo_l		; do next character
 
+	LOCAL
+
+;E R1 = tabstops  R3=line len (columns)  R4=tab mask  R5=ret mask  R6=log ln  R7=phy ln
+;  R8=cur offset in phy line  R9=curr address in buffer  R11=end of section
+;X All values moved to start of the next physical line in the section.
+;  R2 & R10-R12 saved. Note that if it reaches the end of the section
+;  before it is certain that it has reached the next phy line the returns
+;  VS. Otherwise returns VC.
+
+; we assume that the first character is never a continuation byte - this relies that the
+; split will never be 'inside' a UTF-8 character, which should be true all the time, I think
+
+; currently the return and tab characters cannot be > &100
+
+	FNAME	cln_forward_utf8
+cln_forward_utf8
+	FNJSR	"R1-R2,R10-R12"		; R1 pulled below
+	ADR	R12,utf8_table		; get count of bytes
+loop$l	CMP	R9,R11
+	BCS	vs$l			; end of section reached
+
+	LDRB	R0,[R9],#1		; get the character
+	TEQ	R0,R4,LSR #24
+	TEQNE	R0,R5,LSR #24
+	BEQ	tr$l
+
+	ADD	R8,R8,#1		; next column
+	CMP	R8,R3
+	BHI	done$l
+
+	CMP	R0,#&80			;
+	BLO	loop$l			; ascii
+
+	SUBS	R14,R0,#&C0		;
+	BMI	loop$l			; malformed
+
+	LDRB	R10,[R12,R14]		;
+	CMP	R10,#6			;
+	BHS	loop$l			; too many
+
+	MOV	R1,R10
+
+	ADD	R14,R14,#64		; get mask for 1st byte
+	LDRB	R14,[R12,R14]		;
+	AND	R0,R0,R14
+
+next$l	CMP	R9,R11
+	BHS	vs$l			; end of section reached
+
+	LDRB	R2,[R9],#1		; get next byte
+
+	AND	R14,R2,#&C0		; validate
+	TEQ	R14,#&80		;
+	SUBNE	R9,R9,#1		;
+	BNE	loop$l			;
+
+	BIC	R2,R2,#&C0		; add in
+	ORR	R0,R2,R0,LSL #6		;
+
+	SUBS	R10,R10,#1		; loop for next continuation byte
+	BNE	next$l			;
+	B	loop$l
+
+	; a tab or return character
+tr$l	TEQ	R0,R4,LSR #24
+	BEQ	tab$l
+
+	; a return
+	ADD	R7,R7,#1
+	ADD	R6,R6,#1
+	FNRTS
+
+	; a tab
+tab$l	LDR	R1,[R13]
+	LDR	R1,[R1,R8,LSL #1]
+	ADD	R8,R8,R1,LSR #16
+	CMP	R8,R3
+	MOVCS	R8,R3			; align to edge
+	B	loop$l
+
+done$l	SUB	R9,R9,#1
+	ADD	R7,R7,#1		; next phy line
+	FNRTS
+
+vs$l	FNRTV
+
+		; number of further bytes to read
+utf8_table
+	=	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1	; 110xxxxx
+	=	1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ;
+	=	2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2	; 1110xxxx
+	=	3,3,3,3,3,3,3,3			; 11110xxx
+	=	4,4,4,4				; 111110xx
+	=	5,5				; 1111110x
+	=	&FF,&FF				; invalid
+
+		; mask for first character
+	=	&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F
+	=	&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F,&1F
+	=	&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F
+	=	&07,&07,&07,&07,&07,&07,&07,&07
+	=	&03,&03,&03,&03
+	=	&01,&01
+	=	0,0
+
+		; minimum character number for this encoding sequence
+utf8_max
+	DCD	&00000000
+	DCD	&00000080
+	DCD	&00000800
+	DCD	&00010000
+	DCD	&00200000
+	DCD	&04000000
+
+	LOCAL
 
 ;E R1 = tabstops  R5=ret mask R9=addr in buffer R10=start of section
 ;X VS if overflowed section before prev log line }
@@ -895,30 +1036,34 @@ mode0_lineoff
 	LDR	R11,[R8,#w_tabstops]
 	LDRB	R5,[R8,#w_cr]
 	LDRB	R4,[R8,#w_tabc]
-	LDR	R8,[R9,#f_len]		; R8 mashed!
+	LDR	R7,[R9,#f_len]
 	MOV	R6,#0			; current column
-	MOV	R7,R0			; current offset
 	MOV	R10,R1			; file offset to stop at
-	CMP	R10,R7
-	BLS	end$l			; already passed it
-loop$l	CMP	R7,R8			; eof?
+	MOV	R1,R0			; current offset
+	CMP	R1,R10
+	BHS	end$l			; already passed it
+loop$l	CMP	R1,R7			; eof?
 	BCS	end$l
-	MOV	R0,R7
-	BL	cln_readc
+	BL	cln_readc_auto
 	TEQ	R0,R5
 	BEQ	end$l
 	TEQ	R0,R4
 	LDREQ	R0,[R11,R6,LSL #1]
 	ADDEQ	R6,R6,R0,LSR #16
 	ADDNE	R6,R6,#1
-	ADD	R7,R7,#1
-	CMP	R10,R7
+	CMP	R10,R1
 	BHI	loop$l
 end$l	MOV	R0,R6
 	MOV	R1,#1			; caret width
 	FNRTS
 
 
+	LOCAL
+
+
+;E R0=file offset of physical line start
+;  R1=column offset on screen (exc margin) R8/R9
+;X R0=file offset of nearest character on the left
 	FNAME	mode0_linecol
 mode0_linecol
 	FNJSR
@@ -933,29 +1078,32 @@ default_mode0_linecol
 	LDRB	R4,[R8,#w_tabc]
 	LDR	R3,[R9,#f_len]
 	MOV	R6,#0
-	MOV	R7,R0
 	ADDS	R10,R1,#0
+	MOV	R1,R0
 	BLE	cln_lc_2		; at start of line
 cln_lc_1
-	CMP	R7,R3
+	CMP	R1,R3
 	BCS	cln_lc_2		; off end of file
-	MOV	R0,R7
-	BL	cln_readc
+	MOV	R7,R1
+	BL	cln_readc_auto
 	TEQ	R0,R5
+	MOVEQ	R1,R7
 	BEQ	cln_lc_2
 	TEQ	R0,R4
 	LDREQ	R0,[R11,R6,LSL #1]
 	ADDEQ	R6,R6,R0,LSR #16
 	ADDNE	R6,R6,#1
-	ADD	R7,R7,#1
 	CMP	R10,R6
 	BHI	cln_lc_1
-	SUBCC	R7,R7,#1
+	MOVLO	R1,R7			; restore previous
 cln_lc_2
-	MOV	R0,R7
+	MOV	R0,R1
 	CMP	R0,R3
 	MOVCS	R0,R3
 	FNRTS
+
+
+	LOCAL
 
 ;  \E r0 = sophysl offset
 ;     r1 = column #
@@ -992,66 +1140,63 @@ mode0_plus
 	FNPULL
 	BNE	call_mode_plus
 mode0_normalplus
-	FNJSR	"R7,R11"
+	FNJSR	"R6,R7,R11"
 	LDR	R11,[R8,#w_tabstops]
-	MOV	R7,R1			; save caret offset
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_confinehorizontal
 	BNE	cln_p2			; confined.
 	FNLDR	R14,car_mode
 	CMP	R14,#3
 	BEQ	cln_p2
-	LDR	R1,[R9,#f_len]
-	CMP	R7,R1
+	LDR	R7,[R9,#f_len]
+	CMP	R1,R7
 	BCS	cln_p3			; off end of file so *stop* if needed
-	MOV	R0,R7
-	BL	cln_readc		; get char currently on
-	LDRB	R1,[R8,#w_cr]
-	TEQ	R0,R1
-	BEQ	cln_p1			; a return
-	LDRB	R1,[R8,#w_tabc]
-	TEQ	R0,R1
+	MOV	R6,R1
+	BL	cln_readc_auto		; get char currently on
+	LDRB	R7,[R8,#w_cr]
+	TEQ	R0,R7
+	MOVEQ	R1,R6			; a return - restore previous offset
+	BEQ	cln_p1			;
+	LDRB	R7,[R8,#w_tabc]
+	TEQ	R0,R7
 	LDREQ	R0,[R11,R2,LSL#1]
 	ADDEQ	R2,R2,R0,LSR#16
 	ADDNE	R2,R2,#1		; new column offset
-	ADD	R7,R7,#1		; new offset
-	LDR	R1,[R9,#f_len]
-	CMP	R7,R1
+	LDR	R7,[R9,#f_len]
+	CMP	R1,R7
+	MOVCS	R1,R7
 	FNRTS	CS			; at end of file (so return f_len)
-	MOV	R0,R7
-	BL	cln_readc
-	LDRB	R1,[R8,#w_cr]
-	TEQ	R0,R1
-	MOVEQ	R1,R7
+	MOV	R6,R1
+	BL	cln_readc_auto
+	LDRB	R7,[R8,#w_cr]
+	TEQ	R0,R7
+	MOVEQ	R1,R6
 	FNRTS	EQ
-	LDR	R1,[R8,#w_bpl]
-	CMP	R2,R1
-	SUBCS	R7,R7,#1		; compensate for the no return
-	BCS	cln_p2			; next line
-	MOV	R1,R7			; new offset
+	LDR	R7,[R8,#w_bpl]
+	CMP	R2,R7
+	MOVHS	R2,#-1			; next line
+	MOVLO	R1,R6
 	FNRTS
 
 cln_p1
 	ADD	R2,R2,#1		; next column
-	LDR	R1,[R8,#w_bpl]
-	CMP	R2,R1
-	MOVCC	R1,R7
+	LDR	R7,[R8,#w_bpl]
+	CMP	R2,R7
 	FNRTS	CC
 ; fall through...
 
-cln_p2	ADD	R1,R7,#1		; offset
+cln_p2	BL	cln_readc_auto		; set up R1 for next offset
 	MVN	R2,#0
 	FNRTS
 
 cln_p3	ADD	R2,R2,#1		; next column
-	LDR	R1,[R8,#w_bpl]
-	CMP	R2,R1
-	MOVCC	R1,R7
+	LDR	R7,[R8,#w_bpl]
+	CMP	R2,R7
 	FNRTS	CC
 ; fall through...
 
 cln_p4	SUB	R2,R2,#1		; TT
-	SUB	R1,R7,#0		; TT
+	SUB	R1,R1,#0		; TT
 	FNRTS
 
 
@@ -1087,38 +1232,90 @@ mode0_minus
 	LDRB	R4,[R8,#w_tabc]
 	MOV	R3,R1			; current file offset
 	MOV	R6,#0			; current col
-	MOV	R7,R0			; current address in line
+	MOV	R1,R0			; current address in line
 	ADDS	R10,R2,#0		; search column
 	BLE	prev$l			; at start of line already
 	LDR	R2,[R9,#f_len]		; end of file
-loop$l	CMP	R7,R2
+loop$l	CMP	R1,R2
 	BCS	back$l			; cursor is off the end of the file
-	MOV	R0,R7
-	BL	cln_readc
+	MOV	R7,R1
+	BL	cln_readc_auto
 	TEQ	R0,R5
 	BEQ	back$l			; a return
 	MOV	R14,R6			; temp save of previous column
 	TEQ	R0,R4
-	LDREQ R0,[R11,R6,LSL#1]
-	ADDEQ R6,R6,R0,LSR#16
+	LDREQ	R0,[R11,R6,LSL#1]
+	ADDEQ	R6,R6,R0,LSR#16
 	ADDNE	R6,R6,#1
-	ADD	R7,R7,#1		; next column
 	CMP	R10,R6
 	BGT	loop$l
-	SUB	R1,R7,#1		; new offset of caret
+	MOV	R1,R7			; new offset of caret
 	MOV	R2,R14			; new col of caret
 	FNRTS
 
-prev$l	SUB	R1,R7,#1
+prev$l	BL	minus			; go back a character
 	MOV	R2,#-1
 	FNRTS				; move to end of previous line
 
-back$l	MOV	R1,R7			; point to the return
-	SUB	R2,R10,#1		; and move back one column
+back$l	SUB	R2,R10,#1		; and move back one column
 	FNRTS
 
 	LOCAL
 
+
+; E R1 = file offset of character R8 R9
+; X R0 = previous character
+;   R1 = file offset of previous character
+	FNAME	minus
+minus	FNJSR	"R7,R10-R11"		; explicit pull below
+	LDR	R0,[R8,#w_info]
+	TST	R0,#info_UTF8
+	BEQ	notutf8$l
+
+	MOV	R11,R1			; keep offset
+	MOV	R10,#0
+	MOV	R7,#0
+
+loop$l	CMP	R11,#0
+	MOVEQ	R7,#0
+	BEQ	err$l
+	SUB	R11,R11,#1
+	MOV	R0,R11
+	BL	cln_readc
+	CMP	R0,#&FE			; FE-FF illegal anywhere
+	MOVHS	R7,#0
+	BHS	err$l
+	CMP	R0,#&80			; ascii
+	BLO	got$l
+	CMP	R0,#&C0			; a continuation byte
+	ADDLO	R10,R10,#1
+	BLO	loop$l
+
+got$l	ADRHSL	R7,utf8_table		; work out number of continuation
+	SUBHS	R0,R0,#&C0		;  bytes expected
+	LDRHSB	R7,[R7,R0]		;
+
+err$l	SUBS	R0,R10,R7		; if we got too many continuation
+	ADDHI	R1,R11,R0		;  bytes, go back _one_ character
+	MOVHI	R0,#&FF00		;  and return the replacement character
+	ORRHI	R0,R0,#&FD		;
+	FNRTS	HI			;
+
+	MOV	R1,R11			; otherwise read the actual character
+	BL	cln_readc_utf8		;
+	MOV	R1,R11			;
+	FNRTS				;
+
+notutf8$l
+	TEQ	R1,#0
+	SUBNE	R1,R1,#1
+	MOV	R0,R1
+	PUSH	"R1"
+	BL	cln_readc
+	PULL	"R1,R7,R10-R11,PC"
+
+
+	LOCAL
 
 ;E R0=phy line start R1=cur off R2=cur col R8-R10
 ;X R1,R2=new posn / R2<0 for specials #
@@ -1130,26 +1327,24 @@ mode0_splus
 	PULL	"R2"
 	BNE	splus_smart
 	FNJSR	"R3-R7"
-	MOV	R7,R1			; save offset
 	LDR	R6,[R9,#f_len]		; length of file
 	LDRB	R5,[R8,#w_cr]
 	LDRB	R4,[R8,#w_tabc]
 	MOV	R3,#-1			; have met a white space flag
 	MOV	R2,#-1			; returns offset
-loop$l	CMP	R7,R6
+loop$l	CMP	R1,R6
 	MOVCS	R1,R6			; end of file
 	FNRTS	CS
-	MOV	R0,R7
-	BL	cln_readc
+	MOV	R7,R1
+	BL	cln_readc_auto
 	TEQ	R0,#' '
 	TEQNE	R0,R4
 	TEQNE	R0,R5
 	MOVEQ	R3,#1			; reached a white space
-	ADD	R7,R7,#1		; next char
 	BEQ	loop$l			; a white space character
 	MOVS	R3,R3
 	BMI	loop$l			; no white spaces yet!
-	SUB	R1,R7,#1
+	MOV	R1,R7
 	FNRTS
 
 	LOCAL
@@ -1169,20 +1364,19 @@ mode0_sminus
 	LDRB	R4,[R8,#w_tabc]
 	MOV	R3,#-1			; have met a white space flag
 	MOV	R2,#-1			; returns offset
-loop$l	CMP	R7,#0
+loop$l	CMP	R1,#0
 	MOVLE	R1,#0			; start of file
 	FNRTS	LE
-	SUB	R0,R7,#1
-	BL	cln_readc
+	MOV	R7,R1
+	BL	minus
 	TEQ	R0,#' '
 	TEQNE	R0,R4
 	TEQNE	R0,R5
 	MOVEQ	R3,#1			; reached a white space
-	SUB	R7,R7,#1		; this char
 	BEQ	loop$l			; a white space character
 	MOVS	R3,R3
 	BMI	loop$l			; no white spaces yet!
-	ADD	R1,R7,#1
+	MOV	R1,R7
 	FNRTS
 
 
@@ -1501,17 +1695,15 @@ mode0_cplus
 asnormal$l
 	LDRB	R5,[R8,#w_cr]
 	LDR	R6,[R9,#f_len]
-	MOV	R7,R1			; save offset
-	MVN	R2,#0			; returning offset
-cln_l1	CMP	R7,R6
+	MOV	R2,#-1			; returning offset
+cln_l1	CMP	R1,R6
 	MOVCS	R1,R6			; end of file
 	FNRTS	CS
-	MOV	R0,R7
-	BL	cln_readc
+	MOV	R7,R1			; keep current offset
+	BL	cln_readc_auto
 	TEQ	R0,R5
-	ADD	R7,R7,#1
 	BNE	cln_l1
-	SUB	R1,R7,#1		; end of line
+	MOV	R1,R7			; end of line
 	FNRTS
 
 
@@ -1530,17 +1722,15 @@ mode0_cminus
 	FNRTS	NE
 asnormal$l
 	LDRB	R5,[R8,#w_cr]
-	MOV	R7,R1			; save offset
-	MVN	R2,#0			; returning offset
-cln_l2	CMP	R7,#0
+	MOV	R2,#-1			; returning offset
+cln_l2	CMP	R1,#0
 	MOVLE	R1,#0			; start of file
 	FNRTS	LE
-	SUB	R0,R7,#1
-	BL	cln_readc
+	MOV	R7,R1			; save offset
+	BL	minus
 	TEQ	R0,R5
-	SUB	R7,R7,#1
 	BNE	cln_l2
-	ADD	R1,R7,#1
+	MOV	R1,R7
 	FNRTS
 
 
@@ -1719,7 +1909,7 @@ pa2	CMP	R0,#0
 
 	FNAME	mode0_nextline
 mode0_nextline
-	FNJSR	"R2-R11"
+	FNJSR	"R2-R12"		; WARNING - stack pull below
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
 	FNPULL  NE
@@ -1733,6 +1923,7 @@ mode0_nextline
 	LDR	R6,[R8,#w_clogl]
 	LDR	R7,[R8,#w_cline]
 	LDR	R9,[R8,#w_coff]
+	LDR	R12,[R8,#w_info]
 	CMP	R10,R9,LSR#1		; if offset nearer start of file
 	MOVLS	R6,#0
 	MOVLS	R7,#0
@@ -1748,8 +1939,9 @@ cln_nex_1
 	BCS	cln_nex_1		; if not past R10 yet then loop
 	CMP	R6,R11
 	BHI	cln_nex_end		; moved onto next log line so finish
-	FNLDR	R10,scn_yos
-	FNLDR	R0,scn_magy
+	LDR	R0,[R13,#10*4]		; recover R12
+	LDR	R10,[R0,#scn_yos]
+	LDR	R0,[R0,#scn_magy]
 	MOV	R10,R10,LSR R0
 	MOV	R10,R10,LSR#3		; max num of phy lines to bother checking
 cln_nex_5
@@ -1789,21 +1981,20 @@ mode0_prevline
 	FNAME	mode0_autoplus
 mode0_autoplus
 	FNJSR	"R1-R7"
-	MOV	R7,R0			; save offset
+	MOV	R1,R0			; save offset
 	LDR	R6,[R9,#f_len]		; length of file
 	LDRB	R5,[R8,#w_cr]
 	LDRB	R4,[R8,#w_tabc]
-au1	CMP	R7,R6
+au1	CMP	R1,R6
 	MOVCS	R0,R6			; end of file
 	FNRTS	CS
-	MOV	R0,R7
-	BL	cln_readc
+	MOV	R7,R1
+	BL	cln_readc_auto
 	TEQ	R0,R5
 	MOVEQ	R0,R7			; hit a return character
 	FNRTS	EQ
 	TEQ	R0,#' '
 	TEQNE	R0,R4
-	ADDEQ	R7,R7,#1
 	BEQ	au1			; on a white space
 	MOV	R0,R7
 	FNRTS
@@ -1830,10 +2021,10 @@ se46	FNLDR	R0,wimp_dragdepth
 	MOV	R2,R0			; save the depth
 	ADRL	R3,mode0_linestart	; default sub (lines)
 	TEQ	R2,#2			; words
-	ADR	R0,mode0_wordminus
+	ADRL	R0,mode0_wordminus
 	MOVEQ	R3,R0
 	TEQ	R2,#4			; paras
-	ADR	R0,mode0_parastart
+	ADRL	R0,mode0_parastart
 	MOVEQ	R3,R0
 	LDR	R0,[R10,#c_owidth]	; current offset
 	MOVS	R14,PC
@@ -2309,6 +2500,11 @@ endofcharinsertion
 	FNRTS
 
 
+	LOCAL
+
+
+; --------- e_delete ----------------
+
 ; E R5=num bytes R7=del type R8-R10=input caret
 ; X R0=num bytes deleted
 	FNAME	mode0_delete
@@ -2362,15 +2558,48 @@ de12	CMP	R5,#0
 	FNRTS	VS
 	SUB	R5,R5,#1
 
-de9	PUSH	"R5"
-	BL	call_mode1_delete
-	PULL	"R0",VC			; return nun bytes deleted
-	ADDVS	R13,R13,#4
+de9	TST	R7,#1
+	BNE	delnext$l
+	LDR	R1,[R10,#c_off]
+	CMP	R5,R1
+	MOVGT	R5,R1			; clip to file start
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+
+	MOV	R2,R1			; current offset
+lo9$l	BL	minus			; search back this many chars
+	SUBS	R5,R5,#1		;
+	BNE	lo9$l			;
+
+	SUBS	R2,R2,R1		; number of bytes to delete
+	MOVEQ	R0,#2			; delete char
+	MOVHI	R0,#&12			; delete block
+	BL	execute_command		; delete the chars
 	FNRTS
 
-call_mode1_delete
-	FNJSR
-	B	mode1_delete_internal
+delnext$l
+	LDR	R1,[R10,#c_off]
+	LDR	R2,[R9,#f_len]
+	SUB	R2,R2,R1		; max number to delete
+	CMP	R5,R2
+	MOVGT	R5,R2			; clip
+	CMP	R5,#1
+	FNRTS	LT			; none to delete
+
+	MOV	R3,R1			; current offset
+n$l	BL	cln_readc_auto		; search forward this many chars
+	SUBS	R5,R5,#1		;
+	BNE	n$l			;
+
+	SUBS	R2,R1,R3		; number of bytes to delete
+	MOV	R1,R3
+	MOVEQ	R0,#5			; delete char
+	MOVHI	R0,#&15			; delete block
+	BL	execute_command		; delete the chars
+	FNRTS
+
+
+	LOCAL
 
 
 	FNAME	mode0_tab
@@ -2681,18 +2910,22 @@ mode0_interrogate
 	CMP	R0,#17
 	BEQ	mode0_returndelimiters
 	TEQ	R0,#einterrogate_TabStops
-	BEQ	tabs$l
+	TEQNE	R0,#einterrogate_WideRedraw
+	TEQNE	R0,#einterrogate_UTF8
+	BEQ	claim_if_text$l
 	CMP	R0,#0
 	CMPNE	R0,#3
 	MOVNE	PC,R14
 	MOV	R0,R1
 	MOV	PC,R14
 
-tabs$l	FNJSR				; default is fixed tabs, but modes inherit
+claim_if_text$l
+	FNJSR	"R1"			; default is fixed tabs, but modes inherit
+	MOV	R1,R0
 	MOV	R0,#0			; from Text, which /does/ support variable
 	BL	isthisaclonebase	; tabs, so only claim if Text mode
 	MOVEQ	R0,#0
-	MOVNE	R0,#einterrogate_TabStops
+	MOVNE	R0,R1
 	FNRTS
 
 mode0_returndelimiters
@@ -2712,169 +2945,150 @@ seeif_ins_pt_if_needed
 	FNRTS
 
 
+; There are 5 categories of character, classified in descending order as:
+;
+;   5: Newline character
+;   4: Letters and numbers
+;   3: Anything else non-whitespace (ie. symbols)
+;   2: Whitespace (space and tab)
+;   1: Newline character
+;
+; When you press shift-left or shift-right, the cursor will be moved in that
+; direction until the classification of the next character (in the direction it
+; is moving) is greater than that of the current character, upon which it will
+; stop. Newline appears twice in order to ensure that the cursor will always
+; stop on each side of it. (ie. at start & end of line).
+;
+; Line:  if((char2=getchar())!=0 && char2!=line_terminator)
+; Fwd :^ ^   ^	   ^	       ^ ^  ^	   ^	^	   ^
+; Back:^   ^	  ^	  ^	^  ^	 ^     ^	  ^^
+
+;E R0=phy line start R1=cur off R2=cur col R8-R10
+;X R1,R2=new posn / R2<0 for specials #
 splus_smart
 	FNJSR	"R3"
-	LDR	R2,[R9,#f_ptr]
-	LDR	R3,[R9,#f_splito]
-	CMP	R1,R3
-	LDRCS	R3,[R9,#f_splits]
-	ADDCS	R1,R1,R3
-	LDRCS	R0,[R9,#f_len]
-	ADDCS	R3,R3,R0
-	BL	SPlusBrG
-	BCC	SPlusBrB
-	ADD	R1,R1,#1
-	B	SPlusBrD
+	LDR	R3,[R9,#f_len]
+	BL	pgetchar$l
+	MOVCC	R1,R2
+	BCC	firstchar$l
+	MOV	R2,#-1
+	FNRTS				; got lf already
 
-SPlusBrA
-	BL	SPlusBrF
+ploop1$l				; search for non-alphabetic
+	BL	pgetchar$l		;
+firstchar$l				;
+	BCS	pfound$l		;
+	BNE	ploop1$l		;
 
-SPlusBrB
-	BCS	SPlusBrD
-	BNE	SPlusBrA
-
-SPlusBrC
-	TEQ	R0,#&20
-	LDRNEB  R14,[R8,#w_tabchar]
-	TEQNE	R0,R14
-	BEQ	SPlusBrE
-	BL	SPlusBrF
-	BCS	SPlusBrD
-	BEQ	SPlusBrC
-SPlusBrD
-	LDR	R0,[R9,#f_splite]
-	CMP	R1,R0
-	LDRCS	R0,[R9,#f_splits]
-	SUBCS	R1,R1,R0
-	MVN	R2,#0
+ploop2$l
+	TEQ	R0,#' '			; check for whitespace
+	LDRNEB  R14,[R8,#w_tabchar]	;
+	TEQNE	R0,R14			;
+	BEQ	ploop3$l		;
+	BL	pgetchar$l		; or non-alphabetic
+	BCS	pfound$l		;
+	BEQ	ploop2$l		;
+pfound$l
+	MOV	R1,R2
+	MOV	R2,#-1
 	FNRTS
 
-SPlusBrE
-	BL	SPlusBrF
-	TEQ	R0,#&20
-	LDRNEB  R14,[R8,#w_tabchar]
-	TEQNE	R0,R14
-	BEQ	SPlusBrE
-	B	SPlusBrD
+ploop3$l
+	BL	pgetchar$l		; check for whitespace
+	TEQ	R0,#' '			;
+	LDRNEB  R14,[R8,#w_tabchar]	;
+	TEQNE	R0,R14			;
+	BEQ	ploop3$l		;
+	B	pfound$l		;
 
-SPlusBrF
-	ADD	R1,R1,#1
-
-SPlusBrG
+pgetchar$l
 	CMP	R1,R3
-	BCC	SMinusBrG
-	LDR	R0,[R9,#f_splito]
-	TEQ	R1,R0
-	BNE	SPlusBrD
-	LDR	R0,[R9,#f_splits]
-	ADD	R1,R1,R0
-	LDR	R3,[R9,#f_len]
-	ADD	R3,R3,R0
-
+	BHS	pfound$l		; eof
 	FNJSR
-	LDR	R14,[R9,#f_bufl]
-	SUB	R14,R14,#1
-	CMP	R1,R14
-	LDRCCB  R0,[R2,R1]
-	ANDCS	R0,R1,#&FF
+	MOV	R2,R1			; keep current offset
+	BL	cln_readc_auto
 	FNPULL
 	B	CursorPriority
 
 
 	LOCAL
 
+;E R0=phy line start R1=cur off R2=cur col R8-R10
+;X R1 = new offset, R2 = -1
 sminus_smart
-	CMP	R2,#1
-	BHI	SMinusBrA
-	TEQ	R1,#0
-	SUBNE	R1,R1,#1
-	MVN	R2,#0
-	MOV	PC,R14
-SMinusBrA
-	FNJSR	"R3"
-	LDR	R2,[R9,#f_ptr]
-	LDR	R0,[R9,#f_splito]
-	CMP	R1,R0
-	LDRCS	R0,[R9,#f_splits]
-	ADDCS	R1,R1,R0
-	LDRCS	R3,[R9,#f_splite]
-	MOVCC	R3,#0
-SMinusBrB
-	BL	SMinusBrF
-	BCS	SMinusBrD
-	BNE	SMinusBrB
-SMinusBrC
-	TEQ	R0,#&20
-	LDRNEB  R14,[R8,#w_tabchar]
-	TEQNE	R0,R14
-	BEQ	SMinusBrE
-	BL	SMinusBrF
-	BCS	SMinusBrD
-	BEQ	SMinusBrC
-SMinusBrD
-	ADD	R1,R1,#1
-	LDR	R0,[R9,#f_splite]
-	CMP	R1,R0
-	LDRCS	R0,[R9,#f_splits]
-	SUBCS	R1,R1,R0
-	MVN	R2,#0
+	FNJSR
+	CMP	R2,#1			; column 1
+	BHI	mloop1$l
+	BL	minus			; so move to the end of the previous line
+	MOV	R2,#-1
 	FNRTS
 
-SMinusBrE
-	BL	SMinusBrF
-	TEQ	R0,#&20
+mloop1$l
+	BL	mgetchar$l
+	BCS	mfound$l
+	BNE	mloop1$l
+mloop2$l
+	TEQ	R0,#' '
 	LDRNEB  R14,[R8,#w_tabchar]
 	TEQNE	R0,R14
-	BEQ	SMinusBrE
-	B	SMinusBrD
+	BEQ	mloop3$l
+	BL	mgetchar$l
+	BCS	mfound$l
+	BEQ	mloop2$l
+mfound$l
+	MOV	R1,R2
+	MOV	R2,#-1
+	FNRTS
 
-SMinusBrF
-	SUB	R1,R1,#1
-	CMP	R1,R3
-	BCS	SMinusBrG
-	TEQ	R1,#0
-	MVNEQ	R2,#0
-	FNRTS	EQ
-	LDR	R0,[R9,#f_splits]
-	SUB	R1,R1,R0
-	MOV	R3,#0
-SMinusBrG
-	CMP	R1,#0
-	LDRPLB  R0,[R2,R1]
-	ANDMI	R0,R1,#&FF
-	; fall through...
+mloop3$l
+	BL	mgetchar$l
+	TEQ	R0,#' '
+	LDRNEB  R14,[R8,#w_tabchar]
+	TEQNE	R0,R14
+	BEQ	mloop3$l
+	B	mfound$l
 
+mgetchar$l
+	FNJSR
+	MOV	R2,R1
+	BL	minus
+	FNPULL
+	; FALL THROUGH
+
+; E R0 = char
+; E C set if start/end of line found, else Z set if r0 is non-alphabetic
+; consider using Territory_CharacterPropertyTable ?
 CursorPriority
 	PUSH	"R1"
 	LDRB	R1,[R8,#w_cr]		; lf char
 	TEQ	R0,R1
 	PULL	"R1"
 	RTCS	EQ
-	CMP	R0,#&30
+	CMP	R0,#&30			; 0-9
 	RTZS	CC
 	CMP	R0,#&3A
 	MOVCC	PC,R14
-	CMP	R0,#&40			; @...
+	CMP	R0,#&40			; @ A-Z
 	RTZS	CC
 	CMP	R0,#&5B
 	MOVCC	PC,R14
-	CMP	R0,#&61
+	CMP	R0,#&61			; a-z
 	RTZS	CC
 	CMP	R0,#&7B
 	MOVCC	PC,R14
-	CMP	R0,#&81
+	CMP	R0,#&81			;  ‚
 	RTZS	CC
 	CMP	R0,#&83
 	MOVCC	PC,R14
-	CMP	R0,#&85
+	CMP	R0,#&85			; … †
 	RTZS	CC
 	CMP	R0,#&87
 	MOVCC	PC,R14
-	CMP	R0,#&9E
+	CMP	R0,#&9E			; ž Ÿ
 	RTZS	CC
 	CMP	R0,#&A0
 	MOVCC	PC,R14
-	CMP	R0,#&C0
+	CMP	R0,#&C0			; mostly alphabetic, but also /multiply and /divide
 	RTZS	CC
 	RTCC
 
@@ -2910,6 +3124,9 @@ CursorPriority2
 	MOVCC	PC,R14
 	MOV	R0,#&41			; A
 	MOV	PC,R14
+
+
+	LOCAL
 
 
 ;E R0=character R1=number of times to type R8-R10=input caret

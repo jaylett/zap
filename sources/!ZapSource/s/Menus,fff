@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.39 2004/04/15 12:13:02 christian Exp $
+; $Id: Menus,fff,v 2.40 2005/02/14 11:58:20 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -861,7 +861,7 @@ EncodingList
 	ADR	R5,mhelp$l
 	MOV	R6,#0
 	LDR	R9,[R8,#w_encoding]	; idfn to tick
-	MOV	R8,#(1<<16)+(1<<17)+(1<<22)
+	MOV	R10,#(1<<16)+(1<<17)+(1<<22)
 	BL	build_menu_with_help
 	FNRTS
 
@@ -869,33 +869,47 @@ name$l	=	27,"zap_m_encodings",0
 mhelp$l	=	27,"zap_mh_encodings",0
 	ALIGN
 
-sub$l	FNJSR	"R2-R7"
-	CMP	R8,#-1			; return if no more
+sub$l	FNJSR	"R2-R7,R11"
+	CMP	R10,#-1			; return if no more
 	MOVEQ	R0,#-1			;
 	FNRTS	EQ			;
 
 	ADD	R1,R0,#24		; buffer for idfn (what you give to ZapRedraw)
-	MOV	R2,R8			; counter / flags
+	MOV	R2,R10			; counter / flags
 	MOV	R3,#24			; size of R1
 	MOV	R4,R0			; buffer for name (what you see in the menu)
 	MOV	R5,#24			; size of R4
-	MOV	R6,R9			; idfn to tick
 	SWI	XZapRedraw_ListFonts
 	FNRTS	VS
 
-	PUSH	"R2"
+	PUSH	"R1,R2"			; stack pull below
 	TEQ	R9,#0
 	BEQ	none$l
 
 	MOV	R2,R9			; idfn
 	BL	strCMP
-	LDREQ	R6,[R13,#5*4]		; recover R6
-	LDREQ	R0,[R6]
-	ORREQ	R0,R0,#1		; tick it
-	STREQ	R0,[R6]
+	LDREQ	R6,[R13,#6*4]		; recover R6
+	LDR	R2,[R6]
+	ORREQ	R2,R2,#1		; tick it
 
-none$l	BIC	R0,R8,#(1<<17)		; index for this entry (= counter)
-	PULL	"R8"			; new counter
+	LDR	R0,[R13]
+	BL	is_UTF8
+	BNE	notutf8$l
+
+	MOV	R0,#einterrogate_UTF8
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	TEQ	R0,#0
+	LDRNE	R0,[R6,#8]		; fade it
+	ORRNE	R0,R0,#1<<22            ;
+	STRNE	R0,[R6,#8]              ;
+	BICNE	R2,R2,#1		; make sure it's not ticked
+
+notutf8$l
+	STR	R2,[R6]
+
+none$l	BIC	R0,R10,#(1<<17)		; index for this entry (= counter)
+	PULL	"R1,R10"		; new counter
 	ADR	R1,mhelp$l
 	FNRTS
 

@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.12 2004/11/21 18:29:02 christian Exp $
+; $Id: Redraw,fff,v 2.13 2005/02/14 11:58:20 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -141,6 +141,7 @@ redraw_area
 	FNSTR	R0,red_encoding
 
 	MOV	R1,#rf_extend ; rf_realvdu	; temporarily disabled for Iyonix ; init r_flags
+	ORR	R1,R1,#rf_smallcolours
 	LDR	R0,[R8,#w_flags]
 	AND	R0,R0,#redraw_font_mask
 
@@ -240,9 +241,7 @@ redraw_window
 	BL	redraw_to_red		; convert coords to pixels
 	BLVC	update_cache		; update cache entries
 	BLVC	create_redraw_data	; create new style redraw data
-	FNRTS	VS			; R1=first unused buffer offset
-	MOV	R4,R0			; largest character used
-	BL	invert_carets		; add in the caret data
+	BLVC	invert_carets		; add in the caret data
 	BLVC	redraw_area		; display on screen area
 	FNRTS
 
@@ -917,14 +916,31 @@ get_caret_4
 ;  R8/R9
 ;X red_data updated to hold new format text #
 ;  R1=first free offset in r_data buffer
-;  R0=largest character used
 	FNAME	create_redraw_data
 create_redraw_data
 	FNJSR	"R2-R11"
+	LDR	R10,[R8,#w_info]	; setup flags
+	FNLDR	R14,red_flags		;
+	TST	R10,#info_DisableFontSubStyles
+	BICNE	R14,R14,#rf_substyles	;
+	ORREQ	R14,R14,#rf_substyles	;
+	TST	R10,#info_WideRedraw	;
+	ORRNE	R14,R14,#rf_char32	;
+	BICEQ	R14,R14,#rf_char32	;
+	ORR	R14,R14,#rf_extend+rf_smallcolours	;
+	FNSTR	R14,red_flags		;
+
+	LDR	R9,[R8,#w_txtw]		; width of text bit of cache line (in columns)
+	TST	R10,#info_WideRedraw	;
+	MOVEQ	R5,R9			;   in bytes
+	MOVNE	R5,R9,LSL #2		;
+
+	LDR	R14,[R8,#w_encodinghandle] ; add the encoding
+	FNSTR	R14,red_encoding
+
 	SUB	R10,R3,R2		; number of lines to do
 	ADD	R10,R10,#1		; add terminating offset
 	MOV	R2,R0			; data to start with
-	LDR	R5,[R8,#w_txtw]		; width of text bit of cache line
 	FNLDR	R7,red_datasize		; length of it
 	FNLDR	R11,red_data		; start of red_data
 	MOV	R6,R11			; current pointer in red_data
@@ -933,10 +949,8 @@ create_redraw_data
 	BVS	error$l
 	ADD	R6,R6,R10,LSL#2		; move to start of area to redraw
 	MOV	R4,#0			; number of current line
-	ADD	R3,R5,R5,LSL #2
-	MOV	R3,R3,LSL#1		; R3=10*R5
-	ADD	R1,R12,#red_flags	; redraw block
-	MOV	R9,#&20			; largest character
+	ADD	R3,R9,R9,LSL #2
+	MOV	R3,R3,LSL#1		; R3=10*ncolumns
 	SUBS	R10,R10,#1
 	BLE	cr18			; subtract the terminating line
 cr17	SUB	R0,R6,R11		; current offset
@@ -944,39 +958,56 @@ cr17	SUB	R0,R6,R11		; current offset
 	ADD	R0,R3,#16		; need 10*R5+16 bytes free
 	BL	ensure_red_data		; make sure enough room free
 	BVS	error$l
+
 	PUSH	"R3-R5,R7"
+
+	; add the line number
+	LDR	R0,[R8,#w_format]
+	TST	R0,#format_ShowLineNumbers
+	BEQ	nonum$l
+
+	LDR	R0,[R2]
+	MOV	R1,#0			; set the colour
+	STRB	R1,[R6],#1		;
+	MOV	R1,#10			;
+	STRB	R1,[R6],#1		;
+	MOV	R1,#syscol_Linenums	; FIXME - check for selection
+	STRB	R1,[R6],#1		;
+	MOV	R1,#syscol_BgEditable	;
+	STRB	R1,[R6],#1		;
+	MOV	R1,#0			; FIXME - use line number style
+	STRB	R1,[R6],#1		;
+
+	LDRB	R1,[R2,#4]
+	BL	print_line_numbers
+
+nonum$l	LDR	R0,[R8,#w_mwidth]
+	MOV	R14,#' '
+nloop$l	SUBS	R0,R0,#1
+	STRPLB	R14,[R6],#1
+	BPL	nloop$l
+
+	ADD	R2,R2,#8		; skip over line number
 	MOV	R0,#syscol_Ctrls	; colour for ctrl chars
-	ADD	R3,R2,R5
-	ADD	R4,R3,R5
-	ADD	R7,R4,R5
+	ADD	R3,R2,R5		; fg
+	ADD	R4,R3,R9		; bg
+	ADD	R7,R4,R9		; style
 
-	LDR	R14,[R8,#w_encodinghandle] ; add the encoding
-	FNSTR	R14,red_encoding
-
-	LDR	R14,[R8,#w_info]	; for enable ss bit
-	TST	R14,#bit_nosubstyles
-	FNLDR	R14,red_flags
-	BICNE	R14,R14,#8
-	ORREQ	R14,R14,#8
-	ORR	R14,R14,#rf_extend
-	FNSTR	R14,red_flags
-
+	ADD	R1,R12,#red_flags	; redraw block
 	SWI	XZapRedraw_PrepareDataLine
-	PULL	"R3-R5,R7",VS
+	ADDVC	R6,R6,R5		; new buffer position
+	PULL	"R3-R5,R7"
 	BVS	error$l
 
-	CMP	R0,R9
-	MOVCS	R9,R0			; new largest character
-	ADD	R6,R6,R5		; new buffer position
-	PULL	"R3-R5,R7"
-	ADD	R2,R2,R5,LSL #2		; add 4*R5 to get to next line
+	ADD	R2,R2,R5
+	ADD	R2,R2,R9,LSL #1
+	ADD	R2,R2,R9		; next line
 	ADD	R4,R4,#1		; increment line number
 	CMP	R4,R10
 	BCC	cr17
 cr18	MOV	R0,#0
 	STR	R0,[R11,R4,LSL#2]	; add terminating 0
 	SUB	R1,R6,R11		; first free offset
-	MOV	R0,R9			; largest character
 	FNRTS
 
 error$l	MOV	R7,R0
@@ -985,7 +1016,6 @@ error$l	MOV	R7,R0
 	BL	call_mode
 	MOV	R0,R7
 	FNRTV
-
 
 	LOCAL
 
@@ -1022,7 +1052,6 @@ ensure_red_data
 ;  be off the end. Blank lines will be added.
 ;X Lines within the file cached
 ;  R0=start of cached data (or 0 if first line was off end)
-;  R1-R7 & R10-R11 corrupted #
 	FNAME	update_cache
 update_cache
 	FNJSR	"R1-R11"
@@ -1047,13 +1076,13 @@ update_c0
 	BCS	update_c6		; 'error'
 	ADD	R5,R4,R5		; line number of last cached line (+1)
 	TEQ	R4,R5
-	BEQ	update_c4
+	BEQ	update_c4		; nothing in the cache
 	CMP	R4,R3
-	BCS	update_c4
+	BCS	update_c4		; entire cache too late
 	CMP	R2,R5
-	BCS	update_c4
+	BCS	update_c4		; entire cache too early
 	CMP	R2,R4
-	BCC	update_c2
+	BCC	update_c2		; cache intersects region
 	CMP	R5,R3
 	BCC	update_c1
 	SUB	R0,R2,R4		; offset in cache (data already there)
@@ -1062,6 +1091,7 @@ update_c0
 	MLA	R0,R2,R0,R1
 	FNRTS
 
+	; cache ends before desired line
 update_c1
 	SUB	R10,R5,R2
 	SUB	R6,R2,R4
@@ -1077,6 +1107,7 @@ update_c1
 	FNRTS	VS
 	B	update_c5
 
+	; cache starts after desired line
 update_c2
 	CMP	R5,R3
 	BCS	update_c3
@@ -1108,6 +1139,7 @@ update_c3
 	FNRTS	VS
 	B	update_c5
 
+	; cache contains no desired lines
 update_c4
 	SUB	R10,R3,R2
 	MOV	R7,R2
@@ -1177,7 +1209,7 @@ blat_redraw_cache
 	FNRTS
 
 
-;E R6=cache loff R7=file loff R8/R9 R10 num of line
+;E R6=cache loff  R7=file loff  R8/R9  R10 num of lines to do
 ;X R0=file off/R1=log ln of first line. R2-R5,R8-R9 saved
 	FNAME	red_cache_lines
 red_cache_lines
@@ -1234,7 +1266,7 @@ red_cl_12
 	PULL	"R0,R1"
 	FNRTS
 red_cl_11
-	STR	R0,[R13,#4]!
+	STR	R0,[R13,#-4]!
 	MOV	R1,#einit_RedrawEnd
 	BL	calle_init
 	ADDVS	R13,R13,#4
@@ -1242,51 +1274,48 @@ red_cl_11
 	FNRTV				; escape
 
 
+; E R6 -> cache line
 	FNAME	generate_cache_font_data
 generate_cache_font_data
-	FNJSR	"R0,R11"
+	FNJSR	"R0-R7,R11"
 	MOV	R0,#11
 	MOV	R11,#e_interrogate
 	BL	call_mode
-	BL	call_cache_font_data
-	FNRTS
-call_cache_font_data
+
+	ADD	R6,R6,#8		; skip line number
+
+	LDR	R3,[R8,#w_info]		;
+	TST	R3,#info_WideRedraw	;
+	LDR	R3,[R8,#w_txtw]		;
+	ADDEQ	R4,R6,R3		;
+	ADDNE	R4,R6,R3,LSL #2		; R4 = fg colours
+	ADD	R1,R4,R3		; R1 = bg colours
+	ADD	R2,R1,R3		; R2 = substyles
+	SUB	R3,R3,#1
+	BL	get_mode_colours_ptr
+
+	ADR	R14,ret$l
 	CMP	R0,#2
 	ADDLO	PC,PC,R0,LSL #2
 	B	perform_block_copy
 	B	fg_and_bg_hijacked
 	B	fg_and_bg_hijacked_with_style_info
-
+ret$l	FNRTS
 
 ; \E R6 = ? R3 = ?
 perform_block_copy
-	FNJSR	"R1-R3,R5-R7"
-	LDR	R3,[R8,#w_txtw]
-	ADD	R1,R6,R3		; R1 = fg colours.
-	ADD	R2,R1,R3,LSL#1		; R2 = font data.
-	SUB	R3,R3,#1
-	BL	get_mode_colours_ptr
-looping$l				; unravel?
-	LDRB	R5,[R1,R3]		; colour data...
+	LDRB	R5,[R4,R3]		; colour data...
 	CMP	R5,R6,LSR #2		; /should/ always be true...? danger
 	LDRLOB  R5,[R7,R5,LSL #2]	; FONT DATA!!!! - LO for safety...
 	AND	R5,R5,#&E9
 	STRB	R5,[R2,R3]
 	SUBS	R3,R3,#1
-	BPL	looping$l
-	FNRTS
+	BPL	perform_block_copy
+	MOV	PC,R14
 
-	LOCAL
 
 fg_and_bg_hijacked
-	FNJSR	"R0-R7"
-	LDR	R3,[R8,#w_txtw]
-	ADD	R4,R6,R3		; fg
-	ADD	R1,R4,R3		; bg
-	ADD	R2,R1,R3		; dest
-	SUB	R3,R3,#1
-	BL	get_mode_colours_ptr
-loop$l	LDRB	R0,[R4,R3]		; read fg colour
+	LDRB	R0,[R4,R3]		; read fg colour
 	MOV	R5,#0
 	CMP	R0,R6,LSR #2		; range check
 	LDRLOB  R5,[R7,R0,LSL #2]	; load zap palette entry
@@ -1299,21 +1328,12 @@ loop$l	LDRB	R0,[R4,R3]		; read fg colour
 	AND	R5,R5,#&E9		; remove invalid bits
 	STRB	R5,[R2,R3]		; store in style buffer
 	SUBS	R3,R3,#1
-	BPL	loop$l
-	FNRTS
+	BPL	fg_and_bg_hijacked
+	MOV	PC,R14
 
-
-	LOCAL
 
 fg_and_bg_hijacked_with_style_info
-	FNJSR	"R0-R7"
-	LDR	R3,[R8,#w_txtw]
-	ADD	R4,R6,R3		; fg
-	ADD	R1,R4,R3		; bg
-	ADD	R2,R1,R3		; dest
-	SUB	R3,R3,#1
-	BL	get_mode_colours_ptr
-loop$l	LDRB	R5,[R2,R3]		; as above, but merge the
+	LDRB	R5,[R2,R3]		; as above, but merge the
 	LDRB	R0,[R4,R3]		; mode provided style as well
 	CMP	R0,R6,LSR #2
 	LDRLOB  R0,[R7,R0,LSL #2]
@@ -1327,8 +1347,8 @@ loop$l	LDRB	R5,[R2,R3]		; as above, but merge the
 	AND	R5,R5,#&E9
 	STRB	R5,[R2,R3]
 	SUBS	R3,R3,#1
-	BPL	loop$l
-	FNRTS
+	BPL	fg_and_bg_hijacked_with_style_info
+	MOV	PC,R14
 
 
 ;X R6=number of colours
@@ -1362,17 +1382,17 @@ redraw_cache_line
 	LDR	R0,[R8,#w_height]	; height of work area
 	CMP	R10,R0			; is this line off end of file
 	FNRTS	CS			; return if so
+
 	LDR	R5,[R8,#w_format]	; line format
-	TST	R5,#format_ShowLineNumbers
-	BEQ	re1			; if not then re1
-	BL	get_linenumber
-	BCS	re1			; none to draw
-	TST	R5,#format_LinesBase
-	BEQ	print_decimal
-	BNE	print_hex
-re1	MOV	R4,R5			; full draw type
-	LDR	R0,[R8,#w_margin]
-	ADD	R6,R6,R0		; add in margin
+	TST	R5,#format_ShowLineNumbers ; (clears C)
+	TEQEQ	R0,R0			; sets C and keeps Z set
+	BLNE	get_linenumber
+	MOVCS	R1,#0
+	MOVCC	R1,#1
+	STRB	R1,[R6,#4]		; keep the line number
+	STR	R0,[R6],#8
+
+	MOV	R4,R5			; full draw type
 	LDR	R5,[R9,#f_ptr]		; start of file
 	LDR	R0,[R9,#f_splito]	; offset of split
 	CMP	R7,R0
@@ -1389,7 +1409,7 @@ re1	MOV	R4,R5			; full draw type
 	LDR	R14,[R8,#w_format]
 	TST	R14,#format_SoftWrap
 	BNE	sw_redrawline
-	MOVS	R14,PC
+	MOV	R14,PC
 	LDR	PC,[R0,#2*e_redrawline] ; call the redraw line sub
 	SUB	R7,R7,R5		; file offset
 	FNRTS
@@ -1442,71 +1462,60 @@ ge14	LDR	R2,[R8,#w_stline]	; first line number
 	FNRTS				; and return
 
 
+
+; E R0 = number  R1 = 0 to plot spaces / 1 to plot number  R6 -> line  R8
+; X R6 updated
+print_line_numbers
+	TEQ	R1,#0
+	BEQ	line_number_spaces
+	LDR	R1,[R8,#w_format]
+	TST	R1,#format_LinesBase
+	BEQ	print_decimal
+	;B	print_hex
+
+	; FALL THROUGH
+
+
 ;E R0=line number R6=cache line
-;X Hex number written R0-R4 corrupted
-linenumberbuffer
-	DCD	0
-	DCD	0
-	DCD	0
-
-	FNAME	print_nulls
-print_nulls
-	AND	R2,R14,#7
-	LDR	R14,[R8,#w_info]
-	AND	R0,R14,#info_LineNumberWidth
-	ADD	R2,R2,#2
-	TST	R14,#info_LineNumberColons
-	ADDNE	R2,R2,#2
-	MOV	R14,#' '
-looppnull$l
-	STRB	R14,[R6],#1
-	SUBS	R2,R2,#1
-	BPL	looppnull$l
-
-
+;X Hex number written R0-R1 corrupted  R6 updated
 print_hex
-	PUSH	"R6"
-	ADR	R6,linenumberbuffer
+	FNJSR	"R2-R4,R11"
+	MOV	R11,R6
+	ADR	R6,linenumberbuffer	; print hex into temp buffer
 	BL	hex8
+	MOV	R6,R11
 	ADR	R2,linenumberbuffer
-	LDR	R14,[R8,#w_info]
-	AND	R0,R14,#info_LineNumberWidth
-	PULLS	"R6"
+	LDR	R14,[R8,#w_info]	; check for zero width
+	ANDS	R0,R14,#info_LineNumberWidth
+	MOVEQ	R2,#'>'                 ;
+	STREQB  R2,[R6],#1              ;
+	BEQ	zero$l			;
 	ADD	R2,R2,#7
 	SUB	R2,R2,R0
-lnloop$l
+lnloop$l				; copy into line buffer
 	LDRB	R1,[R2],#1
 	STRB	R1,[R6],#1
 	SUBS	R0,R0,#1
 	BPL	lnloop$l
-	BL	linenumbercolons	; add _;_
-	PULL	"R6"			; back to start
-	LDR	R14,[R8,#w_info]
-	ANDS	R14,R14,#info_LineNumberWidth
-	MOVEQ	R2,#'>'
-	STREQB  R2,[R6]
-	AND	R2,R14,#info_LineNumberWidth
-	ADD	R2,R2,#2
-	TST	R14,#info_LineNumberColons
-	ADDNE	R2,R2,#2
-	MOV	R0,#syscol_Linenums
-	MOV	R1,#0
-	BL	colour_chars
-	B	re1
+zero$l	BL	linenumbercolons	; add _:_
+	FNRTS
 
 
 ; As for print_hex
 	FNAME	print_decimal
 print_decimal
-	PUSH	"R6"
+	FNJSR	"R2-R4,R10,R11"
+	MOV	R11,R6
 	MOV	R10,R0			; save number
+	BL	print_nulls		; print spaces and right align
+	MOV	R6,R11
 	LDR	R14,[R8,#w_info]
-	AND	R14,R14,#info_LineNumberWidth
+	ANDS	R14,R14,#info_LineNumberWidth
+	BEQ	one$l
 	ADD	R6,R6,R14
 	ADD	R6,R6,#1
 	MOV	R4,R6			; end of digits
 	BL	linenumbercolons	; add _:_
-	PULLS	"R6"
 	MOVS	R10,R10
 	MOVPL	R3,#0
 	MOVMI	R3,#'-'
@@ -1536,29 +1545,61 @@ re3	MOV	R1,R10,LSL#8		; fixed point at bit 8
 	ADD	R1,R2,R2,LSL#2		; quot*5
 	SUB	R0,R10,R1,LSL#1		; R10-quot*10
 	ADD	R0,R0,#'0'
-	CMP	R4,R6
+	CMP	R4,R11
 	BLE	exitlinenumberloop
 	STRB	R0,[R4,#-1]!		; write digit
 	MOVS	R10,R2			; new quotient
 	BNE	re3			; loop if non zero
-	CMP	R4,R6
+	CMP	R4,R11
 	BLE	exitlinenumberloop
 	TEQ	R3,#0
 	STRNEB  R3,[R4,#-1]!		; add sign if needed
 exitlinenumberloop
-	PULL	"R6"			; back to start
-	LDR	R14,[R8,#w_info]
-	ANDS	R14,R14,#info_LineNumberWidth
-	MOVEQ	R2,#'*'
-	STREQB  R2,[R6]
-	AND	R2,R14,#info_LineNumberWidth
-	ADD	R2,R2,#2
-	TST	R14,#info_LineNumberColons
-	ADDNE	R2,R2,#2
-	MOV	R0,#syscol_Linenums
-	MOV	R1,#0
-	BL	colour_chars
-	B	re1
+	FNRTS
+
+one$l	MOV	R0,#'*'
+	STRB	R0,[R6],#1
+	BL	linenumbercolons
+	FNRTS
+
+
+linenumberbuffer
+	DCD	0
+	DCD	0
+	DCD	0
+
+line_number_spaces
+	FNJSR
+	BL	print_nulls
+	MOV	R0,#0			; set the colour
+	STRB	R0,[R6],#1		;
+	MOV	R0,#10			;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#syscol_Fg		;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#syscol_BgEditable	;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#0			; FIXME
+	STRB	R0,[R6],#1		;
+	FNRTS
+
+
+	FNAME	print_nulls
+print_nulls
+	LDR	R1,[R8,#w_info]
+	AND	R0,R1,#info_LineNumberWidth
+	ADD	R0,R0,#1
+	TST	R1,#info_LineNumberColons
+	ADDNE	R0,R0,#2
+	MOV	R1,#' '
+looppnull$l
+	STRB	R1,[R6],#1
+	SUBS	R0,R0,#1
+	BPL	looppnull$l
+	MOV	PC,R14
+
+
+	LOCAL
 
 
 ;E R0=colour R1=offset in cache line of first char
@@ -1594,17 +1635,20 @@ co26	STRB	R0,[R3],#1
 	MOV	PC,R14
 
 
-;E R6=cache line
+;E R6=cache line  R8
 ;X R0-R5 corrupted. Line blanked to spaces.
 ;  Foreground mask set to 2's, background to 0's.
 	FNAME	print_blank
 print_blank
+	LDR	R0,[R8,#w_info]
+	TST	R0,#info_WideRedraw
 	LDR	R4,[R8,#w_txtw]		; width (multiple of 8)
-	MOV	R3,R6			; start of cache line
+	ADD	R3,R6,#8		; start of cache line (skipping line number)
 	MOV	R0,#&20
-	ADD	R0,R0,R0,LSL#8
-	ADD	R0,R0,R0,LSL#16		; 4 spaces
-	MOV	R1,R4			; count
+	ORREQ	R0,R0,R0,LSL#8
+	ORREQ	R0,R0,R0,LSL#16		; 4 spaces
+	MOVEQ	R1,R4			; count
+	MOVNE	R1,R4,LSL #2
 	MOV	R2,R0			; 4 spaces
 re2	STMIA	R3!,{R0,R2}		; blank 8 chars
 	SUBS	R1,R1,#8
@@ -1653,7 +1697,7 @@ ov1	FNRTV				; return with overflow
 ;X Selection coloured #
 	FNAME	redraw_cache_selection
 redraw_cache_selection
-	FNJSR	"R1-R5"
+	FNJSR	"R1-R6"
 	FNLDR	R1,car_selection
 	LDR	R2,[R1,#c_line]
 	LDR	R3,[R1,#c_oline]
@@ -1671,10 +1715,18 @@ rs10	MOV	R0,R2
 	MOV	R4,R5
 	MOV	R5,R0
 rs11	LDR	R1,[R8,#w_margin]
-	CMP	R4,R1
+
+	SUBS	R4,R4,R1
 	MOVLE	R4,#0
-	CMP	R5,R1
-	MOVLE	R5,#0			; pull to left hand edge
+	SUBS	R5,R5,R1
+	MOVLE	R5,#0
+	;CMP	R4,R1
+	;MOVLE	R4,#0
+	;CMP	R5,R1
+	;MOVLE	R5,#0			; pull to left hand edge
+
+	ADD	R6,R6,#8		; skip the line number
+
 	LDR	R1,[R8,#w_txtw]		; buffer width
 	CMP	R10,R2
 	MOVGT	R4,#0			; start col 0 if not first line
@@ -1683,7 +1735,10 @@ rs11	LDR	R1,[R8,#w_margin]
 	SUBS	R5,R5,R4		; num of chars to write
 	FNRTS	LE
 	ADD	R4,R6,R4		; first col
-	ADD	R2,R4,R1		; foreground mask
+	LDR	R2,[R8,#w_info]
+	TST	R2,#info_WideRedraw
+	ADDEQ	R2,R4,R1		;
+	ADDNE	R2,R4,R1,LSL #2		; foreground mask
 	ADD	R3,R2,R1		; background mask
 	MOV	R0,#syscol_SelFg
 	MOV	R1,#syscol_SelBg
@@ -1706,7 +1761,20 @@ colon	MOV	R0,#':'
 	MOV	PC,R14
 
 linenumbercolons
-	ADD	R6,R6,#1
+	MOV	R0,#0			; set the colour
+	STRB	R0,[R6],#1		;
+	MOV	R0,#10			;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#syscol_Fg		;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#syscol_BgEditable	;
+	STRB	R0,[R6],#1		;
+	MOV	R0,#0			; FIXME
+	STRB	R0,[R6],#1		;
+
+	MOV	R0,#' '
+	STRB	R0,[R6],#1
+	STRB	R0,[R6,#1]
 	LDR	R0,[R8,#w_info]
 	TST	R0,#info_LineNumberColons
 	MOV	R0,#':'
@@ -2264,7 +2332,6 @@ print_rectangle
 	BL	redraw_to_red		; convert coords to pixels
 	BLVC	update_cache		; update cache entries
 	BLVC	create_redraw_data	; create new style redraw data
-	MOVVC	R4,R0			; largest character used
 	BLVC	print_area_font		; display on screen area
 	FNRTS
 

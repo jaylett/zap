@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 2.8 2004/11/21 18:29:02 christian Exp $
+; $Id: Fonts,fff,v 2.9 2005/02/14 11:58:20 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -8,6 +8,7 @@
  GET h.CreateWind
  GET h.Messages
  GET h.MiniBuff
+ GET h.ModeBits
 
  EXPORT correct_font
  EXPORT	find_font
@@ -15,6 +16,7 @@
  EXPORT	read_font_sizes
  EXPORT	read_dsa_font_name
  EXPORT	read_vdu_font_name
+ EXPORT is_UTF8
 
  EXPORT Bitmapfont
  EXPORT Outlinefont
@@ -27,7 +29,7 @@
 ; use the font named in the window block, or the defaults if not set
 ; E R8
 ; X w_font setup
-		FNAME 	find_font
+		FNAME	find_font
 find_font	FNJSR	"R11"
 
 		MOV	R0,#0
@@ -88,11 +90,32 @@ notvdu$l	SWI	XZapRedraw_FindFont
 		STR	R0,[R8,#w_flags]
 
 		; find the encoding
-encoding$l	LDR	R1,[R8,#w_encoding]
+encoding$l	LDR	R0,[R8,#w_encoding]
+		BL	is_UTF8				; setup w_info UTF8 flag
+		BNE	notutf8$l
+
+		MOV	R0,#einterrogate_UTF8		; check if mode allows UTF-8 redraw
+		MOV	R11,#e_interrogate		;
+		BL	call_mode			;
+		TEQ	R0,#0				;
+		MOVNE	R0,#0				;
+		BNE	noutf8$l			;
+
+		LDR	R0,[R8,#w_info]			;
+		ORR	R0,R0,#info_UTF8		;
+		STR	R0,[R8,#w_info]			;
+		MOV	R0,#(1<<30)+1			; fake ZapRedraw UTF-8 encoding handle
+		STR	R0,[R8,#w_encodinghandle]	; FIXME: this is lazy
+		FNRTS					; we'll decode UTF-8 ourselves
+
+notutf8$l	LDR	R1,[R8,#w_encoding]
 		TEQ	R1,#0
 		MOV	R0,#0
 		SWINE	XZapRedraw_Encoding
-		STRVC	R0,[R8,#w_encodinghandle]
+noutf8$l	STRVC	R0,[R8,#w_encodinghandle]
+		LDR	R1,[R8,#w_info]			; clear w_info UTF8 flag
+		BIC	R1,R1,#info_UTF8		;
+		STR	R1,[R8,#w_info]			;
 		FNRTS	VC
 
 		ADDS	R0,R0,#4			; point to message and clv
@@ -247,7 +270,7 @@ Outlinefont	TEQ	R2,#0				; execute?
 
 ; FONTASPECT <number> command
 		FNAME	Fontaspect
-		DCD 	7+c_Param_Words+c_ProvidesDefaultMenuString
+		DCD	7+c_Param_Words+c_ProvidesDefaultMenuString
 Fontaspect	FNJSR
 		TEQ	R2,#17				; wants default menu string
 		BEQ	defmenu$l
@@ -362,5 +385,23 @@ prompt$l	ADR	R0,p$l
 		B	minibuffer_prompt_token
 
 p$l		FNS	("zap_p_encoding")
+
+
+; E R0 -> encoding name
+; X EQ if UTF-8
+		FNAME	is_UTF8
+is_UTF8		FNJSR	"R1-R2"
+		MOV	R1,R0
+		MOV	R2,#'E'
+		SWI	XFont_FindField
+		LDRB	R0,[R1],#1
+		TEQ	R0,#'U'
+		LDREQB	R0,[R1],#1
+		TEQEQ	R0,#'T'
+		LDREQB	R0,[R1],#1
+		TEQEQ	R0,#'F'
+		LDREQB	R0,[R1],#1
+		TEQEQ	R0,#'8'
+		FNRTS
 
  END

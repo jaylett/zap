@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.16 2004/11/21 18:29:02 christian Exp $
+; $Id: CreateWind,fff,v 2.17 2005/02/14 11:58:20 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -440,13 +440,24 @@ correct_wind_blk
 	TST	R14,#1
 	BLEQ	correct_width
 	FNRTS	VS
-	LDRVC	R0,[R8,#w_width]	; get width
-	ADDVC	R0,R0,#1		; add for few pixs on right
-	ADDVC	R0,R0,#7
-	BICVC	R0,R0,#7		; align to next lot of 8
-	STRVC	R0,[R8,#w_txtw]		; find new cache line width
-	MOVVC	R14,R0,LSL #2
-	STRVC	R14,[R8,#w_txtlen]	; actual line length
+
+	MOV	R11,#e_interrogate
+	MOV	R0,#einterrogate_WideRedraw
+	BL	call_mode
+	TEQ	R0,#0
+	LDR	R0,[R8,#w_info]
+	ORREQ	R0,R0,#info_WideRedraw
+	BICNE	R0,R0,#info_WideRedraw
+	STR	R0,[R8,#w_info]
+
+	LDR	R0,[R8,#w_width]	; get width
+	ADD	R0,R0,#7+1		; add 1 for few pixs on right
+	BIC	R0,R0,#7		; align to next lot of 8
+	STR	R0,[R8,#w_txtw]		; find new cache line width
+	RSBEQ	R14,R0,R0,LSL #3	; * 7 if 32 bit characters
+	MOVNE	R14,R0,LSL #2		; * 4 if 8 bit characters
+	ADD	R14,R14,#8		; add space for line number & flags
+	STR	R14,[R8,#w_txtlen]	; actual line length
 	BLVC	find_work_height	; find new height
 	STRVC	R0,[R8,#w_height]	; save work height
 	BLVC	create_palette		; load mode palette
