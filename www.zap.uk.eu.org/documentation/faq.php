@@ -1,5 +1,5 @@
 <?php
-  // $Id: faq.php,v 1.5 2002/11/07 11:08:38 james Exp $
+  // $Id: faq.php,v 1.6 2003/05/21 18:23:26 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
@@ -151,6 +151,8 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
   addSection ($qa, 'discuss', 'Talking about Zap');
   addQa ($qa, 'lists', 'Are there mailing lists where people discuss Zap?',
 	'<p>Yes; see the <a href="http://www.zap.tartarus.org/lists">page about the lists</a> on the web site.</p>');
+  addQa ($qa, '32bit', 'Is Zap 32-bit?',
+	'<p>Yes and no. Version 1.45 and older versions aren\'t; version 1.46 is.</p>');
 
   addSection ($qa, 'bug', 'Bugs and misfeatures in Zap');
   addQa ($qa, 'list', 'Is there a list of known bugs somewhere?',
@@ -169,5 +171,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2002/11/07 11:08:38 $');
+  zap_body_end ('$Date: 2003/05/21 18:23:26 $');
 ?>
