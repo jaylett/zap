@@ -1,12 +1,11 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.19 2002/11/18 13:33:16 christian Exp $
+; $Id: BASIC,fff,v 1.20 2003/02/06 18:58:40 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
  GET h.ZapBASIC
  GET h.BAStxt
  GET h.SWIs
- GET h.Buttons
  GET h.Brackets
 
  IMPORT charfromoffset
@@ -37,7 +36,6 @@
  EXPORT wimp_nextslot
  EXPORT BASIC_TWRun
  EXPORT local_wkspace_ptr
- EXPORT loadmenuifrequired
 
 fake_tab_character * 13
 
@@ -55,12 +53,12 @@ basic_table_start
  DCD basic_author
  DCD 0
   [ INTL=""
- DCD 5+(1<<11)+(1<<12)
+ DCD 5+(1<<11)+(1<<12)+(1<<14)
   |
- DCD 5+(1<<11)
+ DCD 5+(1<<11)+(1<<14)
   ]
  DCD basic_init
- DCD 0
+ DCD basic_menu
  DCD basic_table_end-basic_table_start
 
  DCD basic_postload
@@ -111,12 +109,14 @@ basic_table_start
  DCD basic_setwidth
  DCD basic_listfns
  DCD basic_prevline
- DCD gotoopenwindow
+ DCD 0
  DCD basic_interrogate
 basic_table_end
 
-basic_title  FNS ("BASIC")
-basic_author FNS ("Dominic Symes")
+basic_title 	=	"BASIC",0
+basic_author	=	"Dominic Symes",0
+basic_menu	=	"ZapBASIC:Menus",0
+		ALIGN
 
  LOCAL
 
@@ -131,8 +131,6 @@ basic_init
  BEQ basic_claim ; OK
  TEQ R1,#6
  BEQ basic_cols ; OK
- TEQ R1,#7
- BEQ basic_menu ; OK
  TEQ R1,#11
  BEQ basic_zapversion ; OK
  TEQ R1,#0			; dying?
@@ -225,40 +223,6 @@ d$l	= "Comments",0
 	= 0
  ]
  ALIGN
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Create the mode menu						;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
- LOCAL
-
-;X R1=pointer to the menu
-
-basic_menu
- FNJSR
- BL loadmenuifrequired
- FNcall Zap_ReadMenu
- LDRVC R1,[R0,#4]
- FNRTS
-
-;basic_menu
-; FNJSR
-; ADR R0,d$l
-; FNcall Zap_ReadMenu
-; LDRVC R1,[R0,#4]
-; FNRTS
-;d$l
-; = "1",10,10
-; = "00 ""Basic"" 20",10
-; = "   ""Renumber           "" Renumber",10
-; = "   ""Drop into BASIC    "" Basic",10
-; = "   ""Run                "" Run",10
-; = "   ""Run then quit      "" Runandquit",10
-; = "   ""Save and run       "" Compile",10
-; = "   ""Save, run, quit    "" Saveandrun",10
-; = "   ""List of DEF's      "" Listfns",10
-; = 0
-; ALIGN
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -5106,19 +5070,13 @@ basic_start
  FNLDR R0,mode_basic		; mode number
  STR R11,local_wkspace_ptr
  BL restore_mode_word
+ FNRTS
 
 ; MOV R8,#0
 ; FNLDR R1,mode_basic		; mode number
 ; FNcall Zap_GetModeWord
 ; CMP R0,#0
 ; BLEQ forfirsttime$l
-
- CMP R8,#0			; TT Don't do anything if in IB menu
- BLNE but_destroyanypanes	; destroy any made so far...
- CMP R8,#0			; TT Don't do anything if in IB menu
- BLNE gomakepanehappen
- FNRTVC
-
 ;forfirsttime$l
 ; FNJSR
 ; FNLDR R1,mode_basic		; mode number
@@ -5140,8 +5098,6 @@ basic_end
  FNJSR
  FNLDR R0,mode_basic
  BL save_mode_word
- CMP R8,#0			; TT Don't do anything if in IB menu
- BLNE but_destroyanypanes	; TT ... ? problem?
  FNRTS
 
 basic_width
@@ -8118,388 +8074,72 @@ detokenise_line_speshally
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; REM *****************************************************
-; REM *							  *
-; REM *	     Tim Tyler's main additions begin here        *
-; REM *							  *
-; REM *****************************************************
 
-; REM code to call the e_openwindow entry point.
-; REM This routine should be pointed directly to from e_openwindow
+	DCD	&8017
+CmdBASICflagstoggle
+	FNJSR	"R1-R4,R11"
+	BL	get_workspace
+	MOV	R4,R0
 
-gotoopenwindow
- FNJSR
+	FNLDR	R1,mode_basic
+	FNcall  Zap_GetModeWord,R0
 
- BL	 openwindowroutine
+	MOV	R3,R0
+	LDR	R0,[R4]
+	BL	calculate_masks
 
- CMP	 R0,#0			; REM If there was a pane then no problem
- FNRTS NE		; REM just return...
- BL	 gomakepanehappen	; REM ...otherwise try to make one...
- BL	 openwindowroutine	; REM ...and redraw it...
-
- FNRTS
-
-openwindowroutine
- FNJSR	 "R0-R12"
- PUSH	 "R1-R11"
- ADRL	 R1,localcopyof_mode_basic
- LDR	 R1,[R1]
- FNcall  Zap_GetModeWord
- PULL	 "R1-R11"
-
- TST	 R0,#1 << 17
-;ww TSTEQ	 R0,#1 << 30
- BEQ	 bas_justcallthebasemode
-
- STR	 R0,bas_ModeWordFlags
-
- BL	 but_trytoloadmode	    ; REM load buttons if it is not there.
-
- ADR	 R0,buttonsamed2
- FNcall  Zap_TestModeName
- CMP	 R0,#1
- BMI	 bas_justcallthebasemode
-
- MOV	 R0,#18
- ADR	 R1,buttonsamed
- SWI	 XOS_Module
- BVS	 bas_justcallthebasemode
-
- ADD	 R3,R3,#&28
- STR	 R3,bas_LocalJump
- FNPULL
-
- MOV	 R2,#0
- MOV	 R3,#0
- MOV	 R4,#0
-;ww ADRL	 R3,basic_clnoff  ; REM pointer to custom
-;ww ADRL	 R4,basic_clnphy
-;ww LDR	 R2,bas_ModeWordFlags
-;ww ANDS	 R2,R2,#1 << 30
-;ww MOVNE	 R2,#&FF		; REM use window wrap flag...
-;ww ORRNE	 R2,R2,#&FF00		; REM use custom e_clnoff
-;ww ORRNE	 R2,R2,#&FF000000	; REM use custom e_clnphy
-;ww ORRNE	 R2,R2,#&40000
- ; LDMFD R13,{R0-R12,R14}
- ;MOV	 R14,PC
- LDR	 PC,bas_LocalJump
- ;STR	 R0,bas_LocalJump
- ;LDMFD	 R13 !,{R0-R12,R14}
- ;LDR	 R0,bas_LocalJump
- ;MOV	 PC,R14
-
-bas_justcallthebasemode
- FNPULL
- MOV	  R0,#1
- MOV	  PC,R14
-
-HaveAnotherTry
- BL	 but_trytoloadmode
- CMP	 R0,#0
- BPL	 backinthethickofit
- FNRTS
-
-buttonsamed
- =    "Zap"
-
-buttonsamed2
- =    "Buttons",0,0
-
-bas_LocalJump
- DCD	0
-
-bas_ModeWordFlags
- DCD	0
-
- LOCAL
-
-; REM Main routine; calls Buttons_Open.
-; REM This routine is what is commonly used to open a button bar.
-; REM it loads the relevent templates files if they are not
-; REM already loaded, sets up a sprite area, and loads any
-; REM scripts and menu files required.
-
-gomakepanehappen
- FNJSR	 "R0-R12"
-
- LDR	 R11,[R12]		; workspace pointer
- ;FNLDR R1,mode_basic
- ADRL	 R14,localcopyof_mode_basic
- LDR	 R14,[R14]
- LDRB	 R0,[R8,#w_format]
- CMP	 R0,R14
- FNRTS NE
-
- PUSH	 "R1-R11"
- MOV	 R1,R14
- FNcall  Zap_GetModeWord
- PULL	 "R1-R11"
-
- STR	 R0,bas_LocalJump	     ; REM temporarily...
-
- ANDS	 R0,R0,#1 << 17 ; TT?
- FNRTS EQ
-
- ADR	 R0,buttonsamed2
- FNcall  Zap_TestModeName
- CMP	 R0,#0
- BMI	 HaveAnotherTry
-backinthethickofit
- MOV	 R0,#18
- ADR	 R1,buttonsamed
- SWI	 XOS_Module
- FNRTS VS
- ADD	 R10,R3,#&24
-
- LDR	 R0,bas_LocalJump
- MOV	 R4,#0
- ANDS	 R1,R0,#1 << 20		 ; REM flags for left
- ORRNE	 R4,R4,#2
- ANDS	 R1,R0,#1 << 19		 ; REM flags for top
- ORRNE	 R4,R4,#4
- ANDS	 R1,R0,#1 << 18		 ; REM flags for fleeting...
- ORRNE	 R4,R4,#8
-
- ; ORR	   R4,R4,#14
-
- LDR	 R0,AddressOfScriptFile
- CMP	 R0,#0
- BLEQ	 getthethreeelements
-
- MOV	 R7,#0			 ; REM for handler...
- MOV	 R6,#0			 ; REM for dX and dY...
- LDR	 R5,AddressOfMenu
- LDR	 R3,AddressOfScriptFile
- LDR	 R2,AddressOfTemplateFile
- LDR	 R1,AddressOfSpriteArea
-
- MOV	 R0,#0
-
- MOV	 R14,PC
- MOV	 PC,R10
- MOV	 R0,R0			  ; REM NOP
-
- FNRTS
-
-; REM load the stuff the button bar needs...
-
-getthethreeelements
- FNJSR	 "R0-R4"
- ADR	 R1,markcmdpath
- BL	 LoadANDReturnMiscAddress
- STRVC	 R0,AddressOfScriptFile
-
- BLVC	 but_changeLFto00
-
- ADRVC	 R1,marksprpath
- BLVC	 LoadANDReturnSpriteAddress
-
- ADRVC	 R1,marktempath
- BLVC	 LoadANDReturnMiscAddress
- STRVC	 R0,AddressOfTemplateFile
-
- BLVC	 loadmenuifrequired
-
- FNRTS
-
-; REM used to load the menu file...
-
-loadmenuifrequired
- FNJSR
- LDR	 R0,AddressOfMenu
- CMP	 R0,#0
- FNRTS   NE
-
- ADR	 R1,markmenpath
- BL	 LoadANDReturnMiscAddress
- STR	 R0,AddressOfMenu
-
- FNRTS
-
-LoadANDReturnMiscAddress
-	FNJSR	"r1-r5"
-	MOV	r0, #5
-	SWI	OS_File
-	FNRTS	VS
-	STR	r4, tempS2
-	ADD	r0, r4, #7
-	BIC	r0, r0, #3
-	FNcall	Zap_Claim
-	STRVC	r0, tempS1
-	MOVVC	r3, #0
-	MOVVC	r2, r0
-	MOVVC	r0, #255
-	SWIVC	OS_File
-	FNRTS	VS
-	LDR	r0, tempS1
-	LDR	r1, tempS2
-	MOV	r2, #0
-	B	zerotest_sja
-zeroloop_sja
-	STRB	r2, [r0, r1]
-	ADD	r1, r1, #1
-zerotest_sja
-	TST	r1, #3
-	BNE	zeroloop_sja
-	STR	r2,[ r0, r1]
+        TEQ	R2,#15
+        BNE	set$l
+	AND	R3,R3,R1		; check tick state
+	TEQ	R3,R1			; all set?
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
 	FNRTS
 
-LoadANDReturnSpriteAddress
- FNJSR	 "R1-R5"
+set$l	ORR	R4,R0,R1		; get mask of bits changing
+	BIC	R0,R3,R0		; set new options
+	EOR	R0,R0,R1
 
- MOV	 R0,#5
- SWI	 OS_File
+	FNLDR	R1,mode_basic	; save them
+	FNcall	Zap_PutModeWord
 
- BIC	 R0,R4,#3
- ADD	 R0,R0,#&10
- FNcall  Zap_Claim
+	TEQ	R8,#0
+	TSTNE	R4,#mw_b_no_colour_apcs :OR: mw_b_no_colour_code
+	FNRTS	EQ
 
- STRVC	 R0,AddressOfSpriteArea
- ADDVC	 R4,R4,#5
- STRVC	 R4,[R0]
+	FNcall	Zap_UpdateWholeWindow,R0 ; flush the screen if colouring options changing
+	FNRTS
 
- MOVVC	 R3,#0
- ADDVC	 R2,R0,#4
- MOVVC	 R0,#255
- SWIVC	 OS_File
 
- FNRTS
+;E R0 = 4 x 8 bit instruction blocks. Each block has format:
+;	b0-b4 = 0-31 number of bit in the word to toggle
+;	b5/b6 = 00 => toggle the bit
+;		01 => set the bit
+;		10 => clear the bit
+;		11 => reserved
+;	b7    = must be set to show this block active (except lowest byte
+;		where its unused by this sub - others may use it)
+;X R0 = BIC mask  R1 = eor to accomplish this
+calculate_masks
+	FNJSR	"R2-R3"
+	ORR	R2,R0,#1<<7		; lowest byte always contains a block
+	MOV	R0,#0
+	MOV	R1,#0			; default mask/eor (does nothing)
+a$l	TST	R2,#1<<7		; active block?
+	FNRTS	EQ			; no - finished
+	AND	R3,R2,#&1F		; bit number
+	MOV	R14,#1
+	MOV	R14,R14,LSL R3		; bit mask
+	ANDS	R3,R2,#&60		; action
+	ORREQ	R1,R1,R14		; toggle
+	TEQ	R3,#&20
+	ORREQ	R0,R0,R14
+	ORREQ	R1,R1,R14		; set the bit
+	TEQ	R3,#&40
+	ORREQ	R0,R0,R14		; clear the bit
+	MOV	R2,R2,LSR#8
+	B	a$l
 
-tempS1
- DCD	0
-
-tempS2
- DCD	0
-
-AddressOfTemplateFile
- DCD	0
-
-AddressOfSpriteArea
- DCD	0
-
-AddressOfScriptFile
- DCD	0
-
-AddressOfMenu
- DCD	0
-
-; REM Make sure the zeros pad to word alignment...
-
-markcmdpath
- =    "<ZapBASIC$Scripts>",0,0
-
-marksprpath
- =    "<ZapBASIC$Sprites>",0,0
-
-marktempath
- =    "<ZapBASIC$Templates>",0,0,0,0
-
-markmenpath
- =    "<ZapBASIC$Menus>",0,0,0,0
-
- DCD	&8017
-CmdBASICflagstoggle
- FNJSR
- LDR	 R10,[R0]		; REM gets word argument...
-
- ADRL	 R1,localcopyof_mode_basic
- LDR	 R1,[R1]
-
- PUSH	 "R1-R11"
- ADRL	 R1,localcopyof_mode_basic
- LDR	 R1,[R1]
- FNcall  Zap_GetModeWord
- PULL	 "R1-R11"
- MOV	 R7,R0
-
- CMP	 R2,#15
- BEQ	 but_tickquery		; REM bit 15 of R2 indicates a 'tickquery'
-
- MOV	 R5,#0
-
- AND	 R1,R10,#&FF
- BL	 bas_execute
- MOV	 R1,R10,LSR #8
- AND	 R1,R1,#&FF
- TST	 R1,#&80
- BLNE	 bas_execute
- MOV	 R1,R10,LSR #16
- AND	 R1,R1,#&FF
- TST	 R1,#&80
- BLNE	 bas_execute
- MOV	 R1,R10,LSR #24
- AND	 R1,R1,#&FF
- TST	 R1,#&80
- BLNE	 bas_execute
-
- MOV	 R0,R7
- ADRL	 R1,localcopyof_mode_basic
- LDR	 R1,[R1]
- FNcall  Zap_PutModeWord
-
- CMP	 R8,#0
- FNRTS EQ
-
- ANDS	 R0,R5,#2
- BLNE	 sortbbout		; REM if the button bar has changed
-
- ANDS	 R0,R5,#&10
- BLNE	 but_sortwwout3		; REM window redraw if needed...
-
- ANDS	 R0,R5,#8
- BLNE	 but_sortwwout2		; REM window redraw if needed...
-
- ANDS	 R0,R5,#4
- BLNE	 but_sortwwout		; REM window redraw if needed...
-
- ANDS	 R0,R5,#1
- BLNE	 sortbuttonsout		; REM the BB needs deleting/creating
-
- FNRTS
-
-sortbbout
- FNJSR	 "R5,R7"
- MOV	 R0,#3
-
- MOV	 R7,R7,LSR #18
- MOV	 R7,R7,LSL #29
- MOV	 R7,R7,LSR #1
-
- BL	 but_callmiscentrypt	    ; REM sets/clears any bits (from R7)
-
- CMP	 R0,#0
-
- BLNE	 callopenthewindow
-
- FNRTS
-
-callopenthewindow
- FNJSR
-
- MOV	 R1,R8
- SWI	 Wimp_GetWindowState
-
- MOV	 R0,#1
-
- BL	 gotoopenwindow
-
- FNRTS
-
-sortbuttonsout
- FNJSR	 "R5"
-
- ANDS	 R0,R7,#1 << 17 ; TT?
- BLEQ	 but_closeanypanes	    ; REM buttons have been toggled off
-
- ANDS	 R0,R7,#1 << 17 ; TT?
- FNRTS EQ
-
- BL	 gomakepanehappen	; REM buttons have been toggled on
-
- BL	 gotoopenwindow		; REM Redraws the BBs - has to be done
- BL	 gotoopenwindow		; REM twice - due to the first such
-
- FNRTS
 
 seltmp_bas1$l
  DCD 0
