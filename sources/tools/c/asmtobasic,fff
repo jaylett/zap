@@ -1,0 +1,273 @@
+/* asmtobasic - convert offset assembler header to a tokenised BASIC equivalent
+// (c) 2002 Zap Developers
+// $Id: asmtobasic,fff,v 1.1 2002/02/07 17:54:36 christian Exp $
+
+// syntax:
+//
+// lines enclosed in
+//
+//  ; DEFPROC <name>
+//  ; ENDPROC
+//
+// are treated as assembler and a procedure is created to define the variables.
+//
+// files should end with END (as required by ObjAsm)
+//
+// any lines not containing DEFPROC, ENDPROC, END, # or ^ are simply copied accress.
+// if outside a DEFPROC...ENDPROC block, REM is prepended.
+//
+// Note: the number after # is ignored and assumed 4
+*/
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+#define MESSAGE "Created by asmtobasic (c) 2002 Zap Developers"
+
+#define LINC    10         // line number increment
+#define REM     0xf4
+#define DEF     "\xdd "
+#define PROC    "\xf2"
+#define ENDPROC "\xe1"
+#define LOCAL   "\xea "
+#define FOR     "\xe3 "
+#define NEXT    "\xed"
+#define TO      "\xb8 "
+#define STEP    "\x88 "
+#define OPT     "OPT "
+#define DIM     "\xde "
+
+#define myfputc(a,b)         \
+ if (fputc((a), (b)) == EOF) \
+     finish("write error\n");
+
+#define myfputs(a,b)         \
+ if (fputs((a), (b)) == EOF) \
+     finish("write error\n");
+
+// globals
+int line_number = 10;
+static int in_for = 0;
+char line[256];
+char *outfile;
+FILE *in;
+FILE *out;
+
+void finish(char *error)
+{
+    if (in != NULL)
+        fclose(in);
+
+    if (out != NULL)
+        fclose(out);
+
+#ifdef RISCOS
+    {
+        char buf[256];
+        strcpy(buf, "SetType ");
+        strcat(buf, outfile);
+        strcat(buf, " ffb");
+        system(buf);
+    }
+#endif
+
+    if (error != NULL)
+    {
+        fputs(error, stderr);
+        remove(outfile);          // delete the output file on error
+        exit(1);
+    }
+    else
+        exit(0);
+}
+
+
+char *get_line(char *line, int n)
+{
+    if (fgets(line, n, in) == NULL)
+        finish("read error\n");
+
+    return line;
+}
+
+void write_line(char *line)
+{
+    char *i;
+
+    i = strchr(line, '\n');
+    if (i != NULL)
+        *i = '\0';
+
+    myfputc('\r', out);
+    myfputc(line_number >> 8, out);
+    myfputc(line_number & 0xff, out);
+    myfputc(strlen(line) + 4, out);
+    myfputs(line, out);
+
+    line_number += LINC;
+}
+
+
+void write_rem(char *line)
+{
+    char buf[256];
+
+    *buf       = REM;
+    *(buf + 1) = ' ';
+    strcpy(buf + 2, line);
+
+    write_line(buf);
+}
+
+void process_defproc(void)
+{
+    char buf[256];
+    char *c;
+
+    c = strstr(line, "DEFPROC");
+    while (isalpha(*c))
+        c++;
+    while (isspace(*c))
+        c++;
+
+    strcpy(buf, DEF PROC);
+    strcat(buf, c);
+
+    write_line("");
+    write_line(buf);
+    write_line(LOCAL "pass%, P%, O%, L%, code%");
+    write_line(DIM "code% 2048");
+    write_line("L% = code% + 2048");
+}
+
+
+void process_endproc(void)
+{
+    if (in_for)
+        write_line("]:" NEXT);
+
+    in_for = 0;
+
+    write_line(ENDPROC);
+}
+
+
+void process_hat(void)
+{
+    if (in_for)
+        write_line("]:" NEXT);
+
+    write_line(FOR "pass% = %1100 " TO " %1110 " STEP "2");
+    write_line("P% = 0 : O% = code%");
+    write_line("[ OPT pass%");
+
+    in_for = 1;
+}
+
+
+void process_hash(void)
+{
+    char buf[256];
+    int i;
+
+    *buf = '.';
+
+    i = (int)(strchr(line, '#') - line);
+
+    strncpy(buf + 1, line, i);
+    strcpy(buf + i + 1, "EQUD");
+    strcat(buf, line + i + 1);
+    write_line(buf);
+}
+
+
+void write_end(void)
+{
+    myfputc('\r', out);
+    myfputc(0xff, out);
+}
+
+
+void process_asm(void)
+{
+    while ((1))
+    {
+        get_line(line, sizeof(line));
+
+        if (strchr(line, '^'))
+            process_hat();
+        else if (strchr(line, '#'))
+            process_hash();
+        else if (!strstr(line, "ENDPROC"))
+            write_line(line);
+        else
+            break;
+    }
+    process_endproc();
+}
+
+
+int main(int argc, char *argv[])
+{
+    if (argc != 3)
+    {
+        fprintf(stderr, "Syntax: %s <infile> <outfile>\n", argv[0]);
+        return 1;
+    }
+
+    outfile = argv[2]; // keep this for use in finish()
+
+    in  = fopen(argv[1], "r");
+    out = fopen(argv[2], "wb");
+
+    if (in != NULL && out != NULL)
+    {
+        while ((1))
+        {
+            // do comments outside the assembly bit
+            while ((1))
+            {
+                get_line(line, sizeof(line));
+
+                if (strstr(line, "DEFPROC") || strstr(line, "END"))
+                    break;
+
+                // filter out RCS Ids since they'll be wrong for the generated file
+                if (strstr(line, "$Id:"))
+                    write_rem(MESSAGE);
+                else
+                {
+                    if (*line == ';')
+                        write_rem(line + 1);
+                    else
+                        write_rem(line);
+                }
+            }
+
+            if (strstr(line, "END"))
+                break;
+
+            process_defproc();
+
+            // process the assembly part
+            process_asm();
+        }
+
+        // finish
+        write_end();
+
+        finish(NULL);
+    }
+    else
+    {
+        sprintf(line, "Couldn't open %sput file", (in == NULL) ? "in" : "out");
+        finish(line);
+    }
+
+    return 0;
+}
+
+
+
