@@ -421,7 +421,7 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 ;    r3  state    - Current state
 ;    r6  output   - Address of buffer for output, or 0. If top bit set, just store states
 ;                   NB. If top bit clear scanning stops at newline, else ignored
-;    r7  rangeend - Offset to stop at, or 0 for end of file, (or -1...? TT)
+;    r7  rangeend - Offset to stop at, or -1 for end of file
 ;    r8  width    - Length of redraw buffer (not including colours)
 ;    r9
 ;
@@ -438,7 +438,7 @@ scanfile$C	FNJSR	"r4,r11"		; BEWARE: explicit pull on return
 		LDR	splito,f_splito		; due to nested FNJSRs
 		LDR	lr,f_splits
 		CMP	rangeend,splito
-		ADDGE	rangeend,rangeend,lr
+		ADDGE	rangeend,rangeend,lr	; note signed: has no effect on -1
 		CMP	ptr,splito
 		ADDHS	ptr,ptr,lr
 		LDRHS	splito,f_bufl
@@ -460,9 +460,9 @@ scanfile$C	FNJSR	"r4,r11"		; BEWARE: explicit pull on return
 		TEQNE	lastchar,#endcomment
 		TEQNE	lastchar,#endinccomment
 		BEQ	commentloop$L
-		TEQ	lastchar,#cppcomment	; new kid OTB...
-		BEQ	to_cpploop$L		; cppcomloop$L
-notprevnext$L
+		TEQ	lastchar,#cppcomment
+		BEQ	cpploop$L
+;notprevnext$L
 		TEQ	lastchar,#startcomment
 		TEQNE	lastchar,#startinccmmnt
 		BEQ	commentstart$L
@@ -636,10 +636,10 @@ commentloop$L	BL	getchar$L
 
 cpp$L		PULL	"char,ptr,splito"
 		BCS	notcomment$L		; fires...? huh?
-		TST	crtab,#cext
+;		TST	crtab,#cext
 ;		BNE	testtoseeppon$L
-		TSTEQ	crtab,#cppext+javaext
-		BEQ	notcomment$L
+;		TSTEQ	crtab,#cppext+javaext
+;		BEQ	notcomment$L
 testtoseeppon$L	AND	state,state,#preprocflag
 		ORR	state,state,#cppcomment
 cpploop$L
@@ -654,11 +654,11 @@ cpploop$L
 ;		SWI	&107
 		B	normal$L
 
-to_cpploop$L
-		LDR	lr,local_prevnextflag
-		CMP	lr,#0
-		BEQ	cpploop$L
-		B	notprevnext$L
+;to_cpploop$L
+;		LDR	lr,local_prevnextflag
+;		CMP	lr,#0
+;		BEQ	cpploop$L
+;		B	notprevnext$L
 
 ;testtoseeppon$L
 ;;		STMFD	sp!,{r0-r12}
@@ -1339,19 +1339,31 @@ k_tran$L	=	"neis"
 
 		LOCAL
 
+; what cl thinks is in tempblk in prevline
+		^	0
+pl_0		#	4				;  0
+pl_4		#	4                               ;  4 ptr   n bytes before change
+pl_8		#	4                               ;  8 state n bytes before change
+pl_12		#	4                               ; 12 how far back to look (1st rangeend)
+pl_16		#	4                               ; 16
+pl_saved_splito	#	4                               ; 20 saved f_splito etc
+pl_saved_splits	#	4                               ; 24
+pl_saved_len	#	4                               ; 28
+pl_states	#	4                               ; 32
+
 
 ;  Find start of update region
 tempblk$L	RN	r4
 firstsize$L	*	640
 bigsize$L	*	1280
-local_prevnextflag
-		DCD 0
+;local_prevnextflag
+;		DCD 0
 
 		EXPORT	prevline$C
 prevline$C
 		FNJSR	"r0-r11"
 		SWI	XHourglass_On
-		MOV	r1,r0
+		MOV	r1,r0				; file offset of change
 		LDR	r4,w_format
 		BL	scaninit$C
 		BL	checkmode
@@ -1367,12 +1379,12 @@ prevline$C
 ;		B	hardcase$L ; delnolengthcheck$L
 		LDR	R0,f_docom
 		AND	R0,R0,#7
-		CMP	R0,#1
-		CMPNE	R0,#6
+		CMP	R0,#1				; check for insert
+		CMPNE	R0,#6				;
 		BNE	notsoeasycase$L
 
 		LDR	R0,f_dolen
-		BIC	R0,R0,#&FF000000	; !
+		BIC	R0,R0,#&FF000000	; ! why? - cl
 		LDR	R2,f_dodata
 checkalp1a$L	SUBS	R0,R0,#1
 		BMI	easycase$L
@@ -1432,72 +1444,58 @@ notsoeasycase$L
 		MOV     r0,#128
 
 carryon$L
-		MOV	R11,#-1
-		STR	R11,local_prevnextflag
+;		MOV	R11,#-1
+;		STR	R11,local_prevnextflag
 		SUBS	r11,r1,R0		; how far back to look...
 		; code above should be reused to minimise this...
 		MOVMI	r11,#0
 		STR	r1,[tempblk$L,#12]
-		BL	scanto$C		; scan file to get status
+		BL	scanto$C		; scan file to get state up to R0 bytes before change
 		STMIB	tempblk$L,{ptr,state}
 		LDR	rangeend,[tempblk$L,#12]
 		ADD	output,tempblk$L,#1<<31+32
 		MOV	lwidth,#-1
-		BL	scanfile$C		; scan file to get status
+		BL	scanfile$C		; scan file to get state
 		STR	output,[tempblk$L]
 noprev$L	LDR	r11,f_splito
 		BL	scanto$C
-		MOV	output,#0
-		MOV	lwidth,#-1
-		MOV	rangeend,#-1
-		BL	scanfile$C		; scan file to get status
+		MOV	output,#0			; no output, stop at LF
+		MOV	lwidth,#-1			; ignore physical line boundaries
+		MOV	rangeend,#-1		        ; scan to EOF
+		BL	scanfile$C			; scan file to get state
 		ADD	r0,tempblk$L,#(firstsize$L - 40) ; 600
 		STMIA	r0,{ptr,state}
 		LDR	r2,f_splito
 		LDR	r6,f_splits
 		LDR	r7,f_len
-		ADD	r0,tempblk$L,#20
+		ADD	r0,tempblk$L,#20		; save current values
 		STMIA	r0,{r2,r6,r7}
 		LDR	r3,f_dolen
 		LDR	r0,f_docom
 
-; 		AND	r0,r0,#&F
-; 		CMP	r0,#2
-; 		SUBHS	r2,r2,r3
-; 		STRHS	r2,f_splito
-;delete$L	ADDEQ	r6,r6,r3
-;		SUBEQ	r7,r7,r3
-;		BEQ	rescan$L
-;insert$L	SUBLO	r6,r6,r3
-;		ADDLO	r7,r7,r3
-;replace$L	ADD	r2,r2,r6
-;		LDR	r0,f_ptr
-;		ADD	r2,r2,r0
-;		LDR	r1,f_dodata
-;		CALL	Zap_MoveBytes
-;rescan$L	STR	r6,f_splits
-
 		AND	r0,r0,#&F
-		CMP	r0,#6			; ?
+		CMP	r0,#6				; insert (cursor at start)
 		BEQ 	ininsert$L
-		CMP	r0,#2			; ?
-		SUBHS	r2,r2,r3		; 2/3/4/5
-		STRHS	r2,f_splito		; ?????????????
-delete$L	CMP	r0,#2			; ?
-		CMPNE	r0,#5			; ?
-		ADDEQ	r6,r6,r3		; 2/5
-		SUBEQ	r7,r7,r3
+		CMP	r0,#2				; delete, replace (cursor either end)
+		SUBHS	r2,r2,r3			; 2/3/4/5
+		STRHS	r2,f_splito			; 'delete' the characters
+delete$L	CMP	r0,#2				; delete (cursor at end)
+		CMPNE	r0,#5				; delete (cursor at start)
+		ADDEQ	r6,r6,r3			; splits
+		SUBEQ	r7,r7,r3			; len
 		BEQ	rescan$L
-insert$L	CMP	r0,#6			; ?
-		CMPNE	r0,#1			; ?
-ininsert$L	SUBLE	r6,r6,r3
+
+insert$L	CMP	r0,#6				; insert (cursor at start)
+		CMPNE	r0,#1				; insert (cursor at end)
+ininsert$L	SUBLE	r6,r6,r3                	; cl would prefer EQ
 		ADDLE	r7,r7,r3
-replace$L	ADD	r2,r2,r6
+replace$L	ADD	r2,r2,r6			; copy the new data over the old
 		LDR	r0,f_ptr
 		ADD	r2,r2,r0
 		LDR	r1,f_dodata
 		CALL	Zap_MoveBytes
-rescan$L	STR	r6,f_splits		; ?????????????
+
+rescan$L	STR	r6,f_splits			; update splits / len - command's job done
 		STR	r7,f_len
 		LDR	r0,[tempblk$L,#4]
 		LDR	modeblk,[tempblk$L,#16]
@@ -1506,64 +1504,61 @@ findloop$L	LDMIA	r2!,{ptr,state}
 		CMP	r0,ptr
 		BHI	findloop$L
 		SUBLO	r2,r2,#8
-		MOV	r1,#-1
+		MOV	r1,#-1				; use file size in r9
 		STR	r1,[r2]
-		BL	ensuresize$C
-		STR	modeblk,[tempblk$L,#16]
+		BL	ensuresize$C			; make sure cache is big enough
+		STR	modeblk,[tempblk$L,#16]		; may have moved
 		LDR	r0,[tempblk$L]
 		TEQ	r0,tempblk$L
 		BEQ	nocheckprev$L
-		LDMIB	tempblk$L,{ptr,state,rangeend}
+		LDMIB	tempblk$L,{ptr,state,rangeend}	; get state n bytes before change
 		ADD	output,tempblk$L,#firstsize$L ; 640
-		ORR	output,output,#1<<31
-		MOV	lwidth,#-1
-		BL	scanfile$C		; scan file to get status
+		ORR	output,output,#1<<31		; store states
+		MOV	lwidth,#-1			; ignore physical line boundaries
+		BL	scanfile$C			; scan file to get state
 		LDR	r2,[tempblk$L]
 		BIC	r2,r2,#1<<31
 		ADD	r3,tempblk$L,#32
 		ADD	r6,tempblk$L,#firstsize$L ; 640
 		PUSH   "R1,R4,R5,R7,R8,R9,R10,R11,R12"
-;scanprevloop$L	CMP	r3,r2
-;		BHS	foundprev$L
-;		LDR	r0,[r3],#4
-;		LDR	lr,[r6],#4
-;		TEQ	r0,lr
-;		BEQ	scanprevloop$L
-;		SUB	r3,r3,#4
+
+		; r2 -> state n bytes before change (in r3's buffer)
+		; r3 -> states before change
+		; r6 -> states after
 scanprevloop$L	CMP	r3,r2
 		BHS	foundprev$L
-		LDMIA	R3,{R0,R1,R4,R5,R7}
+		LDMIA	R3,{R0,R1,R4, R5, R7}
 		LDMIA	R6,{R8,R9,R10,R11,R12}
 
-		TEQ 	R0,R8
+		TEQ 	R0,R8				; look for state differences
 		BNE	foundprev$L
 		ADD	R3,R3,#4
-		CMP	r3,r2
+		CMP	R3,R2
 		BHS	foundprev$L
 
 		TEQ 	R1,R9
 		BNE	foundprev$L
 		ADD	R3,R3,#4
-		CMP	r3,r2
+		CMP	R3,R2
 		BHS	foundprev$L
 
 		TEQ 	R4,R10
 		BNE	foundprev$L
 		ADD	R3,R3,#4
-		CMP	r3,r2
+		CMP	R3,R2
 		BHS	foundprev$L
 
 		TEQ 	R5,R11
 		BNE	foundprev$L
 		ADD	R3,R3,#4
-		CMP	r3,r2
+		CMP	R3,R2
 		BHS	foundprev$L
 
 		TEQ 	R7,R12
 		ADDEQ	R3,R3,#4
 		ADD	R6,R6,#20
 		BEQ	scanprevloop$L
-;		SUB	r3,r3,#4
+
 foundprev$L	PULL   "R1,R4,R5,R7,R8,R9,R10,R11,R12"
 		SUB	r3,r3,tempblk$L
 		SUB	r3,r3,#32
@@ -1577,7 +1572,7 @@ nocheckprev$L	LDR	r11,f_splito
 		MOV	output,#0
 		MOV	lwidth,#-1
 		MOV	rangeend,#-1
-		BL	scanfile$C		; scan file to get status
+		BL	scanfile$C		; scan file to get state
 		MOV	r6,state
 		ADD	r0,tempblk$L,#20
 		LDMIA	r0,{r0,r1,r2}
@@ -1615,8 +1610,8 @@ premature$L
 foundnext$L	LDR	modeblk,[tempblk$L,#16]
 		STR	ptr,m_invend$C
 
-		MOV	R0,#0
-		STR	R0,local_prevnextflag
+;		MOV	R0,#0
+;		STR	R0,local_prevnextflag
 
 		MOV	r0,tempblk$L
 		CALL	Zap_Free
