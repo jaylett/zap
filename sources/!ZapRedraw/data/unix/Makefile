@@ -22,7 +22,7 @@ linkflags	= -o o/tmplink -B 0 -bin
 __BUILD		= "-DBUILD=$(BUILD)"
 
 makehdr		= $(ZapSource_Dir)/data/unix/makehdr
-timestamp       = sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
+timestamp       = perl -pe "s/00 Jan 0000/`date +'%d %b %Y'`/"
 rm		= rm -f
 
 t/%:		s/%,fff
