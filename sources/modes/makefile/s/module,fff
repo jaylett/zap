@@ -1,6 +1,8 @@
-; makefile.s
+r; makefile.s
 ; converted from makefile.bas by bas2asm.pl
 	GET	h.Makefile
+
+	ENTRY
 
 	DCD	0x00
 	DCD	StartUpHere
@@ -85,21 +87,21 @@ DataTable
 	DCD	0x00	;  MnuDta; REM &00 ; menu...extension menu
 	DCD	Initialisation - DataTable	;  REM size of table ; len
 	DCD	0x00	;  postload
-	DCD	0x00	;  REM beforesave ; e_presave   \ called before saved
+	DCD	0x00	;  REM beforesave ; e_presave	\ called before saved
 	DCD	0x00
-	DCD	E_Start	;  REM e_start           \ window entering mode
-	DCD	E_End	;  REM e_end               \ window leaving mode
-	DCD	0x00	;  REM e-width             \ find work area width
+	DCD	E_Start	;  REM e_start		 \ window entering mode
+	DCD	E_End	;  REM e_end		   \ window leaving mode
+	DCD	0x00	;  REM e-width		   \ find work area width
 	DCD	0x00
 	DCD	0x00
 	DCD	0x00
-	DCD	0x00	;  REM lp7 ; e_clnphy        \ physical to file offs
+	DCD	0x00	;  REM lp7 ; e_clnphy	     \ physical to file offs
 	DCD	0x00	;  REM clnlog
 	DCD	0x00	;  REM clnphy
 	DCD	0x00	;  REM clnoff
 	DCD	0x00
-	DCD	0x00	;  e_sminus      \ perform shift-left
-	DCD	0x00	;  e_splus       \ perform shift-right
+	DCD	0x00	;  e_sminus	 \ perform shift-left
+	DCD	0x00	;  e_splus	 \ perform shift-right
 	DCD	0x00
 	DCD	0x00
 	DCD	redrawline	;  REM e_redrawline   \ redraw line of display
@@ -134,6 +136,10 @@ DataTable
 	DCD	redrawA	;  REM e_prevline \ find start of update reg'n; Easy!
 	DCD	gotoopenwindow	;  REM ; e_openwindow
 	DCD	mode_interrogate	;  REM ; e__interrogate
+
+
+; --------- e_init -----------
+
 Initialisation
 	CMP	r1, #7
 	BEQ	amenucreation
@@ -147,13 +153,14 @@ Initialisation
 	MOVEQ	pc, lr
 	TEQ	r1, #2
 	MOVNE	pc, lr
+
 	STMFD	sp!, {r1, r7, r8, lr}
 		;  REM here? yes!
-	STMFD	sp!, {r0, r1, r7}
-	MOV	r8, #'A'
-	ADRL	r1, TableHere
-loop2
-	LDRB	r0, [r1]
+	STMFD	sp!, {r0, r1, r7}	; this code overwrites the
+	MOV	r8, #'A'		; "greetings..." text with
+	ADRL	r1, TableHere		; the offset into TableHere
+loop2					; of each alpha char
+	LDRB	r0, [r1]		; ...this is why we need "Yum"
 	CMP	r0, r8
 	BGE	GtIt
 loop
@@ -177,7 +184,7 @@ backinaction
 	LDMEQFD	sp!, {r1, r7, r8, pc}
 		;  REM no !Config...
 nocfginit
-	MOV	r0, #0x11
+	MOV	r0, #col_last		; was 0x11 - but that's wrong!
 	FNcall	Zap_ModeColourNum	;  REM change palette size.
 	TEQ	r7, #0
 	BEQ	noheapblkatall
@@ -207,7 +214,7 @@ noheapblkatall
 	STRVC	r0, [r7, #0]
 	MOVVC	r0, #0
 	STRVC	r0, [r7, #4]
-	MOVVC	r0, #0x0D
+	MOVVC	r0, #0x0D	; col_commands?
 	STRVC	r0, [r7, #8]
 	LDRVC	r0, startupformatwd
 	STRVC	r0, [r7, #0x0C]
@@ -222,6 +229,7 @@ noheapblkatall
 	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
 justendtheresnoneed
 	LDMFD	sp!, {r1, r7, r8, pc}
+
 amenucreation
 	STMFD	sp!, {r0, lr}
 	BL	loadmenuifrequired
@@ -241,6 +249,7 @@ modenumberlocal
 	DCD	0
 startupformatwd
 	DCD	0x07800000
+
 GtIt
 	ADRL	r0, AlphaIndex
 	SUB	r7, r8, #'A'
@@ -249,27 +258,41 @@ GtIt
 	SUB	r7, r1, r7
 	STR	r7, [r0]
 	B	backinaction
+
 MenuExtension
-	=	"Comments", 0x00, "Strings", 0x00, "< ... >", 0x00, "( ... )", 0x00, "Commands", 0x00, "Punctuation", 0x00, "Numbers", 0x0, "-switches", 0x0, "+Commands", 0x0, "c.file"	;  12
-	=	0x0, "h.header"	;  13
-	=	0x0, "o.object", 0x0, "s.assembler"
-	DCW	0x0
+	=	"Comments", 0		; 9
+	=	"Strings", 0            ; 10
+	=	"< ... >", 0            ; 11
+	=	"( ... )", 0            ; 12
+	=	"Commands", 0           ; 13
+	=	"Punctuation", 0        ; 14
+	=	"Numbers", 0            ; 15
+	=	"-switches", 0          ; 16
+	=	"+Commands", 0          ; 17
+	=	"c.file",0		; 18
+	=	"h.header",0		; 19
+	=	"o.object", 0           ; 20
+	=	"s.assembler",0         ; 21
+	=	0
+	ALIGN
 		;     EQUS "Logical op"
 		;     EQUW &0
-	ALIGN
 R8tmp
-	
+
 	DCD	0
 R9tmp
-	
+
 	DCD	0
 R12tmp
 	DCD	0
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 lasttryadr
-	
 	DCD	0
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; -- initialise default colours
+
 UnkPreColBit
 	STMFD	sp!, {r1-r4, lr}
 	ADR	r3, DefaultColours
@@ -281,27 +304,28 @@ ZModColBit
 	FNcall	Zap_ModeColour	;  REM Read colour definitions
 	LDMVSFD	sp!, {r1-r4, pc}
 	ADD	r2, r2, #1
-	TEQ	r2, #0x16	;  REM max colours
+	TEQ	r2, #col_last	;  REM max colours
 	BNE	ZModColBit
 	LDMFD	sp!, {r1-r4, pc}
 DefaultColours
 		;  REM Colour Numbers :
 	=	0x0A	;  REM Comment Colour =&9
 	=	0x0F	;  REM String colour  =&A
-	=	0x03	;  REM Punctuation    =&B
-	=	0x0D	;  REM Embedded {}    =&C
-	=	0x09	;  REM Commands       =&D
+	=	0x03	;  REM < ... >	      =&B
+	=	0x0D	;  REM ( ... )	      =&C
+	=	0x09	;  REM Commands	      =&D
 	=	0x0C	;  REM Misc Punct.    =&E
-	=	0x0E	;  REM Number colour  =&F
-	=	0x02	;  REM Error colour   =&10
-	=	0x04	;  REM GSTrans        =&11
-	=	0x01	;  REM Unknown        =&12
-	=	0x02	;  REM Number colour  =&13
-	=	0x0B	;  REM .o.            =&15 ; RED!
-	=	0x03	;  REM .s.            =&14
-	=	0x01	;  REM Unknown        =&16?
-	=	0x00, 0x00	;  REM double zero termination !
-		;  REM ALIGN
+	=	0x0E	;  REM Numbers	      =&F
+	=	0x02	;  REM -switches      =&10
+	=	0x04	;  REM +Commands      =&11
+	=	0x01	;  REM c.file	      =&12
+	=	0x02	;  REM h.header	      =&13
+	=	0x0B	;  REM .o.	      =&15 ; RED!
+	=	0x03	;  REM .s.	      =&14
+	;=	0x01	;  REM Unknown	      =&16? - This colour doesn't exist!
+	;=	0x00, 0x00	;  REM double zero termination !
+	ALIGN
+
 Tk1frm12andret
 	LDR	r0, [r11, #12]
 	SUBS	r0, r0, #1
@@ -342,10 +366,13 @@ initialiseheap
 	LDR	r0, localdefltmw
 	LDR	r0, [r0, #0xC]
 	STR	r0, [r7, #0xC]
-	MOV	r0, #0x0D
+	MOV	r0, #0x0D	; col_commands?
 	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
 	BL	OnToWrtMdeWrd
 	LDMFD	sp!, {r1-r6, r8-r12, pc}
+
+; ---------- e_start -----------
+
 E_Start
 	STMFD	sp!, {r1, r6, r7, lr}
 	STMFD	sp!, {r1-r12, lr}
@@ -376,7 +403,7 @@ BeforeAll
 	LDR	r0, localdefltmw
 	LDR	r0, [r0, #0xC]
 	STR	r0, [r7, #0xC]
-	MOV	r0, #0x0D
+	MOV	r0, #0x0D	; col_commands?
 	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
 BeforeAllare8
 	LDRVC	r0, [r11, #4]
@@ -392,20 +419,24 @@ BeforeAllare8
 	LDMEQFD	sp!, {r1, r6, r7, pc}
 	BL	destroyanypanes
 	BL	gomakepanehappen
-	ADR	r0, keyssrchstr
-	MOV	r1, #2
-	MOV	r3, #0x100
-	MVN	r4, #0
-	MOV	r5, #((1 << 25) :OR: (1 << 26) :OR: (1 << 24))
-	FNcall	Zap_Search
-	CMP	r0, #0
-	LDR	r1, [r7, #0x0C]
-	ORRPL	r1, r1, #(1 << 19)
-	BICMI	r1, r1, #(1 << 19)
-	STR	r1, [r7, #0x0C]
-	ADRL	r0, w_formmb
-	STR	r1, [r0, #0x08]
+	;ADR	r0, keyssrchstr	; surely left over from ForZap mode? - cl
+	;MOV	r1, #2
+	;MOV	r3, #0x100
+	;MVN	r4, #0
+	;MOV	r5, #((1 << 25) :OR: (1 << 26) :OR: (1 << 24))
+	;FNcall	Zap_Search
+	;CMP	r0, #0
+	;LDR	r1, [r7, #0x0C]
+	;ORRPL	r1, r1, #(1 << 19)
+	;BICMI	r1, r1, #(1 << 19)
+	;STR	r1, [r7, #0x0C]
+	;ADRL	r0, w_formmb
+	;STR	r1, [r0, #0x08]
 	LDMFD	sp!, {r1, r6, r7, pc}
+
+
+; ------------ e_end -------------
+
 E_End
 	STMFD	sp!, {r7, lr}
 	CMP	r8, #0
@@ -418,193 +449,240 @@ E_End
 	MOVVC	lr, pc
 	LDMVCFD	sp!, {pc}
 	LDMFD	sp!, {r7, pc}
-keyssrchstr
-	=	"KEY:\\|LineEditor\\|Paths:\\|Search macros:\\|&500\\|&400", 0, ""
-	ALIGN
+;keyssrchstr
+;	=	"KEY:\\|LineEditor\\|Paths:\\|Search macros:\\|&500\\|&400", 0, ""
+;	ALIGN
 SDsasa
 	DCD	0x1200004D
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 adrofrsix
 	DCD	0
+
+; general notes here:
+;
+; this seems to bear an enormous resemblance to MJE's assembler mode. Thus,
+; we can guess at the register allocations:
+;
+; r0		current character
+; r1		general purpose
+; r2		colour
+; r3		w_txtw
+; r4		tab mode
+; r5		apparent start
+; r6		output pointer - if -ve, we're faking the bit of the logical
+;				 line before the current physical line
+; r7		input pointer
+; r8/r9
+; r10		split
+; r11		line number
+; r12		 0-7  cr
+;		 8-11 flags
+;		12-19 bpl
+;		24-31 tab
+; r14		current column
+;
+; thus [r6]		= output char
+;      [r6,r3]		= fg colour
+;      [r6,r3,lsl #1]	= bg colour
+
+; ----------- e_redrawline ----------
+
+; this start bit is copied verbatim from MJE's assembler mode
+; (and was copied wrong!)
 redrawline
-	STMFD	sp!, {r6, r12, lr}
+	;STMFD	sp!, {r6, r12, lr}
+	FNJSR	"R6,R12"
 	STMFD	sp!, {r7, r11}
 	STR	r6, adrofrsix
-	BL	Branch208
+	BL	Branch208		; r11 = Data47 = module private workspace
 	BL	ZapModeWord
-	LDR	r2, [r7, #8]	;  REM Preserved start colour & flags
+	LDR	r2, [r7, #8]		;  REM Preserved start colour & flags (from previous line)
 	LDR	r3, [r7, #0x0C]
 	ADRL	r12, w_formmb
 	STR	r3, [r12, #8]
-	LDMFD	sp!, {r7, r11}	;  REM calls...
-	LDR	r3, [r8, #60]	;  REM char width of cached line (x 8)
-	LDRB	r12, [r8, #88]	;  REM code of lf...?
+	LDMFD	sp!, {r7, r11}		;  REM calls...
+	LDR	r3, [r8, #w_txtw] 	;  REM char width of cached line (x 8)
+	LDRB	r12, [r8, #w_cr]  	;  REM code of lf...?
 	BIC	r2, r2, #0x700
 	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x0D
-	ORR	r2, r2, #0xF000	;  REM ! ; fe? ; ff000
+	ORR	r2, r2, #col_commands 	; though I don't know why we start off in commands colour
+	ORR	r2, r2, #0xF000		;  REM ! ; fe? ; ff000
 	BIC	r2, r2, #0x00E00000	;  REM HERE? &0F000000
-	LDR	r5, [r9, #0]	;  REM ?
-	LDR	r10, [r9, #4]	;  REM ?
+	LDR	r5, [r9, #f_ptr]	;  REM ?
+	LDR	r10, [r9, #f_bufl]	;  REM ?
+	ADD	r10, r10, r5		; point to end of file
+	TEQ	r7, r10			; have we finished?
+	;LDMEQFD sp!, {r6, r12, pc}	; yes - return for good!
+	FNRTS	EQ
+	LDR	r10, [r9, #f_splite]	;  REM ?
 	ADD	r10, r10, r5
-	TEQ	r7, r10
-	LDMEQFD	sp!, {r6, r12, pc}	;  REM end - return for good!
-	LDR	r10, [r9, #56]	;  REM ?
-	ADD	r10, r10, r5
-	CMP	r7, r10
-	MOVCC	r10, r5
+	CMP	r7, r10			; are we past the split?
+	MOVCC	r10, r5			; nope
 	MOV	r6, #0
-BitAftStart
+BitAftStart				; search back to the start of the logical line
 	SUB	r6, r6, #1
 	LDRB	r0, [r7], #-1
-	TEQ	r0, r12
+	TEQ	r0, r12			; cr?
 	BEQ	UpToStart
-	CMP	r7, r10
+	CMP	r7, r10			; at split?
 	BCS	BitAftStart
-	TEQ	r5, r10
-	LDRNE	r10, [r9, #60]
+	TEQ	r5, r10			; SOF
+	LDRNE	r10, [r9, #f_splits]	; after split?
 	SUBNE	r7, r7, r10
-	MOVNE	r10, r5
-	CMP	r7, r10
+	MOVNE	r10, r5                 ; new end of section
+	CMP	r7, r10			; skip it and try again
 	BCS	BitAftStart
-UpToStart
-	ADDS	r6, r6, #1	;  REM #2 USED TO MAKE THE TOP LINE GO WRONG
-	ADD	r7, r7, #1	;  REM #2 SEEMS TO BE EXECUTED ONLY AT THE BOF...? nope!
+	SUB	R6,R6,#1        	; cl fix
+	SUB	R7,R7,#1        	;
+UpToStart                       	;
+	ADDS	r6, r6, #2		;
+	ADD	r7, r7, #2		;
 	SUBPL	r7, r7, r6
 	LDMPLFD	sp, {r6}
 	TEQ	r5, r10
-	LDREQ	r10, [r9, #52]	;  REM ?
-	ADDEQ	r10, r10, r5
-	LDRNE	r10, [r9, #60]	;  REM ?
-	ADDNE	r5, r5, r10
-	LDRNE	r10, [r9, #8]	;  REM ?
-	ADDNE	r10, r10, r5
-	LDRB	r0, [r8, #0x90]	;  REM tabchar?
+	LDREQ	r10, [r9, #f_splito]	; restore regs used while searching back
+	ADDEQ	r10, r10, r5            ;
+	LDRNE	r10, [r9, #f_splits]	;
+	ADDNE	r5, r5, r10             ;
+	LDRNE	r10, [r9, #f_len]	;
+	ADDNE	r10, r10, r5		;
+	LDRB	r0, [r8, #w_tabchar]	; tabchar
 	ORR	r12, r12, r0, LSL #24
-	LDR	r0, [r8, #100]	;  REM bytes per line / width of text
+	LDR	r0, [r8, #w_bpl]	;  REM bytes per line / width of text
 	ORR	r12, r12, r0, LSL #12
 RtAtStrtA
-	MOV	lr, #0
-RtAtStrtB
-	CMP	r7, r10	;  REM EOF?
-	BCC	Branch13
-	LDR	r10, [r9, #8]
+	MOV	lr, #0			; column 0
+
+RtAtStrtB				; main colouring loop
+	CMP	r7, r10			;  at split?
+	BCC	Branch13                ; nope - ok
+	LDR	r10, [r9, #f_len]
 	ADD	r10, r10, r5
 	CMP	r7, r10
-	LDMCSFD	sp!, {r6, r12, pc}
-	LDR	r1, [r9, #60]	;  REM ???
-	ADD	r7, r7, r1
-	ADD	r5, r5, r1
-	ADD	r10, r10, r1
+	;LDMCSFD sp!, {r6, r12, pc} 	; all done - EOF
+	FNRTS	CS
+	LDR	r1, [r9, #f_splits]	; load split size
+	ADD	r7, r7, r1		; skip over it
+	ADD	r5, r5, r1              ;
+	ADD	r10, r10, r1            ;
 Branch13
-	LDRB	r0, [r7], #1	;  REM get char
-	AND	r1, r12, #0xFF
-	EOR	r2, r2, #0x0400	;  REM newline? ; alternating colour...
-	TEQ	r0, r1
-	TSTEQ	r2, #0x0400
-	BICEQ	r2, r2, #0x700	;  REM THIS CODE IS NEVER EXECUTED...
-	BICEQ	r2, r2, #0xFF
-	ORREQ	r2, r2, #0x0D
+	LDRB	r0, [r7], #1		; REM get char
+	AND	r1, r12, #0xFF		; get CR char
+	EOR	r2, r2, #0x0400		; toggle newline flag for following tests
+	TEQ	r0, r1			;
+	TSTEQ	r2, #0x0400		; ...this one
+	;BICEQ	r2, r2, #0x700		;
+	;BICEQ	r2, r2, #0xFF
+	;ORREQ	r2, r2, #0x0D
+	MOVEQ	R2,#col_commands 	; clear flags & set colours for new logical line
 	BEQ	RtAtStrtB
-	BIC	r2, r2, #0x0400
-	TEQ	r0, r1
-	BEQ	BranchNL	; REM Jeez, what a mess...
-	CMP	r6, #0	;  REM wed morn-reinit
-	MOVGT	r1, #1	;  REM @@@@ re init this?
-	STRGTB	r1, [r6, r3,LSL #1]
+	BIC	r2, r2, #0x0400		; clear newline flag
+	TEQ	r0, r1          	; at CR?
+	BEQ	BranchNL		; yes - skip this char
+
+	; syntax colouring proper begins here
+
+	CMP	r6, #0			; are we really doing a line?
+	MOVGT	r1, #col_bg2		;
+	STRGTB	r1, [r6, r3,LSL #1]	; yes - store bg col
+
 	AND	r1, r2, #0xFF
-	CMP	r1, #0x0D
-	BEQ	BNL2
-Backhome
-	AND	r1, r2, #0xFF	;  REM Here begins the |G-type GStrans Testing
-	CMP	r1, #0x09	;  REM comment
+	CMP	r1, #col_commands       ; colouring a command?
+	BEQ	BNL2			; store r6 and r7 in Sol6 and Sol7
+
+Backhome				; here we start all the colouring checks
+	AND	r1, r2, #0xFF		;  REM Here begins the GStrans Testing (< ... >)
+	CMP	r1, #col_comments 	;  REM comment
 	BEQ	aftertestA
-	TEQ	r0, #'>'	;  REM GSTrans Testing1
-	BEQ	GSTtestMO	;  mon ok1
+	TEQ	r0, #'>'		;  REM GSTrans Testing1
+	BEQ	GSTtestMO		;  mon ok1
 GSTstop
-	TEQ	r0, #')'	;  REM GSTrans Testing1
-	BEQ	GSTtestBO	;  mon ok1
+	TEQ	r0, #')'		;  REM GSTrans Testing1
+	BEQ	GSTtestBO		;  mon ok1
+
 GSTstopB
-	CMP	r6, #0	;  REM Here begins the |G-type GStrans testing
-		; BLE     aftert7
-		; LDRB    R1,[R6,#-1]
-		; CMP     R1,#ASC"|"
-		;  BNE     aftertestA
+	CMP	r6, #0			;  REM Here begins the |G-type GStrans testing
+		; BLE	  aftert7
+		; LDRB	  R1,[R6,#-1]
+		; CMP	  R1,#ASC"|"
+		;  BNE	   aftertestA
 	BGT	aftertestA	;  mon ok1
-		; SUB     R1,R3,#1
-		; LDRB    R1,[R6,R1]
-		; TEQ     R1,#&11
-		; BEQ     aftertestA
-		; 
-		; SUB     R1,R3,#1
-		; MOV     R0,#&0B
-		; STRB    R0,[R6,R1]
-		; MOV     R0,#&11
-		; STRB    R0,[R6,R3]
-		; LDRB    R0,[R7,#-1]
-		; B       AfterColour%
+		; SUB	  R1,R3,#1
+		; LDRB	  R1,[R6,R1]
+		; TEQ	  R1,#&11
+		; BEQ	  aftertestA
+		;
+		; SUB	  R1,R3,#1
+		; MOV	  R0,#&0B
+		; STRB	  R0,[R6,R1]
+		; MOV	  R0,#&11
+		; STRB	  R0,[R6,R3]
+		; LDRB	  R0,[R7,#-1]
+		; B	  AfterColour%
 aftert7
 	LDR	r1, Sol7
 	ADD	r1, r1, #2
 	CMP	r7, r1
-	BLE	aftertestA	;  REM code never fires?
-	LDRB	r1, [r7, #-2]	;  REM in hope
-	CMP	r1, #'#'
+	BLE	aftertestA		;  REM code never fires?
+	LDRB	r1, [r7, #-2]		;  REM in hope
+	CMP	r1, #'#'		; ...why?
 	BEQ	AfterColour
-		; SUB     R1,R3,#1
-		; LDRB    R1,[R6,R1]
-		; TEQ     R1,#&11
-		; BEQ     aftertestA ; REM forget about ||
+		; SUB	  R1,R3,#1
+		; LDRB	  R1,[R6,R1]
+		; TEQ	  R1,#&11
+		; BEQ	  aftertestA ; REM forget about ||
 aftertestA
 	TEQ	r0, #'"'
 	BEQ	QuoteBit
 	AND	r1, r2, #0xFF
-	CMP	r1, #0x0D
-	CMP	r1, #0x09
+	CMP	r1, #col_commands
+	CMP	r1, #col_comments
 	BEQ	ComCodeRestart
-	CMP	r1, #0x0A
+	CMP	r1, #col_strings
 	BEQ	BeforeColour
-		; TEQ     R0,#ASC"{"
-		; BEQ     CurlyBrackOpen; mon ok1
-		; TEQ     R0,#ASC"}"
-		; BEQ     CurlyBrackClose ; mon ok1
-		; TEQ     R0,#ASC"%"
-		; BEQ     posscsvcommstart
-noposscsvcommstart
-		; TEQ     0,#ASC":;" ; pay no attention to colons...
-		; BICEQ   2,2,#&40000000 ; a command so far...?
-	TST	r2, #0x10000000	;  REM START OF LINE FLAG...
+		; TEQ	  R0,#ASC"{"
+		; BEQ	  CurlyBrackOpen; mon ok1
+		; TEQ	  R0,#ASC"}"
+		; BEQ	  CurlyBrackClose ; mon ok1
+		; TEQ	  R0,#ASC"%"
+		; BEQ	  posscsvcommstart
+;noposscsvcommstart
+		; TEQ	  0,#ASC":;" ; pay no attention to colons...
+		; BICEQ	  2,2,#&40000000 ; a command so far...?
+	TST	r2, #0x10000000		;  REM START OF LINE FLAG...
 	BNE	NotatStart
 	BIC	r2, r2, #0x40000000
 	TEQ	r0, #'#'
-	TSTEQ	r2, #0x04000000
+	;TSTEQ	r2, #0x04000000 	; this bit never gets set
 	BEQ	CommentStart
-		;     CMP     R0,#ASC"/"  ; REM   what about "*." who cares...; make yellow?
+		;     CMP     R0,#ASC"/"  ; REM	  what about "*." who cares...; make yellow?
 		;     OrrEQ   R2,R2,#&10000000
 		;     BICEQ   R2,R2,#&FF  ; REM COL cream/normal - lt grey (= &0B);
 		;     OrrEQ   R2,R2,#&0E  ; REM testing very dubious TST code...
 		;     MovEQ   R1,#&0D
 		;     BEQ     fromslash
 NotatStart
-	TST	r2, #0x0100	;  REM ok
+;	TST	r2, #0x0100	;  REM ok
 		;     BICNE   R2,R2,#&FF  ; REM COL cream/normal - lt grey (= &0B);
 		;     OrrNE   R2,R2,#&0E  ; REM testing very dubious TST code...
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0C	;  REM COL Errors/Redirection  ...new
+	TEQ	r1, #col_rounds
 	BEQ	BranchYYY
-	TEQ	r0, #'.'	;  REM &.Dir Testing
-	TEQNE	r0, #'/'	;  REM Fish & Chips Testing
-	BLE	testampersand
+	;TEQ	r0, #'.'		; &.Dir Testing
+	;TEQNE	r0, #'/'		;  REM Fish & Chips Testing??
+	;BEQ	testampersand		; if prev char is "&", colour as fg
+					; THIS DOES ENTIRELY THE WRONG THING
+
 afterteststop
 	AND	r1, r2, #0xFF
-		;     TEQ     R1,#&02     ; REM ????
+		;     TEQ     R1,#&02	  ; REM ????
 		;     BEQ     NotANumber%
-	TEQ	r1, #0x0D	;  REM COL Command! c .... NO NuffinUMBERS...
+	TEQ	r1, #col_commands 	; are we in commands?
 	BICEQ	r2, r2, #0xFF
-	ORREQ	r2, r2, #0x02	;  (was 0E...)
+	ORREQ	r2, r2, #col_fg		; yes - revert to fg colour
 	ANDEQ	r1, r2, #0xFF
-	TEQ	r1, #0x02	;  REM COL cream/normal ... NO NUMBERS...
-	TEQNE	r1, #0x0F	;  REM COL Orange/Numbers?
+	TEQ	r1, #col_fg		;
+	TEQNE	r1, #col_numbers 	;
 	BNE	BeforeColour
 		;     TST     R2,#&08000000
 		;     BNE     NotANum2%
@@ -612,19 +690,19 @@ afterteststop
 		;     BEQ     PreTisNum%
 	CMP	r0, #'9'
 	RSBLSS	r1, r0, #'0'
-	BLS	PreTisNum
+	BLS	PreTisNum		; think we have a number
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0F	;  REM COL = Orange/NUMBERS?
+	TEQ	r1, #col_numbers 	;
 	BNE	NotANumber
 	CMP	r0, #'9'
 	RSBLSS	r1, r0, #'0'
 	BICHI	r2, r2, #0xFF
-	ORRHI	r2, r2, #0x02
+	ORRHI	r2, r2, #col_fg		; now in numbers
 	CMP	r0, #'%'
 	BLE	NotANumber
-	TEQ	r0, #'x'
+	TEQ	r0, #'x'		; allow 0x20
 	BEQ	TisANumber
-	TEQ	r0, #'_'
+	TEQ	r0, #'_'		; allow 2_00100000
 	BEQ	TisANumber
 	CMP	r1, #'@'
 	BHI	NotANumber
@@ -640,7 +718,7 @@ TisANumber
 	BCC	BeforeColour
 notkeynumberprob
 	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x0F
+	ORR	r2, r2, #col_numbers
 	TST	r2, #0x80000000
 	BICNE	r2, r2, #0x90000000
 	B	BeforeColour
@@ -649,8 +727,8 @@ NotANumber
 	BEQ	PlainNoOSChk
 	CMP	r0, #128
 	BCS	PlainNoOSChk
-		; CMP     0,#ASC"]"
-		; BEQ     itsoknow
+		; CMP	  0,#ASC"]"
+		; BEQ	  itsoknow
 	CMP	r0, #'0'
 	BCC	itsoknow	;  AfterCmdCntChk
 	CMP	r0, #':'
@@ -661,43 +739,44 @@ NotANumber
 	BLS	PlainNoOSChk
 itsoknow
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x09
-	TEQNE	r1, #0x0A
-	BEQ	DontBother
+	TEQ	r1, #col_comments
+	TEQNE	r1, #col_strings
+	BEQ	DontBother		; don't do table lookup if in comment or string
 Bother
 	STMFD	sp!, {lr}
-	BL	TableChk2	;  REM **************************
+	BL	TableChk2		;  REM **************************
 	LDMFD	sp!, {lr}
 	TEQ	r0, #'.'
 	TEQEQ	r1, #0xEA00
 	BEQ	AfterColour
-	TST	r2, #0x14000000	;  REM START OF LINE FLAGS SET...
+	TST	r2, #0x14000000		;  REM START OF LINE FLAGS SET...
 	TEQEQ	r0, #'#'
-	BEQ	CommentStart	;  REM bugs
+	BEQ	CommentStart		;  REM bugs
 DontBother
 	TST	r2, #0x00E00000
 	BNE	CmdCntChk
 AfterCmdCntChk
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x09
+	TEQ	r1, #col_comments
 	BEQ	BeforeColour
-	TEQ	r1, #0x02
+	TEQ	r1, #col_fg
 	BNE	SymbolChecking	;  REM  BR if not normal colour...
 		;     BIC     R2,R2,#&FF
 		;     Orr     R2,R2,#&0E
 		;     TEQ     R0,#ASC"_"     ; REM If numbers check for end...
 		;     TEQNE   R0,#ASC"-"
 		;     BEQ     PlainNoOSChk
-		; 
+		;
 PlainNoOSChk
 	CMP	r0, #'9'
 	RSBLSS	r1, r0, #'/'	;  REM = asc "0"
 	BICLS	r2, r2, #0xFF
-	ORRLS	r2, r2, #0x02
+	ORRLS	r2, r2, #col_fg
 	BLS	BeforeColour
-SymbolChecking
+
+SymbolChecking				; check for misc punctuation
 	CMP	r6, #0
-	BLT	BeforeColour	;  REM BLT     BeforeColour%
+	BLT	BeforeColour		; nothing to do here
 		;     TST     R2,#&8000000 ; ???!?!?
 		;     BNE     ErrEchConf
 	TEQ	r0, #':'
@@ -711,53 +790,53 @@ SymbolChecking
 	TEQNE	r0, #'<'
 	TEQNE	r0, #'>'
 	TEQNE	r0, #'\'
-	MOVEQ	r1, #0x0E
+	MOVEQ	r1, #col_punct
 	STREQB	r1, [r6, r3]
 	BEQ	AfterColour
 		;     TEQ     R0,#ASC"-"
 		;     MovEQ   R1,#&10
 		;     STREQB  R1,[R6,R3]
 		;     BEQ     AfterColour%
+
 BeforeColour
-		;  REM NUMBERS?
 	TEQ	r0, #' '
 	TEQNE	r0, r12, LSR #24	;  REM = tab?
 	BEQ	TabbingSub
 Branch24
 	CMP	r6, #0
-	BLE	firstpass	;  REM new addition to test
-	ANDGT	r1, r2, #0x0F	;  REM write colours
+	BLE	firstpass		;  REM new addition to test
+	ANDGT	r1, r2, #0x0F		;  REM write colours
 	STRGTB	r1, [r6, r3]
 AfterColour
-		; CMP     R0,#&0D
-		; MovEQ   R0,#ASC"!"
+		; CMP	  R0,#&0D
+		; MovEQ	  R0,#ASC"!"
 	CMP	r6, #0
-	STRGTB	r0, [r6], #1	;  REM write text
+	STRGTB	r0, [r6], #1   		; write char if in the line
 firstpass
-	ADD	lr, lr, #1
+	ADD	lr, lr, #1		; next column
 BeginOfEnd
-	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
-	TEQ	r0, r1	;  REM end character... yes!
-	BICEQ	r2, r2, #0x78000000	; REM START OF LINE FLAGS...
+	AND	r1, r12, #0xFF		;
+	TEQ	r0, r1			; cr?
+	BICEQ	r2, r2, #0x78000000	; start of line flags...
 	CMP	r6, #0
 	ADDLTS	r6, r6, #1
-	BMI	RtAtStrtB	;  REM round loop...
-	LDMEQFD	sp, {r6}	;  REM huh?
-	BEQ	RtAtStrtA
-	AND	r1, r12, #0xFF	;  REM end character... yes! At last...
-	TEQ	r0, r1	;  REM end character... yes!
-	BEQ	tocheckbackwardsnow
+	BMI	RtAtStrtB
+	LDMEQFD	sp, {r6}		; if now inside current physical line start
+	BEQ	RtAtStrtA		; round loop using current colours
+	AND	r1, r12, #0xFF		;
+	TEQ	r0, r1			; cr?
+	BEQ	tocheckbackwardsnow	; yes - ceck for commands at EOL
 	ORRNE	r2, r2, #0x0400
 backcheckbackwardsnow
 	BIC	r1, r12, #0xFF000000	;  REM if not width...
-	CMP	lr, r1, LSR #12	;  WIDTH
+	CMP	lr, r1, LSR #12		;  WIDTH
 	BICLT	r2, r2, #0x0400
-	BLT	RtAtStrtB	;  REM go round loop...
+	BLT	RtAtStrtB		;  REM go round loop...
 	BEQ	tohaveajollygoodtime
 tohaveajollygoodback
 	BIC	r0, r12, #0xFF000000
-	CMP	lr, r0, LSR #12	;  width...?
-	BICGE	r2, r2, #0x0400	;  REM NE
+	CMP	lr, r0, LSR #12		;  width...?
+	BICGE	r2, r2, #0x0400		;  REM NE
 		;  ADDEQ   R7,R7,#1
 		;  ADDEQ   R11,R11,#1
 	AND	r0, r12, #0x0200
@@ -770,10 +849,11 @@ tohaveajollygoodback
 	LDMFD	sp!, {r7, r11, pc}	;  REM on exit set things up r7...
 fromslash
 	CMP	r6, #0
-	BLT	BeforeColour	;  REM BLT     BeforeColour%
+	BLT	BeforeColour		;  REM BLT     BeforeColour%
 	STRB	r1, [r6, r3]
 	B	AfterColour
-		;  REMB       BeforeColour%
+					;  REMB	      BeforeColour%
+
 ComCodeRestart
 	TEQ	r0, #'_'
 	BEQ	AfterCmdCntChk
@@ -782,17 +862,18 @@ ComCodeRestart
 	RSBLSS	r1, r1, #'@'
 	BLS	AfterCmdCntChk
 	B	itsoknow
+
 CmdCntChk
 	CMP	r0, #32
 	BNE	AfterCmdCntChk
 	CMP	r6, #0
 	BGT	r6version
-		; LDR     R1,Sol7
-		; ADD     R1,R1,#2 ; REM ???
-		; CMP     R7,R1
+		; LDR	  R1,Sol7
+		; ADD	  R1,R1,#2 ; REM ???
+		; CMP	  R7,R1
 	CMP	r6, #0
 	MOVLE	r1, #10
-	LDRGTB	r1, [r7, #-2]	;  REM danger
+	LDRGTB	r1, [r7, #-2]		;  REM danger
 overdangerperhaps
 	CMP	r1, #32
 	BEQ	AfterCmdCntChk
@@ -803,6 +884,7 @@ overdangerperhaps
 	BIC	r2, r2, #0x00E00000
 	ORR	r2, r2, r1, LSL #21
 	B	AfterCmdCntChk
+
 r6version
 	LDR	r1, Sol6	;  REM 13/10
 	SUB	r1, r1, #1
@@ -811,19 +893,21 @@ r6version
 	BGT	overdangerperhaps	;  REM 13/10
 	MOV	r1, #' '
 	B	AfterCmdCntChk	;  REM 13/10
+
 ErrEchConf
 	CMP	r6, #0
 	BLE	AfterColour
 	AND	r1, r2, #0xFF
-	CMP	r1, #0x0F
+	CMP	r1, #col_numbers
 	BEQ	BeforeColour
-	CMP	r1, #0x0E
-	MOVEQ	r1, #0x02
+	CMP	r1, #col_punct
+	MOVEQ	r1, #col_fg
 	STREQB	r1, [r6, r3]
 	TEQ	r0, #' '
 	TEQNE	r0, r12, LSR #24	;  REM = tab?
 	BEQ	TabbingSub
 	B	AfterColour
+
 NotANum2
 	CMP	r6, #0
 	BLE	NotANumber
@@ -832,74 +916,76 @@ NotANum2
 	SUB	r1, r3, #1
 	LDRB	r1, [r6, r1]
 	AND	r1, r1, #0xFF
-	CMP	r1, #0x0F
+	CMP	r1, #col_numbers
 	BNE	NotANumber
 	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x02
+	ORR	r2, r2, #col_fg
 	B	NotANumber
 BranchNL
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x09
-	TEQNE	r1, #0x0A
+	TEQ	r1, #col_comments
+	TEQNE	r1, #col_strings
 	BEQ	DontBother2
 Bother2
 	STMFD	sp!, {lr}
 	BL	TableChk2	;  REM swap with sect below?;;;
 	LDMFD	sp!, {lr}
 DontBother2
-	MOV	lr, #0x70000000	;  REM        ;;Jeez, what a mess!;;
+	MOV	lr, #0x70000000	;  REM	      ;;Jeez, what a mess!;;
 	B	BeginOfEnd
+
+; called when we are in col_commands colour at start of line
 BNL2
 	BIC	r2, r2, #0x10000000	;  REM START OF LINE FLAGS SET...
 	STR	r6, Sol6
 	SUB	r1, r7, #1
 	STR	r1, Sol7
 	B	Backhome
+
+; called when we think we have a number
 PreTisNum
-		;  REM not numbers?
-	CMP	r6, #0
-	BLT	TisANumber
+	CMP	r6, #0			; can't tell,
+	BLT	TisANumber		; so guess we have
 	LDRB	r1, [r6, #-1]
-	CMP	r1, #' '
+	CMP	r1, #' '		; " 0"
 	BEQ	TisANumber
-	TEQ	r1, #'.'
+	TEQ	r1, #'.'		; ".0"
 	TEQNE	r1, #':'
 	TEQNE	r1, #'-'
 	BNE	BeforeColour
 	ADD	r1, r6, r3
-	LDRB	r1, [r1, #-1]
-	AND	r1, r1, #0x0F
-	CMP	r1, #0x0F
+	LDRB	r1, [r1, #-1]		; load previous fg colour
+	;AND	r1, r1, #0x0F
+	CMP	r1, #col_numbers
 	BEQ	TisANumber
 	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x02
+	ORR	r2, r2, #col_fg
 	B	BeforeColour
-Sol6
-	
-	DCD	0
-Sol7
-	
-	DCD	0
+
+Sol6	DCD	0
+Sol7	DCD	0
+
+; called when we are in ( ... ) sequence (?)
 BranchYYY
 	CMP	r6, #0
-	BLT	BeforeColour	;  REM BLT     BeforeColour%
+	BLT	BeforeColour		; can't tell
 	CMP	r0, #'9'
 	RSBLSS	r1, r0, #'0'
-	MOVLS	r1, #0x0F
+	MOVLS	r1, #col_numbers
 	STRLSB	r1, [r6, r3]
 	BLS	AfterColour
 	LDR	r1, Sol7
 	ADD	r1, r1, #2
 	CMP	r7, r1
 	MOVLE	r1, #10
-	LDRGTB	r1, [r7, #-2]	;  REM danger
-	TEQ	r0, #'.'	;  REM if in number
+	LDRGTB	r1, [r7, #-2]		;  REM danger
+	TEQ	r0, #'.'		;  REM if in number
 	BNE	TryNextA
 	CMP	r1, #'9'
 	BGT	TryNextA
 	CMP	r1, #'0'
 	BLT	TryNextA
-	MOV	r1, #0x0F
+	MOV	r1, #col_numbers
 	STRB	r1, [r6, r3]
 	B	AfterColour
 TryNextA
@@ -909,9 +995,10 @@ TryNextA
 	BGT	BeforeColour
 	CMP	r1, #'0'
 	BLT	BeforeColour
-	MOV	r1, #0x0F
+	MOV	r1, #col_numbers
 	STRB	r1, [r6, r3]
 	B	AfterColour
+
 pointinnum
 	LDRB	r1, [r7, #-2]
 	CMP	r1, #'9'
@@ -923,20 +1010,23 @@ pointinnum
 	BGT	NotANumber
 	CMP	r1, #'/'
 	BLE	NotANumber
-	B	TisANumber	;  REM in a number...
-testampersand
-	CMP	r6, #0
-	BLE	afterteststop
-	LDRB	r1, [r6, #-1]
-	TEQ	r1, #'&'
-	BNE	afterteststop
-	SUB	r1, r3, #1
-	MOV	r0, #0x02
-	STRB	r0, [r6, r1]
-	LDRB	r0, [r7, #-1]
-	B	afterteststop
+	B	TisANumber		;  REM in a number...
+
+;testampersand				; obsolete, redundant and broken
+;	CMP	r6, #0       	        ; doing this line?
+;	BLE	afterteststop   	; nope - nothing to do
+;	LDRB	r1, [r6, #-1]
+;	TEQ	r1, #'&'
+;	BNE	afterteststop
+;	SUB	r1, r3, #1
+;	MOV	r0, #c_fg
+;	STRB	r0, [r6, r1]
+;	LDRB	r0, [r7, #-1]		; restore r0
+;	B	afterteststop
+
 localrtadr
 	DCD	0
+
 GSTtestMO
 	MOV	r1, #0
 GSTtest
@@ -944,9 +1034,9 @@ GSTtest
 	CMP	r6, #0
 	BLT	GSTstop
 	STMFD	sp!, {r0, r2, r4, r5}
-	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0A
-	TEQNE	r1, #0x09
+	AND	r1, r2, #0xFF	; extract colour
+	TEQ	r1, #col_strings
+	TEQNE	r1, #col_comments
 	BEQ	notaGSTSequence
 	MOV	r4, r7
 	MVN	r0, #0
@@ -967,7 +1057,7 @@ GSTchklp
 	SUBCC	r4, r4, r5
 inbothalfalread
 	LDRB	r1, [r4, r0]
-		; CMP     R1,#09     : ;BEQ GSTchklp
+		; CMP	  R1,#09     : ;BEQ GSTchklp
 	CMP	r1, #'>'
 	BEQ	notaGSTSequence
 	CMP	r1, #' '
@@ -987,7 +1077,7 @@ BACKInEntity
 	CMP	r4, r2
 	STRCSB	r1, [r5, r0]
 	ADD	r0, r0, #1
-	MOV	r1, #0x0B
+	MOV	r1, #col_angles
 	CMN	r0, #0
 	BEQ	GupSAway
 roundAloop
@@ -998,7 +1088,7 @@ roundAloop
 	CMP	r0, #0
 	BLT	roundAloop
 GupSAway
-	MOV	r1, #0x0E
+	MOV	r1, #col_punct
 	ADD	r4, r6, r0
 	CMP	r4, r2
 	STRCSB	r1, [r5, r0]
@@ -1021,15 +1111,15 @@ GSTtestB
 	CMP	r6, #0
 	BLT	GSTstopB
 	STMFD	sp!, {r0, r2, r4, r5}
-		; TST     2,#&40000000
-		; BNE     notaGSTSequenceB
+		; TST	  2,#&40000000
+		; BNE	  notaGSTSequenceB
 		; FNlong_adr("  ",1,w_formmb + 8)
-		; LDR     1,[1]
-		; AndS    1,1,#(1 << 19)
-		; BEQ     notaGSTSequenceB
+		; LDR	  1,[1]
+		; AndS	  1,1,#(1 << 19)
+		; BEQ	  notaGSTSequenceB
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0A
-	TEQNE	r1, #0x09
+	TEQ	r1, #col_strings
+	TEQNE	r1, #col_comments
 	BEQ	notaGSTSequenceB
 	MOV	r4, r7
 	MVN	r0, #0
@@ -1050,7 +1140,7 @@ GSTchklpB
 	SUBCC	r4, r4, r5
 inbothalfalreadB
 	LDRB	r1, [r4, r0]
-		; CMP     R1,#09     : ;BEQ GSTchklpB
+		; CMP	  R1,#09     : ;BEQ GSTchklpB
 	CMP	r1, #' '
 	BLT	notaGSTSequenceB
 	CMP	r1, #')'
@@ -1064,7 +1154,7 @@ inbothalfalreadB
 	CMN	r0, #2
 	BCS	GSTchklpB
 BACKInEntityB
-	MOV	r1, #0x0C
+	MOV	r1, #col_rounds
 	ADD	r5, r6, r3
 	ADD	r0, r0, #1
 	ADD	r4, r6, r0
@@ -1072,7 +1162,7 @@ BACKInEntityB
 	CMP	r4, r2
 	STRCSB	r1, [r5, r0]
 	ADD	r0, r0, #1
-	MOV	r1, #0x0C
+	MOV	r1, #col_rounds
 	CMN	r0, #0
 	BEQ	GupSAwayB
 roundAloopB
@@ -1083,7 +1173,7 @@ roundAloopB
 	CMP	r0, #0
 	BLT	roundAloopB
 GupSAwayB
-	MOV	r1, #0x0C	;  ?
+	MOV	r1, #col_rounds	;  ?
 	ADD	r4, r6, r0
 	CMP	r4, r2
 	STRCSB	r1, [r5, r0]
@@ -1100,24 +1190,27 @@ notaGSTSequenceB
 	BEQ	GSTstopB
 	B	secondendofGSTB
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-posscsvcommstart
-	LDR	r1, Sol7
-	ADD	r1, r1, #2
-	CMP	r7, r1
-	BNE	noposscsvcommstart
-	CMP	r6, #0
-	BCC	noposscsvcommstart
-	LDRB	r1, [r7, #-2]
-	CMP	r1, #'%'
-	BNE	noposscsvcommstart
-	MOV	r1, #0x09
-	ADD	r6, r6, r3
-	STRB	r1, [r6, #-1]
-	SUB	r6, r6, r3
+
+;posscsvcommstart			; this code is never called
+;	LDR	r1, Sol7
+;	ADD	r1, r1, #2
+;	CMP	r7, r1
+;	BNE	noposscsvcommstart
+;	CMP	r6, #0
+;	BCC	noposscsvcommstart
+;	LDRB	r1, [r7, #-2]
+;	CMP	r1, #'%'
+;	BNE	noposscsvcommstart
+;	MOV	r1, #col_comments
+;	ADD	r6, r6, r3
+;	STRB	r1, [r6, #-1]
+;	SUB	r6, r6, r3
+
+; called when we have a '#'
 CommentStart
 		;  REM | comment..........
-		; LDR     1,adrofrsix
-		; CMP     6,1
+		; LDR	  1,adrofrsix
+		; CMP	  6,1
 	LDR	r1, Sol7
 	ADD	r1, r1, #1
 	CMP	r7, r1
@@ -1125,90 +1218,103 @@ CommentStart
 	LDR	r1, [r9, #f_ptr]
 	ADD	r1, r1, #2
 	CMP	r7, r1
-	LDRCSB	r1, [r7, #-2]	;  check for \|...
+	LDRCSB	r1, [r7, #-2]	;  check for \|...  why?
 	CMP	r1, #'\'
 	BEQ	BeforeColour
-	ADRL	r1, w_formmb + 8
-	LDR	r1, [r1]
-	ANDS	r1, r1, #(1 << 19)
-	BNE	BeforeColour
+	;ADRL	r1, w_formmb + 8
+	;LDR	r1, [r1]
+	;ANDS	r1, r1, #(1 << 19)	; this bit is never set!
+	;BNE	BeforeColour
 sokinkeysfile
 	AND	r1, r2, #0xFF
-	CMP	r1, #0x0A	;  REM in quotes?
+	CMP	r1, #col_strings	;  REM in quotes?
 	BICNE	r2, r2, #0xFF
-	ORRNE	r2, r2, #0x09
+	ORRNE	r2, r2, #col_comments
 	ORRNE	r2, r2, #0x10000000
 	B	BeforeColour
+
+; called when we see a "
 QuoteBit
-		;  REM "Quotes"
+	;  REM "Quotes"
 	AND	r1, r2, #0xFF
-	CMP	r1, #0x09
+	CMP	r1, #col_comments       ; ignore strings in comments
 	BEQ	BeforeColour
-	ADRL	r1, w_formmb + 8
-	LDR	r1, [r1]
-	ANDS	r1, r1, #(1 << 19)
+	;ADRL	r1, w_formmb + 8
+	;LDR	r1, [r1]
+	;ANDS	r1, r1, #(1 << 19)	; this bit is never set!
 	AND	r1, r2, #0xFF
-	BEQ	notinthekeysfile
-	CMP	r1, #0x0D
-	BEQ	BeforeColour
-notinthekeysfile
-	CMP	r1, #0x0A
+	;BEQ	notinthekeysfile	; was EQ
+	;CMP	r1, #col_commands
+	;BEQ	BeforeColour
+;notinthekeysfile
+	TEQ	r1, #col_strings
 	BICNE	r2, r2, #0xFF
-	ORRNE	r2, r2, #0x0A
-	BNE	AfterColourafterchkback
-CurlyBrack
-		;  REM "No {} NUFFIN"
-	CMP	r6, #0
-	ANDGT	r1, r2, #0x0F
-	STRGTB	r1, [r6, r3]
-	BIC	r2, r2, #0xFF
-	MOV	r1, r2, LSR #24
-	AND	r1, r1, #0x01	;  REM Bits for {} depth
-	CMP	r1, #0x00
-	ORREQ	r2, r2, #0x0E	;  REM COL Cream/Normal
-	ORRNE	r2, r2, #0x0C	;  REM COL Grey/Redirected
-	B	AfterColour
-AfterColourafterchkback
-	AND	r1, r2, #0xFF
-	STMFD	sp!, {lr}
-	BL	TableChk2	;  REM **************************
-	LDMFD	sp!, {lr}
-	B	BeforeColour
-CurlyBrackOpen
-		;  REM originally for ' these ' ; "{"
-	ORR	r2, r2, #0x10000000
-	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0A
-	TEQNE	r1, #0x09
-	BEQ	BeforeColour
-	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x0C
-	ORR	r2, r2, #0x1000000
-	ORR	r12, r12, #0x0200
-	B	BeforeColour
-CurlyBrackClose
-		;  REM originally for ' these ' ; "}"
-	ORR	r2, r2, #0x10000000
-	AND	r1, r2, #0xFF
-	TEQ	r1, #0x0A
-	TEQNE	r1, #0x09
-	BEQ	BeforeColour
-	BIC	r2, r2, #0x1000000
-	MOV	r1, r2, LSR #24
-	AND	r1, r1, #0x01	;  REM Bits for {} depth
-	TEQ	r1, #0x00
-	BICNE	r2, r2, #0xFF
-	ORRNE	r2, r2, #0x0C	;  REM COL Grey/Redirected
-	ORRNE	r12, r12, #0x0200
+	ORRNE	r2, r2, #col_strings
 	BNE	BeforeColour
-	BIC	r12, r12, #0x0200
-	B	CurlyBrack
+	STRB	R2,[R6,R3]		; store string colour under terminating "
+	BIC	R2,R2,#&FF
+	ORR	R2,R2,#col_fg
+	B	AfterColour
+
+;	B	AfterColourafterchkback	; I think this checked for commands imeediately
+					; preceeding a ", but that's wrong anyway since
+					; commands can't be run like this
+					; eg gcc"file" won't work - cl
+;CurlyBrack
+;		;  REM "No {} NUFFIN"
+;	CMP	r6, #0
+;	ANDGT	r1, r2, #0x0F
+;	STRGTB	r1, [r6, r3]
+;	BIC	r2, r2, #0xFF
+;	MOV	r1, r2, LSR #24
+;	AND	r1, r1, #0x01	;  REM Bits for {} depth
+;	CMP	r1, #0x00
+;	ORREQ	r2, r2, #0x0E	;  REM COL Cream/Normal
+;	ORRNE	r2, r2, #0x0C	;  REM COL Grey/Redirected
+;	B	AfterColour
+;AfterColourafterchkback
+;	AND	r1, r2, #0xFF
+;	STMFD	sp!, {lr}
+;	BL	TableChk2	;  REM **************************
+;	LDMFD	sp!, {lr}
+;	B	BeforeColour
+;CurlyBrackOpen
+;		;  REM originally for ' these ' ; "{"
+;	ORR	r2, r2, #0x10000000
+;	AND	r1, r2, #0xFF				; get colour number
+;	TEQ	r1, #col_strings
+;	TEQNE	r1, #col_comments
+;	BEQ	BeforeColour
+;	BIC	r2, r2, #0xFF
+;	ORR	r2, r2, #col_rounds			; now in round bracket colour
+;	ORR	r2, r2, #0x1000000
+;	ORR	r12, r12, #0x0200
+;	B	BeforeColour
+;CurlyBrackClose
+;		;  REM originally for ' these ' ; "}"
+;	ORR	r2, r2, #0x10000000
+;	AND	r1, r2, #0xFF
+;	TEQ	r1, #col_strings
+;	TEQNE	r1, #col_comments
+;	BEQ	BeforeColour
+;	BIC	r2, r2, #0x1000000
+;	MOV	r1, r2, LSR #24
+;	AND	r1, r1, #0x01	;  REM Bits for {} depth
+;	TEQ	r1, #0x00
+;	BICNE	r2, r2, #0xFF
+;	ORRNE	r2, r2, #col_rounds	;  REM COL Grey/Redirected
+;	ORRNE	r12, r12, #0x0200
+;	BNE	BeforeColour
+;	BIC	r12, r12, #0x0200
+;	B	CurlyBrack
+
+; tab
 TabbingSub
 	AND	r1, r2, #0xF
-	TEQ	r1, #0x0D
-	TEQNE	r1, #0x0B
+	TEQ	r1, #col_commands
+	TEQNE	r1, #col_angles
 	ORREQ	r2, r2, #0x0100
-	AND	r1, r4, #0x3000
+	AND	r1, r4, #0x3000		; get tab mode
 	TEQ	r1, #0
 	TEQEQ	r0, r12, LSR #24
 	BEQ	AfterColour
@@ -1216,37 +1322,43 @@ TabbingSub
 	BEQ	Branch24
 	CMP	r6, #0
 	BLT	BeginOfEnd
-	MOV	r0, #9	;  REM tab!
+	MOV	r0, #9			;  tab arrow -> char
 	TEQ	r1, #0x1000
-	MOVEQ	r0, #0x20	;  REM " "!!!!
+	MOVEQ	r0, #' '
 	TEQ	r1, #0x3000
-	MOVEQ	r0, #'-'	;  REM "-"!!!!
+	MOVEQ	r0, #'-'
 TabLoop
-	MOV	r1, #8	;  REM = COL control Character...
-	STRB	r1, [r6, r3]	; @@@@
-	MOV	r1, #1
+	MOV	r1, #col_controls 	; tabs are ctl characters
+	STRB	r1, [r6, r3]		; fg
+	MOV	r1, #col_bg2
 	STRB	r1, [r6, r3,LSL #1]	;  REM wrong?
-	STRB	r0, [r6], #1	;  REM @@@@@@
-	ADD	lr, lr, #1
+	STRB	r0, [r6], #1		; store displayed char
+	ADD	lr, lr, #1		; next column
 	AND	r1, r4, #0x3000
 	TEQ	r1, #0x2000
-	MOVEQ	r0, #0x20
+	MOVEQ	r0, #' '
 	BIC	r1, r12, #0xFF000000
-	TEQ	lr, r1, LSR #12
-	TSTNE	lr, #7
-	BNE	TabLoop
+	TEQ	lr, r1, LSR #12		; last column in window?
+	TSTNE	lr, #7			; or reached multiple of 8?
+	BNE	TabLoop			; nope
 	AND	r0, r4, #0x3000
 	TEQ	r0, #0x3000
-	MOVEQ	r0, #9	;  REM  | ?
-	STREQB	r0, [r6, #-1]	;  REM @@@@ ???
-	MOV	r0, r12, LSR #24
+	MOVEQ	r0, #9			; -----> - now tab char
+	STREQB	r0, [r6, #-1]		; so store it
+	MOV	r0, r12, LSR #24	; get tab char
 	B	BeginOfEnd
+
+
+;------------- e_prevline -------------
+
 redrawA
-		;  REM redraw the screen and so forth
-	SUBS	r0, r0, #32
-	MOVMI	r0, #0
+	SUBS	r0, r0, #12		; was 32 but that seems excessive -
+	MOVMI	r0, #0			; the longest command we have is 10
 	MOV	pc, lr
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+; -------- command table lookup --------
 beginnchar
 	DCD	0
 storedr6flu
@@ -1254,9 +1366,10 @@ storedr6flu
 cntcharback
 	DCD	0
 fullstopsofar
-	DCD	0
+ 	DCD	0
 locssforcase
 	DCD	0
+
 fullstopspeccase
 	LDR	r1, fullstopsofar
 	CMP	r1, #0
@@ -1288,21 +1401,25 @@ inbothalfTC2a
 	MOV	r1, #'-'
 		;     ADD     11,11,#1
 	B	notanumberbackedonto
+
+; E r6 -> output buffer  r7 -> input buffer
+;
 TableChk2
 	STR	r6, storedr6flu
 		; MOV PC,E
-	STMFD	sp!, {r4-r12, lr}
+	;STMFD	sp!, {r4-r12, lr}
 		; REM LDR     R7,Sol6
+	FNJSR	"R4-R12"
 	MOV	r1, #0
 	STR	r1, fullstopsofar
-	MOV	r8, r7
+	MOV	r8, r7			; r8 = current input
 	LDR	r1, [r9, #f_ptr]
 	LDR	r12, [r9, #f_splito]
-	ADD	r12, r1, r12
+	ADD	r12, r1, r12		; r12 = end of section
 	CMP	r8, r12
 	BCC	ploughonin
 	LDR	r12, [r9, #f_splite]
-	ADD	r12, r1, r12
+	ADD	r12, r1, r12		; r12 = end of section
 	CMP	r8, r12
 	LDRCC	r1, [r9, #f_splits]
 	ADDCC	r8, r8, r1
@@ -1335,15 +1452,15 @@ inbothalfTC2
 	CMPNE	r1, #'{'
 	CMPNE	r1, #'@'
 	BGT	tcloop
-		; CMP     R1,#ASC"-" ; for what...?
-		; BEQ     loop ; for what...?
+		; CMP	  R1,#ASC"-" ; for what...?
+		; BEQ	  loop ; for what...?
 rightatverystart
 	TEQ	r1, #'.'
 	BEQ	fullstopspeccase
 	TEQ	r1, #'+'
 	BEQ	tcloop
 	TEQ	r1, #'@'
-	TEQNE	r1, #':'	;  REM ok as in C;h.foo
+	TEQNE	r1, #':'	;  REM ok as in C:h.foo
 	BEQ	notanumberbackedonto
 	TEQ	r1, #'-'
 	BEQ	splchkforminus
@@ -1355,15 +1472,15 @@ rightatverystart
 	CMP	r1, #' '
 	BGT	notANYone
 notanumberbackedonto
-	STR	r1, beginnchar
+	STR	r1, beginnchar		; keep first char to look up
 	ADD	r11, r11, #1
-	ADD	r4, r8, r11
+	ADD	r4, r8, r11		; r4 = start address
 	ADD	r11, r11, #1
-	RSB	r1, r11, #0
+	RSB	r1, r11, #0		; r11 is number of chars gone back
 	STR	r1, cntcharback
 	LDR	r1, [r9, #f_ptr]
 	CMP	r4, r1
-	BCC	notANYone
+	BCC	notANYone		; not in file
 	LDR	r12, [r9, #f_splito]
 	ADD	r12, r1, r12
 	CMP	r4, r12
@@ -1380,15 +1497,24 @@ notanumberbackedonto
 		;  re-adjust to the start of the second part of the buffer.
 		;  Which?
 		;  Note that there are a few similar points above ...
+
+		; this code is called because we've been searching backwards through
+		; the file to find the start of the word. Now we have counted the size
+		; of the word and subtracted that from the starting point, so we could end up
+		; in the middle of the split. We subtract the split size to cater for that.
+		; CC is right because we're going /backwards/ through the split.
 	LDR	r12, [r9, #f_splite]
-	ADD	r12, r1, r12
+	ADD	r12, r1, r12		; point to new end of section
 	CMP	r4, r12
 	LDRCC	r1, [r9, #f_splits]
 	SUBCC	r4, r4, r1
+	CMP	r4, r12
+	BCS	notANYone		; off the end of the file (we didn't go back at all, or
+					; split was last thing in file)
 inbothalfTC3
-		; LDR     1,[9,#f_ptr]
-		; CMP     4,1
-		; BCC     notANYone
+		; LDR	  1,[9,#f_ptr]
+		; CMP	  4,1
+		; BCC	  notANYone
 	LDRB	r1, [r4]
 	FNupper	r1
 	CMP	r1, #'-'
@@ -1399,20 +1525,20 @@ inbothalfTC3
 	BGT	notANYone
 	SUB	r1, r1, #'A'
 	ADRL	r12, AlphaIndex
-	ADD	r1, r12, r1, ASL #2
+	ADD	r1, r12, r1, LSL #2
 	LDR	r1, [r1]
 	ADRL	r12, TableHere
 	ADD	r12, r12, r1
-	TST	r2, #0x04000000
-	ADRNEL	r12, TableEval
+;	TST	r2, #0x04000000	; this bit never gets set
+;	ADRNEL	r12, TableEval
 lpa2
 	MOV	r8, #0	;  REM tablepointer
-	LDRB	r1, [r12]
-	CMP	r1, #'#'	;  no longer needed?
-	MOV	r1, #0
-	MVNEQ	r1, #0
-	ADDEQ	r12, r12, #1
-	STR	r1, locssforcase
+	;LDRB	r1, [r12]
+	;CMP	r1, #'#'	;  no longer needed.
+	;MOV	r1, #0
+	;MVNEQ	r1, #0
+	;ADDEQ	r12, r12, #1
+	;STR	r1, locssforcase
 lpa1
 	LDRB	r1, [r12, r8]
 	CMP	r1, #'z'
@@ -1430,20 +1556,22 @@ lpa1
 	CMP	r5, lr
 	LDRCC	r1, [r9, #f_splits]
 	ADDCC	r5, r5, r1
+	CMP	r5, lr			; gone past the end of the file
+	BCS	notANYone		; (split was last thing in file)
 inbothalfTC4
-	ADRL	r1, w_formmb
-	LDR	r1, [r1, #0x08]
-	ANDS	r1, r1, #1 << 24
+	;ADRL	r1, w_formmb
+	;LDR	r1, [r1, #0x08]
+	;ANDS	r1, r1, #1 << 24
 	LDRB	r1, [r5]
-	BEQ	dothatupper
-	LDR	lr, locssforcase
-	CMP	lr, #0
-	BNE	noupperheren
-dothatupper
+	;BEQ	dothatupper
+	;LDR	lr, locssforcase
+	;CMP	lr, #0
+	;BNE	noupperheren
+;dothatupper
 	FNupper	r1
-noupperheren
-	TEQ	r7, #' '
-	BEQ	skiptabovr1
+;noupperheren
+;	TEQ	r7, #' '
+;	BEQ	skiptabovr1     ; ha ha ha ha
 skiptabovr1
 	CMP	r1, #':'	;  was 'COLON' / 64...
 	CMPNE	r1, #'<'	;  was 64...
@@ -1468,12 +1596,12 @@ _altered_0
 	CMP	r1, #'*'
 	BNE	lpa2
 couldnotfindit
-		; TST     2,#&1C000000
+		; TST	  2,#&1C000000
 		; LDMNEFD 13!,{R4-R12,PC}
 	RSB	r8, r11, #0
 	ORR	r2, r2, #0x10000000	;  SOL ...? no brackets...!
 	BIC	r2, r2, #0x40000000	;  a command yet flags...
-		; LDRB    1,[5] ; REM ??? V DUBIOUS...
+		; LDRB	  1,[5] ; REM ??? V DUBIOUS...
 		;     CMP     1,#ASC"."
 		;     ADDEQ   8,8,#1
 	LDR	r1, beginnchar
@@ -1483,40 +1611,43 @@ couldnotfindit
 		;     BICEQ   2,2,#&40000000 ; a command yet flags...
 		;     BEQ     ChooseColour2
 	TEQ	r1, #'-'	; option/switch
-	MOVEQ	r1, #0x10
+	MOVEQ	r1, #col_switches
 	BEQ	ChooseColour2
 		;     MOV     1,#&12
-		;     B       ChooseYerColour
+		;     B	      ChooseYerColour
 		;  deliberate fall through...
 notANYone
-	LDMFD	sp!, {r4-r12, pc}
+	FNRTS
+	;LDMFD	sp!, {r4-r12, pc}
+
 bigger1
 	CMP	r8, #1
 	BEQ	couldnotfindit
 	B	maybenot
+
 ChooseYerColour
-	AND	r9, r2, #0xFF
-	CMP	r9, #0x0F
-	CMPNE	r9, #0x0A
+	AND	r9, r2, #0xFF	; extract current colour number
+	CMP	r9, #col_numbers
+	CMPNE	r9, #col_strings
 	BEQ	notANYone
 	LDR	r9, storedr6flu
 	CMP	r9, #0
 	BLE	notANYone
-		; ADD     9,6,3
-		; LDRB    9,[9,11]  ; REM QUICK FIX...
-		; CMP     9,#&0A      ; REM ""
+		; ADD	  9,6,3
+		; LDRB	  9,[9,11]  ; REM QUICK FIX...
+		; CMP	  9,#&0A      ; REM ""
 		; LDMEQFD 13!,{R4-R12,PC}
 	MOV	r9, #0
 	ADD	r7, r6, r11
 	ADD	r6, r7, r3
-		; LDR     11,Sol6
+		; LDR	  11,Sol6
 	LDR	r11, adrofrsix
 lasdwAO
 	ADD	r4, r7, r9
 	CMP	r4, r11
 	BCC	dontputitonsc
-		; LDRB    4,[R12,R9]
-		; CMP     4,#ASC"@"
+		; LDRB	  4,[R12,R9]
+		; CMP	  4,#ASC"@"
 	STRB	r1, [r6, r9]	;  REM CS
 dontputitonsc
 	ADD	r9, r9, #1
@@ -1526,52 +1657,55 @@ dontputitonsc
 	LDMFD	sp!, {r4-r12, pc}
 Prefixbit
 	RSB	r10, r11, #0
-		; STR     10,cntcharback
-		; LDRB    R1,[R6] ; REM ??? V DUBIOUS...
+		; STR	  10,cntcharback
+		; LDRB	  R1,[R6] ; REM ??? V DUBIOUS...
 	CMP	r1, #'.'
 	ADDEQ	r10, r10, #1
-	TEQ	r9, #150
-	MOVEQ	r1, #0x12
-	TEQ	r9, #151
-	MOVEQ	r1, #0x13
-	TEQ	r9, #152
-	MOVEQ	r1, #0x14
-	TEQ	r9, #153
-	MOVEQ	r1, #0x15
+	TEQ	r9, #com_cfile
+	MOVEQ	r1, #col_cfile
+	TEQ	r9, #com_header
+	MOVEQ	r1, #col_header
+	TEQ	r9, #com_object
+	MOVEQ	r1, #col_object
+	TEQ	r9, #com_assembler
+	MOVEQ	r1, #col_assembler
 	B	ChooseColour2
+
 Prefixbit2A
 	RSB	r10, r11, #0
-		; STR     10,cntcharback
-		; LDRB    R1,[R6] ; REM ??? V DUBIOUS...
+		; STR	  10,cntcharback
+		; LDRB	  R1,[R6] ; REM ??? V DUBIOUS...
 	CMP	r1, #'.'
 	ADDEQ	r10, r10, #1
 	MOV	r1, #0x0D
 	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x0F
+	ORR	r2, r2, #col_numbers
 	B	ChooseColour2
-possiblyaMJE
-	TEQ	r1, #'-'
-	MOVEQ	r1, #0x11
-		;     MOVNE   1,#&12
-	BIC	r2, r2, #0x40000000	;  a command yet flags...
-	BEQ	ChooseColour2
-	B	colouringrapidexit	;  couldnotfindit
+
+;possiblyaMJE
+;	TEQ	r1, #'-'
+;	MOVEQ	r1, #0x11
+;		;     MOVNE   1,#&12
+;	BIC	r2, r2, #0x40000000	;  a command yet flags...
+;	BEQ	ChooseColour2
+;	B	colouringrapidexit	;  couldnotfindit
+
 gotexactmatch
 	ORR	r2, r2, #0x40000000	;  a command yet flags...
 	ORR	r2, r2, #0x10000000	;  START OF LINE FLAG...
 	BL	CheckRoutine
 		;     TEQ     R8,R10
-	TEQ	r9, #150
-	TEQNE	r9, #151
-	TEQNE	r9, #152
-	TEQNE	r9, #153
+	TEQ	r9, #com_cfile
+	TEQNE	r9, #com_header
+	TEQNE	r9, #com_object
+	TEQNE	r9, #com_assembler
 	BEQ	Prefixbit
 		;     TEQ     R8,R10
 		;     TEQEQ   R9,#ASC"—"
 		;     BEQ     Prefixbit2A
-	RSBEQ	r10, r11, #0
-	TEQ	r9, #156
-	LDMEQFD	sp!, {r4-r12, pc}
+	;RSBEQ	r10, r11, #0 		;...pardon?
+	;TEQ	r9, #156                ; this character isn't in the table
+	;LDMEQFD	sp!, {r4-r12, pc}
 	LDR	r1, beginnchar
 		;     TEQ     1,#ASC"-"
 		;     TEQNE   1,#ASC"!"
@@ -1579,19 +1713,20 @@ gotexactmatch
 		;     BICEQ   2,2,#&40000000 ; a command yet flags...
 		;     BEQ     ChooseColour2
 	TEQ	r1, #'-'	; option/switch
-	MOVEQ	r1, #0x10
+	MOVEQ	r1, #col_switches
 	BEQ	ChooseColour2
-	TEQ	r9, #171
-	MOVEQ	r1, #0x11	;  gerph style...
+	TEQ	r9, #com_morecmds
+	MOVEQ	r1, #col_morecmds	;  gerph style...
 	BEQ	ChooseColour2
 		;     MovEQ   1,#&12 ; logop
 		;     BEQ     ChooseColour2
-	TEQ	r9, #176
-	BEQ	possiblyaMJE
-	MOV	r1, #0x0D
-	TEQ	r9, #'}'
-	MOVEQ	r1, #0x02	;  was &12
-	BICEQ	r2, r2, #0x40000000	;  a command yet flags...
+	;TEQ	r9, #176		; this character isn't in the table
+	;BEQ	possiblyaMJE
+	MOV	r1, #col_commands
+	;TEQ	r9, #'}'		; neither is this one
+	;MOVEQ	r1, #col_fg	;  was &12
+	;BICEQ	r2, r2, #0x40000000	;  a command yet flags...
+
 ChooseColour2
 	LDRB	r9, beginnchar
 		;     CMP     9,#&0A
@@ -1605,20 +1740,20 @@ ChooseColour2
 	CMP	r9, #0
 	BLE	notANYone
 	ANDS	r9, r2, #0xFF
-	CMP	r9, #0x0F
-	CMPNE	r9, #0x0A
+	CMP	r9, #col_numbers
+	CMPNE	r9, #col_strings
 	BEQ	notANYone
 	ADD	r9, r6, r3
-	LDRB	r9, [r9, r11]	;  REM QUICK FIX...
-	CMP	r9, #0x0A	;  REM ""
+	LDRB	r9, [r9, r11]		;  REM QUICK FIX...
+	CMP	r9, #col_strings	;
 	LDMEQFD	sp!, {r4-r12, pc}
 	MOV	r9, #0
 	ADD	r7, r6, r11
-		; ADD     7,7,#1 ; REM ??? TT
-		; SUB     8,8,#1
+		; ADD	  7,7,#1 ; REM ??? TT
+		; SUB	  8,8,#1
 	ADD	r6, r7, r3
 	LDRB	r5, [r6, r9]
-	CMP	r5, #0x0A
+	CMP	r5, #col_strings
 	LDMEQFD	sp!, {r4-r12, pc}
 	LDR	r11, adrofrsix
 	ADRL	r5, w_formmb
@@ -1629,8 +1764,8 @@ lasdwA
 	BCC	beforesolhereargh
 	LDRB	lr, [r7, r9]
 	LDRB	r4, [r12, r9]
-		; TST     5,#1 << 27
-		; CMPNE   E,#64
+		; TST	  5,#1 << 27
+		; CMPNE	  E,#64
 		; STRGTB  4,[7,9]
 lasdwA1
 	ADD	r4, r7, r9
@@ -1648,33 +1783,36 @@ beforesolhereargh
 	BLT	lasdwA1
 	MOV	r1, #0xEA00
 colouringrapidexit
-	LDMFD	sp!, {r4-r12, pc}
-ErrorSet2
-		;  REM code is still here?
-	MOV	r9, #0	; 
-	ADD	r6, r6, r3	; 
-	ADD	r6, r6, r11	; 
-	MOV	r10, #0x10	; 
-lasdwB
-	ADD	r4, r7, r9
-	CMP	r4, r11
-	BCC	beforesolherearghE
-	LDRB	r1, [r6, r9]
-	CMP	r1, #0xC	;  REM {} or error
-	CMPNE	r1, #0xA	;  REM ""
-	CMPNE	r1, #0x9	;  REM | Comment
-	STRNEB	r10, [r6, r9]
-beforesolherearghE
-	ADD	r9, r9, #1
-	LDR	r4, cntcharback
-	CMP	r9, r4
-	BCS	colouringrapidexit
-	CMP	r9, r8
-	BLT	lasdwB
-	BIC	r2, r2, #0xFF
-	ORR	r2, r2, #0x0F
-	LDMFD	sp!, {r4-r12, pc}
+	;LDMFD	sp!, {r4-r12, pc}
+	FNRTS
+
+;ErrorSet2						; this code is never called
+;		;  REM code is still here?
+;	MOV	r9, #0	;
+;	ADD	r6, r6, r3	;
+;	ADD	r6, r6, r11	;
+;	MOV	r10, #0x10	;
+;lasdwB
+;	ADD	r4, r7, r9
+;	CMP	r4, r11
+;	BCC	beforesolherearghE
+;	LDRB	r1, [r6, r9]
+;	CMP	r1, #0xC	;  REM {} or error
+;	CMPNE	r1, #0xA	;  REM ""
+;	CMPNE	r1, #0x9	;  REM | Comment
+;	STRNEB	r10, [r6, r9]
+;beforesolherearghE
+;	ADD	r9, r9, #1
+;	LDR	r4, cntcharback
+;	CMP	r9, r4
+;	BCS	colouringrapidexit
+;	CMP	r9, r8
+;	BLT	lasdwB
+;	BIC	r2, r2, #0xFF
+;	ORR	r2, r2, #0x0F
+;	LDMFD	sp!, {r4-r12, pc}
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 CheckRoutine
 	ADD	r1, r12, r8
 	SUB	r1, r1, #1
@@ -1683,38 +1821,44 @@ _altered_1
 	CMP	r9, #'z'
 	BLE	_altered_1
 NotAThen
-		; TST     R2,#&10000000
+		; TST	  R2,#&10000000
 		; LDMNEFD R13!,{R4-R12,PC}
-		; OrrNE   R2,R2,#&10000000
+		; OrrNE	  R2,R2,#&10000000
 	BIC	r2, r2, #0x08000000
 	MOV	pc, lr
+
 Data47
 	DCD	0x0
 Branch208
 	LDR	r11, Data47
 	MOV	pc, lr
-Branch210
-	STMFD	sp!, {r0, r1, lr}
-	LDR	r11, Data47
-	LDR	r0, [r8, #w_format]	;  REM w_format
-	AND	r0, r0, #0xFF
-	MVN	lr, #0
-	LDR	r1, [r11, #8]
-	TEQ	r0, r1
-	ADDEQ	lr, lr, #1
-	LDRNE	r1, [r11, #4]
-	TEQNE	r0, r1
-	ADDEQ	lr, lr, #1
-	LDRNE	r1, [r11, #0]
-	TEQNE	r0, r1
-	ADDEQ	lr, lr, #1
-	LDMFD	sp!, {r0, r1, pc}
-	STMFD	sp!, {r11, lr}
-	LDR	r11, Data47
-	TEQ	r1, #0
-	BLEQ	Tk1frm12andret
-	LDMFD	sp!, {r11, pc}
+
+;Branch210				; this code is never called and wouldn't work anyway
+;	STMFD	sp!, {r0, r1, lr}
+;	LDR	r11, Data47
+;	LDR	r0, [r8, #w_format]	;  REM w_format
+;	AND	r0, r0, #0xFF
+;	MVN	lr, #0
+;	LDR	r1, [r11, #8]
+;	TEQ	r0, r1
+;	ADDEQ	lr, lr, #1
+;	LDRNE	r1, [r11, #4]
+;	TEQNE	r0, r1
+;	ADDEQ	lr, lr, #1
+;	LDRNE	r1, [r11, #0]
+;	TEQNE	r0, r1
+;	ADDEQ	lr, lr, #1
+;	LDMFD	sp!, {r0, r1, pc}
+;	STMFD	sp!, {r11, lr}
+;	LDR	r11, Data47
+;	TEQ	r1, #0
+;	BLEQ	Tk1frm12andret
+;	LDMFD	sp!, {r11, pc}
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; -------- module header -----------
+
 D1
 	=	"ZapMakeFile", 0x0
 	DCD	0x00
@@ -1726,12 +1870,15 @@ D2
 	=	0x1B, 0x00, " provides support for", 0x1B, 0x02, "Zap editor.", 0x0D, "It provides a syntax-colouring mode for Zap command ", 0x1B, 0x07, "s.", 0x00
 	ALIGN
 ModHelpString
-	=	"ZapMakeFile", 0x09, "0.02 (10 May 1998) © Tim Tyler", 0x00
+	=	"ZapMakeFile", 0x09, "0.03 (00 Jan 0000) © Tim Tyler", 0x00
 	ALIGN
 lp1
 	=	"Tim Tyler", 0x00
 	ALIGN
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+; --------- e_char -----------
+
 charchar
 	STMFD	sp!, {lr}
 	MOV	r1, #0
@@ -1811,7 +1958,7 @@ Abbreviation
 	SUB	lr, r0, #1
 	STR	lr, storedofsofeow
 	MOV	r1, #'('
-		; MOV     R2,#ASC"?"
+		; MOV	  R2,#ASC"?"
 	BL	checkbackone
 	BEQ	firstabbrev
 		;     LDMFD   R13,{R0-R12,R14}
@@ -1846,8 +1993,8 @@ asnormaldot
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
-		;     B       insrtstfhre
+		;
+		;     B	      insrtstfhre
 beepandexit
 		;  REM stop full
 	LDMFD	sp, {r0-r12, lr}
@@ -1856,11 +2003,11 @@ beepandexit
 	MOV	r9, #Zap_CallMode
 	BL	FromMJE27
 realbeepandexit
-		; SWI     &107
+		; SWI	  &107
 	LDMFD	sp!, {r0-r12, pc}
 firstabbrev
 	ADRL	r0, TableHere
-		; LDR     0,locoftablethree
+		; LDR	  0,locoftablethree
 	LDR	r1, storedofsofsow
 	LDR	r2, storedofsofeow
 	SUB	r2, r2, r1
@@ -1883,12 +2030,12 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
-		;     B       insrtstfhre
+		;
+		;     B	      insrtstfhre
 		; .entityabbrev
 		;     MVN     0,#0
 		;     STR     0,isentity
-		; 
+		;
 		;     LDR     0,locoftableent
 		;     ;FNlong_adr("  ",0,entitylist)
 		;     LDR     1,storedofsofsow
@@ -1898,12 +2045,12 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     Secondtry
-		; 
-		;     B       insrtstfhre
+		;
+		;     B	      insrtstfhre
 		; .Secondtry
 		;     MOV     0,#&1
 		;     STR     0,isentity
-		; 
+		;
 		;     LDR     0,locoftableent
 		;     ;FNlong_adr("  ",0,entitylist)
 		;     LDR     1,storedofsofsow
@@ -1913,8 +2060,8 @@ firstabbrev
 		;     BL      getadrofabrcmd
 		;     ; REM returns adress in r7, length in r5.
 		;     BEQ     beepandexit
-		; 
-		;     B       insrtstfhre
+		;
+		;     B	      insrtstfhre
 insrtstfhre
 	MOV	r2, #31	;  max value
 	ADR	r3, deldatahere
@@ -1939,12 +2086,12 @@ _altered_2
 		;     LDR     0,endtermhere
 		;     CMP     0,#ASC"¿"
 		;     BNE     noequalsaddedon
-		; 
+		;
 		;     FNlong_adr("  ",3,w_formmb + 4)
 		;     LDRB    3,[3,#2]
 		;     CMP     3,#0
 		;     BNE     noequalsaddedon
-		; 
+		;
 		;     ADR     3,eqstrhere
 		;     LDR     2,inshash
 		;     LDR     1,storedofsofsow
@@ -1957,7 +2104,7 @@ _altered_2
 		;     LDRB    3,[3,#2]
 		;     CMP     3,#0
 		;     BNE     noclosetagneeded
-		; 
+		;
 		;     LDR     1,endtermhere
 		;     LDR     0,startslash
 		;     TEQ     1,#ASC"º"
@@ -1970,7 +2117,7 @@ _altered_2
 		;     MOV     0,#&1
 		;     MOV     2,#1
 		;     FNcall(Zap_Command)
-		; 
+		;
 		; .noclosetagneeded
 	FNcall	Zap_StopOp
 	LDMFD	sp!, {r0-r12, pc}
@@ -2031,8 +2178,8 @@ findnextincc
 dontcomparejn
 	CMP	r12, r5
 	BLT	_altered_4
-		; STMFD   R13!,{R8-R12}
-		; 
+		; STMFD	  R13!,{R8-R12}
+		;
 	STR	r12, delhash
 	MOV	r7, r11
 	MOV	r12, #0
@@ -2149,13 +2296,13 @@ _altered_6
 	BLT	FromMJE20b
 	MOV	r0, r3
 	BL	FromMJE29
-		; TEQ     R0,R2
-		; ADDEQ   R4,R4,#1
-		; BEQ     loop
+		; TEQ	  R0,R2
+		; ADDEQ	  R4,R4,#1
+		; BEQ	  loop
 	CMP	r0, #'@'
 	BLE	FromMJE20b
-		; CMP     R0,#ASC"@"
-		; BEQ     FromMJE20a%
+		; CMP	  R0,#ASC"@"
+		; BEQ	  FromMJE20a%
 	TEQ	r0, r1
 	BNE	_altered_6
 	B	FromMJE20
@@ -2191,8 +2338,8 @@ _altered_7
 		; TEQNE  0,#ASC"."
 	BEQ	FromMJE20a
 overspecchars
-		; CMP     0,#32
-		; BCC     FromMJE20a%
+		; CMP	  0,#32
+		; BCC	  FromMJE20a%
 	TEQ	r0, r1
 	BNE	_altered_7
 	SUBS	r4, r4, #1
@@ -2252,8 +2399,8 @@ FromMJE26
 	MOV	r0, #0
 	ADRL	r1, w_formmb
 	LDR	r1, [r1, #0x08]
-		; CMP     2,#ASC";"
-		; BEQ     ampsemi
+		; CMP	  2,#ASC";"
+		; BEQ	  ampsemi
 	ADRL	r2, w_formmb + 4
 	LDRB	r2, [r2]
 	TST	r1, #(1 << 26)
@@ -2385,6 +2532,8 @@ maker1upper
 maker0upper
 	FNupper	r0
 	MOV	pc, lr
+
+
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 tohaveajollygoodtime
 	STMFD	sp!, {lr}
@@ -2406,32 +2555,36 @@ tohaveajollygoodtime
 	ADDEQ	r11, r11, #1
 	LDMFD	sp!, {lr}
 	B	tohaveajollygoodback
-tocheckbackwardsnow
-	ADD	r11, r11, #1	;  REM This code only executed if <CR>...
+
+
+tocheckbackwardsnow			; check backwards from cr to find a command
+	ADD	r11, r11, #1		; inc logical line number
 	BIC	r2, r2, #0xCF000000	;  REM START OF LINE FLAGS...xxx
 	BIC	r2, r2, #0x00F00000
-		;  B       backcheckbackwardsnow ; yyy
+		;  B	   backcheckbackwardsnow ; yyy
 	STMFD	sp!, {lr}
 	BL	checkbackwardsnow
 	LDMFD	sp!, {lr}
 	B	backcheckbackwardsnow
+
 checkbackwardsnow
-	STMFD	sp!, {r0, r2, r7, lr}
+;	STMFD	sp!, {r0, r2, r7, lr}
+	FNJSR	"R0,R2,R7"
 	AND	r1, r2, #0xFF
-	TEQ	r1, #0x09
-	TEQNE	r1, #0x0A
-	BEQ	endcheckbackwardsnow
-		; CMP     0,#ASC"@"
-		; BCC     endcheckbackontoent
+	TEQ	r1, #col_comments
+	TEQNE	r1, #col_strings
+	BEQ	endcheckbackwardsnow	; ignore colouring in comments or strings
+		; CMP	  0,#ASC"@"
+		; BCC	  endcheckbackontoent
 	CMP	r0, #'{'
-	BCS	endcheckbackontoent
+	BCS	endcheckbackontoent	; not A-Za-z etc
 alltizfine
 	ADD	r7, r7, #1
 	BL	TableChk2
 	SUB	r7, r7, #1
 endcheckbackontoent
 	ADD	r7, r7, #1
-	TEQ	r1, #0x09
+	TEQ	r1, #col_comments
 	BEQ	secondendofGSTB
 	MOV	r1, #1
 	B	GSTtest
@@ -2439,9 +2592,15 @@ secondendofGST
 	MOV	r1, #1
 	B	GSTtestB
 secondendofGSTB
-		;  nah... SUB     R7,R7,#1
+		;  nah... SUB	  R7,R7,#1
 endcheckbackwardsnow
-	LDMFD	sp!, {r0, r2, r7, pc}
+	FNRTS
+;	LDMFD	sp!, {r0, r2, r7, pc}
+
+
+
+; -------- this all seems to be buttons code ---------
+
 callmiscentrypt
 	STMFD	sp!, {r0-r12, lr}
 	ADRL	lr, w_formmb
@@ -2706,9 +2865,9 @@ Cmdhtmlflagstoggle
 	LDR	r10, [r0]
 	ADRL	r1, modenumberlocal
 	LDR	r1, [r1]
-		; CMP     8,#0
+		; CMP	  8,#0
 		; LDRNEB  0,[8,#w_format]
-		; CMPNE   0,1
+		; CMPNE	  0,1
 		; LDMNEFD D !,{PC}
 	STMFD	sp!, {r1-r11}
 	FNcall	Zap_GetModeWord
@@ -2834,14 +2993,58 @@ mode_interrogate
 	MOV	r11, #e_interrogate
 	BL	basemode
 	LDMFD	sp!, {r9, r11, pc}
-TableEval
-	=	"AND }", "VAL }", "**"
+;TableEval					; what's /this/ doing here?
+;	=	"AND }", "VAL }", "**"
+
+	; mus make sure the followinf text is at least 26*4 bytes long!
 AlphaIndex
 	=	10, "Greetings from The Mandala Centre.", 10, "Please feel free place any additional commands in the space provided"
 	ALIGN
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;------------ command table -----------
+
 	DCD	0x2A2A0A2E
 TableHere
-	=	"AUTOINDENT |", "AUX |", "BLOCKID |", "BISON |", "CC |", "C++ |", "CFRONT |", "CMHG |", "C++.–", "CPP.–", "C.–", "COPY «", "CDIR |", "CREATE «", "DECAOF |", "DELETE «", "DIFF |", "ECHO «", "FIND |", "GCC |", "H.—", "LIBFILE |", "LINK |", "MV «", "OBJASM |", "OBJSIZE |", "O.˜", "RM «", "RUN «", "REMOVE |", "SED |", "SQUEEZE |", "S.™", "SETTYPE «", "STOH «", "TOANSI |", "TOPCC |", "WORDSTR |", "Yum |", "Zen |", "**", 10
+	=	"AUTOINDENT ",	com_commands
+	=	"AUX ",		com_commands
+	=	"BLOCKID ",	com_commands
+	=	"BISON ",	com_commands
+	=	"CC ",		com_commands
+	=	"C++ ",		com_commands
+	=	"CFRONT ",	com_commands
+	=	"CMHG ",	com_commands
+	=	"C++.",		com_cfile
+	=	"CPP.",		com_cfile
+	=	"C.",		com_cfile
+	=	"COPY ",	com_morecmds
+	=	"CDIR ",	com_commands
+	=	"CREATE ",	com_morecmds
+	=	"DECAOF ",	com_commands
+	=	"DELETE ",	com_morecmds
+	=	"DIFF ",	com_commands
+	=	"ECHO ",	com_morecmds
+	=	"FIND ",	com_commands
+	=	"GCC ",		com_commands
+	=	"H.",		com_header
+	=	"LIBFILE ",	com_commands
+	=	"LINK ",	com_commands
+	=	"MV ",		com_morecmds
+	=	"OBJASM ",	com_commands
+	=	"OBJSIZE ",	com_commands
+	=	"O.",		com_object
+	=	"RM ",		com_morecmds
+	=	"RUN ",		com_morecmds
+	=	"REMOVE ",	com_commands
+	=	"SED ",		com_commands
+	=	"SQUEEZE ",	com_commands
+	=	"S.",		com_assembler
+	=	"SETTYPE ",	com_morecmds
+	=	"STOH ",	com_morecmds
+	=	"TOANSI ",	com_commands
+	=	"TOPCC ",	com_commands
+	=	"WORDSTR ",	com_commands
+	=	"Yum ",		com_commands ; these are never matched because we search for an
+	=	"Zen ",		com_commands ; upper case command
+	=	"**", 10
 
 	END
