@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.1 2000/10/11 15:29:07 james Exp $
+; $Id: Template,fff,v 2.2 2001/01/13 18:13:11 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -306,6 +306,33 @@ tem_get_x
 
 init_templates
  FNJSR "R1-R11"
+ FNLDR	R0,tem_sprites		; free area if it exists -
+ TEQ	R0,#0			; we may be reloading templates,
+ BLNE	heap_free		; or something
+ MOV	R0,#1         		; init sprite area pointer to 1
+ FNSTR	R0,tem_sprites		;  (wimp area)
+
+ MOV	R0,#5
+ ADR	R1,spr$l
+ SWI 	XOS_File		; get size
+ ADDVC	R0,R4,#8
+ BLVC	heap_claim
+ BVS	badspr$l
+
+ MOV	R10,R0
+ MOV	R0,#10			; 'load sprite file'
+ ADD	R0,R0,#&100
+ MOV	R1,R10
+ ADR	R2,spr$l
+ SWI	XOS_SpriteOp
+ FNSTR	R10,tem_sprites,VC	; all went well, store new pointer
+ BVC	donespr$l
+ ADDS	R0,R10,#0		; oops, couldn't load it, clv
+ BL	heap_free		; so free buffer and ignore
+badspr$l
+ ADDS	R0,R0,#0		; clv
+
+donespr$l
  MOV R0,#5
  ADR R1,file$l
  SWI XOS_File			; get length in R4
@@ -333,6 +360,7 @@ init_templates
  FNRTS
 ext1$l DCD template_list
 file$l FNS ("<":CC:|zap$|:CC:"$Templates>")
+spr$l  FNS ("<":CC:|zap$|:CC:"$TileSprites>")
 err$l  ERR "zap_e_notemplates"
 
 ;E
@@ -510,6 +538,8 @@ tem_create_defn
  MOV R2,R4			; dest
  ADD R4,R4,R3			; new start of free mem
  BL move_bytes
+; FNLDR R0,tem_sprites		; sprite area
+; STR R0,[R7,#64]
  LDR R0,[R7,#56]		; title flags
  ADD R7,R7,#52			; aparent icon start
  BL tem_create_icon		; create title icon
@@ -825,8 +855,17 @@ cr3
  MOVNE R0,R0,LSR#f_shift
  STR R0,[R7,#16]		; save related file offset
  BL leaf_create
- LDRVC R1,[R7]			; window data
- SWIVC XWimp_CreateWindow
+ LDMVSFD R13!,{R1,PC}
+
+ LDR R1,[R7]			; window data
+
+ FNLDR R14,opt_switches		; custom window tiles?
+ TST R14,#switch_CustomWindowTiles
+ FNLDR R0,tem_sprites, NE
+ MOVEQ R0,#1
+ STR R0,[R1,#64]
+
+ SWI XWimp_CreateWindow
  LDMVSFD R13!,{R1,PC}
  STR R0,[R7,#8]			; window handle
  LDMFD R13!,{R1,R14}
@@ -2604,57 +2643,15 @@ delete_and_reopen_leaf_com
 	FNJSR	"R1,R7"
 	FNLDR	R7,tem_list		; address of the template list
 	ADD	R7,R7,R0,LSL#5		; 32 bytes each entry
-
-;	LDR	R0,[R7,#8]		; handle
-;	CMP	R0,#-1
-;	FNRTS	EQ			; not yet created...
-
-;	MOV	R0,#&2000		; /hope/ it is enough space!
-;	BL	heap_claim
-;	MOVVC	R1,R0
-
 	FNLDR	R1,wimp_data
 	LDR	R0,[R7,#8]		; handle
 	STR	R0,[R1]			; window handle
 	CMP	R0,#-1
 	SWINE	XWimp_DeleteWindow
-
 	MOVVC	R0,#-1
 	STRVC	R0,[R7,#8]		; handle
-
 	LDRVC	R1,[R7]			; data
-;	SWIVC	XWimp_GetWindowInfo	; icons too...
-;	LDRVC	R0,[R7,#8]		; handle
-;	STRVC	R0,[R1]			; window handle
-;	SWIVC	XWimp_GetWindowInfo	; icons too...
-
-;FNRTS VS
- ;LDR R14,[R1,#32]
- ;TST R14,#1<<16
- ;SWINE XWimp_CloseWindow
-
-;	SWIVC	XWimp_DeleteWindow
-;	ADDVC	R1,R1,#4
 	BLVC	swapfonts_in_this_template
-;	SWIVC	XWimp_CreateWindow
-;	STRVC	R0,[R7,#8]		; new window handle...
-
-; keeps d-boxes open, but doesn't work... :-<
-; FNRTS VS
-
-;	SUBVC	R0,R1,#4
-;	BLVC	heap_free		; return it...
-
-; STR R0,[R1]
-; LDR R14,[R1,#32]
-; TST R14,#1<<16
-; FNRTS EQ
-; MOV R8,#-1
-; MOV R9,#-1
-; BL open_leaf_window
-; SWI XWimp_GetWindowState
-; SWIVC XWimp_OpenWindow
-
 	FNRTS
 
 	LOCAL
@@ -2662,13 +2659,7 @@ delete_and_reopen_leaf_com
 reload_templates
 	FNJSR	"R1-R3"
 	BL	set_up_new_fonts
-;	MOV	R1,#-10			; asap...
-;	ADR	R2,delete_and_reopen_all
-;	BL	call_back
 	BL delete_and_reopen_all
-; BL free_font_handles
-; BL free_templates
-; BL init_templates
 	FNRTS
 
 	LOCAL
