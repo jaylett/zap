@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.11 2003/03/13 17:53:22 james Exp $
+  // $Id: download.php,v 1.12 2003/05/21 18:24:22 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -17,6 +17,7 @@
 <p>The official Zap distribution site is <a href="/ftp/pub/">http://zap.tartarus.org/ftp/pub/</a> (also available as <a href="ftp://zap.tartarus.org/pub/">ftp://zap.tartarus.org/pub/</a>). There are currently no mirrors (anyone interested, please <a href="mailto:webmaster@zap.tartarus.org">get in touch</a>).</p>
 
 <ul>
+ <li><a href="#146">v1.46</a> - development version
  <li><a href="#145">v1.45</a> - released 6th November, 2002
  <li><a href="#140">v1.40</a> - released 26th October, 1998
  <li><a href="#135">v1.35</a> - released 6th November, 1996
@@ -43,9 +44,10 @@ Development release sites
 
 <hr>
 
-<h2><a name="145">v1.45</a></H2>
+<h2><a name="146">v1.46</a></h2>
+
 <?php
-  $release='1.45';
+  $release='1.46';
   $patch='';
   $patchdir='latest';
 
@@ -56,8 +58,19 @@ Development release sites
 	 ' href="/ftp/pub/', $release, '/', $patchdir, '/', $leaf, '">';
   }
 ?>
+
+<p>Downloading is much as for v1.45.</p>
+
+<hr>
+
+<h2><a name="145">v1.45</a></H2>
+
 <p>Version 1.45 of Zap was released on 6th November 2002.
 <?php
+  $release='1.45';
+  $patch=''
+  $patchdir='latest';
+
 if ($patch) {
   print " It is currently at patch $patch.";
 }
@@ -263,5 +276,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2003/03/13 17:53:22 $');
+  zap_body_end ('$Date: 2003/05/21 18:24:22 $');
 ?>
