@@ -1,5 +1,5 @@
 # Make file for Zap documentation
-# (c) James Aylett <dj@zap.uk.eu.org>
+# (c) James Aylett <dj@zap.tartarus.org>
 
 chapters 	= $(wildcard src/Chapter*,fff)
 appendices	= $(wildcard src/Appendix*,fff)
