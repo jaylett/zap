@@ -1,5 +1,5 @@
 ; Zap Util Command Extension
-; $Id: cursors,fff,v 1.3 1999/02/26 10:58:42 james Exp $
+; $Id: cursors,fff,v 1.4 1999/03/04 12:49:27 james Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 ; @SELSTR			- return the selection
 ; @WINDOW, WINDOW		- stack/unstack window of cursor
 ; @CURSOR, CURSOR		- stack/unstack complete cursor position
-; @CURSORCOLUMN			- stack/unstack cursor column
+; @CURSORCOLUMN,CURSORCOLUMN	- stack/unstack cursor column
 ; @SELECTION, SELECTION		- stack/unstack complete selection position
 ; @LINE, GOTOLINE		- stack/unstack logical line number
 ; @LINEP, GOTOLINEP		- stack/unstack physical line number
@@ -40,6 +40,7 @@
 ; Includes
 		GET	h.ZapUtil
 		GET	h.module
+		GET	h.dsutils
 
 ; What we give to other people
 		EXPORT	cursor_inselection
@@ -328,9 +329,15 @@ cursor_gotoaddress
 
 		LOCAL
 ; @SELECTION, SELECTION
-		DCD	(2:SHL:22)+(3:SHL:3)
+prompt$l	StrZA	"zaputil_p_selection","Selection (window,start,end): "
+		DCD	(2:SHL:22)+(3:SHL:3)+(1:SHL:6)
 		; Command takes string, function takes nothing
+		; Call before opening minibuffer
 cursor_selection
+		TEQ	r2,#6
+		ADREQ	r0,prompt$l
+		BEQ	zap_setprompt
+
 		FNJSR
 		CMP	r2,#23
 		BEQ	function$l
@@ -395,11 +402,14 @@ none$l		MOV	r0,#0
 
 		LOCAL
 ; @CURSOR, CURSOR
-		DCD	(2:SHL:22)+(3:SHL:3)
+prompt$l	StrZA	"zaputil_p_cursor","Cursor (window,offset): "
+		DCD	(2:SHL:22)+(3:SHL:3)+(1:SHL:6)
 		; Command takes string, function takes nothing
-		; This isn't really intended to be called by people -
-		; hence no minibuffer prompt.
-cursor_cursor
+		; Call before opening minibuffer
+cursor_cursor	TEQ	r2,#6
+		ADREQ	r0,prompt$l
+		B	zap_setprompt
+
 		FNJSR
 		CMP	r2,#23
 		BEQ	function$l
