@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw in 32bpp modes
-; $Id: DSA32,fff,v 1.2 2003/06/10 11:35:16 christian Exp $
+; $Id: DSA32,fff,v 1.3 2003/09/01 01:19:29 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -23,8 +23,8 @@
 ; to our handlers.
 ;
 ; secondly, we return an extra code in R0: -1 means that redraw_control_code has
-; plotted this character already. Because get_merge_args copies this into R7, this
-; also has the happy side-effect of cancelling nested merges correctly.
+; plotted this character already. Our get_merge_args handles that to cancel nested
+; merges correctly.
 
 
 ; test if plotting from 1bpp bitmaps in 32bpp mode
@@ -357,12 +357,15 @@ loop$l	STR	R11,[R5],#4
 control_code_4_32bpp
 	FNJSR	"R2,R4,R6-R11"
 	PUSH	"R8,R9"
-	BL	get_merge_args
-	CMN	R7,#1
+	BL	get_merge_args_32bpp
+	CMP	R6,#-1
 	PULL	"R8,R9",EQ
+	MOVEQ	R0,#-1
 	FNRTS	EQ			; merge aborted
+
 	TEQ	R4,#0
 	BEQ	clear$l
+
 
 	MOV	R2,R4			; char defn table for mask char
 	LDR	R0,[R1,#r_flags]
@@ -428,9 +431,10 @@ done$l	MOV	R0,#-1
 control_code_8_32bpp
 	FNJSR	"R2,R4,R6-R11"
 	PUSH	"R8,R9"
-	BL	get_merge_args
-	CMN	R7,#1			; EQ = merge aborted
+	BL	get_merge_args_32bpp
+	CMP	R6,#-1			; EQ = merge aborted
 	PULL	"R8,R9",EQ
+	MOVEQ	R0,#-1
 	FNRTS	EQ			; merge aborted
 
 	TEQ	R4,#0
@@ -503,6 +507,49 @@ clear$l	PULL	"R9,R14"		; number of pixels to do
 	BL	clear_pixels_choose
 
 done$l	MOV	R0,#-1
+	FNRTS
+
+
+
+; get merge args
+; E R3 -> first merge arg
+;   R8 / R9 = pixel offset, number of pixels to render
+; X R3 -> start of next code
+;   R8/R9 = palette entries for mask characters
+;   R6/R7 = base/mask character or R6=-1 if already done
+;   R0,R3-R4,R10-R11 set up to new vals if already done
+; note: we must preserve R8 and R9 for redraw_control_code
+get_merge_args_32bpp
+	FNJSR	"R1"
+	MOV	R7,R3			; keep colours
+	ADD	R3,R3,#2
+	LDRB	R0,[R3],#1		; get next char
+	TEQ	R0,#0
+	BLEQ	redraw_control_code	; get base character
+	CMP	R0,#-1
+	BEQ	abort$l
+	MOV	R6,R0			; base character
+	LDRB	R0,[R3],#1		; get mask character
+	TEQ	R0,#0
+	BLEQ	redraw_control_code
+	CMP	R0,#-1
+	MOVEQ	R6,#-1
+	FNRTS	EQ			; aborted
+
+	LDRB	R8,[R7],#1		; alt for num
+	LDRB	R9,[R7]			; alt bac num
+	LDR	R7,[R1,#r_palette]
+	LDR	R8,[R7,R8,LSL #2]
+	LDR	R9,[R7,R9,LSL #2]	; alt cols
+	MOV	R7,R0			; mask character
+	FNRTS
+
+abort$l	LDRB	R0,[R3],#1
+	TEQ	R0,#0
+	MOV	R1,R3
+	BLEQ	skip_control_char	; skip next char
+	MOV	R3,R1
+	MOV	R6,#-1			; abort
 	FNRTS
 
 
