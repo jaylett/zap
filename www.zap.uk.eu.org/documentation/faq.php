@@ -1,5 +1,5 @@
 <?php
-  // $Id: faq.php,v 1.1 2002/01/23 20:27:04 ds Exp $
+  // $Id: faq.php,v 1.2 2002/01/25 19:53:15 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
@@ -36,7 +36,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
     echo '<ul>';
     foreach ($qa as $qs)
     {
-      echo '<li><big><a href="#', $qs['KEY'], '">', $qs['TITLE'], "</a></big><ul>";
+      echo '<li><p><big><a href="#', $qs['KEY'], '">', $qs['TITLE'], "</a></big></p><ul>";
       foreach ($qs['CONTENT'] as $q)
       {
 	echo '<li><a href="#', $qs['KEY'], '.', $q[0], '">', $q[1], '</a>';
@@ -53,7 +53,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
       echo '<h3><a name="', $qs['KEY'], '">', $qs['TITLE'], "</a></h3><dl>";
       foreach ($qs['CONTENT'] as $q)
       {
-	echo '<dt><a name="', $qs['KEY'], '.', $q[0], '">', $q[1], '</a></dt><dd>', $q[2], '</dd>';
+	echo '<dt class="question"><a name="', $qs['KEY'], '.', $q[0], '">', $q[1], '</a></dt><dd>', $q[2], '</dd>';
       }
       echo "</dl>\n";
     }
@@ -168,5 +168,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2002/01/23 20:27:04 $');
+  zap_body_end ('$Date: 2002/01/25 19:53:15 $');
 ?>

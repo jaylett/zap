@@ -1,5 +1,8 @@
 <?php
-  // $Id: zap-std.inc,v 1.2 2002/01/23 20:59:14 ds Exp $
+  // $Id: zap-std.inc,v 1.3 2002/01/25 19:53:15 ds Exp $
+
+  $stable = 'zr-0.39';
+  $ftproot = '/usr/data/ftp/zap/pub/';
 
   // setroot: find the document's root URL and put it in $root.
   //	      Must be called from the includer immediately after inclusion.
@@ -9,7 +12,7 @@
   function setroot ($me)
   {
     global $root;
-    $root = $GLOBALS['SCRIPT_NAME'];
+    $root = ''.$GLOBALS['SCRIPT_NAME'];
     if (substr ($root, -4) == '.php')
       $root = substr ($root, 0, -4);
     $path = strlen (ereg_replace ('[^/]+', '', $GLOBALS['PATH_INFO']));
@@ -118,7 +121,7 @@ EOF;
   {
     global $root;
     echo <<<EOF
-<body background="${root}img/background.gif"
+<body background="${root}img/background.png"
       text="#000000"
       bgcolor="#DCDCDC"
       link="#20209F"
@@ -253,6 +256,7 @@ EOF;
 </body>
 </html>
 EOF;
+    exit;
   }
 
 ?>

@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.1 2002/01/23 20:27:05 ds Exp $
+  // $Id: index.php,v 1.2 2002/01/25 19:53:15 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -16,9 +16,6 @@ site:
 <ul>
  <li>Stable <strong><a href="/ftp/pub/stable/zfonts.zip">(0.39)</a></strong></li>
 <?php
-  $stable = 'zr-0.39';
-  $ftproot = '/usr/data/ftp/zap/pub/';
-
   function zapscandir ($path)
   {
     global $ftproot;
@@ -202,5 +199,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:05 $');
+  zap_body_end ('$Date: 2002/01/25 19:53:15 $');
 ?>
