@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.7 2003/05/15 21:14:46 ds Exp $
+; $Id: module,fff,v 1.8 2003/05/23 18:01:45 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -240,10 +240,12 @@ backinactione
 		;  REM no !Config...
 nocfginit
 	MOV	r0, #num_colours
+	LDR	r1,modenumberlocal
 	FNcall	Zap_ModeColourNum	;  REM change palette size.
 	LDMVSFD	sp!, {r1, r7, r8, pc}
 	BL	UnkPreColBit		; to set up colours with zmcs
 	TEQ	r7, #0
+	MOVEQ	r1,#0
 	BEQ	noheapblkatall
 	LDR	r1, [r7, #0]
 	TEQ	r1, #zizeofcfgwksp
@@ -307,7 +309,7 @@ UnkPreColBit
 	ADR	r3, DefaultColours
 	ADD	r3,r3,r0
 	SUB	r3,r3,#9	; index of first undefined colour
-	LDR	r1, [r11, #4]	; REM normally 0
+	LDR	r1,modenumberlocal ;[r11, #4]	; REM normally 0
 	MOV	r2, r0		; start colours (R0=prev.def.)
 ZModColBit
 	CMP	r2,#num_colours
@@ -330,12 +332,12 @@ DefaultColours
 	=	0x0E	;  REM GSTrans        =&11
 	=	0x00	;  REM Unknown        =&12
 DefaultColours_end
-num_colours	*	DefaultColours_end - DefaultColours
+num_colours	*	DefaultColours_end - DefaultColours + 9
 	ALIGN
 
 ;CursorPriority
 ;	STMFD	sp!, {r1}
-;	LDRB	r1, [r8, #88]
+;	LDRB	r1, [r8, #w_cr]
 ;	TEQ	r0, r1
 ;	LDMFD	sp!, {r1}
 ;	ORREQS	pc, lr, #0x20000000
@@ -495,9 +497,9 @@ redrawline
 	ADRL	r12, w_formmb
 	STR	r3, [r12, #8]
 	LDMFD	sp!, {r7, r11}	;  REM calls...
-	LDR	r3, [r8, #60]	;  REM ?
+	LDR	r3, [r8, #w_txtw]
 	STR	r4, [r12]
-	LDRB	r12, [r8, #88]	;  REM ? At very beginning.
+	LDRB	r12, [r8, #w_cr]	;  REM ? At very beginning.
 	AND	r5, r2, #0xFF
 		; CMP     5,#&09
 		; BEQ     commentspeclcase
@@ -510,12 +512,12 @@ redrawline
 	BICEQ	r2, r2, #0x00E00000	;  REM HERE? &0F000000
 	STREQ	r2, nlflaghere
 bfcommentspeclcase
-	LDR	r5, [r9, #0]	;  REM ?
-	LDR	r10, [r9, #4]	;  REM ?
+	LDR	r5, [r9, #f_ptr]
+	LDR	r10, [r9, #f_bufl]
 	ADD	r10, r10, r5
 	TEQ	r7, r10
 	LDMEQFD	sp!, {r6, r12, pc}	;  REM end - return for good!
-	LDR	r10, [r9, #56]	;  REM ?
+	LDR	r10, [r9, #f_splite]
 	ADD	r10, r10, r5
 	CMP	r7, r10
 	MOVCC	r10, r5
@@ -528,7 +530,7 @@ BitAftStart
 	CMP	r7, r10
 	BCS	BitAftStart
 	TEQ	r5, r10
-	LDRNE	r10, [r9, #60]
+	LDRNE	r10, [r9, #f_splits]
 	SUBNE	r7, r7, r10
 	MOVNE	r10, r5
 	CMP	r7, r10
@@ -539,15 +541,15 @@ UpToStart
 	SUBPL	r7, r7, r6
 	LDMPLFD	sp, {r6}
 	TEQ	r5, r10
-	LDREQ	r10, [r9, #52]	;  REM ?
+	LDREQ	r10, [r9, #f_splito]
 	ADDEQ	r10, r10, r5
-	LDRNE	r10, [r9, #60]	;  REM ?
+	LDRNE	r10, [r9, #f_splits]
 	ADDNE	r5, r5, r10
-	LDRNE	r10, [r9, #8]	;  REM ?
+	LDRNE	r10, [r9, #f_len]
 	ADDNE	r10, r10, r5
-	LDRB	r0, [r8, #144]	;  REM         endchar?
+	LDRB	r0, [r8, #w_tabchar]
 	ORR	r12, r12, r0, LSL #24
-	LDR	r0, [r8, #100]	;  REM         width.
+	LDR	r0, [r8, #w_bpl]
 	ORR	r12, r12, r0, LSL #12
 	LDR	r1, [r9, #f_ptr]
 	CMP	r7, r1
@@ -562,12 +564,12 @@ RtAtStrtA
 RtAtStrtB
 	CMP	r7, r10	;  REM EOF?
 	BCC	Brunch13
-	LDR	r10, [r9, #8]
+	LDR	r10, [r9, #f_len]
 	ADD	r10, r10, r5
 	CMP	r7, r10
 	LDMCSFD	sp!, {r6, r12, pc}
 		;  STR     6,adrofrsix
-	LDR	r1, [r9, #60]	;  REM ???
+	LDR	r1, [r9, #f_splits]	;  REM ???
 	ADD	r7, r7, r1
 	ADD	r5, r5, r1
 	ADD	r10, r10, r1
@@ -1551,7 +1553,7 @@ Brunch208
 Brunch210
 	STMFD	sp!, {r0, r1, lr}
 	LDR	r11, Dater47
-	LDR	r0, [r8, #40]
+	LDR	r0, [r8, #w_format]
 	AND	r0, r0, #0xFF
 	MVN	lr, #0
 	LDR	r1, [r11, #8]
@@ -1615,7 +1617,7 @@ FromMJE9
 	LDR	r0,[r0]
 	TST	r0, #(1 << 25)
 	BEQ	overproblem1
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	MOV	r1, #'<'
 	MOV	r2, #'>'
 	BL	FromMJE18
@@ -1631,7 +1633,7 @@ FromMJE10
 	LDR	r0,[r0]
 	TST	r0, #(1 << 24)
 	BEQ	overproblem2
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	MOV	r1, #'&'
 	MOV	r2, #';'
 	BL	FromMJE18
@@ -1656,25 +1658,25 @@ Abbreviation
 	MOV	r0, #0
 	STR	r0, startslash
 	STR	r0, isentity
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	SUB	lr, r0, #1
 	STR	lr, storedofsofeow
 	BL	checkbackone
 	CMP	r0, #0
 	BEQ	firstabbrev
 	LDMFD	sp, {r0-r12, lr}
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	BL	checkbackthree
 	CMP	r0, #0
 	BEQ	thirdabbrev
 	LDMFD	sp, {r0-r12, lr}
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	BL	checkbacktwo
 	CMP	r0, #0
 	BEQ	secondabbrev
 asnormalzz
 	LDMFD	sp, {r0-r12, lr}
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	BL	checkbackent
 	CMP	r0, #0
 	BEQ	entityabbrev
@@ -2251,7 +2253,7 @@ FromMJE27
 	LDMFD	sp!, {pc}
 	LDMFD	sp!, {r11, pc}
 FromMJE28
-	LDR	r0, [r10, #12]
+	LDR	r0, [r10, #c_off]
 	SUBS	r0, r0, #1
 	MOVLT	r0, #0
 	MOVLT	pc, lr
@@ -2287,7 +2289,7 @@ charfromoffset
 ;	MOVS	pc, lr
 FromMJE32
 	TEQ	r8, #0
-	LDRNE	r0, [r8, #40]
+	LDRNE	r0, [r8, #w_format]
 	MOVNE	pc, lr
 	STMFD	sp!, {r1, lr}
 	MOV	r1, #3
@@ -2299,7 +2301,7 @@ FromMJE32
 	LDMFD	sp!, {r1, pc}
 FromMJE33
 	TEQ	r8, #0
-	LDRNE	r0, [r8, #92]
+	LDRNE	r0, [r8, #w_flags]
 	MOVNE	pc, lr
 	STMFD	sp!, {r1, lr}
 	MOV	r1, #2
@@ -2380,7 +2382,7 @@ shift_pressed
 	LDMIA	r0,{r0,r1,lr}
 	STMIA	r2!,{r0,r1,lr}
 	SUB	r2,r2,#2
-	LDR	r1, [r9, #12]
+	LDR	r1, [r9, #f_name]
 	BL	OneA
 	LDR	r0, localstorevalue
 	SWI	XWimp_StartTask	;  REM "XOS_CLI"
@@ -4867,12 +4869,12 @@ mode_prevline2
 		;      LDMFD   R13 !,{R3,PC}
 		;
 		; .call_mode_splus
-		;     LDR     R2,[R9,#0]
-		;     LDR     R3,[R9,#52]
+		;     LDR     R2,[R9,#f_ptr]
+		;     LDR     R3,[R9,#f_splito]
 		;     CMP     R1,R3
-		;     LDRCS   R3,[R9,#60]
+		;     LDRCS   R3,[R9,#f_splits]
 		;     ADDCS   R1,R1,R3
-		;     LDRCS   R0,[R9,#8]
+		;     LDRCS   R0,[R9,#f_len]
 		;     ADDCS   R3,R3,R0
 		;     BL      SPlusBrG
 		;     BCC     SPlusBrB
@@ -4888,23 +4890,23 @@ mode_prevline2
 		;
 		; .SPlusBrC
 		;     TEQ     R0,#&20
-		;     LDRNEB  R14,[R8,#144]
+		;     LDRNEB  R14,[R8,#w_tabchar]
 		;     TEQNE   R0,R14
 		;     BEQ     SPlusBrE
 		;     BL      SPlusBrF
 		;     BCS     SPlusBrD
 		;     BEQ     SPlusBrC
 		; .SPlusBrD
-		;     LDR     R0,[R9,#56]
+		;     LDR     R0,[R9,#f_splite]
 		;     CMP     R1,R0
-		;     LDRCS   R0,[R9,#60]
+		;     LDRCS   R0,[R9,#f_splits]
 		;     SUBCS   R1,R1,R0
 		;     MVN     R2,#0
 		;     LDMFD   R13!,{R3,PC}
 		; .SPlusBrE
 		;     BL      SPlusBrF
 		;     TEQ     R0,#&20
-		;     LDRNEB  R14,[R8,#144]
+		;     LDRNEB  R14,[R8,#w_tabchar]
 		;     TEQNE   R0,R14
 		;     BEQ     SPlusBrE
 		;     B       SPlusBrD
@@ -4915,12 +4917,12 @@ mode_prevline2
 		; .SPlusBrG
 		;     CMP     R1,R3
 		;     BCC     SMinusBrG
-		;     LDR     R0,[R9,#52]
+		;     LDR     R0,[R9,#f_splito]
 		;     TEQ     R1,R0
 		;     BNE     SPlusBrD
-		;     LDR     R0,[R9,#60]
+		;     LDR     R0,[R9,#f_splits]
 		;     ADD     R1,R1,R0
-		;     LDR     R3,[R9,#8]
+		;     LDR     R3,[R9,#f_len]
 		;     ADD     R3,R3,R0
 		;
 		;     STMFD   R13!,{R14}
@@ -4969,7 +4971,7 @@ mode_prevline2
 		;     BNE     SMinusBrB
 		; .SMinusBrC
 		;     TEQ     R0,#&20
-		;     LDRNEB  R14,[R8,#144]
+		;     LDRNEB  R14,[R8,#w_tabchar]
 		;     TEQNE   R0,R14
 		;     BEQ     SMinusBrE
 		;     BL      SMinusBrF
@@ -4986,7 +4988,7 @@ mode_prevline2
 		; .SMinusBrE
 		;     BL      SMinusBrF
 		;     TEQ     R0,#&20
-		;     LDRNEB  R14,[R8,#144]
+		;     LDRNEB  R14,[R8,#w_tabchar]
 		;     TEQNE   R0,R14
 		;     BEQ     SMinusBrE
 		;     B       SMinusBrD
@@ -5101,11 +5103,11 @@ starttocheckback
 	ADD	r7, r7, #1
 	CMP	r7, r10	;
 	BCC	lessthanr7r10
-	LDR	r1, [r9, #8]
+	LDR	r1, [r9, #f_len]
 	ADD	r1, r1, r5
 	CMP	r7, r1
 	BCS	abacktoreturn
-	LDR	r1, [r9, #60]	;  REM ???
+	LDR	r1, [r9, #f_splits]
 	ADD	r7, r7, r1
 lessthanr7r10
 	MOV	r1, #1<<31	;  flags... 1 - no of "s
