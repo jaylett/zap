@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.2 2002/01/25 19:53:15 ds Exp $
+  // $Id: index.php,v 1.3 2002/02/01 19:14:11 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -117,7 +117,7 @@ programs reducing system memory usage.</p>
 </form>
 
 <?php
-  $votestxt = @file ("/home/ds/src/zap/www.zap.uk.eu.org/.count/zapredraw.count");
+  $votestxt = @file ("../.count/zapredraw.count");
   $vers = count ($dirs) + 2;
 //  $votes = range (1, $vers);
 //  $votes_vf = range (3, $vers);
@@ -199,5 +199,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/25 19:53:15 $');
+  zap_body_end ('$Date: 2002/02/01 19:14:11 $');
 ?>
