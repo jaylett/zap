@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.9 1999/02/12 00:48:44 ds Exp $
+; $Id: Menus,fff,v 1.1.2.10 1999/02/17 01:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1961,7 +1961,7 @@ a$l
  BLMI err$l			; mismatched quotes
  FNRTS VS
  ADD R11,R11,#1			; found another
- ADD R0,R0,#4			; terminator + align
+ ADD R0,R0,#14			; keyname space + terminator + align
  BIC R0,R0,#3
  ADD R1,R1,R0			; add room for the text of the entry
  ADD R1,R1,#12			; add room for the addresses
@@ -2020,11 +2020,19 @@ read_one_entry
  MOV R2,R4
  MOV R1,R4
  BL str_strcopy			; copy in the text for this entry
- ADD R1,R1,#3
- BIC R4,R1,#3			; word align for next entry
- STR R2,[R3,#12]		; text address
- SUB R0,R4,R2
+ SUB R0,R1,R2
  STR R0,[R3,#20]		; buffer length
+ STR R4,[R3,#12]		; text address
+ ADD R0,R0,#13
+ SUB R1,R1,#1
+s$l
+ LDRB R14,[R1,#-1]!
+ TEQ R14,#32
+ BEQ s$l
+ MOV R14,#0
+ STRB R14,[R1,#1]		; trim trailing spaces & append NUL
+ ADD R4,R4,R0
+ BIC R4,R4,#3			; R4 ready for next entry
  BL str_skip			; skip any spaces
  LDRB R0,[R10]
  TEQ R0,#'>'			; submenu pointer ?
@@ -2406,7 +2414,7 @@ icon$l DCD &00009131		; icon flags (indirect text)
 ;X key short cuts shown on this one menu (not recursive) #
 
 show_menu
- FNJSR "R1,R7,R11"
+ FNJSR "R1,R2,R7,R11"
  ADD R1,R1,#28			; first item in menu
 loop$l
  LDR R14,[R1,#12]		; address of indirected data
@@ -2422,7 +2430,9 @@ loop$l
  BL hide_key$l
  BMI next$l			; no key
  PUSH "R1"
+ LDR R2,[R1,#20]
  LDR R1,[R1,#12]		; get menu string
+ ADD R2,R2,#10			; max allowable length
  BL show_key			; add key macro
  PULL "R1"
 next$l
@@ -2431,23 +2441,20 @@ next$l
  BEQ loop$l			; next item
  FNRTS
 
-hide_key$l			; menu width fiddling for outline font WMs
+hide_key$l			; find last double space
 	FNJSR	"R0-R3"
-	FNLDR	R3,wimp_realver
-	MOVPL	R2,#32
-	MOVMI	R2,#31
-	CMP	R3,#320
-	FNRTSS	LS
 	LDR	R1,[R1,#12]	; get menu string
 	MOV	R3,#0
 a$l	LDRB	R0,[R1],#1
 	CMP	R0,#32
-	ADDHI	R3,R1,#1
-	CMP	R0,#31
-	BGE	a$l
+	LDREQB	R0,[R1]
+	CMPEQ	R0,#32
+	BHI	a$l
+	SUBEQ	R3,R1,#1
+	BEQ	a$l
 	TEQ	R3,#0
-	TEQNE	R3,R1
-	STRNEB	R2,[R3,#-1]
+	MOVNE	R0,#0
+	STRNEB	R0,[R3]
 	FNRTSS
 
  LOCAL
@@ -2578,7 +2585,7 @@ lastitem$l			; tried to remove the last item
  LDR R0,[R6,#-24]
  ORR R0,R0,#1<<7		; make previous item the last
  STR R0,[R6,#-24]
- FNRTS
+ B trimspaces$l
 nodel$l				; don't delete the entry R4=flags etc
  TST R4,#1<<18
  BEQ gottxt$l
@@ -2621,7 +2628,94 @@ next$l				; finished
  LDR R0,[R6],#24
  TST R0,#&80
  BEQ a$l			; next item
- FNRTS
+trimspaces$l
+	ADD	R6,R11,#28	; first item
+	MOV	R7,#0		; max len
+getlen$l
+	LDR	R1,[R6]
+	TST	R1,#4
+	LDRNE	R3,[R6,#20]	; if writable, use buffer len less 1
+	SUBNE	R3,R3,#1
+	BNE	nodblsp1$l
+	LDR	R1,[R6,#12]	; ptr to text
+	MOV	R2,R1
+	BL	finddblsp$l
+	TEQ	R3,#0
+	SUBEQ	R3,R2,R1
+	BEQ	nodblsp1$l
+	SUB	R3,R3,R1
+skip1$l	LDRB	R0,[R2],#1	; skip spaces
+	TEQ	R0,#32
+	BEQ	skip1$l
+	SUB	R0,R2,#1
+	BL	str_len
+	ADD	R3,R3,#2
+	ADD	R3,R3,R0
+nodblsp1$l
+	CMP	R3,R7
+	MOVHI	R7,R3
+	LDR	R1,[R6],#24
+	TST	R1,#128
+	BEQ	getlen$l	; continue until all done
+	ADD	R6,R11,#28	; first item
+	MOV	R4,#0		; max adjusted width
+shorten$l
+	TST	R1,#4
+	LDRNE	R3,[R6,#20]	; if writable, use buffer len less 1
+	SUBNE	R3,R3,#1
+	BNE	iswrite$l
+	LDR	R1,[R6,#12]	; ptr to text
+	MOV	R2,R1
+	BL	finddblsp$l
+	TEQ	R3,#0
+	SUBEQ	R3,R2,R1
+	BEQ	nodblsp2$l
+	ADD	R3,R3,#2
+skip2$l	LDRB	R0,[R2],#1	; skip spaces
+	TEQ	R0,#32
+	BEQ	skip2$l
+	SUB	R0,R2,#1
+	BL	str_len
+	FNLDR	R5,wimp_realver
+	CMP	R5,#336
+	SUBLS	R5,R3,R1	; (old) length of lhs
+	SUBLS	R5,R7,R5	; (old) remaining space
+	SUBHI	R5,R2,R3	; (new) number of spaces less 1
+	SUBHI	R5,R5,#1	; (new) ... less 2
+	ADDHI	R5,R5,R0	; (new) adjust for rhs len
+	SUBS	R5,R5,R0	; less length of rhs
+	BLE	nodblsp2$l	; don't widen :-)
+	SUB	R2,R2,#2
+shift$l	LDRB	R1,[R2,#1]!
+	STRB	R1,[R2,-R5]
+	CMP	R1,#32
+	BHS	shift$l
+nodblsp2$l
+	MOV	R0,R1
+	BL	str_len
+iswrite$l
+	CMP	R0,R4
+	MOVHI	R4,R0		; menu width
+	LDR	R1,[R6],#24
+	TST	R1,#128
+	BEQ	shorten$l	; continue until all done
+	TEQ	R4,#1<<30
+	MOVNE	R4,R4,LSL #4
+	ADDNE	R4,R4,#12
+	STRNE	R4,[R11,#16]	; set menu width
+	FNRTS
+
+finddblsp$l
+	MOV	R3,#0
+fds$l	LDRB	R0,[R2],#1	; find end or double-space
+	CMP	R0,#32
+	BHI	fds$l
+	LDREQB	R0,[R2]
+	CMPEQ	R0,#32
+	SUBEQ	R3,R2,#1	; point at first space of pair
+	BHI	fds$l
+	SUB	R2,R2,#1	; point at last chr read
+	MOV	PC,R14
 
 callstrov$l			; copy in the new string
  FNJSR

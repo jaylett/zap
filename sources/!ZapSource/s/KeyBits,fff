@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.10 1999/02/14 23:19:59 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.11 1999/02/17 01:21:26 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -52,7 +52,7 @@
 LONG	* 0
 SHORT	* 1
 
-MENUSHORTS	* SHORT
+MENUSHORTS	* LONG
 
 
 
@@ -463,12 +463,17 @@ test_forkey
  LOCAL
 
  MACRO
-$l L $v
-$l = :LEN:$v,$v
+$l L $x,$y
+ [ MENUSHORTS=SHORT
+$l = :LEN:"$x","$x"
+ |
+$l = :LEN:"$y","$y"
+ ]
  MEND
 
-;E R0=(my) key code R1=string
-;X Last (5) characters of string overwritten by key shortcut #
+;E R0=(my) key code R1=string R2=max len (inc. term)
+;X Key name appended, with at least two spaces preceding it
+;  String will be padded out to R2 bytes, inc. term.
 ;Internal flags in R2
 ; b0=shift b1=ctrl b2=F b3=1 b4=keypad
 
@@ -476,19 +481,25 @@ show_key
  FNJSR "R1-R3"
 a$l
  LDRB R14,[R1],#1
- CMP R14,#&1F			; char &1F 'trims' spaces...
+ CMP R14,#&1F
+ SUBCS R2,R2,#1
  BCS a$l
- SUB R1,R1,#1			; terminator of string
+ SUB R1,R1,#1			; point at string terminator
+ MOV R14,#32
+s$l
+ SUBS R2,R2,#1			; pad out to length R2
+ STRGTB R14,[R1],#1
+ BGT s$l
  MOV R2,#0			; flags
+ STRB R2,[R1]			; string terminator
  CMP R0,#&1C0
  BCS fkeys$l			; &1C0-&1FF (k0-k9,F10-F12 and Ins)
  CMP R0,#&180
  BCS sh3			; &180-&1BF (F0-F9,TAB,CPY,ARROWS)
- CMP R0,#&100
- BCS mine$l			; &100-&17F (sc0 etc)
  CMP R0,#&20
+ RSBHSS R14,R0,#&FF
  BCS char$l			  ; &20-&FF
-mine$l
+mine$l				; &100-&17F (sc0 etc)
  ANDS R14,R0,#&1F
  TEQNE R14,#&1F
  BEQ spcdel$l			; space/delete
@@ -530,15 +541,12 @@ sh14
  CMP R0,#&140
  ORRCS R2,R2,#1			; shift
  TEQ R14,#&B
- MOVEQ R0,#'['
- TEQ R14,#&C
- MOVEQ R0,#'\'
- TEQ R14,#&D
- MOVEQ R0,#']'
- TEQ R14,#&F
+ TEQNE R14,#&C
+ TEQNE R14,#&D
+ ADDEQ R0,R14,#'['-&B
+ CMP R14,#&F
  MOVEQ R0,#'-'
- CMP R14,#&10
- ADDCS R0,R14,#&20
+ ADDHI R0,R14,#&20
  B sh4
 spcdel$l
  CMP R0,#&120
@@ -550,32 +558,17 @@ spcdel$l
  MOVNE R0,#&7F
  B char$l			; this traps and replaces by string
 
- [ MENUSHORTS=SHORT
-bak$l L ("<-|")
-esc$l L ("Esc")
-del$l L ("Del")
-tab$l L ("Tab")
-cpy$l L ("Cpy")
-ins$l L ("Ins")
-pnt$l L ("Pnt")
-ret$l L ("Ret")
-hom$l L ("Hom")
-ent$l L ("Ent")
-spc$l L ("Spc")
- |
-bak$l L ("<-|")
-esc$l L ("Esc")
-del$l L ("Delete")
-tab$l L ("Tab")
-cpy$l L ("Copy")
-ins$l L ("Insert")
-pnt$l L ("Print")
-ret$l L ("Return")
-hom$l L ("Home")
-ent$l L ("Enter")
-spc$l L ("Spc")
- ]
-
+bak$l L "<-|","<-|"
+esc$l L "Esc","Esc"
+del$l L "Del","Delete"
+tab$l L "Tab","Tab"
+cpy$l L "Cpy","Copy"
+ins$l L "Ins","Insert"
+pnt$l L "Pnt","Print"
+ret$l L "Ret","Return"
+hom$l L "Hom","Home"
+ent$l L "Ent","Enter"
+spc$l L "Spc","Spc"
  ALIGN
 
 sh11
@@ -666,12 +659,8 @@ sh6
 
 get_key_string
  STMFD R13!,{R1-R3,R14}
- MOV R3,R0			; save keycode
- FNLDR R1,wimp_block
- ADR R2,ge_s0
- BL strcopy			; copy in spaces
- MOV R0,R3
- FNLDR R1,wimp_block
+ ADR R1,ge_s0
+ MOV R2,#12
  BL show_key
  LDMVSFD R13!,{R1-R3,PC}
  FNLDR R0,wimp_block
@@ -681,8 +670,7 @@ ge17
  ADDEQ R0,R0,#1
  BEQ ge17
  LDMFD R13!,{R1-R3,PC}
-ge_s0
- FNS ("       ")
+ge_s0 % 12
 
  LOCAL
 
