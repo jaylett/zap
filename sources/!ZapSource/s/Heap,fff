@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 1.1.2.7 1999/08/04 13:53:37 james Exp $
+; $Id: Heap,fff,v 1.1.2.8 1999/10/21 17:44:48 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -492,12 +492,14 @@ failed$l
 
  LOCAL
 
+; If this is going all weird, it's because the XOS_Heap returning VS code
+; used to pull "R1-R3,PC" instead of "R1-R4,PC". However that's wrong ...
 heap_ensure
  SYSLOGF "heap_ensure %0x to %1d (%1x)",LOG_MEMORY+2
  TEQ R0,#0
  MOVEQ R0,R1
  BEQ heap_claim
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  [ LOGGING = SYSLOG
  STR R0,blk$l			; store heap block
  ]
@@ -506,7 +508,15 @@ heap_ensure
  MOV R0,#6
  FNLDR R1,heap_start
  SWI XOS_Heap			; read heap block size+4
- LDMVSFD R13!,{R1-R3,PC}	; (due to bug in heap manager)
+ [ LOGGING = SYSLOG
+ BVC noerror$l
+ ADD R1,R0,#4
+ SYSLOGF "heap_ensure returns error #%0px '%1s'",LOG_MEMORY+2
+ FNRTV
+noerror$l
+ |
+ FNRTS VS			; (due to bug in heap manager)
+ ]
  SUB R0,R3,#4			; actual size of heap block
  SUBS R3,R4,R0			; enlargement amount
  BGT he0			; extend block by R3 if needed
@@ -516,12 +526,12 @@ heap_ensure
  CMP R1,R0			; did we have to move the block in the heap?
  BNE changed$l
  SYSLOGF "heap_ensure returns %0x unmoved",LOG_MEMORY+2
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 changed$l
  SYSLOGF "heap_ensure returns %0x",LOG_MEMORY+2
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
  |
- LDMFD R13!,{R1-R4,PC}		; return if block already big enough
+ FNRTS				; return if block already big enough
  ]
 blk$l
  DCD 0
