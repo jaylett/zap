@@ -1,10 +1,14 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Mode4dis,fff,v 2.1 2000/06/03 23:29:45 ds Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
 ;     *** AND THAT INCLUDES 'TABBIFYING' IT - I'LL JUST UNDO IT ***
 ; -*- armasm -*-
+
+	GBLA	NEW_DISASM
+; uncomment to use Debugger Plus 2.07; also do so in s.Mode4
+; NEW_DISASM SETA 1
 
 ; some constants for later
 CLEVER        * 1
@@ -42,6 +46,9 @@ NAMINGTYPE    * DESCNAMES
 
  IMPORT  mode4_aif_headerstring
  IMPORT  mode4_mod_headerstring
+ [ NEW_DISASM <> 0
+ IMPORT  disassemble
+ ]
 
 
 ; detokeniser for e_search
@@ -88,9 +95,13 @@ finish$l
    [ DISASSEMBLY=THICK
 ; this little section is for when we're in 'thick' mode
 mode4_clever_dis
+     [ NEW_DISASM = 0
    STMFD   r13!,{r14}                    ; Stack registers
    SWI     XDebugger_Disassemble         ; do the disassembly and return
    LDMFD   r13!,{pc}                     ; Return from call
+     |
+   B       disassemble		         ; do the disassembly and return
+     ]
    |
 ; and everything else is the 'clever' stuff
 
@@ -192,7 +203,11 @@ forceddecode$l
 return$l
    TEQ     r0,#0                         ; did we decode it ?
    LDMNEIA r13,{r0,r1}                   ; if not, re-read inst and addr
+     [ NEW_DISASM = 0
    SWINE   XDebugger_Disassemble         ; do the disassembly and return
+     |
+   BLNE    disassemble                   ; do the disassembly and return
+     ]
    STR     r1,[r13,#4]                   ; stack r1 for retrieval
    LDMFD   r13!,{r0,r1,r3-r7,pc}         ; Return from call
 
@@ -244,7 +259,11 @@ dec_adr
 
 ; for debugging I'll append a message to it
    LDMFD   R13 !,{R0,R1}                 ; restore old regs
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,#3 ; should be -1          ; no data
@@ -331,7 +350,11 @@ notaligned$l
 ; r2 = type (0-3), r3 = the parameter, r6 = indirection count, r4 = prefix
    MOV     r5,r2                         ; hang on to type
    LDMFD   R13 !,{R0,R1}                 ; restore old regs
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,r5                         ; restore type
@@ -356,7 +379,11 @@ iserror$l
    BNE     notaligned$l                  ; if not, it's not an error
 ; it's pretty definately an error block
    LDMFD   R13 !,{R0,R1}                 ; restore old regs
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,#0                         ; it's a string
@@ -611,7 +638,11 @@ dec_branch
 
    MOV     r3,r0                         ; r3 = offset of string
    LDMFD   r13!,{r0,r1}                  ; restore old regs
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    TST     r3,#1<<30                     ; is the code part of SCL ?
@@ -806,7 +837,11 @@ dec_swinv
    SUBS    R3,R3,R14                     ; go back that far
    BMI     notfunc$l                     ; went -ve, so not ours
    LDMFD   R13 !,{R0,R1}                 ; restore old regs
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,#4                         ; explicit string in the file
@@ -836,7 +871,11 @@ dec_chunkheader
    MOV     r6,#0                         ; no indirection
 copystring$l
    LDMFD   r13!,{r0,r1}                  ; unstack inst and addr
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    LDR     r14,[r13],#4                  ; restore link for tail continue
@@ -861,7 +900,11 @@ dec_aifheader
    MOV     r3,r0                         ; r3-> the name
 copystring$l
    LDMFD   r13!,{r0,r1}                  ; unstack inst and addr
+     [ NEW_DISASM = 0
    SWI     XDebugger_Disassemble         ; disassemble it (R1-> string)
+     |
+   BL      disassemble                   ; disassemble it (R1-> string)
+     ]
    MOVVS   r0,#1                         ; if failed, mark as such
    LDRVS   pc,[r13],#4                   ;            and return safely
    LDR     r14,[r13],#4                  ; restore link for tail continue

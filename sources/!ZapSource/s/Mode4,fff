@@ -1,7 +1,11 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Mode4,fff,v 2.1 2000/06/03 23:29:45 ds Exp $
 ; -*- armasm -*-
+
+	GBLA	NEW_DISASM
+; uncomment to use Debugger Plus 2.07; also do so in s.Mode4dis
+; NEW_DISASM SETA 1
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -38,6 +42,9 @@
 	EXPORT	but_sortwwout
 	EXPORT	mode4_aif_headerstring
 	EXPORT	mode4_mod_headerstring
+ [ NEW_DISASM <> 0
+	EXPORT	disassemble
+ ]
 
 MODE4_COLNUMBS * &21
 
@@ -117,8 +124,10 @@ mode4_init
 	BEQ	mode4_menu
 	TEQ	R1,#13
 	BEQ	mode4_init_13
+ [ NEW_DISASM = 0
 	TEQ	R1,#14
 	BEQ	mode4_init_14
+ ]
 	TEQ	R1,#6
 	ADREQ	R1,mode4_cols
 	TEQ	R1,#0
@@ -151,9 +160,9 @@ mode4_init
 mode4_dontchangeathing
 	LDMFD	R13!,{R0-R4,R8,PC}^	; return no error
 
+ [ NEW_DISASM = 0
 mode4_init_13				; set up for redraw
 	FNJSR	"R0-R7"
-; SWI &107
 	BL	getdisasmdata
 	STR	R0,local_disassemblerflags
 	LDRB	R2,[R8,#w_format]	; mode number
@@ -161,9 +170,63 @@ mode4_init_13				; set up for redraw
 	LDR	R2,[R14,R2,LSL #2]
 	BL	readandputdisasmdata
 	FNRTS
+ |
+	LOCAL
 
+mode4_init_13				; set up for redraw etc.
+	FNJSR	"R0-R2"
+	LDR	R2,[R8,#w_format]
+	TST	R2,#bit_windowwrap	; global?
+	AND	R2,R2,#255		; mode number
+	BEQ	local$l
+	MOV	R0,#0
+	MOV	R1,#0
+	SWI	XDebugger_Flags
+	SUBVSS	R1,R1,R1
+	ORR	R1,R1,#1<<23		; allow those lower-case letters!
+	STR	R1,local_disassemblerflags
+	ADD	R2,R8,R2,LSL #2
+	LDR	R0,mask$l
+	LDR	R2,[R2,#w_mode0]
+	AND	R1,R0,R1,LSL #8
+	BIC	R2,R2,R0
+	ORR	R2,R2,R1
+	STR	R2,localmodeword
+	FNRTS
+local$l	ADD	R2,R8,R2,LSL #2
+	LDR	R2,[R2,#w_mode0]
+	STR	R2,localmodeword
+	MOV	R2,R2,LSL #4
+	MOV	R2,R2,LSR #12
+	ORR	R2,R2,#1<<23
+	STR	R2,local_disassemblerflags
+	FNRTS
+
+mask$l	&	&0FFFFF00
+
+getdisasmdata
+	FNJSR
+	BL	mode4_init_13
+	LDRVC	R0,local_disassemblerflags
+	FNRTS
+ ]
+
+ [ NEW_DISASM = 0
 mode4_init_14				; end of redraw data
 	B	readandrestoredisasm
+ |
+;E R0,R1 as for Debugger_Disassemble
+;X Instruction disassembled, or R0/VS
+disassemble
+	STMFD	R13!,{R0-R2,R14}
+	BL	mode4_init_13 ; shouldn't be needed
+	LDR	R2,local_disassemblerflags
+	SWI	XDebugger_DisassemblePlus
+	LDMVSFD	R13,{R0-R2}
+	SWIVS	XDebugger_Disassemble
+	ADD	R13,R13,#12
+	LDMFD	R13!,{PC}
+ ]
 
 ;start$l
 ; FNJSR
@@ -465,6 +528,7 @@ hex2$l					; hex dump loop
 	LDR	R2,[R8,#w_addr]
 	FNRTS
 
+ [ NEW_DISASM = 0
 ;E R2 data
 readandputdisasmdata
 	LDR	R1,[R8,#w_format]
@@ -514,6 +578,7 @@ restoredisasm
 	BL	putdisasmdata
 	FNRTS
 
+ ]
 local_disassemblerflags
 	DCD	0
 
@@ -551,10 +616,12 @@ mode4_redrawline
 	FNRTSS	HS			; return quickly if at EOF
 	STR	R11,local_temp4r6 + 24	; save it...
 	STR	R9,local_temp4r6 + 28	; this too...
+ [ NEW_DISASM = 0
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R2,R8,R2,LSL #2
 	LDR	R2,[R2,#w_mode0]
 	STR	R2,localmodeword
+ ]
 	MOV	R1,#0			; important r1=0?
 	STR	R1,local_bgcol_please
 	MOV	R2,#7
@@ -1313,7 +1380,11 @@ mode4_minus
 
 find_branch_addr
 	STMFD	R13!,{R1-R2,R14}
+ [ NEW_DISASM = 0
 	SWI	XDebugger_Disassemble
+ |
+	BL	disassemble
+ ]
 	ADRVS	R1,stored_blank_string
 	MOVVS	R2,#1
  ;LDMVSFD R13!,{R1-R2,PC}
@@ -1343,7 +1414,11 @@ getpreviousinstrs
 	BLPL	cln_readw			; get instruction in R0
 	LDR	R2,[R8,#w_addr]		; base address
 	ADD	R1,R2,R1
+ [ NEW_DISASM = 0
 	SWI	XDebugger_Disassemble	; for the sake of ADRLs.
+ |
+	BL	disassemble		; for the sake of ADRLs.
+ ]
 	ADRVS	R1,stored_blank_string
 	MOVVS	R2,#1
 	FNRTS
@@ -1428,11 +1503,13 @@ follow_branch
 	FNJSR	"R1-R3"
 	STR	R14,local_temp4r6 + 16	; blat cache...
 	BIC	R1,R0,#3			; offset of instruction
+ [ NEW_DISASM = 0
 	STMFD	R13!,{R1}
 	BL	getdisasmdata ; carefully_getdisasmdata ;
 	STR	R0,local_disassemblerflags
 	BL	carefully_readandputdisasmdata
 	LDMFD	R13!,{R1}
+ ]
  ; fudge
 	MOV	R2,#8
 	BL	getpreviousinstrs
@@ -1458,7 +1535,9 @@ follow_branch
 	SUB	R0,R0,R2			; find file offset
 	BL	goto_offset
 exit$l
+ [ NEW_DISASM = 0
 	BL	carefully_readandrestoredisasm
+ ]
 	FNRTS
 branch$l
  ;SWI &107
@@ -1473,6 +1552,7 @@ mode4_return
 	TEQ	R0,#0
 	BNE	doword$l
 inmode4_return
+ [ NEW_DISASM = 0
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
 	LDR	R2,[R14,R2,LSL #2]
@@ -1484,10 +1564,27 @@ inmode4_return
  ;MOV R1,R2,LSR #8
  ;BIC R1,R1,#(&F << 20)		; options - need to update if these change
 	BL	carefully_readandputdisasmdata
+ |
+	BL	getdisasmdata
+	BIC	R1,R0,#1<<23
+	MOV	R0,#-1
+	SWI	XDebugger_Flags
+	BICVC	R0,R0,#&FF000000
+	MOVVS	R0,#-1
+	PUSH	"R0"
+ ]
 	ADR	R0,asm$l		; command to execute
 	ORR	R0,R0,#command_DontLearn
 	BL	command_string
+ [ NEW_DISASM = 0
 	BL	carefully_readandrestoredisasm
+ |
+	PULL	"R1"
+	TEQ	R1,#0
+	MOVPL	R0,#-1
+	SWIPL	XDebugger_Flags
+	SUBS	R0,R0,R0 ; clv
+ ]
 	FNRTS
 doword$l
 	ADR	R0,word$l
@@ -1543,6 +1640,7 @@ mode4_search
 	MOVNE PC,R14
 start$l					; get line to search through
 	FNJSR
+ [ NEW_DISASM = 0
 	PUSH	"R1-R10"		; hmm...
 	LDRB	R2,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
@@ -1553,6 +1651,9 @@ start$l					; get line to search through
 	STR	R0,local_disassemblerflags
 	BL	search_readandputdisasmdata
 	PULL	"R1-R10"
+ |
+	BL	getdisasmdata
+ ]
 
 	CMP	R4,#0
 	ADDPL	R3,R3,#3		; offset 1-3 means go to the next line
@@ -1569,7 +1670,9 @@ start$l					; get line to search through
 	MOVPL	R2,#0			; offset in the detokenised line
 	SUBMI	R2,R10,#1		; start at the line end
 
+ [ NEW_DISASM = 0
 	BL	readandrestoredisasm	; preserves...?
+ ]
 
 ; LDR R2,[R8,#w_mode4]
 ; STR R2,localmodeword
@@ -1584,7 +1687,9 @@ start$l					; get line to search through
 	FNRTS
 
 possibleproblem$l
+ [ NEW_DISASM = 0
 	BL	readandrestoredisasm	; preserves...?
+ ]
 	ADDS	R14,R14,#0
 	MOV	R1,#-1			; flag...????
 	FNRTS
@@ -1633,7 +1738,11 @@ a$l
 	FNRTS	VS
 	MOV	R1,#0
 	MOV	R0,#0			; address to assume instruction came from
+ [ NEW_DISASM = 0
 	SWI	XDebugger_Disassemble	; R1=buf R2=len
+ |
+	BL	disassemble		; R1=buf R2=len
+ ]
 	ADRVSL	R1,stored_blank_string
 	ADR	R0,assemble$l
 	BL	find_key_command	; locate+load
@@ -1980,9 +2089,20 @@ r$l	MOVNE	R0,#2		; in case R2=15
 	MOV	R1,R6,LSR #24
 	TST	R1,#&80
 	BLNE	mode4_execute
+ [ NEW_DISASM = 0
 	MOV	R1,R7,LSR #8
 	BIC	R7,R7,#(&F << 20)
 	BL	putdisasmdata
+ |
+	TEQ	R8,#0
+	FNLDR	R2,opt_format,EQ
+	LDRNE	R2,[R8,#w_format]
+	TST	R2,#bit_windowwrap	; global?
+	MOVNE	R0,#-1
+	BICNE	R1,R7,#&F << 28
+	MOVNE	R1,R1,LSR #8
+	SWINE	XDebugger_Flags
+ ]
 	BL	redrawmostcodemodewindows
 	FNRTS
 
@@ -2023,6 +2143,7 @@ but_tickquery3b
 	BL	new_wind_format_set
 	FNRTS
 
+ [ NEW_DISASM = 0
 getdisasmdata
 	MOV	R0,#0
 	MOV	R1,#0
@@ -2035,6 +2156,7 @@ putdisasmdata
 	SWI	XDebugger_63
 	SUBS	R0,R0,R0			; clv.
 	MOV	PC,R14
+ ]
 
 but_sortwwout
 	FNJSR "R1-R12"
@@ -2118,9 +2240,13 @@ but_tickquery2
 	SUB	R6,R6,#8
 	MOV	R7,#1
 	MOV	R7,R7,LSL R6 ; ???
+ [ NEW_DISASM = 0
 	MOV	R0,#0
 	MOV	R1,#0
 	SWI	XDebugger_63
+ |
+	BL	getdisasmdata
+ ]
 	MOVVS	R7,#0
 	TST	R0,R7
 	MOVVC	R0,#0
@@ -2130,7 +2256,11 @@ but_tickquery2
 skipd_codestf
 	MOV	R0,#0
 	MOV	R1,#0
+ [ NEW_DISASM = 0
 	SWI	XDebugger_63
+ |
+	SWI	XDebugger_Flags
+ ]
 	MOVVS	R0,#2
 	MOVVC	R0,#0
 	SUBS	R14,R14,R14
@@ -2518,7 +2648,11 @@ notswi$l
 	ADD r1,r1,r2 ; address the instruction "came from"
 	BIC r0,r0,#(15:SHL:28) ; clear condition code
 	ORR r0,r0,#(14:SHL:28) ; 'AL' (disassembled invisibly)
+ [ NEW_DISASM = 0
 	SWI XDebugger_Disassemble		; naked???
+ |
+	BL disassemble
+ ]
 
 	MOVVC r0,r2 ; length, including terminator
 	BLVC heap_claim ; \X r0 => block
