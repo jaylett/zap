@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.19 2002/11/14 15:50:08 christian Exp $
+; $Id: Menus,fff,v 2.20 2002/11/15 01:26:15 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -2725,8 +2725,8 @@ update_menu
  FNRTS GE			; already updated
  STR R3,[R1,#-8]		; new update time
  LDR R11,[R1,#-4]		; creation address ; problem with longfiles!?
- CMP R11,#0
- BLE com$l			; do the commands (0 or bit set)
+ TEQ R11,#0
+ BEQ com$l			; do the commands
  MOV R10,R1			; menu address
  TEQ R8,#0
  FNLDR R7,opt_flags,EQ
@@ -2737,31 +2737,6 @@ update_menu
  MOV PC,R11			; call the sub
  FNRTS				; finished
 com$l				; creation address le 0
- BICS R11,R11,#1<<31		; address of the source menu
- BEQ gotmenu$l			; already got the menu
- PUSH "R1"
- LDR R3,[R11],#4		; length of the menu
- ADD R2,R1,#28			; destination (first entry)
- MOV R1,R11			; source
- SWI XZapRedraw_MoveBytes	; BL move_bytes	; copy in the menu
- LDR R3,[R11],#4		; length of the menu
- ADD R2,R1,#28			; destination (first entry)
- MOV R1,R11			; source
- SWI XZapRedraw_MoveBytes	; BL move_bytes	; copy in the menu
- LDR R2,[R13]
- LDR R2,[R2,#-16]		; help text buffer ptr
- TEQ R2,#0
- BEQ nohelp$l
- LDR R1,[R11,#-4]
- ADD R1,R11,R1
-copyhelp$l
- LDR R0,[R1],#4
- STR R0,[R2],#4
- CMP R0,#-1
- BNE copyhelp$l
-nohelp$l
- PULL "R1"
-gotmenu$l			; menu has been copied if need be
  MOV R11,R1			; save the menu start
  BL show_menu
  ADD R6,R11,#28			; first item
@@ -2776,51 +2751,6 @@ a$l
  BIC R7,R7,#&FC<<24		; command address (maybe b0 set)
  BL get_command_flags
  MOV R4,R0			; command flags
-; TST R7,#1
-; TSTNE R0,#1<<15:OR:1<<18:OR:1<<19:OR:1<<20
-; BEQ comok$l
-; LDR R0,[R5,#-4]
-; AND R0,R0,#&FC<<24
-; ORR R0,R0,R7
-; STR R0,[R5,#-4]		; new interpret code address
-;comok$l				; validated the command address
- TST R4,#1<<20			; possibly delete this entry?
- BEQ nodel$l
-
- MOV R2,#20			; command reason code
- BL menu_process_key_command
- FNRTS VS
- TST R0,#1
- BEQ nodel$l			; don't delete the entry
- LDR R0,[R11,#-4]
- TST R0,#1<<31
- BLEQ update_menu_backup	; make a backup copy before we delete
- FNRTS VS
- MOV R0,R6
- BL count_menu_entries		; R0=number of entries left
- SUBS R0,R0,#1			; number to shift
- BLE lastitem$l
- ADD R1,R6,#24			; source
- MOV R2,R6
- ADD R3,R0,R0,LSL#1
- MOV R3,R3,LSL#3
- SWI XZapRedraw_MoveBytes	; BL move_bytes	; shift next entry down
- LDR R1,[R13]
- LDR R1,[R1,#-16]
- TEQ R1,#0
- BEQ a$l			; ...no help text
- ADD R1,R1,R9,LSL #2
-shifthelp$l			; 'remove' a help text entry
- LDR R0,[R1,#4]
- STR R0,[R1],#4
- CMP R0,#-1
- BNE shifthelp$l
- B a$l				; try doing this entry again
-lastitem$l			; tried to remove the last item
- LDR R0,[R6,#-24]
- ORR R0,R0,#1<<7		; make previous item the last
- STR R0,[R6,#-24]
- B trimspaces$l
 nodel$l				; don't delete the entry R4=flags etc
  TST R4,#1<<18
  BEQ gottxt$l
@@ -2999,39 +2929,6 @@ menu_process_key_command
 
 	LOCAL
 
-;E R11=address of the menu
-;X menu backed up and R11,#-4 has the address of the backup copy +b31
-;  Backup copy is of the form length,backup[,help ptrs (-1 term)] #
-;  (The [] part is only present if the menu has help text)
-	FNAME	update_menu_backup
-update_menu_backup
-	FNJSR	"R1-R5"
-	ADD	R0,R11,#28		; first item
-	BL	count_menu_entries	; R0=number of entries
-	ADD	R4,R0,#2
-	ADD	R3,R0,R0,LSL#1
-	MOV	R3,R3,LSL#3		; size of backup
-	LDR	R0,[R11,#-16]
-	TEQ	R0,#0
-	ADDNE	R0,R3,#4
-	ADDNE	R0,R0,R4,LSL #2
-	BL	heap_claim
-	FNRTS	VS
-	ORR	R14,R0,#1<<31
-	STR	R14,[R11,#-4]
-	STR	R3,[R0],#4
-	ADD	R1,R11,#28
-	MOV	R2,R0
-	ADD	R5,R0,R3
-	SWI	XZapRedraw_MoveBytes ; BL move_bytes
-	LDR	R1,[R11,#-16]
-	TEQ	R1,#0
-	MOVNE	R2,R5
-	MOVNE	R3,R4,LSL #2
-	SWINE	XZapRedraw_MoveBytes
-	FNRTS
-
- LOCAL
 
 ;E R1=root node of the menu
 ;  R8/R9=window
