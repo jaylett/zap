@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.13 2003/05/14 09:58:21 christian Exp $
+; $Id: CreateWind,fff,v 2.14 2003/08/24 18:28:26 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1929,10 +1929,11 @@ create_title
 ;X title buffer only updated |
 	FNAME	update_title
 update_title
-	FNJSR	"R1-R4"
+	FNJSR	"R1-R4,R10,R11"
 	LDR	R2,[R9,#f_name]		; filename
 	LDR	R1,[R8,#w_title]	; buffer pointer
 	BL	strcpy			; copy name
+
 	LDR	R2,[R9,#f_flags]
 	TST	R2,#1<<3
 	MOV	R0,#' '
@@ -1949,12 +1950,14 @@ smallfile$l
 	STRB	R3,[R1],#1
 unchanged$l
 	STRB	R0,[R1],#1
+
 	MOV	R0,#'('
 	STRB	R0,[R1],#1
 	LDRB	R0,[R8,#w_format]	; mode number
 	BL	mode_name		; read mode name
 	FNRTS	VS
 	BL	strcpy			; insert into buffer
+
 	MOV	R0,#' '
 	STRB	R0,[R1],#1
 	LDR	R2,[R9,#f_flags]
@@ -2020,6 +2023,36 @@ unchanged$l
 	SUBEQ	R1,R1,#1		; strip unwanted space off end
 	MOV	R0,#')'
 	STRB	R0,[R1],#1
+
+	MOV	R3,R1			; save string posn
+	MOV	R4,R1			; save string posn
+	MOV	R1,#einit_TitleMode
+	MOV	R11,#e_init
+	BL	call_mode   		; ask mode to add a string
+	TEQ	R1,#einit_TitleMode
+	MOVNE	R2,R1
+	MOV	R1,R3
+	MOVNE	R0,#' '
+	STRNEB	R0,[R1],#1
+	BLNE	strcpy
+
+	MOV	R3,R1			; save string posn
+	MOV	R1,#einit_TitleCMode
+	LDR	R10,[R9,#f_cmode]
+	CMP	R10,#-1
+	MOVNE	R11,#e_init
+	BLNE	call_given_mode  	; ask owner to add a string
+	TEQ	R1,#einit_TitleCMode
+	MOVNE	R2,R1
+	MOV	R1,R3
+	MOVNE	R0,#' '
+	STRNEB	R0,[R1],#1
+	BLNE	strcpy
+
+	TEQ	R1,R4			; add a space after strings
+	MOVNE	R0,#' '
+	STRNEB	R0,[R1],#1
+
 	MOV	R3,R1			; save string posn
 	BL	find_view_number
 	MOV	R4,R1			; save number of views
