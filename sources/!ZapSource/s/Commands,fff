@@ -1,5 +1,6 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.34 1999/06/09 00:10:22 ds Exp $
+; $Id: Commands,fff,v 1.1.2.35 1999/06/09 08:35:43 james Exp $
+; -*- armasm -*-
 
 c_Conditional	* (1<<21)
 
@@ -292,6 +293,7 @@ key_command_table
 	FNcom	"MODE",Mode
 	FNcom	"MODELIST",Modelist
 	FNcom	"MODEN",Moden
+	FNcom	"MODENMENU",Modenmenu
 	FNcom	"MOVEBOX",Movebox
 	FNcom	"MOVESEL",Movesel
 	FNcom	"MULTICOMMAND",Multicommand
@@ -3654,6 +3656,39 @@ ret$l
 s$l
  = "zap_p_moden",0
  ALIGN
+
+ LOCAL
+
+; You can't call this!
+ & (c_NoR10 :OR: c_Param_String :OR: c_TickableMenuEntry :OR: c_SpecifiesSubMenu)
+Modenmenu
+ TEQ R2,#15
+ TEQNE R2,#19
+ MOVNE PC,R14
+ FNJSR
+ BL find_mode_number			; \E r0=name \X r0=number or -1
+ CMP R0,#-1
+ BNE gotmode$l
+ CMP R8,#0
+ LDRNEB R0,[R8,#w_format]
+ FNLDRB R0,opt_format,EQ
+gotmode$l
+ PUSH "R0"
+ BL read_mode				; can't fail - this *is* a valid menu!
+ LDR R1,[R1,#2*e_menu]			; menu
+ CMP R1,#0
+ PULL "R0"
+ BNE okay$l
+ TEQ R2,#15
+ MOVEQ R0,#2				; shaded
+ MOVNE R0,#-1				; no valid menu
+ FNRTS
+okay$l
+ TEQ R2,#15
+ MOVEQ R0,#0				; normal menu entry
+ BLNE set_mode_menu_title
+ MOVNE R0,R1
+ FNRTS
 
  DCD 7
 Null
