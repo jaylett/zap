@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.34 2003/03/05 16:06:27 christian Exp $
+; $Id: Menus,fff,v 2.35 2003/03/23 20:54:09 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -55,6 +55,7 @@
  EXPORT Newviewlist
  EXPORT Removelist
  EXPORT Modelist
+ EXPORT ModeHelpList
  EXPORT Typelist
  EXPORT Getmodule
  EXPORT Getworkspace
@@ -1028,6 +1029,95 @@ find$l  LDR	R2,[R8],#4
 	LDR	R0,[R8,#-4]		; index -> mode name
 	FNRTS
 
+
+	LOCAL
+
+; List of all modes (for help text etc.)
+	DCD	7+(1<<16)
+ModeHelpList
+	FNJSR
+	TEQ	R2,#16
+	FNRTS	NE
+	ADR	R0,mhelp$l
+	ADR	R1,buildsub$l
+	MOV	R2,#0
+	ADR	R3,runmodehelp$l
+	MOV	R4,#14
+	FNLDR	R8,ext_help		; list of external modes
+	LDR	R14,[R8,#-4]
+	TEQ	R14,#0
+	MOVEQ	R8,#0
+	BL	swapmenu
+	MOV	R6,#mef_ExecCommand + 3 ; command, string parameter
+	BL	build_menu
+	MOVVC	R1,R0
+	BLVC	sort_menu
+	MOVVC	R0,R1			; menu pointer
+	BL	swapmenu
+	FNRTS
+mhelp$l	=	27,"zap_m_mhelp",0
+	ALIGN
+buildsub$l
+	FNJSR	"R1,R2"
+	TEQ	R8,#0
+	MOVEQ	R0,#-1
+	FNRTS	EQ			; reached the end of the list
+	MOV	R2,R0
+copy$l	LDRB	R1,[R8],#1		; copy the mode name
+	CMP	R1,#32
+	MOVLS	R1,#0			; NUL terminate on <=space
+	STRB	R1,[R0],#1
+	BHI	copy$l
+	SUB	R8,R8,#1
+skip$l	LDRB	R1,[R8,#1]!		; find end of whitespace
+	TEQ	R1,#0
+	BEQ	nextstring$l
+	CMP	R1,#32
+	BLE	skip$l
+	MOV	R0,R8			; argument = remainder of string
+	TEQ	R1,#'*'
+	FNRTS	NE
+nx$l	LDRB	R1,[R8,#1]!		; found help file name; skip it
+	TEQ	R1,#0
+	BNE	nx$l
+nextstring$l
+	BIC	R8,R8,#3
+	LDRB	R1,[R8,#8]!
+	TEQ	R1,#0			; if no more, flag for next call
+	MOVEQ	R8,#0
+	FNRTS
+
+	DCD	7
+runmodehelp$l
+	FNJSR	"R1,R5-R6"
+find$l	LDRB	R1,[R0],#1		; find the filename
+	TEQ	R1,#0
+	FNRTS	EQ
+	TEQ	R1,#'*'
+	BNE	find$l
+	MOV	R5,R0			; filename
+	BL	str_len
+	ADD	R0,R0,#12
+	BL	heap_claim
+	FNRTS	VS
+	MOV	R6,R0			; buffer for Filer_Run command
+	MOV	R1,R0
+	ADR	R2,filer_run$l
+	BL	strcpy
+	MOV	R2,R5
+	BL	strcopy
+	MOV	R0,R6
+	SWI	XOS_CLI
+	MOVVS	R5,R0
+	MOVVC	R5,#0
+	MOV	R0,R6
+	BL	heap_free
+	MOVS	R0,R5
+	FNRTS	EQ
+	FNRTV
+filer_run$l
+	=	"%Filer_Run ",0
+	ALIGN
 
 	LOCAL
 

@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 2.16 2003/02/05 18:22:02 christian Exp $
+; $Id: StartUp,fff,v 2.17 2003/03/23 20:54:09 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -185,6 +185,7 @@ list$l	DCD	&500,wimp_data		;  was &100 - now allows for set_up_print_palette
 	DCD	&20,ext_comms		;  &80
 	DCD	&10,ext_messages
 	DCD	&20,ext_clones
+	DCD	&20,ext_help
 	DCD	4,ext_comm_flags
 	DCD	0,wimp_clicksend
 	DCD	0,startup_command
@@ -1276,12 +1277,14 @@ start$l	LDRB	R0,[R3]			;  load the module and do a command
 
 	LOCAL
 
-; ext_modes,ext_comms,ext_messages contain 0 terminated lists
-; of mode names,command names,messages numbers (the first two followed
-; by zeros 'till the next alignment) followed by a pointer to the module
-; file to load to install that mode, command etc (zero if freed)
+; ext_modes,ext_comms,ext_messages,ext_help contain 0 terminated lists
+; of mode names,command names,messages numbers,help text (the first two and
+; the last followed by zeros 'till the next alignment) followed by a pointer
+; to the module file to load to install that mode, command etc (zero if
+; freed)
 ; The module file name is of the form <module name>,0,<extra file>,0
 ; The extra file will be Wimptasked before the module is loaded.
+; The help data is of the form <mode>[ <mode> ...] *<filename>,0
 ;
 ; Each mode name is followed by a flags word (the same as is stored in its
 ; e_flags entry). If the word isn't specified in the file, then &80000000 is
@@ -1292,7 +1295,7 @@ start$l	LDRB	R0,[R3]			;  load the module and do a command
 ; in the file, then &80000000 is used to indicate this.
 
 ;E R10=pointer to mode/command name/message number string
-;  R3=object type (0=mode 1=command 2=message 3=call)
+;  R3=object type (0=mode 1=command 2=message 3=call 4=help)
 ;  R4=pointer to name of module to load to deal with this command/mode/mess
 ;     or the clone base mode (if R3=3)
 ;X Object added #
@@ -1300,7 +1303,7 @@ start$l	LDRB	R0,[R3]			;  load the module and do a command
 add_external_object
 	FNJSR	"R1-R6,R10"
 	SYSLOGF "add_external_object %10s (type %3d) in module %4s", LOG_MINOR
-	CMP	R3,#4
+	CMP	R3,#5
 	FNRTS	CS			;  illegal type
 	ADR	R14,list$l
 	LDR	R2,[R14,R3,LSL#2]
@@ -1335,16 +1338,20 @@ found$l	SUB	R6,R1,R5		;  current list length
 	FNRTS	VS
 	STR	R0,[R12,R2]		;  new list pointer
 	ADD	R1,R0,R6		;  start of the entry
-	CMP	R3,#2
-	BHS	num$l
+	TEQ	R3,#2
+	TEQNE	R3,#3
+	BEQ	num$l
 
+	TEQ	R3,#4			;  help?
+	MOVEQ	R6,#31			;  if so, we want to copy spaces
+	MOVNE	R6,#32
 copy$l	LDRB	R0,[R10],#1		;  copy the string (make upper case if comm)
 	TEQ	R3,#1			;  command ?
 	BNE	c$l			;  no
 	SUB	R14,R0,#'a'
 	CMP	R14,#26
 	ADDCC	R0,R14,#'A'		;  convert to upper case
-c$l	CMP	R0,#&20
+c$l	CMP	R0,R6
 	STRGTB  R0,[R1],#1
 	BGT	copy$l			;  do next byte
 	MOV	R0,#0
@@ -1384,6 +1391,7 @@ list$l	DCD	ext_modes
 	DCD	ext_comms
 	DCD	ext_messages
 	DCD	ext_calls
+	DCD	ext_help
 
 
 	LOCAL
