@@ -1,5 +1,5 @@
 ; Zap Text Command Extension
-; $Id: dwcomms,fff,v 1.5 2000/10/08 22:22:10 ds Exp $
+; $Id: dwcomms,fff,v 1.6 2002/11/24 02:46:39 christian Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -95,9 +95,9 @@ dw_lineends
 loop$l		LDRB	r6,[r2,r0]		; get a character
 		TEQ	r6,#10
 		TEQNE	r6,#13			; CR or LF?
-		BLEQ	foundcr$l		; must return with EQ still bearing
 		MVNNE	r4,#0
 		ADDNE	r0,r0,#1		; skip over otherwise
+		BLEQ	foundcr$l
 
 		; update the hourglass
 		MOV	r7,r0
@@ -128,11 +128,11 @@ finished$l	BL	util_long_op_off
 getvars$l	LDR	r2,[fileptr,#f_ptr]
 		LDR	r1,[fileptr,#f_splito]	; split offset
 		CMP	r0,r1
-		MOVCCS	pc,lr			; return if we're before split point
+		MOVCC	pc,lr			; return if we're before split point
 		LDR	r1,[fileptr,#f_splits]	; split size
 		ADD	r2,r2,r1		; apparent buffer start if after split point
 		LDR	r1,[fileptr,#f_len]
-		MOVS	pc,lr			; so EQ bears
+		MOV	pc,lr
 
 ; R4 = previous lineend code or -1
 ; R5 = correct lineend code
@@ -333,7 +333,7 @@ dw_removelf
 		STMFD	R13!,{R0-R6,R14}
 		LDR	R0,[R9,#f_len]
 		TEQ	R0,#0
-		LDMEQFD	R13!,{R0-R6,PC}^
+		LDMEQFD	R13!,{R0-R6,PC}
 		FNcall	Zap_SaveWinStatus,R6
 		BL	util_splitbuffer
 		LDR	R0,[R9,#f_ptr]
@@ -352,19 +352,19 @@ rlf_lp
 		MOV	R0,#-1
 		STR	R0,[R9,#f_chklen]	; keep modified
 		FNcall	Zap_NewWinStatus,R6
-		LDMFD	R13!,{R0-R6,PC}^
+		LDMFD	R13!,{R0-R6,PC}
 
 		DCD 1
 dw_removelfsel
 		STMFD	R13!,{R0-R6,R14}
 		LDR	R0,[R9,#f_len]
 		TEQ	R0,#0
-		LDMEQFD	R13!,{R0-R6,PC}^
+		LDMEQFD	R13!,{R0-R6,PC}
 		MOV	R4,R9
 		FNcall	Zap_GetSel
-		LDMCSFD	R13!,{R0-R6,PC}^
+		LDMCSFD	R13!,{R0-R6,PC}
 		CMP	R4,R9
-		LDMNEFD	R13!,{R0-R6,PC}^
+		LDMNEFD	R13!,{R0-R6,PC}
 		MOV	R4,R1
 		FNcall	Zap_SaveWinStatus,R6
 		FNcall	Zap_SplitBuffer,R6	; get the split out of the way
@@ -386,21 +386,21 @@ rlf_lp2
 		MOV	R0,#-1
 		STR	R0,[R9,#f_chklen]	; keep modified
 		FNcall	Zap_NewWinStatus,R6
-		LDMFD	R13!,{R0-R6,PC}^
+		LDMFD	R13!,{R0-R6,PC}
 
 rlf_cr
 		CMP	R0,R1
-		MOVCSS	PC,R14
+		MOVCS	PC,R14
 		STMFD	R13!,{R14}
 		LDRB	R14,[R0],#1
 		TEQ	R14,#9
 		TEQNE	R14,#32
-		LDMEQFD	R13!,{PC}^		; if followed by ;t or ' ' -> don't replace it
+		LDMEQFD	R13!,{PC}		; if followed by ;t or ' ' -> don't replace it
 		TEQ	R14,R2
 		BNE	rlf_rcr			; if not followed by ;t, ' ', or ;n -> replace it
 rlf_skiplp
 		CMP	R0,R1
-		LDMCSFD	R13!,{PC}^
+		LDMCSFD	R13!,{PC}
 		LDRB	R14,[R0],#1
 		TEQ	R14,R2
 		BEQ	rlf_skiplp
@@ -409,7 +409,7 @@ rlf_skiplp
 rlf_rcr
 		MOV	R14,#32
 		STRB	R14,[R0,#-2]
-		LDMFD	R13!,{PC}^
+		LDMFD	R13!,{PC}
 
 ; That's it
 		END
