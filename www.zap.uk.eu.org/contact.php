@@ -1,5 +1,5 @@
 <?php
-  // $Id: contact.php,v 1.3 2002/05/06 11:56:51 james Exp $
+  // $Id: contact.php,v 1.4 2004/10/27 11:41:03 james Exp $
   include ".php/zap-std.inc";
   setroot ('contact');
   zap_header ("Zap contact details", 'up:/');
@@ -12,15 +12,13 @@
 
 <h2>General email addresses</h2>
 
-<p>Note that the following are actually lists; for instance, the features address is a list for discussing the proposed features as well as suggesting them. For information on how to subscribe to the lists, as well as more detailed descriptions of all the Zap-related lists, see the <a href="lists">Zap mailing lists page</a>. Before reporting a bug or suggesting a feature, try to make sure it hasn't already been reported/proposed (this is difficult until we collate the lists of each).</p>
+<p>Note that the following are mailing lists. For information on how to subscribe to the lists, see the <a href="lists">Zap mailing lists page</a>. Before reporting a bug or suggesting a feature, try to make sure it hasn't already been reported/proposed (this is difficult until we collate the lists of each).</p>
 
 <dl>
- <dt><a href="mailto:bugs@zap.tartarus.org">bugs@zap.tartarus.org</a></dt>
-  <dd>All bugs reports for stable releases of Zap should be sent here</dd>
- <dt><a href="mailto:betabugs@zap.tartarus.org">betabugs@zap.tartarus.org</a></dt>
-  <dd>All bugs reports for beta releases of Zap should be sent here</dd>
- <dt><a href="mailto:features@zap.tartarus.org">features@zap.tartarus.org</a></dt>
-  <dd>For suggesting new features
+ <dt><a href="mailto:zap-users@zap.tartarus.org">zap-users@zap.tartarus.org</a></dt>
+  <dd>All bugs reports, non-technical queries or suggestions should be sent here</dd>
+ <dt><a href="mailto:zap-technical@zap.tartarus.org">zap-technical@zap.tartarus.org</a></dt>
+  <dd>For technical queries and discussions.</dd>
 </dl>
 
 <p>In addition, the usual 'master' addresses exist for the Zap domain: <a href="mailto:webmaster@zap.tartarus.org">webmaster@zap.tartarus.org</a>, <a href="mailto:hostmaster@zap.tartarus.org">hostmaster@zap.tartarus.org</a> and <a href="mailto:postmaster@zap.tartarus.org.">postmaster@zap.tartarus.org.</a> In addition, <a href="mailto:listmaster@zap.tartarus.org">listmaster@zap.tartarus.org</a> runs the <a href="lists">mailing lists</a>.</p>
@@ -86,5 +84,5 @@
 <!-- martin@galaxy.tcp.co.uk -->
 
 <?php
-  zap_body_end ('$Date: 2002/05/06 11:56:51 $');
+  zap_body_end ('$Date: 2004/10/27 11:41:03 $');
 ?>
