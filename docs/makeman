@@ -1,0 +1,38 @@
+#!/bin/sh
+# $Id: makeman,v 1.1 1998/12/03 15:49:04 dj Exp $
+#
+# makeman
+# Build Zap manual
+# v1.00 - SJA
+
+SOURCEDIR=src
+DESTDIR=/var/www/www.zap.uk.eu.org/documentation/manual
+
+# Create single file of source (from dir 'src')
+rm temp
+# Index rewrites and aliases ...
+echo "Adding $SOURCEDIR/IdxAlias,fff"
+cat $SOURCEDIR/IdxAlias,fff >> temp
+# Chapters ...
+for i in `ls $SOURCEDIR/Chapter*`; do echo "Adding $i"; cat $i >> temp; done
+# Appendices ...
+for i in `ls $SOURCEDIR/Appendix*`; do echo "Adding $i"; cat $i >> temp; done
+
+# Create HTML and textual versions
+./docsrc.pl ./temp
+
+# Copy all HTML versions into the publish site
+# We need to sed these a little to correct two problems:
+#  * <p>RULEHERE -> <p><hr>
+#  * "\ #" -> "\#"
+for i in `ls *.html`; do
+  # Note nice double-escaping of '\' so that (a) sh and (b) sed
+  # get what I want ...
+  cat $i | sed -e "s/<p>RULEHERE/<p><hr>/g; s/\\\\ #/\\\\#/g" > $DESTDIR/$i
+done
+
+# And copy the help file into public ftp space ...
+scp \!Help eita:/home/ftp/eita.insigma.com/pub/dj/\!Help,fff
+
+# And tidy up ...
+rm ./temp
