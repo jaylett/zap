@@ -1,10 +1,35 @@
 ; Buttons - a Zap extension
-; $Id: buttons,fff,v 1.3 2003/02/09 13:43:42 christian Exp $
+; $Id: buttons,fff,v 1.4 2003/03/14 02:45:37 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
  GET <ZapExtSource$Dir>.h.Macros
  GET h.buttons
+
+
+		^	0
+bb_wind		#	4				; window offset bar is attached to
+bb_hand		#	4				; handle of buttons window
+bb_template	#	4				; template number of this bar
+bb_xoff		#	4				; x offset of pane
+bb_yoff		#	4				; y offset of pane
+bb_length	*	@
+
+; heap block containg an array of mode resources
+
+		^	0
+mr_mode		#	4				; mode number of this block
+mr_count	#	4				; number of panes open for this mode
+mr_scripts	#	4				; scripts
+mr_scripts_end	#	4				; scripts end
+mr_sprites	#	4				; sprite area
+mr_menu		#	4				; menu pointer (ZapWimp format)
+mr_template0	#	4				; up to 4 templates
+mr_template1	#	4				;
+mr_template2	#	4				;
+mr_template3	#	4				;
+mr_length	*	@
+
 
 ; disable embedded functions names (saves about 1k)
 EMBED_FUNCTION_NAMES SETL {FALSE}
@@ -41,7 +66,7 @@ module_flags	DCD	1				; 32 bit compatible
 mod_init	FNJSR	"R11"
 
 		MOV	R0,#6				; get some workspace
-		MOV	R3,#:INDEX:numvars
+		MOV	R3,#numvars
 		SWI	XOS_Module
 		MOVVC	R11,R2
 		STRVC	R11,workspace
@@ -57,7 +82,7 @@ mod_init	FNJSR	"R11"
 
 		MOV	R1,#0
 		MOV	R2,R11
-		MOV	R3,#:INDEX:numvars
+		MOV	R3,#numvars
 		FNcall	Zap_FillWords,R0
 
 		MOV	R0,#1				; add our filter routines
@@ -547,21 +572,6 @@ a$l		TST	R2,#1<<7			; active block?
 ; Code to manage the buttons resources for each mode
 ; --------------------------------------------------
 
-; heap block containg an array of mode resources
-
-		^	0
-mr_mode		#	4				; mode number of this block
-mr_count	#	4				; number of panes open for this mode
-mr_scripts	#	4				; scripts
-mr_scripts_end	#	4				; scripts end
-mr_sprites	#	4				; sprite area
-mr_menu		#	4				; menu pointer (ZapWimp format)
-mr_template0	#	4				; up to 4 templates
-mr_template1	#	4				;
-mr_template2	#	4				;
-mr_template3	#	4				;
-mr_length	*	@
-
 ; get the mode block, creating one if it doesn't exist
 ; E r8
 ; X r10 -> block
@@ -574,8 +584,8 @@ get_mode_block	FNJSR	"R9"
 		FNcall	Zap_ReadVar,R0
 		AND	R9,R0,#&FF			; mode number
 
-ok$l		LDR	R10,mode_blocks
-		LDR	R1,mode_blocklen
+ok$l		LDR	R10,[R11,#mode_blocks]
+		LDR	R1,[R11,#mode_blocklen]
 
 loop$l		TEQ	R1,#0
 		BEQ	none$l
@@ -587,12 +597,12 @@ loop$l		TEQ	R1,#0
 		SUB	R1,R1,#mr_length
 		B	loop$l
 
-none$l		LDR	R0,mode_blocks			; create a new block
-		LDR	R10,mode_blocklen
+none$l		LDR	R0,[R11,#mode_blocks]		; create a new block
+		LDR	R10,[R11,#mode_blocklen]
 		ADD	R1,R10,#mr_length
 		FNcall	Zap_Ensure,R2
-		STR	R1,mode_blocklen
-		STR	R0,mode_blocks
+		STR	R1,[R11,#mode_blocklen]
+		STR	R0,[R11,#mode_blocks]
 		ADDVC	R10,R0,R10			; point to it
 
 		MOVVC	R1,#0				; initialise it
@@ -939,14 +949,6 @@ scripts$l	=	"Scripts",0
 ; code to keep track of active buttons bars
 ; -----------------------------------------
 
-		^	0
-bb_wind		#	4				; window offset bar is attached to
-bb_hand		#	4				; handle of buttons window
-bb_template	#	4				; template number of this bar
-bb_xoff		#	4				; x offset of pane
-bb_yoff		#	4				; y offset of pane
-bb_length	*	@
-
 ; add a buttons bar to the list of open buttons bars
 ; E r0 = window handle  r1 = templte number  r8  r10
 ; X r9 -> buttons block
@@ -955,14 +957,14 @@ add_buttons	FNJSR	"R0,R6-R7"
 		MOV	R6,R0
 		MOV	R7,R1
 
-		LDR	R0,buttons_blocks
-		LDR	R1,buttons_blocklen
+		LDR	R0,[R11,#buttons_blocks]
+		LDR	R1,[R11,#buttons_blocklen]
 
 		ADD	R1,R1,#bb_length		; another entry
 		FNcall	Zap_Ensure,R2
 		FNRTS	VS
-		STR	R0,buttons_blocks
-		STR	R1,buttons_blocklen
+		STR	R0,[R11,#buttons_blocks]
+		STR	R1,[R11,#buttons_blocklen]
 
 		SUB	R1,R1,#bb_length
 		ADD	R9,R0,R1
@@ -980,8 +982,8 @@ add_buttons	FNJSR	"R0,R6-R7"
 remove_buttons	FNJSR	"R6"
 		FNcall	Zap_GetWindOff,R1
 
-		LDR	R2,buttons_blocks
-		LDR	R3,buttons_blocklen
+		LDR	R2,[R11,#buttons_blocks]
+		LDR	R3,[R11,#buttons_blocklen]
 
 loop$l		TEQ	R3,#0				; not found?
 		MOVEQ	R0,#0
@@ -996,9 +998,9 @@ loop$l		TEQ	R3,#0				; not found?
 		ADD	R1,R2,#bb_length		; shift the subsequent entries up
 		FNcall	Zap_MoveBytes,R0
 
-		LDR	R0,buttons_blocklen		; one less entry
+		LDR	R0,[R11,#buttons_blocklen]	; one less entry
 		SUB	R0,R0,#bb_length
-		STR	R0,buttons_blocklen
+		STR	R0,[R11,#buttons_blocklen]
 		MOV	R0,R6
 		FNRTS
 
@@ -1011,8 +1013,8 @@ loop$l		TEQ	R3,#0				; not found?
 		FNAME	get_button_hand
 get_button_hand	FNJSR
 		FNcall	Zap_GetWindOff,R1
-		LDR	R9,buttons_blocks
-		LDR	R1,buttons_blocklen
+		LDR	R9,[R11,#buttons_blocks]
+		LDR	R1,[R11,#buttons_blocklen]
 
 loop$l		TEQ	R1,#0				; not found?
 		MOVEQ	R0,#0
@@ -1034,8 +1036,8 @@ loop$l		TEQ	R1,#0				; not found?
 ; X r8 = window or 0  r9 -> button block
 		FNAME	get_button_wind
 get_button_wind	FNJSR	"R6"
-		LDR	R6,buttons_blocks
-		LDR	R1,buttons_blocklen
+		LDR	R6,[R11,#buttons_blocks]
+		LDR	R1,[R11,#buttons_blocklen]
 
 loop$l		TEQ	R1,#0				; not found?
 		MOVEQ	R8,#0
