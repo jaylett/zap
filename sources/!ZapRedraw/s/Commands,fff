@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.1.2.3 2001/11/09 23:38:32 christian Exp $
+; $Id: Commands,fff,v 1.1.2.4 2001/11/12 02:34:50 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -289,16 +289,16 @@ count_font_block
 
 		LDR	R1,[R11,#fb_flags]
 		TST	R1,#ff_vdu
-		FNRTS	NE				; that's it for a vdu block
+		MOVEQ	R2,#substyles
+		MOVNE	R2,#2				; just aa and not for vdu
 
-		MOV	R2,#substyles-1			; count the substyle blocks
-		ADD	R11,R11,#fb_data
+		ADD	R11,R11,#fb_data		; count the substyle blocks
 loop$l		LDR	R1,[R11,R2,LSL #2]
 		TEQ	R1,#0
 		LDRNE	R1,[R1,#-4]
 		ADD	R0,R0,R1
 		SUBS	R2,R2,#1
-		BPL	loop$l
+		BNE	loop$l
 
 		FNRTS
 
@@ -470,21 +470,21 @@ describe_font_block
 		FNJSR	"R1-R2,R11"
 		MOV	R11,R0
 		SWI	XOS_WriteS
-		= 10,13,"   Handle:  ",0
+		= 10,13,"   Handle:   ",0
 		ALIGN
 		ADDVC	R0,R2,#1
 		BLVC	cardinal4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   Address: ",0
+		= "   Address:  ",0
 		ALIGN
 		MOVVC	R0,R11
 		BLVC	hex8
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   Name:    ",0
+		= "   Name:     ",0
 		ALIGN
 		FNRTS	VS
 		LDR	R0,[R11,#fb_name]
@@ -504,35 +504,35 @@ describe_font_block
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   Width:   ",0
+		= "   Width:    ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_charw]
 		BLVC	cardinal4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   Height:  ",0
+		= "   Height:   ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_charh]
 		BLVC	cardinal4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   Usage:   ",0
+		= "   Usage:    ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_usage]
 		BLVC	cardinal4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   cbpl:    ",0
+		= "   cbpl:     ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_cbpl]
 		BLVC	cardinal4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "   cbpc:    ",0
+		= "   cbpc:     ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_cbpc]
 		BLVC	cardinal4
@@ -570,49 +570,76 @@ vdu$l		SWI	XOS_WriteS
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "      width: ",0
+		= "   width:    ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_xsize]
 		BLVC	integer4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "     aspect: ",0
+		= "   aspect:   ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_aspect]
 		BLVC	integer4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "    handles: ",0
+		= "   xoff:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_xoff]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   yoff:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_yoff]
+		BLVC	integer4
+		FNRTS	VS
+		SWI	XOS_WriteS
+		= "   handles:    ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_handles]
 		BLVC	hex8
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "    shaving block:",10,13,"        Left: ",0
+		= "   aa cache:   ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_aacache]
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   1bpp cache: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_1bcache]
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "    shaving block:",10,13,"       Left: ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_shavel]
 		BLVC	integer4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "       Right: ",0
+		= "      Right: ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_shaver]
 		BLVC	integer4
 		FNRTS	VS
 
 		SWI	XOS_WriteS
-		= "         Top: ",0
+		= "        Top: ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_shavet]
 		BLVC	integer4
 		FNRTS	VS
 
-		SWI	OS_WriteS
-		= "      Bottom: ",0
+		SWI	XOS_WriteS
+		= "     Bottom: ",0
 		ALIGN
 		LDRVC	R0,[R11,#fb_shaveb]
 		BLVC	integer4
@@ -728,6 +755,8 @@ com_debug	FNJSR
 		SWIVC	XOS_Write0
 		SWIVC	&20129
 		SWIVC	XOS_NewLine
+		MOV	R0,#-1
+		STR	R0,[R12,#debug]
 		FNRTS
 
 		]

@@ -1,5 +1,5 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.6.2.5 2001/11/10 01:21:44 christian Exp $
+; $Id: DSARedraw,fff,v 1.6.2.6 2001/11/12 02:34:50 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -18,6 +18,7 @@
  EXPORT call_extension
  EXPORT to_skip_control_char
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of an area				    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -27,18 +28,37 @@
 ;E R1=redraw block R2=extension sub R3=private word
 
 redraw_area_dsa
- FNJSR
+ FNJSR "R0-R2"
+ LDR R0,[R1,#r_flags]
+ BIC R0,R0,#&FF000000		; clear our temporary flag bits
+ STR R0,[R1,#r_flags]
  BL check_dsa_workarea		; ensure we have workarea
  FNRTS VS			; out of memory
  LDR R0,[R1,#r_workarea]
  STR R2,[R0,#a_ext1]
  STR R3,[R0,#a_ext2]
+	LDR	R0,[R1,#r_caddr]		; I'd rather this little bit of code here
+	CMP	R0,#&8000			; was in s.Cache - then all font block
+	BHS	o$l				; mgmt is separate from plotting.
+	BL	get_font_block			; however, we need to know this before
+	FNRTS	VS				; we jump to the VF routine.
+	LDR	R0,[R2,#fb_flags]
+	TST	R0,#ff_vdu
+	BEQ	o$l
+	LDR	R0,[R1,#r_flags]
+	ORR	R0,R0,#rf_dsavdu
+	STR	R0,[R1,#r_flags]
+	TST	R0,#rf_aasuppress		; don't use vf if antialiased dsa
+	FNPULL	EQ
+	BEQ	novf$l
+o$l
 	LDR	R14,[R12,#viewfinder_select]
 	CMP	R14,#1
 	LDRHS	R14,[R1,#r_bpp]
 	CMPHS	R14,#3
 	FNPULL
 	BHS	vf_redraw_area
+novf$l
  FNJSR "R1-R12"
  LDR R5,[R1,#r_screen]		; address of screen start
  TEQ R5,#0
@@ -144,12 +164,18 @@ blank$l
  SUBS R8,R8,#1			; done one more
  BGT blank$l
  BL remove_dsa_workarea		; free workarea in in cache
+ LDR R0,[R1,#r_flags]
+ BIC R0,R0,#&FF000000		; clear our temp flag bits
+ STR R0,[R1,#r_flags]
  FNRTS
 
 donefrommargin$l		; reached end of area inside top margin
  PULL "R3"
 done$l
  BL remove_dsa_workarea		; free workarea in in cache
+ LDR R0,[R1,#r_flags]
+ BIC R0,R0,#&FF000000		; clear our temp flag bits
+ STR R0,[R1,#r_flags]
  FNRTS
 
 null$l = "                                         ",0,2,0
@@ -318,13 +344,13 @@ redraw_raster
  LDRNE R0,[R1,#r_caddr]		; are we using font handles?
  CMPNE R0,#&8000
  BHS ok$l
- BL handle_to_caddr
+ BL handle_to_caddr		; have colour information
  ;;LDR R8,[R2,#a_spr1]
  SUB R8,R4,R0			; current char offset
  LDR R0,[R1,#r_caddr]
  BIC R0,R0,#&FF
  ORR R0,R0,R9,LSR #24		; patch in initial style mask
- BL handle_to_caddr
+ BL handle_to_caddr_c		; we have colour information
  STR R0,[R2,#a_spr1]		; keep initial caddr for 0,9 and 0,10 routines
  ADD R4,R0,R8			; get initial char offset
 
@@ -1060,6 +1086,27 @@ end$l
 ; Convert control codes to a character			    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; choose font for new colours
+; E r0 = r_flags  r1 -> redraw block  r10/r11
+; X font pointer updated
+		MACRO
+$la		NEWCOLS
+		ROUT
+$la		TST	R0,#rf_dsavdu
+		BEQ	%ft01
+		STMFD	R13!,{R0,R9,R14}		; colours have changed in dsavdu
+		LDR	R0,[R1,#r_caddr]		; mode - choose aa or 1bpp font
+		BL	handle_to_caddr_c
+		LDR	R9,[R1,#r_workarea]
+		ADD	R9,R9,#a_spr1
+		SWP	R14,R0,[R9]			; get old caddr and store new
+		SUB	R14,R4,R14			; current cache offset
+		ADD	R4,R0,R14			; new cache address
+		LDMFD	R13!,{R0,R9,R14}
+01							;
+		MEND
+
+
 ;E R1=redraw block
 ;  R3=address of next character (after 0 just read)
 ;  R4=char defn table/0 if raster being cleared
@@ -1094,6 +1141,7 @@ control_code_1
  LDR R10,[R0,R10,LSL#2]
  LDR R11,[R0,R11,LSL#2]		; change colour
  LDR R0,[R1,#r_flags]
+ NEWCOLS
  TST R0,#rf_extroutine
  MOVNE R0,#1
  BNE call_extension_plus
@@ -1163,6 +1211,8 @@ control_code_6
  LDR R0,[R1,#r_palette]
  LDR R10,[R0,R10,LSL#2]
  LDR R0,[R1,#r_flags]
+ TST R0,#rf_dsavdu
+ NEWCOLS
  TST R0,#rf_extroutine
  MOVNE R0,#6
  BNE call_extension_plus
@@ -1176,6 +1226,8 @@ control_code_7
  LDR R0,[R1,#r_palette]
  LDR R11,[R0,R11,LSL#2]
  LDR R0,[R1,#r_flags]
+ TST R0,#rf_dsavdu
+ NEWCOLS
  TST R0,#rf_extroutine
  MOVNE R0,#7
  BNE call_extension_plus
@@ -1197,7 +1249,7 @@ control_code_8
  STR R11,[R5,#a_stack4]		; old masks
  ADD R5,R5,#64			; place for the bitmap
  MOV R2,R4			; char defn table for mask char
- CMP R7,#5                      ; }
+ CMP R7,#5			; }
  ADDLS R7,R7,#&100		; } new code - this may break apps (not if they've been
 				;   using these codes properly) but this is *much* more
 				;   sensible than requiring 0,3,l,h sequences for all
@@ -1230,14 +1282,14 @@ control_code_9
  LDRNE R0,[R1,#r_caddr]
  CMPNE R0,#&8000		; are we using handles?
  BHS nohandle$l
- FNJSR "R11"
+ FNJSR "R9"
  BIC R0,R0,#&FF
- LDRB R11,[R3]			; new font style...
- ORR R0,R0,R11
- BL handle_to_caddr
- LDR R11,[R1,#r_workarea]
- ADD R11,R11,#a_spr1
- SWP R14,R0,[R11]		; get old caddr and store new
+ LDRB R9,[R3]			; new font style...
+ ORR R0,R0,R9
+ BL handle_to_caddr_c
+ LDR R9,[R1,#r_workarea]
+ ADD R9,R9,#a_spr1
+ SWP R14,R0,[R9]		; get old caddr and store new
  SUB R14,R4,R14			; current cache offset
  ADD R4,R0,R14			; new cache address
  FNPULL
@@ -1265,14 +1317,14 @@ control_code_10
  CMP R4,#0
  CMPNE R0,#&8000		; are we using handles?
  BHS nohandle$l
- FNJSR "R11"
+ FNJSR "R9"
  BIC R0,R0,#&FF
- LDRB R11,[R3,#-1]		; new font style...
- ORR R0,R0,R11
- BL handle_to_caddr
- LDR R11,[R1,#r_workarea]
- ADD R11,R11,#a_spr1
- SWP R14,R0,[R11]		; get old caddr and store new
+ LDRB R9,[R3,#-1]		; new font style...
+ ORR R0,R0,R9
+ BL handle_to_caddr_c		; have colour information
+ LDR R9,[R1,#r_workarea]
+ ADD R9,R9,#a_spr1
+ SWP R14,R0,[R9]		; get old caddr and store new
  SUB R14,R4,R14			; current cache offset
  ADD R4,R0,R14			; new cache address
  FNPULL
@@ -1330,6 +1382,8 @@ to_skip_control_char
  FNJSR "R4"
  BL skip_control_char
  FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Call extension code					    ;

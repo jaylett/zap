@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.1.2.2 2001/11/10 01:21:44 christian Exp $
+; $Id: Cache,fff,v 1.1.2.3 2001/11/12 02:34:50 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -11,6 +11,7 @@
  EXPORT init_cache
  EXPORT kill_cache
  EXPORT check_kill_cache
+ EXPORT error_cantdie
 
  EXPORT find_font
  EXPORT lose_font
@@ -20,8 +21,10 @@
  EXPORT cache_compact
 
  EXPORT handle_to_caddr
+ EXPORT handle_to_caddr_c
  EXPORT handle_to_redraw
  EXPORT handle_to_name
+ EXPORT get_font_block
 
  EXPORT check_dsa_workarea
  EXPORT remove_dsa_workarea
@@ -31,6 +34,7 @@
  EXPORT mode_change
 
  EXPORT read_char_size
+ EXPORT read_font_info
 
  EXPORT list_fonts
 
@@ -88,7 +92,11 @@ ff_end		# 0
 
 		LOCAL
 
+		[ |zap$| = "Zap"
 name$l		= "FontCache",0
+		|
+name$l		= "ZapX font cache",0
+		]
 		ALIGN
 
 ; initialise the cache - create the DA
@@ -96,13 +104,15 @@ name$l		= "FontCache",0
 ; X
 init_cache	FNJSR	"R7-R8"				; svc mode
 		ADR	R0,name$l
+		[  |zap$| = "Zap"
 		BL	messages_lookup			; read area name
+		]
 		MOV	R8,R0
 		MOV	R0,#0
 		MOV	R1,#-1
 		MOV	R2,#0
 		MOV	R3,#-1
-		MOV	R4,#&80				; not draggable
+		MOV	R4,#&81				; not draggable, read only (in user mode)
 		MOV	R5,#da_sizelimit
 		MOV	R6,#0
 		MOV	R7,#0
@@ -145,7 +155,7 @@ maybe$l		LDR	R3,[R3,#fb_usage]
 		TEQ	R3,#0
 		BEQ	ok$l
 
-err$l		ERROR	err_cantdie,"CantDie"
+error_cantdie	ERROR	err_cantdie,"CantDie"
 
 		LOCAL
 
@@ -367,10 +377,10 @@ free_font	FNJSR	"R0-R3,R10"
 ; free all cached font bitmaps for a font block, or vdu font handles
 ; E r1 -> font block
 ; X r0 corrupted  all others preserved
-free_font_data	FNJSR	"R11"
-		LDR	R0,[R1,#fb_flags]
+free_font_data	LDR	R0,[R1,#fb_flags]
 		TST	R0,#ff_vdu
 		BNE	vdu$l
+		FNJSR	"R11"
 		ADD	R0,R1,#fb_data
 		MOV	R11,#substyles
 loop$l		BL	free_substyle
@@ -379,8 +389,25 @@ loop$l		BL	free_substyle
 		BNE	loop$l
 		FNRTS
 
-vdu$l		LDR	R0,[R1,#fb_handles]
+vdu$l		FNJSR	"R1-R4,R11"
+		MOV	R11,R1
+
+		LDR	R0,[R11,#fb_aacache]		; free bitmaps
+		TEQ	R0,#0
+		BLNE	cache_free
+		MOV	R0,#0
+		STR	R0,[R11,#fb_aacache]
+
+		LDR	R0,[R11,#fb_1bcache]
+		TEQ	R0,#0
+		BLNE	cache_free
+		MOV	R0,#0
+		STR	R0,[R11,#fb_1bcache]
+
+		LDR	R0,[R11,#fb_handles]		; and real font handles
 		BL	lose_vdu_fonts
+		MOV	R0,#0
+		STR	R0,[R11,#fb_handles]
 		FNRTS
 
 		LOCAL
@@ -577,6 +604,10 @@ syst$l		MOV	R0,#fb_vdulength
 		LDMIA	R8,{R1-R4}
 		STMIA	R11,{R1-R4}
 
+		MOV	R1,#0				; no bitmaps yet
+		STR	R1,[R0,#fb_aacache]
+		STR	R1,[R0,#fb_1bcache]
+
 		MOV	R1,R9				; handle
 		FNRTS
 
@@ -621,8 +652,8 @@ syst$l		MOV	R10,R0
 		ADD	R1,R11,#fb_shavel		; get shaving block
 		BL	get_font_info			; read sizes and offsets
 		BVS	err$l
-		STR	R1,[R11,#fb_cbpl]
-		STR	R2,[R11,#fb_cbpc]
+		STR	R1,[R11,#fb_xoff]		; keep offsets here
+		STR	R2,[R11,#fb_yoff]		;
 		STR	R3,[R11,#fb_charw]
 		STR	R4,[R11,#fb_charh]
 
@@ -644,6 +675,13 @@ syst$l		MOV	R10,R0
 		STR	R0,[R11,#fb_spritesize]		; (+64 for luck)
 		LDR	R0,[R12,#r_workarea]
 		BL	cache_free
+
+		LDR	R2,[R11,#fb_charw]		; find out what cbpl and cbpc
+		LDR	R3,[R11,#fb_charh]		; would be were we to cache them
+		LDR	R0,[R12,#r_bpp]
+		BL	cached_char_size
+		STR	R2,[R11,#fb_cbpl]
+		STR	R3,[R11,#fb_cbpc]
 
 		PUSH	"R11"
 		LDR	R0,[R11,#fb_name]
@@ -1257,10 +1295,14 @@ err$l		PUSH	"R0"
 		LOCAL
 
 
-; install a font
+; install a DSA font
 ; E r0 = handle  r2 -> font block
 ; X r0 -> cached data for this substyle
-install_font	FNJSR	"R1,R4-R6,R11"
+install_font	FNJSR	"R1,R4-R6,R10,R11"
+		LDR	R1,[R2,#fb_flags]
+		TST	R1,#ff_vdu			; VDU font in DSA mode
+		BNE	dsavdu$l
+
 		MOV	R1,R2
 		BL	add_font_suffix
 
@@ -1294,6 +1336,193 @@ loop$l		LDR	R3,[R1,R2,LSL #2]
 
 		MOV	R0,R5				; -> data
 		FNRTS
+
+; VDU font in DSA mode. Convert the font from an outline to a bitmap.
+dsavdu$l	MOV	R11,R2
+		AND	R10,R0,#1			; keep 1bpp flag
+
+		LDR	R0,[R2,#fb_1bcache]
+		MOVS	R0,R0
+		BNE	have1bpp$l
+
+		MOV	R0,#2				; generate 1bpp
+		BL	dsavdu_convert
+
+		MOVVC	R1,R11
+		MOVVC	R5,#0				; first and last chars already cached
+		MOVVC	R6,#255				;
+		BLVC	check_font_range		; add cursors
+		BLVC	convert_font			; convert to current bpp
+		STRVC	R2,[R11,#fb_1bcache]
+		FNRTS	VS
+
+		MOV	R0,R2
+have1bpp$l	TST	R10,#1
+		FNRTS	EQ				; we wanted 1bpp bitmaps
+
+		MOV	R0,#1
+		BL	dsavdu_convert
+
+		STRVC	R0,[R11,#fb_aacache]
+		LDRVC	R1,[R11,#fb_1bcache]
+		LDRVC	R3,[R11,#fb_cbpc]
+		ADDVC	R1,R1,R3,LSL #8			; copy cursor characters
+		ADDVC	R2,R0,R3,LSL #8
+		RSBVC	R3,R3,R3,LSL #3			; copy 7 chars
+		BLVC	move_bytes
+
+		LDRVC	R0,[R11,#fb_aacache]
+		FNRTS	VC
+
+; what to do? We can't return errors from here, but we have no font data to draw.
+; panic instead.
+err$l		;SWI &20107
+		FNRTS
+
+
+		LOCAL
+
+
+; convert the bitmaps for a dsavdu font
+; 1bpp bitmaps are not expanded
+; E r0 = mode (1 = real bpp, 2 = 1bpp)  r2 -> font block
+; X r0 -> bitmaps cached in range 0-255, space reserved for cursors
+dsavdu_convert	FNJSR	"R1-R11"
+		MOV	R9,R0
+		MOV	R11,R2
+
+		BL	dsavdu_setup
+
+		TEQ	R9,#1				; many bpp mode?
+		LDREQ	R0,[R12,#r_bpp]
+		MOVNE	R0,#0
+		LDR	R2,[R11,#fb_charw]
+		LDR	R3,[R11,#fb_charh]
+		BL	cached_char_size
+
+		STR	R2,[R12,#r_cbpl]		; these are different for 1bpp mode
+		STR	R3,[R12,#r_cbpc]		; than the ones in the font block
+		MOV	R10,R3				; keep cbpc
+
+		MOV	R0,#&108			; 106, but 108 is a legal constant
+		MUL	R0,R3,R0
+		BL	cache_alloc
+		BVS	err$l
+
+		STR	R0,[R12,#r_caddr]
+
+		MOV	R0,R9				; mode
+		MOV	R1,R12
+		LDR	R2,[R11,#fb_name]
+		LDR	R3,[R11,#fb_xsize]
+		MOV	R3,R3,LSR #4			; /16
+		LDR	R4,[R11,#fb_aspect]
+		ORR	R3,R3,R4,LSL #16
+		LDR	R4,[R11,#fb_xoff]
+		LDR	R5,[R11,#fb_yoff]
+		MOV	R6,#32
+		MOV	R7,#255
+		BL	cache_font_chars
+		BVS	err$l
+
+		LDR	R2,[R12,#r_caddr]		; copy ctls from A-Z
+		ADD	R1,R2,R10,LSL #6
+		MOV	R3,R10,LSL #5
+		BL	move_bytes
+
+		LDR	R2,[R12,#r_caddr]		; copy c@ from 0
+		ADD	R1,R2,R10,LSL #5
+		ADD	R1,R1,R10,LSL #4
+		MOV	R3,R10
+		BL	move_bytes
+
+		BL	dsavdu_restore
+
+		LDR	R0,[R12,#r_caddr]
+		MOV	R1,#0				; disown bitmaps
+		STR	R1,[R12,#r_caddr]
+		FNRTS
+
+err$l		ADDS	R11,R0,#0
+		BL	dsavdu_restore
+		MOV	R0,R11
+		FNRTV
+
+
+		LOCAL
+
+
+; init state for cacheing vdu fonts
+; E r0 = handle?  r2 -> font block  r12
+; X cbpl cbpc charw charh for bac palette workarea in r12 set up
+dsavdu_setup	FNJSR	"R11"
+		MOV	R11,R2
+
+		LDR	R0,[R11,#fb_spritesize]		; get some workspace
+		BL	cache_alloc
+		FNRTS	VS
+		STR	R0,[R12,#r_workarea]
+
+		ADD	R0,R12,#buffer			; palette
+		STR	R0,[R12,#r_palette]
+		MOV	R1,#0				; bg black
+		STR	R1,[R0]
+		MOV	R1,#&FFFFFF00			; fg white
+		STR	R1,[R0,#4]
+
+		MOV	R0,#0
+		STR	R0,[R12,#r_bac]
+		MOV	R0,#1
+		STR	R0,[R12,#r_for]
+
+		ADD	R0,R11,#fb_charw		; charw charh cbpl cbpc
+		LDMIA	R0,{R1-R4}
+		ADD	R0,R12,#r_charw
+		STMIA	R0!,{R1,R2}
+		STMIB	R0,{R3,R4}
+
+		FNRTS
+
+
+; restore state after caching vdu fonts
+; E
+; X redraw block in r12 restored   r0,r2-r4 corrupted
+dsavdu_restore	FNJSR	"R1"
+		LDR	R0,[R12,#r_workarea]
+		BL	cache_free
+		ADD	R0,R12,#buffer
+		STR	R0,[R12,#r_workarea]
+		FNRTS
+
+
+		LOCAL
+
+
+; decide whether to use antialiased font
+; E r0 = handle  r1 -> redraw block  r10 = for mask  r11 = bac mask
+; X r0 = updated handle - b0 is antialiased flag  all others preserved
+dsavdu_choosefont
+		FNJSR	"R2"
+		BIC	R0,R0,#&FF			; clear substyle
+		LDR	R14,[R1,#r_flags]
+		TST	R14,#rf_aasuppress
+		FNRTS	NE				; no antialiasing ever
+
+		LDR	R14,[R1,#r_bpp]
+		ADR	R2,table$l
+		LDR	R14,[R2,R14,LSL #2]
+		EOR	R2,R10,R11
+		TST	R2,R14				; don't antialias if the contrast is low
+		ORRNE	R0,R0,#1
+		FNRTS
+
+table$l		&	0				; 1bpp  - never anitalias
+		&	0				; 2bpp
+		&	0				; 4bpp
+		&	&F0				; 8bpp
+		&	&4210				; 16bpp
+		&	&80808000			; 32bpp
+
 
 		LOCAL
 
@@ -1566,9 +1795,8 @@ correct_font_block
 		FNJSR	"R4-R5"
 		LDR	R5,[R0,#fb_flags]
 		TST	R5,#ff_vdu
-		BNE	vdu$l				; no styles for vdu mode
-
-		MOV	R5,#substyles
+		MOVEQ	R5,#substyles			; VDU fonts only have 2 'substyles' -
+		MOVNE	R5,#2				; antialiased and not
 		ADD	R4,R0,#fb_data
 
 loop$l		BL	check_pointer			; we needn't explicitly check for
@@ -1576,7 +1804,7 @@ loop$l		BL	check_pointer			; we needn't explicitly check for
 		SUBS	R5,R5,#1			; outside the moving range
 		BNE	loop$l
 
-vdu$l		ADD	R4,R0,#fb_name
+		ADD	R4,R0,#fb_name
 		BL	check_pointer
 
 		FNRTS
@@ -1631,6 +1859,7 @@ check_pointer	FNJSR	"R0"
 ; handle_to_redraw first, and this one is called very frequently
 
 ; convert a 16 bit font handle into a cache address (intall fonts if necessary)
+; called if we don't yet know colour masks (assumes 1bpp in dsavdu mode)
 ; E r0 = handle  (no r12)
 ; X r0 -> cache ( = real caddr)  all others preserved
 handle_to_caddr	FNJSR	"R2-R3,R12"
@@ -1638,6 +1867,36 @@ handle_to_caddr	FNJSR	"R2-R3,R12"
 		ADD	R2,R12,#font_handles-4
 		MOV	R3,R0,LSR #8
 		LDR	R2,[R2,R3,LSL #2]		; get font block
+		LDR	R3,[R2,#fb_flags]
+		TST	R3,#ff_vdu
+		MOVNE	R0,#0				; assume 1bpp if dsavdu mode
+		AND	R3,R0,#1			; get substyles
+		ORR	R3,R3,R0,LSR #4
+		AND	R3,R3,#&0F
+		ADD	R3,R2,R3,LSL #2
+		LDR	R3,[R3,#fb_data]
+		TEQ	R3,#0
+		MOVNE	R0,R3
+		FNRTS	NE
+
+		; font not cached yet.
+		BL	install_font
+		FNRTS
+
+
+; convert a 16 bit font handle into a cache address (intall fonts if necessary)
+; called when we know colours, decides whether to use aa of not
+; E r0 = handle  (no r12)  r10/r11 = for/bac colour masks
+; X r0 -> cache ( = real caddr)  all others preserved
+handle_to_caddr_c
+		FNJSR	"R2-R3,R12"
+		BL	get_r12
+		ADD	R2,R12,#font_handles-4
+		MOV	R3,R0,LSR #8
+		LDR	R2,[R2,R3,LSL #2]		; get font block
+		LDR	R3,[R2,#fb_flags]
+		TST	R3,#ff_vdu
+		BLNE	dsavdu_choosefont		; choose aa or 1bpp
 		AND	R3,R0,#1			; get substyles
 		ORR	R3,R3,R0,LSR #4
 		AND	R3,R3,#&0F
@@ -1662,15 +1921,24 @@ handle_to_redraw
 		BL	get_r12
 		BL	get_font_block
 		FNRTS	VS
+
+		LDR	R0,[R2,#fb_flags]		; don't scale if VDU font in DSA mode
+		TST	R0,#ff_vdu
+
 		ADDS	R2,R2,#fb_charw
 		LDMIA	R2,{R0,R3-R5}			; read it
 		ADD	R2,R1,#r_charw
 		STMIA	R2!,{R0,R3}			; r_charw r_charh
 		STMIB	R2,{R4,R5}			; r_cbpl r_cbpc
+
 		LDR	R0,[R1,#r_flags]
+		BICNE	R0,R0,#rf_doubleheight + rf_autoscale ; flags still set from way above :)
+		ORRNE	R0,R0,#rf_dsavdu		; set temp dsavdu speedup flag
+		STRNE	R0,[R1,#r_flags]
 		TST	R0,#rf_autoscale
 		FNRTS	EQ
-		BIC	R0,R0,#rf_doubleheight
+
+		BIC	R0,R0,#rf_doubleheight		; perform autoscaling
 ;		STR	R0,[R1,#r_flags]
 		CMP	R3,#8				; don't scale large fonts
 ;		FNRTS	HS
@@ -1699,6 +1967,9 @@ handle_to_name  FNJSR	"R2-R7,R12"
 		MOV	R7,R0
 		BL	get_font_block
 		FNRTS	VS
+		LDR	R0,[R2,#fb_flags]
+		TST	R0,#ff_vdu			; vdu font?
+		BEQ	allwrong$l
 		TEQ	R11,#0				; workarea provided?
 		BNE	ok$l				; yes -- error?
 		LDR	R0,[R2,#fb_spritesize]
@@ -1712,14 +1983,19 @@ ok$l		LDR	R7,[R2,#fb_name]
 		ORR	R3,R3,R4,LSL #16
 		STR	R3,[R11,#a_x1]			; init r_workarea
 		LDR	R1,[R2,#fb_handles]
-		ADD	R2,R2,#fb_charw
-		LDMIA	R2,{R3-R6}			; read it
+		ADD	R3,R2,#fb_charw
+		LDMIA	R3,{R3,R4}
+		ADD	R5,R2,#fb_xoff
+		LDMIA	R5,{R5,R6}
 		ADD	R2,R10,#r_charw
 		STMIA	R2!,{R3,R4}			; r_charw r_charh
 		STMIB	R2,{R5,R6}			; r_cbpl r_cbpc
 		MOV	R0,R7
 		AND	R8,R1,#&FF
 		FNRTS
+
+allwrong$l	FNPULL
+		ERROR	err_notvdu,"NotVDU"
 
 		LOCAL
 
@@ -1820,6 +2096,35 @@ not5$l		TST	R9,#rf_doubleheight
 		FNRTS
 
 		LOCAL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;  ReadFontInfo SWI						;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; reads various information of a given font handle
+; E r0 = index  r1 = font handle
+; X r0 = value
+
+; Current indicies:
+;    0 - Read font name    X r0 -> font name as supplied to FindFont  (read only)
+read_font_info	FNJSR	"R1,R2,R11"
+		MOV	R11,R0
+		MOV	R0,R1
+		BL	get_font_block
+		FNRTS	VS
+
+		TEQ	R11,#0
+		BNE	badindex$l
+		LDR	R0,[R2,#fb_name]
+		FNRTS
+
+badindex$l	FNPULL
+		ERROR	err_badfontinfo,"BadFontInfo"
+
+
+		LOCAL
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;  F O N T   M E N U	H A N D L I N G				;

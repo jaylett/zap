@@ -1,5 +1,5 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.6.2.7 2001/11/10 01:21:44 christian Exp $
+; $Id: VDURedraw,fff,v 1.6.2.8 2001/11/12 02:34:50 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -417,7 +417,7 @@ lose_vdu_fonts
  SWINE XFont_LoseFont
  ANDS R0,R11,#&FF
  SWINE XFont_LoseFont
- FNRTSS
+ FNRTS				; was FNRTSS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1585,6 +1585,9 @@ font_findfont
  MOVEQ R3,R2			; x size = y size
  TEQ R5,#2
  BNE ff_0			; finished getting size
+ LDR R0,[R10,#r_mode]
+ CMP R0,#256
+ BHS ff_0			; don't scale if using deep sprites
  LDR R0,[R10,#r_magx]
  RSBS R0,R0,#1
  MOVGT R2,R2,LSL R0		; double size
@@ -1719,9 +1722,10 @@ sprite_create
  STR R0,[R6,#&30]		; offset to sprite image
  ADD R0,R0,R2
  STR R0,[R6,#&34]		; offset to mask
- TEQ R5,#2
- LDRNE R0,[R10,#r_mode]
- MOVEQ R0,#0
+ ;TEQ R5,#2
+ ;LDRNE R0,[R10,#r_mode]
+ ;MOVEQ R0,#0
+ LDR R0,[R10,#r_mode]
 	CMP	R0,#256
 	BLO	shallow$l	; not a mode descriptor
 	TST	R0,#1
@@ -1729,6 +1733,8 @@ sprite_create
 	MOV	R1,#3
 	SWI	XOS_ReadModeVariable
 	FNRTS	VS
+	TEQ	R5,#2
+	MOVEQ	R2,#1
 	MOV	R3,#1:OR:4<<27	; assume 8bpp
 	TEQ	R2,#1
 	MOVEQ	R3,#1:OR:1<<27	; 1bpp
@@ -1758,12 +1764,19 @@ sprite_create
 	ORR	R0,R3,R14,LSL #14
 shallow$l
  STR R0,[R6,#&38]		; mode sprite defined in
- 	CMP	R0,#256
- 	BHS	sp_3		; no palette :-)
+ TEQ R5,#2
+ LDRNE R1,[R10,#r_bpp]		; actually log2 bpp
+ MOVEQ R1,#0
+ CMP R1,#3                      ; > 8bpp?
+ BHI sp_3			; no palette :-)
  ADD R6,R6,#&3C			; start of palette
-	TEQ	R0,#0
+	TEQ	R1,#0
  BEQ sp_1			; create a mode 0 palette
- MOV R5,R1,LSR#3		; number of palette entries
+ MOV R5,#1
+ MOV R5,R5,LSL R1		; bpp
+ MOV R5,R5,LSL R1		; number of colours
+ CMP R5,#16
+ MOVHS R5,#16			; number of palette entries
  MOV R7,#0			; current colour
 sp_2
  MOV R0,R7
