@@ -1,5 +1,5 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.1 1999/03/12 10:01:23 james Exp $
+; $Id: BASIC,fff,v 1.2 1999/04/22 19:04:03 ds Exp $
 
  GET h.ZapBasHdr
  GET h.ZapBasic
@@ -182,9 +182,8 @@ basic_claim
  FNSTR R0,buf_insert		; insert buffer
  MOV R0,#&80
  FNcall Zap_Claim
- LDMVSFD R13!,{R1-R11,PC}
- FNSTR R0,buf_error		; error buffer
- BL init_mode_word		; set up mode words if needed
+ FNSTR R0,buf_error,VC		; error buffer
+ BLVC init_mode_word		; set up mode words if needed
  LDMFD R13!,{R1-R11,PC}
 
  LOCAL
@@ -288,12 +287,10 @@ TestProgram
  ADD R2,R2,#&4000
  MOV R3,#0
  SWI XOS_File			; load file
- LDMVSFD R13!,{R1-R12,PC}
- BL test_program
- LDMVSFD R13!,{R1-R12,PC}
- MOV R0,#7
- MOV R2,R11
- SWI XOS_Module			; free claimed block
+ BLVC test_program
+ MOVVC R0,#7
+ MOVVC R2,R11
+ SWIVC XOS_Module			; free claimed block
  LDMFD R13!,{R1-R12,PC}
 
 ;E R10=file length R11=&4000 workspace + file
@@ -311,10 +308,10 @@ te1
  ADD R6,R6,R0,LSL#8		; line number
  ADD R7,R9,#3			; line start
  BL test_line
+ LDRVCB R0,[R9,#2]
+ ADDVC R9,R9,R0			; next line
+ BVC te1
  LDMVSFD R13!,{R1-R11,PC}
- LDRB R0,[R9,#2]
- ADD R9,R9,R0			; next line
- B te1
 
 ;E R6=line number R7=start of line pointer R11=buffer &4000 long
 ;X line tested #
@@ -351,8 +348,7 @@ te14
  SUB R0,R1,R7
  SUB R0,R0,#1
  BL test_num
- LDMVSFD R13!,{R1-R11,PC}
- SWI XOS_NewLine
+ SWIVC XOS_NewLine
  LDMFD R13!,{R1-R11,PC}
 
 ;E R0=value R11=buffer
@@ -513,11 +509,10 @@ convert_program
  BEQ co12			; text
  ADD R6,R7,R8			; end of data
  BL replace_line_numbers	; replace the line numbers
- FNRTS VS
- MOV R0,#&0D
- STRB R0,[R7,#-1]!		; add 0D at start of file
- MOV R0,#&FF
- STRB R0,[R6],#1		; add FF at end of file
+ MOVVC R0,#&0D
+ STRVCB R0,[R7,#-1]!		; add 0D at start of file
+ MOVVC R0,#&FF
+ STRVCB R0,[R6],#1		; add FF at end of file
  FNRTS
 co12
  MOV R4,R7			; source
@@ -528,8 +523,7 @@ co12
  STRB R0,[R4,R2]
  ADD R2,R2,#1			; ensure stop on end
  BL tokenise_program
- FNRTS VS
- MOV R6,R5			; new end
+ MOVVC R6,R5			; new end
  FNRTS
 
 ;E R6=file end R7=file start R10 has 1=chain 2=quit 3=drop
@@ -551,10 +545,9 @@ create_run_command
  STRB R0,[R1],#1
  MOV R0,R6
  BL create_bufferhex
- FNRTS VS
- MOV R0,#0
- STRB R0,[R1]
- MOV R0,#&9000
+ MOVVC R0,#0
+ STRVCB R0,[R1]
+ MOVVC R0,#&9000
  FNRTS
 st_s2 FNS ("BASIC -chain @")
 st_s3 FNS ("BASIC -quit @")
@@ -648,6 +641,7 @@ red6
  BEQ red2			; finish at a return
 
  TEQ R0,#'"'			; quote
+ TSTEQ R2,#&800			; and not in asm comment
  BLEQ red16			; entering/leaving a quote
  TST R2,#&800			; see if we are in an asm comment -
  BNE nfanumbtt
@@ -847,10 +841,10 @@ red3
  BCC red4			; detokenise complete
  CMP R7,R10
  BLCS red_overflow
- BVS red2
- LDRB R0,[R7],#1		; get next byte
- ORR R0,R0,R4			; complete data
- B red3				; call again
+ LDRVCB R0,[R7],#1		; get next byte
+ ORRVC R0,R0,R4			; complete data
+ BVC red3			; call again
+ B red2
 red4
  MOV R1,#&0B			; colour for tokenised statements
  ;TST R2,#&20000000
@@ -910,10 +904,8 @@ red11
  BEQ tored6			; not a proper character
  TST R2,#3 << 30		; test recent * / in DATA flag...
  BNE red_bas_foundinoscli
- MOV R1,#&800
- ORR R1,R1,#2
- AND R1,R2,R1			; make sure we're in an asm comment and !"
- CMP R1,#&800
+ EOR R1,R2,#&800
+ TST R1,#&800			; in asm comment?
  CMPEQ R0,#':'
  BEQ ba_thecolonincomment	; clear recent print flag...
  ;CMP R1,#&800
@@ -958,10 +950,8 @@ ba_thecolonincomment
 ; B tored6 ; red_bas_postcolour
 
 red16
- MOV R1,#&800
- ORR R1,R1,#2
- AND R1,R2,R1			; make sure we're in an asm comment and !"
- CMP R1,#&800
+ EOR R1,R2,#&800		; in asm comment?
+ TST R1,#&800
  CMPEQ R0,#':'
  BEQ ba_theendofthatthen	; clear recent print flag...
  EOR R2,R2,#2			; toggle flag
@@ -1100,10 +1090,8 @@ exclusivequoting
  B red_bas_postcolour
 
 ba_testcolon_general
- MOV R1,#&800
- ORR R1,R1,#2
- AND R1,R2,R1			; make sure we're in an asm comment and !"
- CMP R1,#&800
+ EOR R1,R2,#&800		; in asm comment?
+ TST R1,#&800
  CMPEQ R0,#':'
  LDREQ R1,constantbicmask
  BICEQ R2,R2,R1
@@ -1405,6 +1393,7 @@ inrem$l
  BLEQ red_bas_semi2		; entering/leaving a quote
 
  TEQ R0,#'"'
+ TSTEQ R2,#&800			; quote and not in asm comment
  EOREQ R2,R2,#2
 back_bas_butwerenotinno
 back_nfanumbtt
@@ -1451,6 +1440,7 @@ bas_red_inrem$l
  ANDS R1,R2,#3			; make sure we're outside quotes
  BLEQ ba_incomment_general
  TEQ R0,#'"'
+ TSTEQ R2,#&800			; quote and not in asm comment
  EOREQ R2,R2,#2
  TST R2,#&800			; see if we are in an asm comment -
  BNE bas_red_back_nfanumbtt	; if so, skip irrelevant stuff...
@@ -1755,6 +1745,7 @@ loop$l				; main loop
  ;EOREQ R2,R2,#2
 
  TEQ R0,#'"'
+ TSTEQ R2,#&800			; quote and not in asm comment
  BEQ quote$l
 back_nfanumbtt3
  TST R2,#1<<5
@@ -2027,9 +2018,8 @@ se1
 se3
  LDR R0,[R10,#c_owidth]		; old offset
  FNcall Zap_OffLineCol
- LDMVSFD R13!,{R1-R7,PC}
- STR R2,[R10,#c_ocol]
- STR R3,[R10,#c_oline]
+ STRVC R2,[R10,#c_ocol]
+ STRVC R3,[R10,#c_oline]
  LDMFD R13!,{R1-R7,PC}
 ;se3a
 ; LDR R0,[R10,#c_owidth]		; old offset - hmm.
@@ -2044,9 +2034,8 @@ resetatselstart
  SWI XWimp_GetPointerInfo
  LDR R1,[R1,#8]
  TST R1,#1
- MOVEQ PC,R14			; not a ctrl-adjust drag.
- MVN R6,#0
- FNSTR R6,sel_start		; save actual selected region start
+ MVNNE R6,#0			; not a ctrl-adjust drag.
+ FNSTR R6,sel_start,NE		; save actual selected region start
  MOV PC,R14
 
 ;adjustdragging
@@ -2150,13 +2139,12 @@ re28
 
 basic_search
  FNJSR
- TEQ R1,#2
- BEQ start$l
  TEQ R1,#3
  BEQ end$l
  TEQ R1,#4
  BEQ delimit$l
- FNRTS
+ TEQ R1,#2
+ FNRTS NE
 start$l
  CMP R4,#0
  BMI bac$l			; don't need to adjust as going backwards
@@ -2250,14 +2238,12 @@ data$l DCD 0			; save total length of line for follow on
 basic_listfns
  CMP R8,#0			; from IB?
  MOVEQ PC,R14			; yes.
- FNJSR
  ADR R0,def$l			; "DEF" string
  MOV R1,#1			; to buffer
  MOV R3,#0			; at start
  MOV R4,#1			; +ve direction
  MOV R5,#&F<<28			; string, raw search, no macros etc
- FNcall Zap_Search
- FNRTS
+ FNjump Zap_Search
 def$l = &DD,0			; tokenised DEF
  ALIGN
 
@@ -2404,6 +2390,7 @@ cont$l				; decimal num/variable/hex num finished
  TEQ R0,#&20			; space
  BEQ char$l			; skip
  TEQ R0,#&22			; quote
+ TSTEQ R2,#&800			; and not in asm comment
  EOREQ R2,R2,#2			; toggle quote state
  TST R2,#3			; should we skip ; TT
  BNE char$l			; skip (as in quote/rem or after a *)
@@ -2612,12 +2599,12 @@ differentinfnmode$l
  MOVNE R1,R1,LSR#16		; get function mode token
  B endkeyword$l
 
- ADRL R14,tokentabllkupasm - &80; table...
- LDRB R14,[R14,R0]
- TST R14,#8
+; ADRL R14,tokentabllkupasm - &80; table...
+; LDRB R14,[R14,R0]
+; TST R14,#8
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Tokenise Subs							;
+;; Tokenise Subs						 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;
 ;;E R0=pointer to source line (ending in 0D) R7=cursor column
@@ -3813,9 +3800,7 @@ loopa$l
  CMP R0,#","
  BNE loopa$l
  LDMFD R13!,{R0,R1,R5,R7,R10,R14}
- PUSH "R14"
- BL getnextasmletter		; simple but works...?
- PULL "PC"
+ B getnextasmletter		; simple but works...?
 
  LOCAL
 
@@ -4291,8 +4276,7 @@ cln_LOGLINE
  LDR R1,[R2,#f_ptr]
  LDRB R0,[R1,R0]
  TEQ R0,#&0D
- FNRTS EQ			; already at line start
- BL cln_BACKWARD		; move to start of this logical line
+ BLNE cln_BACKWARD		; move to start of this logical line
  FNRTS
 
 ;;;;;;;;;;;;;;;; low level forward/backward subs ;;;;;;;;;;;;;;;;;;;
@@ -5052,7 +5036,7 @@ warnaboutcorruptfile
 
 basic_presave
  FNJSR
- BLVC replace_lns
+ BL replace_lns
  BLVC replace_ends
  FNRTS
 
@@ -5305,11 +5289,10 @@ replace_lns
  LDR R0,[R9,#f_len]
  MOV R1,#4
  FNcall Zap_SplitBuffer		; coagulate text 4 bytes free
- LDMVSFD R13!,{R1-R7,PC}
- LDR R6,[R9,#f_len]
- LDR R7,[R9,#f_ptr]		; file start
- ADD R6,R7,R6			; file end
- BL replace_line_numbers
+ LDRVC R6,[R9,#f_len]
+ LDRVC R7,[R9,#f_ptr]		; file start
+ ADDVC R6,R7,R6			; file end
+ BLVC replace_line_numbers
  LDMFD R13!,{R1-R7,PC}
 
 ;E R6=end of prog R7=start of prog
@@ -5369,7 +5352,7 @@ re40
  SUB R2,R4,R3			; R3=file start R2=length
  BL remove_line_numbers		; put them back again
  BL err40			; get error string
- MOV R1,R2			; error offset
+ ; MOV R1,R2			; error offset
  ; BL error_offset
  LDMFD R13!,{R1-R7,PC}
 
@@ -5476,16 +5459,11 @@ re31
  BNE re12			; wasn't valid
  MOV R0,R2			; offset of line number
  BL read_uln			; find unadjusted line number
- LDMVSFD R13!,{R2-R10,PC}
- BL find_log			; find log line from 0 in R0
+ BLVC find_log			; find log line from 0 in R0
  LDMVSFD R13!,{R2-R10,PC}
  CMP R0,#0
- BMI re32			; number not found
- MLA R0,R4,R0,R3		; new line number
- BL write_lnum
- B re12
-re32
- MVN R0,#0			; R0=-1
+ MVNMI R0,#0			; number not found
+ MLAPL R0,R4,R0,R3		; new line number
  BL write_lnum
  B re12
 
@@ -5611,25 +5589,17 @@ forcingturnedon
 ; Save And Run						       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+mo_s0	= "BASIC -quit ",0
+mo_s1	= "BASIC -chain ",0
+	ALIGN
+
 basic_saveandrun
- CMP R8,#0			; from IB?
- MOVEQ PC,R14			; yes.
- FNJSR
  ADR R7,mo_s0
- BL save_and_run
- FNRTS
-mo_s0
- FNS ("BASIC -quit ")
+ B save_and_run
 
 basic_compile
- CMP R8,#0			; from IB?
- MOVEQ PC,R14			; yes.
- FNJSR
  ADR R7,mo_s1
- BL save_and_run
- FNRTS
-mo_s1
- FNS ("BASIC -chain ")
+; B save_and_run
 
 ;E R7=command to use to run file R8-R10=file
 ;X file saved and then run using this command #
@@ -5639,10 +5609,9 @@ save_and_run
  MOVEQ PC,R14			; yes.
  STMFD R13!,{R1-R2,R14}
  FNcall Zap_SaveFile
- LDMVSFD R13!,{R1-R2,PC}
- LDR R0,[R9,#f_len]		; length of file
- ADD R0,R0,R0,LSR#1		; *1.5
- BL wimp_nextslot		; reserve space to run the program
+ LDRVC R0,[R9,#f_len]		; length of file
+ ADDVC R0,R0,R0,LSR#1		; *1.5
+ BLVC wimp_nextslot		; reserve space to run the program
  LDMVSFD R13!,{R1-R2,PC}
  FNLDR R1,buf_retoken		; buffer &110 bytes
  MOV R2,R7			; command
@@ -5664,35 +5633,30 @@ wimp_nextslot
  SWI XWimp_SlotSize		; read next size
  LDMVSFD R13!,{R1-R10,PC}
  CMP R1,R10			; next slot already big enough?
- LDMGEFD R13!,{R1-R10,PC}
- MVN R0,#0
- MOV R1,R10			; set new size
- SWI XWimp_SlotSize
+ MVNLT R0,#0
+ MOVLT R1,R10			; set new size
+ SWILT XWimp_SlotSize
  LDMFD R13!,{R1-R10,PC}
 
 basic_run
- CMP R8,#0			; from IB?
- MOVEQ PC,R14			; yes.
  MOV R7,#1
  B run_program
 
 basic_runandquit
- CMP R8,#0			; from IB?
- MOVEQ PC,R14			; yes.
  MOV R7,#2
  B run_program
 
 basic_basic
- CMP R8,#0			; from IB?
- MOVEQ PC,R14			; yes.
  MOV R7,#3
- B run_program
+; B run_program
 
 ;E R7=what to do (1=run 2=runandquit 3=dropintobasic)
 ;  R8=window (giving source mode number 5=tokenised/6=text) R9
 ;X Tries to run the program #
 
 run_program
+ CMP R8,#0			; from IB?
+ MOVEQ PC,R14			; yes.
  STMFD R13!,{R1-R7,R14}
  MOV R1,#4
  FNcall Zap_ReadVar
@@ -5734,7 +5698,7 @@ basic_return
  LDR R0,[R8,#w_format]
  TST R0,#1<<14
  BEQ basic_splitline		; stream paradigm
- B insert_returns
+; B insert_returns
 
 ;E R1=number of returns R8-R10=input caret
 ;X returns added onto line end corrupts R0-R10 #
@@ -5788,15 +5752,12 @@ re16
  SUB R0,R0,#1			; new caret offset
  STR R0,[R10,#c_off]
  FNcall Zap_ReflectCaret
- FNRTS VS
- FNcall Zap_ShowCursor
+ FNcallc Zap_ShowCursor,VC
  FNRTS
 re_d0		    DCD &0D404054 ; null line
 
 returns_sub
- FNJSR
- FNcall Zap_Command
- FNRTS
+ FNjump Zap_Command
 
 ;E R8-R10=input caret in line to split/add return on to
 ;X R0=number of spaces to auto indent following lines by
@@ -5850,9 +5811,8 @@ basic_splitline
 asnormal$l
  LDR R0,[R10,#c_off]		; offset to split at
  BL count_autoindent		; R0=number of spaces to add
- FNRTS VS
- FNSTR R1,tmp_split3		; save number of spaces
- BL prepare_line_speshally	; prepare_line ; detokenise line R1=data R2=dlen
+ FNSTR R1,tmp_split3,VC		; save number of spaces
+ BLVC prepare_line_speshally	; prepare_line ; detokenise line R1=data R2=dlen
  FNRTS VS			; R3=col R4=olen R6=oloff
  CMP R3,R2
  MOVCS R3,R2			; clip column to line end
@@ -5862,8 +5822,7 @@ asnormal$l
  MOV R2,#0
  BL tokenise_line_speshally	; retokenise the second line R8 ok.
  LDMFD R13!,{R2,R7}
- FNRTS VS
- BL remove_spaces		; remove spaces from the end
+ BLVC remove_spaces		; remove spaces from the end
  FNRTS VS
  MOV R5,R0			; save tokenised line length
  FNLDR R0,tmp_split3		; auto indent amount
@@ -5908,8 +5867,7 @@ asnormal$l
  FNLDR R5,tmp_split2		; detokenised len of second line
  FNLDR R7,tmp_split3		; new cursor line offset
  BL move_cursor_speshally	; move_cursor	; put in new posn
- FNRTS VS
- FNcall Zap_ShowCursor
+ FNcallc Zap_ShowCursor,VC
  FNRTS
 sp1
  FNcall Zap_StopOp
@@ -5918,9 +5876,7 @@ re_d1
  DCD &00404054 ; 0 line number at line start
 
 basic_joinline
- FNJSR
- BL join_line
- FNRTS
+; B join_line
 
 ;E R8-R10=input caret
 ;X Line joined at caret (and colon added if in non standard) #
@@ -6121,8 +6077,7 @@ advance_tab
  LDR R1,[R8,#w_tab]
  MUL R7,R1,R0			; new column
  BL move_cursor
- LDMVSFD R13!,{R1-R7,PC}
- FNcall Zap_ShowCursor
+ FNcallc Zap_ShowCursor,VC
  LDMFD R13!,{R1-R7,PC}
 
 ;E R0=number of tab stops to insert R8-R10=input caret
@@ -6201,8 +6156,7 @@ ed3
  BEQ ed3
 ed2
  SUBS R5,R7,R5			; number of spaces
- BLE nextlineupplease
- B insert_the_tab
+ BGT insert_the_tab
 
 nextlineupplease
  LDR R0,local_startofthisline
@@ -6301,7 +6255,7 @@ clearanyserosizesels
  FNRTS CC
  CMP R4,R8		; zero size selection - in this window...?
  FNRTS NE
- FNcall Zap_ClearSel
+ FNcallc Zap_ClearSel
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -6323,10 +6277,9 @@ basic_char_no_spaces
  MOV R6,#1
  BL change_line_insert		; insert R7,R5 data
  PULL "R6"
- FNRTS VS
- BL count_dots			; get tokenise flag in R2
- ADD R7,R3,R5			; new cursor column offset
- BL update_line_speshally
+ BLVC count_dots		; get tokenise flag in R2
+ ADDVC R7,R3,R5			; new cursor column offset
+ BLVC update_line_speshally
  FNRTS
 
 ;E R5=num bytes R7=1 for s-del R8-R10=input R11=my work R12=zap work
@@ -6355,14 +6308,12 @@ de17
  CMP R3,R14
  BCC de16			; not at line end
  TST R0,#1<<14
- FNRTS NE			; line edit
- BL join_line
+ BLEQ join_line
  FNRTS
 de16
  BL change_line_delete
- FNRTS VS
- MOV R2,#0			; tok flags
- BL update_line_speshally
+ MOVVC R2,#0			; tok flags
+ BLVC update_line_speshally
  FNRTS
 
  LOCAL
@@ -6578,8 +6529,7 @@ prepare_line_off_speshally
  FNJSR
  MOV R0,R6
  BL detokenise_line_speshally		; R0=end R1=data R2=len R3=col
- FNRTS VS
- SUB R4,R0,R6			; source line length
+ SUBVC R4,R0,R6			; source line length
  FNRTS
 
 ;E R1=file offset R6=line start(+3) R8/R9
@@ -6590,8 +6540,7 @@ prepare_line_off
  FNJSR
  MOV R0,R6
  BL detokenise_line		; R0=end R1=data R2=len R3=col
- FNRTS VS
- SUB R4,R0,R6			; source line length
+ SUBVC R4,R0,R6			; source line length
  FNRTS
 
 ; ;E R2=tokenise flags R4=original line len R6=original off
@@ -6663,8 +6612,7 @@ update_line_speshally
  LDMFD R13!,{R7} ; R5 too?
 ; LDMVSFD R13!,{R1-R7,PC}
  BLVC move_cursor_speshally ; move_cursor			; put in new posn
- LDMVSFD R13!,{R1-R7,PC}
- FNcall Zap_ShowCursor
+ FNcallc Zap_ShowCursor,VC
 
  ;LDR R14,[R10,#c_wind]
  ;STR R14,[R10,#c_owind]
@@ -6956,10 +6904,9 @@ togoandfindit
  MOV R5,#((7<<29) + (1<<25))
  FNcall Zap_Search
  MOVS R1,R0
- BMI secondtry$l
- MOV R0,R1		; done
- MOV R1,#0		; found
- FNRTS
+ MOVPL R0,R1		; done
+ MOVPL R1,#0		; found
+ FNRTS PL
 
 secondtry$l
  FNLDR R0,buf_detoken
@@ -6969,10 +6916,9 @@ secondtry$l
  MOV R5,#((7<<29) + (1<<25))
  FNcall Zap_Search
  MOVS R1,R0
- BMI notfound$l
- MOV R0,R1		; done
- MOV R1,#0		; found
- FNRTS
+ MOVPL R0,R1		; done
+ MOVPL R1,#0		; found
+ FNRTS PL
 
 notfound$l
  MOV R1,#1		; found
@@ -7184,9 +7130,8 @@ ccomexit$l
  ;SWI &107
  FNRTS
 error_ccomexit2$l
- MOV R14,R0
- PULL "R0-R10"
- MOV R0,R14
+ ADD R13,R13,#4
+ PULL "R1-R10"
  FNRTS
 
 do_command_method
@@ -7263,8 +7208,7 @@ co10
  MOV R3,R0			; new data with numbers replaced
  MOV R0,R10			; command number
  FNcall Zap_DoCommand		; insert as normal
- LDMVSFD R13!,{R1-R3,R6-R7,R10,PC}
- BL basic_renumber		; make sure renumber save regs
+ BLVC basic_renumber		; make sure renumber save regs
  LDMFD R13!,{R1-R3,R6-R7,R10,PC}
 
 copytmp$l
@@ -7584,8 +7528,7 @@ alter_text
  MOV R4,#1			; renumber increment
  MOV R1,#1			; don't update display
  BL renumber_file		; do a proper renumber on this
- LDMVSFD R13!,{R1-R4,R9,PC}
- LDR R0,[R9,#f_ptr]		; address of data
+ LDRVC R0,[R9,#f_ptr]		; address of data
  LDMFD R13!,{R1-R4,R9,PC}
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -7714,8 +7657,8 @@ to16
  ;TST R2,#3			; hopefully not needed...
  ;TEQEQ R0,#&09			; pseudo-tab
  BL tokenise_char		; corrupts R0-R3,R10
- LDMVSFD R13!,{R1-R3,R6-R10,PC}
- B to16
+ BVC to16
+ LDMFD R13!,{R1-R3,R6-R10,PC}
 to17
  MOV R0,#&0D
  STRB R0,[R5],#1		; finish line
@@ -7990,6 +7933,7 @@ inrem$l
  BLEQ red_bas_semi2		; entering/leaving a quote
 
  TEQ R0,#'"'
+ TSTEQ R2,#&800			; quote and not in asm comment
  EOREQ R2,R2,#2
 
 back_nfanumbtt2
@@ -8363,12 +8307,12 @@ LoadANDReturnMiscAddress
  BIC	 R0,R4,#3
  ADD	 R0,R0,#&10
  FNcall  Zap_Claim
- STR	 R0,tempS1
+ STRVC	 R0,tempS1
 
- MOV	 R3,#0
- MOV	 R2,R0
- MOV	 R0,#255
- SWI	 XOS_File
+ MOVVC	 R3,#0
+ MOVVC	 R2,R0
+ MOVVC	 R0,#255
+ SWIVC	 XOS_File
  FNRTS VS
 
  LDR	 R0,tempS1
@@ -8390,14 +8334,14 @@ LoadANDReturnSpriteAddress
  ADD	 R0,R0,#&10
  FNcall  Zap_Claim
 
- STR	 R0,AddressOfSpriteArea
- ADD	 R4,R4,#5
- STR	 R4,[R0]
+ STRVC	 R0,AddressOfSpriteArea
+ ADDVC	 R4,R4,#5
+ STRVC	 R4,[R0]
 
- MOV	 R3,#0
- ADD	 R2,R0,#4
- MOV	 R0,#255
- SWI	 OS_File
+ MOVVC	 R3,#0
+ ADDVC	 R2,R0,#4
+ MOVVC	 R0,#255
+ SWIVC	 OS_File
 
  LDMFD	 R13 !,{R1-R5,PC}
 
@@ -8505,9 +8449,7 @@ sortbbout
 
  CMP	 R0,#0
 
- LDMEQFD R13 !,{R5,R7,PC}
-
- BL	 callopenthewindow
+ BLNE	 callopenthewindow
 
  LDMFD	 R13 !,{R5,R7,PC}
 
@@ -8926,6 +8868,7 @@ loop3$l
  TST R6,#1
  BNE incandret2$l
  CMP R0,#'"'			; quote bit.
+ TSTEQ R6,#&800			; and not in asm comment
  EOREQ R6,R6,#2
  TST R6,#2
  BNE incandret2$l

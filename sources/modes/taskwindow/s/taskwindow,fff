@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.1 1999/03/12 10:01:24 james Exp $
+; $Id: taskwindow,fff,v 1.2 1999/04/22 19:04:04 ds Exp $
 
  GET h.ZapBasHdr
  GET h.ZapBasic
@@ -36,6 +36,7 @@
 ;	    b1 Ignore start/end
 ;	    b2 Task unlinked
 ;	    b3 Task killed
+;	    b4 Output suspended (VDU 21)
 ; #56 Line offset in window of start of emulated screen.
 ; #60 Reserved
 ;
@@ -986,11 +987,8 @@ twmode_message
  SUB R0,R2,#&80000
  SUB R0,R0,#&008C0
  CMP R0,#6
- MOVCS PC,R14			; not a taskwindow message
-;dead ; ????????????????????????????????????????????????
-; B dead
- ADD PC,PC,R0,LSL#2
- DCD 0
+ ADDLO PC,PC,R0,LSL#2
+ MOV PC,R14			; unrecognised
  B TaskWindow_Open		; sent by Zap to open task window
  B TaskWindow_Output
  B TaskWindow_Ego
@@ -1017,9 +1015,8 @@ TaskWindow_NewTask
  MOV R1,R10			; message
  LDR R2,[R10,#4]		; task
  SWI XWimp_SendMessage		; acknowledge
- LDMVSFD R13!,{R1-R2,R10,PC}
- ADD R10,R10,#20		; command to use
- BL create_task_window		; start up a task window
+ ADDVC R10,R10,#20		; command to use
+ BLVC create_task_window	; start up a task window
  LDMFD R13!,{R1-R2,R10,PC}
 
 ;E R8/R9=0 for normal startup/address of command to use
@@ -1050,9 +1047,8 @@ create_task_window
  FNLDR R4,mode_taskwindow	; taskwindow mode
  ORR R4,R4,#1<<31
  FNcall Zap_CreateFile		; create an empty R8/R9
- LDMVSFD R13!,{R1-R9,PC}
- MOV R0,#0
- FNcall Zap_PutCaret		; bung cursor in there
+ MOVVC R0,#0
+ FNcallc Zap_PutCaret,VC	; bung cursor in there
  LDMVSFD R13!,{R1-R9,PC}
 rude_tw_entry
  MOV R6,#&20			; space
@@ -1120,9 +1116,8 @@ TaskWindow_Ego
  STR R0,[R7,#56]		; screen image offset
  MOV R0,#-1
  BL taskwindow_mode		; find mode x,y
- FNRTS VS
- STR R3,[R7,#12]		; screen height
- BL tw_restore_window
+ STRVC R3,[R7,#12]		; screen height
+ BLVC tw_restore_window
  FNRTS VS
  FNcall Zap_GetFileOff		; R0=file offset
  MOV R6,R0			; save as the private word
@@ -1143,11 +1138,9 @@ sub$l				; R1=message block R11=file offset
  FNRTS NE			; not the correct message
  MOV R0,R11
  FNcall Zap_ConvFileOff		; set up R9
- FNRTS VS
- ADD R0,R1,#28
- FNcall Zap_NewFileName		; change the file name to the task name
- FNRTS VS
- FNcall Zap_NewFileTitle	; update the titlebars
+ ADDVC R0,R1,#28
+ FNcallc Zap_NewFileName,VC	; change the file name to the task name
+ FNcallc Zap_NewFileTitle,VC	; update the titlebars
  FNRTS
 mess2$l DCD &400C7		; Name is reply message
 
@@ -1215,10 +1208,9 @@ start$l				; R4=data R5=data len
  FNRTS VS
  MOV R1,#10
  FNcall Zap_ReadVar		; read caret mode
- BVS end$l
- MOV R10,R0			; save caret mode
- MOV R0,#-2
- FNcall Zap_WriteVar		; pretend there are no carets
+ MOVVC R10,R0			; save caret mode
+ MOVVC R0,#-2
+ FNcallc Zap_WriteVar,VC	; pretend there are no carets
  BVS end$l
 loop$l				; R4=data R5=data len
  CMP R5,#0
@@ -1241,8 +1233,8 @@ collect$l			; collect longest string of normal chars
 collected$l
  SUB R2,R4,R3			; num chars collected
  BL taskwindow_output_char
- BVS end$l
- B loop$l
+ BVC loop$l
+ B end$l
 ctrl$l
  CMP R5,R1
  BLT tw16			; need to queue the data
@@ -1259,10 +1251,10 @@ tw17
 tw14
  SUB R2,R4,R3			; number of times
  BL taskwindow_output_ctrl
- BVS end$l
- ADD R4,R4,R1			; skip the params
- SUB R5,R5,R1
- B loop$l
+ ADDVC R4,R4,R1			; skip the params
+ SUBVC R5,R5,R1
+ BVC loop$l
+ B end$l
 tw16
  MOV R1,R3			; source
  ADD R2,R7,#36			; queue
@@ -1606,6 +1598,10 @@ escaped$l
 ;X characters entered into file #
 
 taskwindow_output_char
+ LDR R0,[R9,#f_source]
+ LDR R0,[R0,#52]
+ TST R0,#1<<4
+ MOVNE PC,R14
  STMFD R13!,{R1-R6,R14}
  MOV R4,R3			; save data
  MOV R5,R2			; save num
@@ -2115,51 +2111,80 @@ twc_to_xy_nopad
 ;X ctrl action taken #
 
 taskwindow_output_ctrl
- TEQ R0,#&7F
- BEQ tw_delete
- TEQ R0,#10
- BEQ tw_lf
- TEQ R0,#13
- BEQ tw_cr
- TEQ R0,#7
- BEQ tw_bell
- TEQ R0,#8
- BEQ tw_backspace
- TEQ R0,#9
- BEQ tw_forspace
- TEQ R0,#11
- BEQ tw_upline
- TEQ R0,#12
- BEQ tw_cls
- TEQ R0,#22
- BEQ tw_mode
- TEQ R0,#23
- BEQ tw_vdu23
- TEQ R0,#26
- BEQ tw_restore_window
- TEQ R0,#28
- BEQ tw_define
- TEQ R0,#31
- BEQ tw_tab
- MOV PC,R14			; not recognised
+	TEQ	R0,#6
+	BEQ	skip_suspend_test
+	PUSH	"R0"
+	LDR	R0,[R9,#f_source]
+	LDR	R0,[R0,#52]
+	TST	R0,#1<<4
+	PULL	"R0"
+	MOVNE	PC,R14
+skip_suspend_test
+	TEQ	R0,#&7F
+	BEQ	tw_delete
+	SUB	R0,R0,#6
+	CMP	R0,#31-6
+	ADDLO	PC,PC,R0,LSL #2
+	MOV	PC,R14	; unrecognised
+	B	tw_show_output
+	B	tw_bell
+	B	tw_backspace
+	B	tw_forspace
+	B	tw_lf
+	B	tw_upline
+	B	tw_cls
+	B	tw_cr
+	MOV	PC,R14 ; 14
+	MOV	PC,R14 ; 15
+	MOV	PC,R14 ; 16
+	MOV	PC,R14 ; 17
+	MOV	PC,R14 ; 18
+	MOV	PC,R14 ; 19
+	MOV	PC,R14 ; 20
+	B	tw_hide_output
+	B	tw_mode
+	B	tw_vdu23
+	MOV	PC,R14 ; 24
+	MOV	PC,R14 ; 25
+	B	tw_restore_window
+	MOV	PC,R14 ; 27
+	B	tw_define
+	MOV	PC,R14 ; 29
+	MOV	PC,R14 ; 30
+	B	tw_tab
+	MOV	PC,R14			; not recognised
+
+tw_hide_output
+	FNJSR
+	LDR	R14,[R9,#f_source]
+	LDR	R0,[R14,#52]
+	ORR	R0,R0,#1<<4
+	STR	R0,[R14,#52]
+	FNRTS
+
+tw_show_output
+	FNJSR
+	LDR	R14,[R9,#f_source]
+	LDR	R0,[R14,#52]
+	BIC	R0,R0,#1<<4
+	STR	R0,[R14,#52]
+	FNRTS
 
 tw_vdu23
  STMFD R13!,{R1-R11,R14}
  LDRB R0,[R4],#1		; get reason code
  TEQ R0,#7
- BEQ tw_scrollwindow
- LDMFD R13!,{R1-R11,PC}
+ LDMNEFD R13!,{R1-R11,PC}
 
 tw_scrollwindow
  LDRB R0,[R4],#1		; extent (window/screen)
  LDRB R0,[R4],#1		; direction
  CMP R0,#4
  SUBCS R0,R0,#4
- TEQ R0,#2
- BEQ tws_down
  TEQ R0,#3
  BEQ tws_up
- LDMFD R13!,{R1-R11,PC}
+ TEQ R0,#2
+ LDMNEFD R13!,{R1-R11,PC}
 tws_down
  MOV R0,#1
  BL tw_scroll_down
@@ -2175,14 +2200,12 @@ tw_mode
  MOV R1,#0
  LDR R2,[R9,#f_len]
  FNcall Zap_DoCommand		; whole file
- FNRTS VS
- FNcall Zap_StopOp		; stop operation
+ FNcallc Zap_StopOp,VC		; stop operation
  FNRTS VS
  LDRB R0,[R4]			; proposed mode
  BL taskwindow_mode		; R2/R3=x,y
- FNRTS VS
- STR R3,[R7,#12]		; new screen height
- FNcall Zap_SaveWinStatus	; NOT NOW IN AN OP
+ STRVC R3,[R7,#12]		; new screen height
+ FNcallc Zap_SaveWinStatus,VC	; NOT NOW IN AN OP
  FNRTS VS
  FNLDR R0,mode_taskwindow
  ADD R14,R8,#w_mode0
@@ -2191,10 +2214,8 @@ tw_mode
  ADD R0,R2,R0,LSL#16
  STR R0,[R14]			; bung in new width
  FNcall Zap_NewWinStatus	; reopen the window
- FNRTS VS
- BL tw_restore_window
- FNRTS VS
- FNcall Zap_StartOp		; restart operations
+ BLVC tw_restore_window
+ FNcallc Zap_StartOp,VC		; restart operations
  FNRTS
 
 ;E R8,#w_bpl is new proposed width R9
@@ -2277,9 +2298,9 @@ tw30
  CMP R3,R1
  LDMCSFD R13!,{R1-R4,PC}	; finished
  BL tw_putline			; blank that line
- LDMVSFD R13!,{R1-R4,PC}
- ADD R3,R3,#1
- B tw30
+ ADDVC R3,R3,#1
+ BVC tw30
+ LDMFD R13!,{R1-R4,PC}
 
 tw_cr
  LDR R0,[R7,#16]		; window minx
@@ -2428,9 +2449,9 @@ tw19
  BGE tw19			; do next line
  MOV R0,#1
  BL tw_scroll_down
- LDMVSFD R13!,{R1-R6,PC}
- MOV R3,R1
- B tw19
+ MOVVC R3,R1
+ BVC tw19
+ LDMFD R13!,{R1-R6,PC}
 tw21
  STR R2,[R7,#4]
  STR R3,[R7,#8]			; save cursor posn
@@ -2464,14 +2485,12 @@ tw_blank
  SUB R1,R1,R2			; offset to blank at
  MOV R0,#&20			; blank with spaces
  BL tw_getblanks
- LDMVSFD R13!,{R1-R3,PC}
- MOV R0,#3			; replace
- FNcall Zap_DoCommand
- LDMVSFD R13!,{R1-R3,PC}
- MOV R0,R2			; save number blanked
+ MOVVC R0,#3			; replace
+ FNcallc Zap_DoCommand,VC
+ MOVVC R0,R2			; save number blanked
  LDMFD R13!,{R1-R3,R14}
- SUB R2,R2,R0
- SUB R5,R5,R0
+ SUBVC R2,R2,R0
+ SUBVC R5,R5,R0
  MOV PC,R14
 
 ;\E R2 = column?
@@ -2504,16 +2523,13 @@ tw_delchar
 ; MOV R2,#1
 
  FNcall Zap_DoCommand
- LDMVSFD R13!,{R1-R5,PC}
-
 ; MOV R2,R3			; ???!
-
- MOV R0,R2			; save number deleted
+ MOVVC R0,R2			; save number deleted
 ; MOV R0,#1
  LDMFD R13!,{R1-R5,R14}
- SUB R2,R2,R0
- SUB R5,R5,R0
- SUB R1,R1,R0
+ SUBVC R2,R2,R0
+ SUBVC R5,R5,R0
+ SUBVC R1,R1,R0
  MOV PC,R14
 
 tw_insertlinefeeds
@@ -2669,12 +2685,8 @@ mode12_click
  LDR R14,[R1,#56]		; #8 y coordinate start of screen
  ADD R3,R3,R14
 
- STR R2,local_stored_cur_posn + 0
- STR R3,local_stored_cur_posn + 4
- STR R8,local_stored_cur_posn + 8
- STR R9,local_stored_cur_posn + 12
- STR R11,local_stored_cur_posn + 16
- STR R12,local_stored_cur_posn + 20
+ ADR R14,local_stored_cur_posn
+ STMIA R14,{R2,R3,R8,R9,R11,R12}
 ; set up a callback to reposition the cursor when buttons are released :-/
  BL callback_cur_posn
  ;MOV R1,#-8
