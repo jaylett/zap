@@ -1,5 +1,5 @@
 <?php
-  // $Id: changes.php,v 1.5 2002/11/07 11:35:53 james Exp $
+  // $Id: changes.php,v 1.6 2002/11/07 12:31:06 christian Exp $
 
   include "../.php/zap-std.inc";
   setroot ('documentation/changes');
@@ -9,16 +9,32 @@
   zap_header ("Zap - Changes", 'up:index', 'first:tmt-changes', 'last:dw-changes');
   zap_body_start ();
 
+  // find all the versions we know about
+  $versions       = array();
+  $versions_count = 0;
+  $latest_version = 0;
+
+  if ($handle = opendir('.'))
+  {
+      while (false !== ($file = readdir($handle)))
+      {
+          if (strstr($file, "changes") && strstr($file, "-en.info"))
+          {
+              $versions[$versions_count] = substr($file, 7, 3);
+
+              if ($versions[$versions_count] > $latest_version)
+                  $latest_version = $versions[$versions_count];
+
+              $versions_count++;
+          }
+      }
+  }
+
   // sort out all our variables
   if (empty($HTTP_GET_VARS['since']))
-  {
-     // FIXME: we really want to determine what the latest version is, but this will do for now
-     $since = "140";
-  }
+     $since = $latest_version;
   else
-  {
      $since = $HTTP_GET_VARS['since'];
-  }
 
   if (empty($HTTP_GET_VARS['release']))
     $release = "";
@@ -52,7 +68,25 @@
     echo "&release=".$release;
     echo "&sortby=".$sortby."\">".$release."</a>\n";
   }
-    
+
+  // output a link to ourselves with a different version
+  function output_version_link($version)
+  {
+      global $me, $sortby, $since;
+
+      if ($version == $since)
+      {
+          printf("v%.2f\n", $version / 100);
+      }
+      else
+      {
+          echo "<a href=\"".$me."?since=".$version;
+          echo "&sortby=".$sortby."\">";
+          printf("v%.2f", $version / 100);
+          echo "</a>\n";
+      }
+  }
+
   // sort by author
   function cmp_by ($a, $b)
   {
@@ -77,7 +111,7 @@
     return ($a['change'] < $b['change']) ? -1 : 1;
   }
 
-  
+
   // function to count and name all the releases names in an info file
   function count_releases($content, &$releases)
   {
@@ -122,15 +156,37 @@
          output_release_link($releases[$i]);
          echo "</li>\n";
       }
+      echo "</ul>\n";
+    }
+
+    // and to other versions
+    if ($versions_count > 1)
+    {
+        echo "<p>Changes for other versions:</p>\n    <ul>\n";
+        for ($i = 0; $i < $versions_count; $i++)
+        {
+            echo "    <li>";
+            output_version_link($versions[$i]);
+            echo "</li>\n";
+        }
+        echo "</ul>\n";
     }
 
     // sort the changes
     usort($changes, "cmp_" . $sortby);
 
+    // find ourselves
+    for ($i = 0; $i < $release_count; $i++)
+        if (strcasecmp($release, $releases[$i]) == 0)
+            $our_release = $i;
+
     // now do the actual changes
     echo "<center>\n";
 
-    printf("<h1>Changes since Zap v%1.2f %s</h1>\n", $since / 100, $release);
+    if (isset($our_release) && $our_release < $release_count - 1)
+        printf("<h1>Changes between Zap v%1.2f %s and %s</h1>\n", $since / 100, $release, $releases[$our_release + 1]);
+    else
+        printf("<h1>Changes since Zap v%1.2f %s</h1>\n", $since / 100, $release);
 
     // output the table header.
     echo "<table cellspacing=\"1\" cellpadding=\"4\" bgcolor=\"#202080\" width=\"80%\" border=\"1\">\n";
@@ -162,8 +218,8 @@
 
     // close the table
     echo "</table>\n";
-    
+
     echo "</center>\n";
 
-  zap_body_end ('$Date: 2002/11/07 11:35:53 $');
+  zap_body_end ('$Date: 2002/11/07 12:31:06 $');
 ?>
