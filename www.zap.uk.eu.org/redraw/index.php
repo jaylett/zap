@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.5 2002/02/04 00:17:12 christian Exp $
+  // $Id: index.php,v 1.6 2002/03/01 00:13:35 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -112,7 +112,7 @@ programs reducing system memory usage.</p>
 ?>
   </select>
   &nbsp;
-  <input type=checkbox name="Viewfinder" value="y" valign=middle>&nbsp;with Viewfinder
+  <input type=checkbox name="Viewfinder" value="y">&nbsp;with Viewfinder
   &nbsp;
   <input type=submit value="Submit">
  </p>
@@ -201,5 +201,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/02/04 00:17:12 $');
+  zap_body_end ('$Date: 2002/03/01 00:13:35 $');
 ?>
