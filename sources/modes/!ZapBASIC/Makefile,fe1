@@ -1,0 +1,81 @@
+# Make file for ZapBASIC
+# using Acorn tools amu, objasm, link
+
+# For *non*-internationalisation (ie. Zap 1.40-compatible)
+#	amu INTL=no
+# For internationalisation (ie. Zap 1.41-compatible)
+#	amu
+
+# Targets:
+#	ZapBASIC	Assemble .s files and link. This is the default
+#	ZapBASICHdrs	Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+
+OBJECTS	= o.BASIC o.bastxt o.taskwindow o.ZapBASIC o.Buttons o.Brackets o.Toggle
+HEADERS	= t.basic t.bastxt t.taskwindow t.ZapBasic t.Buttons t.Brackets
+
+TARGET		= ZapBASIC
+as		= objasm
+asflags		= -o $@ -depend !Depend -throwback -stamp -quit
+link		= link
+linkPartFlags	= -aof
+linkFlags	= -bin -B &00000000
+ZapS		= <ZapSource$Dir>
+ZapB		= <MakeZapBASIC$Dir>
+
+__INTL		= -PD "INTL SETS \"$(INTL)\""
+
+
+ZapBASIC:	$(OBJECTS) ZapBASICHdrs
+		$(link) $(linkFlags) -o $(ZapB).ZapBASIC $(OBJECTS)
+		Settype $(ZapB).ZapBASIC Module
+		Run $(ZapS).data.MCopy $(ZapB).ZapBASIC <ZapBASIC$Dir>.ZapBASIC
+		@Echo Finished ZapBASIC
+
+ZapBASICHdrs:	$(HEADERS)
+		@Echo Made headers
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+# The .t file date gives the last time the header was created from the file.
+# This is usually not the .h date as the .h file is not stamped if the file
+# contents doesn't change.
+
+.SUFFIXES: .t .s
+
+.s.t:;		@Run $(ZapS).data.StoH s.$* h.$*
+		Create t.$* 0
+
+.s.o:;		$(as) $(asflags) $(__INTL) s.$*
+
+
+# Dependencies:
+
+t.basic:	s.basic
+t.bastxt:	s.bastxt
+t.Brackets:	s.Brackets
+t.Buttons:	s.Buttons
+t.taskwindow:	s.taskwindow
+t.Toggle:	s.Toggle
+t.ZapBasic:	s.ZapBasic
+
+o.BASIC:	s.BASIC
+o.bastxt:	s.bastxt
+o.Brackets:	s.Brackets
+o.Buttons:	s.Buttons
+o.taskwindow:	s.taskwindow
+o.Toggle:	s.Toggle
+o.ZapBASIC:	s.ZapBASIC
+
+# Dynamic dependencies:
+o.taskwindow: s.taskwindow
+o.taskwindow: h.ZapBasHdr
+o.taskwindow: <ZapSource$Dir>.h.System
+o.taskwindow: <ZapSource$Dir>.h.ZapLibrary
+o.taskwindow: <ZapSource$Dir>.h.Macros
+o.taskwindow: h.ZapBasVars
+o.taskwindow: h.ZapBasic
+o.taskwindow: h.basic
+o.taskwindow: h.buttons
