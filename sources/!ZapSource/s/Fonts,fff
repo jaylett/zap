@@ -1,5 +1,5 @@
 ; Contains font code
-; $Id: Fonts,fff,v 1.1.2.6 1999/03/11 18:11:27 james Exp $
+; $Id: Fonts,fff,v 1.1.2.7 1999/03/12 14:12:15 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -572,7 +572,7 @@ chkforzflk$l = "ZFLK"
  LOCAL
 
 ;E R1=file name pointer...
-;X NE if file doesn't exist... R0=1(file)/2(dir)/0(unk)
+;X NE if file doesn't exist... R0=1(file)/2(dir)/3(image)/0(unk)
 
 check_file_exists
  FNJSR "R1-R5"			; not needed :(
@@ -622,6 +622,7 @@ pre_add_font_suffix
 wasaspecialcase
  MOV R1,R11
  BL check_file_exists		; eeek - filing system operation...?
+ FNRTS VS
  CMP R0,#0
  FNRTS EQ			; doesn't exist at all ...
  CMP R0,#1			; is it a file?
@@ -694,7 +695,7 @@ quick_add_font_suffix
  MOV R2,#0
  STRB R2,[R1]
  MOV R1,R11
- MOV R0,R5,LSL #3		; ???
+ MOV R0,R5,LSL #3		; masked style word
  FNRTS
 
 ; Like quick, but does all suffices required.
@@ -748,9 +749,9 @@ loop$l
  MOV R0,R1
  BL str_len
  MOV R14,#'0'
- STRB R14,[R7]			; doesn't exist...
+ STRB R14,[R7]			; doesn't exist - use default
  MOV R14,#0
- STRB R14,[R7,#1]
+ STRB R14,[R7,#1]		; same as r1 ...
 ; MOV R1,R11			; pointer to correct font name?
  MOV R0,#0
  FNRTS
@@ -782,76 +783,27 @@ masks_end$l
 setup_fontmc_with_extras	; alternate entry point, used by redraw code
  FNJSR "R1,R6,R7,R10"
  LDR R14,[R8,#w_flags]		; get flags
- ANDS R14,R14,#&00320000	; font bits
- TEQ R14,#&00120000
- TEQNE R14,#&00020000
- TEQNE R14,#&00200000		; may need updating...
- FNRTS EQ			; VDU fonts here so steer clear...!
+ ANDS R14,R14,#redraw_font_mask
+ TEQ R14,#redraw_vdu_font
+ TEQNE R14,#redraw_vdu_system
+ TEQNE R14,#redraw_fast_font
+ FNRTS EQ			; Outline/system fonts here so steer clear...!
 
-; SWI XHourglass_On
  MOV R10,#0
-; ??? here?
-; MOV R0,R0,LSL #16		; ignore -inverse- strike! ;( bits.
-; MOV R0,R0,LSR #16		; bug!
-; ??? ?
-; STR R0,local_ss_info_word	; no longer needed?
  LDR R6,[R8,#w_font]		; source font
  MOV R11,R0
 loop$l
-; CMP R11,#0
-; FNRTS EQ			; finished.
  TST R11,#1
-; LDR R0,local_ss_info_word
-; MOV R1,R10,LSR #3
-; MOV R0,R0,LSR R1
-; TST R0,#1
  BLNE maybeneedssetup
  MOVS R11,R11,LSR#1		; :-)
-; BEQ setup_fontmc_single_xit	; finished.
  FNRTS EQ			; finished.
 
-;  ADD R0,R6,#font_data0
-;  LDR R0,[R0,R10,LSR #1]
-; ; CMP R0,#-1
-; ; BLEQ setup_this_font_now	; EQ notsetup_yet  ; never fires...?
-;  BL setup_this_font_now		; EQ notsetup_yet  ; never fires...?
-;
-; ; MOVVS R0,#-1			; ??????????????
-; ; BVS maybe_notsetup_yet	; ??????????????
-;  BVS notsetup_yet		; already set up...
-;
-; ; LDR R1,[R6,R10,LSR #1]
-; ; CMP R1,#-1
-; ; BNE notsetup_yet		; already set up...??????????????????
-;
-;  ;LDR R14,[R8,#w_font]		; source font
-;  ;MOV R14,R14,LSR R10
-;  ;AND R14,R14,#&FF
-;  ;CMP R14,#&FF
-;  ;BNE notsetup_yet		; fires...?
-;  BL conv_font_off		; R7=font
-;  FNLDR R0,scn_bpp,VC
-;  LDRVC R1,[R7,#4]		; font name
-;  BLVC find_zap_font		; R7=new font block
-;  BLVC get_font_off
-;  BVS beepandend$l		; debug code...???
-; maybe_notsetup_yet
-;  STR R0,[R6,R10,LSR #1]		; setup w_fontc
-notsetup_yet
  ADD R10,R10,#8
  CMP R10,#font_blk
  BLT loop$l
 setup_fontmc_single_xit
  SUBS R14,R14,R14 ; clv
-; SWI XHourglass_Off
  FNRTS
-
-;beepandend$l
-; MOV R7,R0			; preserve error...
-; SWI XHourglass_Off
-; BL Beep
-; MOV R0,R7			; preserve error...
-; FNRTV
 
  LOCAL
 
@@ -871,27 +823,11 @@ maybeneedssetup
  CMP R0,#-1
  BLEQ setup_this_font_now	; EQ notsetup_yet  ; never fires...?
 
-; BL setup_this_font_now	; EQ notsetup_yet  ; never fires...?
-; FNRTS VS
-; MOVVS R0,#-1			; ??????????????
-; BVS maybe_notsetup_yet	; ??????????????
- ;BVS notsetup_yet		; already set up...
-
-; LDR R1,[R6,R10,LSR #1]
-; CMP R1,#-1
-; BNE notsetup_yet		; already set up...??????????????????
-
- ;LDR R14,[R8,#w_font]		; source font
- ;MOV R14,R14,LSR R10
- ;AND R14,R14,#&FF
- ;CMP R14,#&FF
- ;BNE notsetup_yet		; fires...?
  BLVC conv_font_off		; R7=font
  FNLDR R0,scn_bpp,VC
  LDRVC R1,[R7,#4]		; font name
  BLVC find_zap_font		; R7=new font block
  BLVC get_font_off
- ;BVS beepandend$l		; debug code...???
 maybe_notsetup_yet
  STRVC R0,[R6,R10,LSR #1]	; setup w_fontc
  SWI XHourglass_Off
@@ -1043,26 +979,30 @@ choose_fontm
  FNLDR R0,font_namehigh,LE
  FNLDR R0,font_namelow,GT	; get name of font
  BL pre_add_font_suffix
+ BVS err$l
  BL change_bmf_core
-
  BLVC minimise_font_memory
- FNRTS VC				; clear V
- FNPULL
+ FNRTS VC			; clear V
+err$l
+ BL realerr$l
+ FNRTS
+realerr$l
  ERR "zap_NoFont"		; should do much better than this and
 				; revert to using the system font in VDU
- LOCAL				; redraw, or /something/...
+				; redraw, or /something/...
 
+ LOCAL
 ;E r0 = font name to set to
  DCD &19
 Bitmapfont			; R3=address of prev item start R10=text
  FNJSR
  BL pre_add_font_suffix
+ BVS error_cantfindthat$l
  BL change_bmf_core
-
  BLVC save_window_status
  BLVC new_window_status		; update the window
  FNRTS VC
-error_cantfinfthat$l
+error_cantfindthat$l
  ADR R0,err_nofontfound$l
  MOV R1,#warn_UseMessageTrans
  BL warn_user
@@ -1087,10 +1027,12 @@ loop$l
 
  LOCAL
 ;E r0 font name to change to
+; (If it was a file and ended ".0" then that will have been removed)
+;X font set up for default style
 change_bmf_core
  FNJSR "R10,R11"
  MOV R11,R0
- BL clear_font_block		; (!??????????????????)
+ BL clear_font_block		; ... for this window
 
  SWI XHourglass_On
 
@@ -1100,24 +1042,26 @@ loop$l
  FNLDR R11,wimp_data		; buffer
  ADD R11,R11,#&60
  MOV R1,R11
- BL strcopy
-
- BL do_one_font_pass
-; BLVC clear_font_block		; (!??????????????????)
+ BL strcopy			; copy font name
+ BLVC do_one_font_pass		; \E r10 = substyle
  BLVC minimise_font_memory
- SWIVC XHourglass_Off
- FNRTS VC
-
+ BVS err$l
  SWI XHourglass_Off
-; MOV R0,R7			; who cares what the error is...?
+ FNRTS
+
+err$l
+ MOV R10,R0
+ SWI XHourglass_Off		; this shouldn't ever return VS
+ MOV R0,R10			; however I'd rather not risk it ...
  FNRTV
 
+ LOCAL
 ;\E R1 -> after 0 at end of fontname, R10 substyle, R11 fontname
-;\X none?
+;\X r0 = -1 => couldn't find it, else -> font data?
 do_one_font_pass
  FNJSR
  PUSH "R1"
- BL quick_add_font_suffix	; B, I or U depending on R10
+ BL quick_add_font_suffix	; B, I or U depending on R10, \X r1 -> correct font name
  MOV R0,#0
  BL find_zap_font
  BLVC get_font_off		; R0=offset of 1bpp block
