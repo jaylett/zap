@@ -6,7 +6,7 @@ appendices	= $(wildcard src/Appendix*,fff)
 controlfiles	= $(wildcard src/Manual*,fff)
 webcontrolfiles = $(wildcard src/Website*,fff)
 
-buttress	= $(HOME)/projects/tartarus/buttress/build/buttress
+buttress	= $(HOME)/projects/tartarus/halibut/build/halibut
 butt_options	=
 
 # We need rm, but it's almost always the same. You may need to change
