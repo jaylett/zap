@@ -22,19 +22,58 @@ sub strip_space($)
   return $f;
 }
 
+sub split_labels($)
+{
+  my ($l) = @_;
+  my @chars = split //, $l;
+  my ($i, $quote);
+  my @labels = ();
+  my $label = "";
+  for ($i=0, $quote=""; $i<scalar @chars; $i++) {
+    if ($quote ne "") {
+      if ($chars[$i] eq $quote) {
+	if ($i+1 < scalar @chars && $chars[$i+1] eq $quote) {
+	  $label .= $chars[$i];
+	  $i++;
+	} else {
+	  $quote="";
+	  $label .= $chars[$i];
+	}
+      } else {
+	$label .= $chars[$i];
+      }
+    } elsif ($chars[$i] eq '"') {
+      $quote = $chars[$i];
+      $label .= $chars[$i];
+    } elsif ($chars[$i] eq '-') {
+      push @labels, strip_space($label);
+      push @labels, '-';
+      $label = "";
+    } elsif ($chars[$i] eq '+') {
+      push @labels, strip_space($label);
+      push @labels, '+';
+      $label = "";
+    } else {
+      $label .= $chars[$i];
+    }
+  }
+  push @labels, strip_space($label);
+  return @labels;
+}
+
 sub transform_label($%$)
 {
   my ($label, $ref_labels, $linenumber) = @_;
   if (!defined $label) { return $label; }
-#  print "Translating '$label' ... ";
   $label = strip_space($label);
 
   my @labels = ();
+  my $context = 'number';
   
   if ($label =~ m/^[-+]/) {
     push @labels, $label;
   } else {
-    @labels = split /([+-])/, $label;
+    @labels = split_labels($label);
   }
   my $output = "";
   my $i = 0;
@@ -42,10 +81,16 @@ sub transform_label($%$)
     $label = strip_space($label);
     if ($i) {
       # operator
-      $output .= " $label ";
+      if ($context ne 'string' or $label ne '+') {
+	$output .= " $label ";
+      } else {
+	$output .= ", ";
+      }
     } else {
       # label
-      $output .= transform_individual_label($label, $ref_labels, $linenumber);
+      my $lret; 
+      ($lret, $context) = transform_individual_label($label, $ref_labels, $linenumber);
+      $output .= $lret;
     }
     $i = 1 - $i;
   }
@@ -56,28 +101,33 @@ sub transform_individual_label($%$)
 {
   my ($label, $ref_labels, $linenumber) = @_;
   my $flag = ($label =~ s/^\((.*)\)$/$1/);
+  my $context = 'number';
   if ($label =~ m/^[-0-9&]/) {
     if ($label =~ s/^&//) {
       $label = "0x" . $label;
     }
   } elsif ($label !~ m#^"#) {
     # ie: symbolic constant
-#    print "looking up '$label'";
+#    warn "looking up '$label'\n";
     if ($$ref_labels{$label}) {
       $label = $$ref_labels{$label};
     } else {
-# We don't do the CHR$ translation (although it works perfectly) because
-# it's usually used in the form "string" + CHR$0 ... which we can't currently
-# cope with. So better flag it as a warning and do it manually.
-#      ($label =~ s/^CHR\$([0-9A-Fa-f]+)$/$1/) or
+#      warn "transform_individual_label('$label')\n";
+      if ($label =~ s/^CHR\$(\s*)([0-9A-Fa-f]+)$/$2/) {
+	$context = 'string';
+      } else {
 	warn "Ref to undef '$label' (pre-defined constant?) at line $linenumber\n";
+      }
     }
+  } else {
+    # ie: string constant
+    $context = 'string';
   }
 #  print "\n";
   if ($flag) {
     $label = "($label)";
   }
-  return $label;
+  return ($label, $context);
 }
 
 sub transform_swi($$)
@@ -123,13 +173,14 @@ sub transform_reg($)
 
 # Turns [...] and {...} into one operand. Respects "-quotes, with doubling
 # to provide quote character (converted to \" in output). Embedded NULs
-# in a string get the string turned into "...":CC::CHR:0:CC:"...", which
-# isn't pretty but at least is guaranteed to work.
+# in a string get the string turned into "...", 0, "...", which
+# isn't pretty but at least should work.
 sub split_operands($)
 {
   my ($line) = @_;
   my @chars = split '', $line;
   my ($i, $inquote, $inquote_double);
+#  warn "split_operands('$line'), " . scalar @chars . "\n";
   $line="";
   my @out = ();
   $inquote="";
@@ -149,7 +200,8 @@ sub split_operands($)
       }
       if ($chars[$i] =~ m/\x00/) {
 	# embedded NUL! Eek!
-	$line .= "\":CC:CHR:0:CC:\"";
+#	$line .= "\":CC::CHR:0:CC:\"";
+	$line .= "\", 0, \"";
       } else {
 	$line .= $chars[$i];
       }
@@ -182,7 +234,7 @@ sub split_operands($)
     warn "Unclosed '$inquote' bracket in operand: fixing\n";
     $line .= $inquote;
   }
-  if ($line) {
+  if ($line ne "") {
     $line = strip_space($line);
     push @out, $line;
   }
@@ -195,6 +247,8 @@ sub split_operands($)
 
 my $infile = shift;
 my $outfile = shift;
+my $getfile;
+$getfile = shift or $getfile = "";
 
 open INFILE, $infile or die "Couldn't open $infile: $!";
 
@@ -336,6 +390,7 @@ foreach $object (@objects) {
     $labels{$$object{'SourceText'}} = $$object{'AsmText'};
   } elsif ($$object{'Type'} eq 'Comment') {
     $$object{'AsmText'} = $$object{'SourceText'};
+    $$object{'AsmText'} =~ s/\0//g;
   } elsif ($$object{'Type'} eq 'Command') {
     # Method (depending on type: Fn/Asm/Directive):
     #
@@ -383,19 +438,32 @@ foreach $object (@objects) {
 	# One parameter ...
 	$$object{'AsmText'} = "FNcall\t$params";
 	$functions_done{$fn_name}++;
+      } elsif ($fn_name eq 'jump') {
+	# One parameter ...
+	$$object{'AsmText'} = "FNjump\t$params";
+	$functions_done{$fn_name}++;
+      } elsif ($fn_name eq 'lower') {
+	# One parameter
+	$$object{'AsmText'} = "FNlower\t" . transform_reg(strip_space($params));
+	$functions_done{$fn_name}++;
+      } elsif ($fn_name eq 'upper') {
+	# One parameter
+	$$object{'AsmText'} = "FNupper\t" . transform_reg(strip_space($params));
+	$functions_done{$fn_name}++;
       } elsif ($fn_name eq 'long_adr') {
 	# Three parameters (condition, register, label)
 	my @params = split ',', $params;
 	(scalar @params != 3) and die "FNlong_adr() called with the wrong numbers of parameters at line $$object{'SourceLine'}\n";
-	my $asm = 'ADRL' . substr(strip_space($params[0]), 1, 2);
+	my $asm = 'ADR' . strip_space(substr($params[0], 1, 2)) . 'L';
 	$asm = strip_space($asm); # condition is usually "  " (not "AL")
 	$asm =~ tr/a-z/A-Z/;
-	$asm .= "\tr" . strip_space($params[1]) . ", " . transform_label($params[2], \%labels, $$object{'SourceLine'});
+	$asm .= "\t" . transform_reg(strip_space($params[1])) . ", " . transform_label($params[2], \%labels, $$object{'SourceLine'});
 	$$object{'AsmText'} = $asm;
 	$functions_done{$fn_name}++;
       } else {
 	$$object{'Type'} = 'Function';
 	$$object{'AsmText'} = $$object{'SourceText'};
+	$$object{'AsmText'} =~ s/^FN(.*?)\((.*)\)$/FN$1\t$2/;
 	$functions{$fn_name}++;
       }
     } else { # directives and asm commands
@@ -403,6 +471,7 @@ foreach $object (@objects) {
 #      undef $line;
       $$object{'SourceText'} = strip_space($$object{'SourceText'});
       if ($$object{'SourceText'} ne "") {
+	$$object{'SourceText'} =~ s/^EQU(D|W|B)(\S)/EQU$1 $2/;
         my @bits = split ' ', $$object{'SourceText'}, 2;
 #	if (scalar(@bits) == 0) {
 #	  print "Splitting '$$object{'SourceText'}' ... ";
@@ -437,7 +506,7 @@ foreach $object (@objects) {
 	  $$object{'Type'} = 'Directive';
 	};
 	$line =~ m/^EQUS$/i and do {
-	  $line = '='; $done_command = 1;
+	  $line = '='; $trans_args=1; $done_command = 1;
 	  $$object{'Type'} = 'Directive';
 	};
 	($line =~ m/^B(L?)(EQ|NE|AL|NV|CC|CS|VC|VS|GT|GE|LT|LE|PL|MI|HI|LS|HS|LO)?$/i) and do {
@@ -473,7 +542,7 @@ foreach $object (@objects) {
 	      # numeric constant (can have '!' at end if a post-offset constant)
               $args[$i] =~ s/^#(\s*)(.*)$/$2/;
               ($args[$i] =~ s/^&//) and $args[$i] = "0x$args[$i]";
-              $args[$i] =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$3'/i;
+	      $args[$i] =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$3'/i;
 	      $args[$i] = "#$args[$i]";
 	    } elsif ($args[$i] =~ m/^{/) {
 	      # register range
@@ -559,7 +628,7 @@ foreach $object (@objects) {
 	  my ($arg, $flag);
 	  $flag = 1;
 	  foreach $arg (@args) {
-	    if (defined $arg) {
+	    if ($arg ne "") {
 	      if (!$flag) {
 		$line .= ", ";
 	      } else {
@@ -599,6 +668,10 @@ open OUTFILE, ">$outfile" or die "Couldn't open $outfile: $!";
 
 print OUTFILE "; $outfile\n";
 print OUTFILE "; converted from $infile by bas2asm.pl\n";
+
+if ($getfile ne "") {
+  print OUTFILE "\tGET\t$getfile\n";
+}
 
 my $last_type = '';
 my $i;
