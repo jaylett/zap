@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.11 2003/01/21 15:58:10 christian Exp $
+; $Id: CreateFile,fff,v 2.12 2003/02/05 17:29:29 christian Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES  * 0
@@ -136,9 +136,6 @@ install_new_file
 	FNJSR	"R1-R10"
 	SYSLOGF "install_new_file %0s",LOG_FILE
 	MOV	R1,R0			; filename
-	FNLDR	R0,wimp_version
-	CMP	R0,#300
-	BLT	gotfname$l		; don't canonicalise
 	MOV	R0,#37
 	FNLDR	R2,wimp_block
 	MOV	R3,#0
@@ -149,7 +146,7 @@ install_new_file
 	FNLDR	R1,wimp_block
 	BL	get_filename_case_sensitive
 	FNLDR	R1,wimp_block
-gotfname$l
+
 	MOV	R0,#5
 	SWI	XOS_File		; read cat info and attributes to R5
 	BLVC	check_object_type
@@ -1460,9 +1457,6 @@ find_file_look
 	FNJSR	"R1-R5"
 	SYSLOGF "file_file_look %0s",LOG_FILE
 	MOV	R3,R0			; save name pointer
-	FNLDR	R0,wimp_version
-	CMP	R0,#300
-	BLT	fi30
 	MOV	R0,#37
 	MOV	R1,R3
 	FNLDR	R2,wimp_block
@@ -1473,7 +1467,7 @@ find_file_look
 	FNRTS	VS
 	FNLDR	R3,wimp_block
 
-fi30	FNLDR	R9,file_list
+	FNLDR	R9,file_list
 	FNLDR	R4,file_num
 fi15	SUBS	R4,R4,#1		; any left?
 	MOVMI	R9,#0
@@ -1881,43 +1875,7 @@ fcd$l	TEQ	R0,#0			; if <>0 returned (ie. SWI failed),
 ;X R0=Wimp KB buffer containing current directory name #
 find_current_directory
 	FNJSR	"R1-R7"
-	FNLDR	R0,wimp_version
-	CMP	R0,#300
-	BGE	os3$l
-	MOV	R0,#0
-	MOV	R1,#0
-	SWI	XOS_Args		; R0=temp fs number
-	MOVVC	R1,R0
-	FNLDR	R2,wimp_kbdbuf,VC
-	MOVVC	R3,#&100
-	MOVVC	R0,#33
-	SWIVC	XOS_FSControl		; find FS name
-	FNRTS	VS
-	MOV	R0,R2
-	BL	str_len			; find length
-	MOV	R7,R0			; save length
-	ADD	R2,R2,R7		; end of FS name
-	CMP	R7,#0
-	MOVGT	R0,#':'
-	STRGTB  R0,[R2],#1		; finish FS name
-	MOV	R0,#5
-	SWI	XOS_GBPB		; read disc name
-	FNRTS	VS
-	LDRB	R3,[R2]			; length byte
-	CMP	R3,#0
-	MOVGT	R0,#':'
-	STRGTB  R0,[R2],#1		; bung colon before disc name
-	ADD	R2,R2,R3		; end of disc name
-	MOVGT	R0,#'.'
-	STRGTB  R0,[R2],#1
-	MOV	R0,#'$'
-	STRB	R0,[R2],#1
-	MOV	R0,#0
-	STRB	R0,[R2],#1
-	FNLDR	R0,wimp_kbdbuf
-	FNRTS
-
-os3$l	MOV	R0,#37			; canonicalise path
+	MOV	R0,#37			; canonicalise path
 	ADR	R1,curr$l
 	FNLDR	R2,wimp_kbdbuf
 	MOV	R3,#0
