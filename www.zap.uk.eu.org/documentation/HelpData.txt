@@ -41,20 +41,25 @@ Drag SELECT to set a selection or ADJUST to alter a selection.
 Double click to select a word.
 Treble click to select a line.
 Quadruple click to select a paragraph.
-Quintruple click to select the whole text.
+Quintuple click to select the whole text.
 
 mode_byte
 Byte editing mode.
 Toggle hex entry mode via sF3 and insert/overwrite mode via the Insert key.
 In hex entry mode keys 0-9,A-F,a-f enter hex bytes.
 While not in hex entry mode letters enter their Ascii values.
+Press RETURN to edit the current byte; the instruction is assembled by BASIC.
+The instruction is assembled by BASIC, so you can use EQUB, EQUS etc.;
+however, only the first byte is used.
 
 mode_word
 Word (32 bit) editing mode.
 Toggle hex entry mode via sF3 and insert/overwrite mode via the Insert key.
 In hex entry mode keys 0-9,A-F,a-f enter hex words.
 DELETE deletes a whole word.
-Use undo (F8 or Shift <-|) to remove the last digit typed.
+Press RETURN to edit the current word.
+The instruction is assembled by BASIC, so you can use EQUD, EQUS etc.;
+however, only the first four bytes are used.
 
 mode_ascii
 ASCII editing mode.
@@ -66,8 +71,24 @@ Assembler instruction examining mode.
 Press RIGHT arrow to follow a branch and LEFT arrow to go back.
 Press RIGHT arrow or cI to indirect through the current address.
 Press RETURN to edit the current instruction.
-The instruction is assembled by BASIC so you can use any basic FNs.
-You can also use EQUD and EQUS but only the first 4 bytes will count.
+The instruction is assembled by BASIC, so you can use EQUD, EQUS etc.;
+however, only the first four bytes are used.
+
+mode_halfword
+Halfword (16 bit) editing mode.
+Toggle hex entry mode via sF3 and insert/overwrite mode via the Insert key.
+In hex entry mode keys 0-9,A-F,a-f enter hex halfwords.
+DELETE deletes a whole halfword.
+Press RETURN to edit the current halfword.
+The instruction is assembled by BASIC, so you can use EQUW, EQUS etc.;
+however, only the first two bytes are used.
+
+mode_doubleword
+Double word (64 bit) editing mode.
+Toggle hex entry mode via sF3 and insert/overwrite mode via the Insert key.
+In hex entry mode keys 0-9,A-F,a-f enter hex double words.
+DELETE deletes a whole double word.
+RETURN has no effect.
 
 mode_throwback
 This is a Zap throwback window.
@@ -77,6 +98,20 @@ Click ADJUST or press DELETE on a line to remove the line.
 Double click SELECT with Shift held to jump & remove the throwback file.
 
 | Leaf windows
+
+window.CloneBox
+This window lets you view the current clone modes.
+Click on the menu icon to open a list of clone modes.
+Click on NEW    to open a window for clone mode creation.
+Click on DELETE to delete the shown clone mode.
+Click on HIDE   to hide (unload) the shown clone mode.
+
+window.CloneCrBox
+This window lets you create new clone modes.
+Click on the menu icon to open a list of suitable clone base modes.
+  Clone modes are shown in blue.
+  Unloaded modes are shown in grey.
+Click on CREATE to create the mode.
 
 window.ColourBox
 This is the Zap 24 bit colour selector.
@@ -210,12 +245,16 @@ called.
 
 ALLMODES <string>
 Executes the supplied colon-separated string of zap commands once for each
-loaded mode.  The command is executed as though from the icon bar icon.
-This happens even if the command has been issued from the minibuffer.
-Commands which change options therefore affect the default options for the
-mode.  The command is mainly intended to allow options which are normally set
-up on a per mode basis to be set for all loaded modes.  Unfortunately there
-is no simple way to use the command from Zap's front end at the moment.
+loaded mode.  The command is normally executed as though from the icon bar
+icon; however, you can prevent this if the string begins with a colon, eg.
+when executed from the minibuffer, ALLMODES (LINENOS 1) will set the default
+line number display for all modes to 'logical', but ALLMODES (:LINENOS 1)
+will do so for the current window (unless, of course, executed from the icon
+bar menu or via COMMANDIB).
+ 
+The command is mainly intended to allow options which are normally set up on
+a per mode basis to be set for all loaded modes.  Unfortunately there is no
+simple way to use the command from Zap's front end at the moment.
 
 ALTERSEL (Martin Ebourne)
 Move the closest end of the selection to the current cursor position (like
@@ -235,9 +274,13 @@ If these are found, then soft-wrap is engaged.
 Auto soft wrap detection is turned on by default.
 
 BASEMAP <word>
+** Deprecated; use BASEMAPN instead.
 This command switches the key basemap to the given keymap number.
 All further keypresses will use this keymap.
 (It writes to w_basemap, w_currentmap and w_helpmap - see E-Windows)
+
+#Basemap
+This defines the base keymap (by name) for the mode.
 
 BASEMAPLIST
 Internally used to generate the keymaps menu for basemap selection.
@@ -276,7 +319,7 @@ BYTE_FLAGSTOGGLE <word>
 Used internally to set the Byte mode options.
 
 BYTE_GROUPSIZE
-Sets the Byte mode group size. Values in the range 0-15 are allowed.
+Sets the Byte mode group size. Values in the range 1-16 are allowed.
 
 CANCEL
 Cancel current Yank and Search-as-you-type operations.
@@ -324,6 +367,36 @@ CLI <string>
 Execute <string> as a command line interpreter command. Eg CLI "Set A 3".
 Output from the command is redirected to Null:.
 See also OSCLI and WIMPTASK.
+
+CLONEBASE <string>
+Only of use as a menu entry command, CLONEBASE will grey out the menu entry
+if the given mode is not the current mode or its clone base (sub)menu in
+which it is found does not belong to the specified mode.
+
+CLONEBOX
+Opens the clone modes window.
+
+CLONECREATE <string>
+Creates and initialises a clone mode from a given base mode. The mode is then
+accessible in the normal way.
+ 
+CLONECREATE "Foo Text"
+ 
+creates a mode named "Foo" which inherits the current default settings of
+Text mode.
+
+CLONEDELETE <string>
+Deletes the named mode and all associated configuration information.
+The mode number which it occupied is freed for reuse.
+ 
+The mode must be a clone mode, not the current default mode and not in use.
+
+CLONEHIDE <string>
+Deletes the named clone mode, but retains its configuration information.
+The mode number which it occupied is freed for reuse.
+The mode remains available.
+ 
+The mode must be a clone mode, not the current default mode and not in use.
 
 CLOSEOTHER
 Closes the next window in the swap-window sequence.
@@ -392,6 +465,10 @@ COREDUMP
 Produces an image of Zap's memory in Zap's directory.
 Use to produce a record of a nasty bug etc.
 
+COUNTMATCHES
+Performs the last search again, popping up a box giving the
+number of matches.
+
 CREATEFILE <word>
 Creates an empty file of filetype <word>.
 
@@ -407,7 +484,8 @@ Internally used to produce the cursor types menu.
 
 CUT
 Deletes the selected region.
-If the undo buffer is on, it can be pasted back with cY (Paste).
+If the undo buffer is on, then the parameter controls whether you can paste
+it back with cY (Paste); if it's 0 (or omitted), you can.
 If the undo buffer is off, then it's gone for ever!
 
 CWHEN <string>
@@ -448,7 +526,7 @@ then on keymap 0.
 DELETE <string>
 If no string is supplied the command deletes the character before the cursor.
 (calls mode entry point e_delete with R7=0)
-If the string is in the following table (case senstive) table then the
+If the string is in the following table (case sensitive) table then the
 associated action is taken:
  
 String		Equivalent  	Description
@@ -503,6 +581,16 @@ Kills a file and all windows on that file without prompting the user.
 DISCARDWINDOW
 Kills a window, and the file if auto-delete is on and this is the last
 window on that file - without prompting user.
+
+DOUBLEWORD_CONTROLREPLACE <string>
+Sets the DoubleWord mode control character replacement to the first character
+of <string>.
+
+DOUBLEWORD_FLAGSTOGGLE <word>
+Used internally to set the DoubleWord mode options.
+
+DOUBLEWORD_GROUPSIZE
+Sets the DoubleWord mode group size. Values in the range 1-16 are allowed.
 
 DOWN
 Moves cursor down a line.
@@ -567,7 +655,7 @@ delete the 'a' as opposed to inserting the 'b'.
 
 FFLAGS_TOGGLE <word> 
 General purpose command to toggle one bit of the file flags word.
-The titlebar updated afterwards.
+The title bar is updated afterwards.
 See WFLAGS_TOGGLE for details of <word>.
 
 FINDFILE <string>
@@ -620,10 +708,21 @@ Internally used to open the list of dynamic areas to grab.
 GOTO
 Bring up the goto dialogue box.
 
+HALFWORD_CONTROLREPLACE <string>
+Sets the HalfWord mode control character replacement to the first character
+of <string>.
+
+HALFWORD_FLAGSTOGGLE <word>
+Used internally to set the HalfWord mode options.
+
+HALFWORD_GROUPSIZE
+Sets the HalfWord mode group size. Values in the range 1-16 are allowed.
+
 HELP <string>
 Gives online help on subject according to the first letter of <string>.
 'c'=help on a command (HELPCOM), 'f'=help on a function (HELPFN),
-'k'=help on a key (HELPKEY),     'm'=help on the current mode,
+'k'=help on a key (HELPKEY),     'v'=help on a c-var (HELPVAR),
+'m'=help on the current mode,    'd'=open Zap's docs directory,
 'z'=Loads main help file on Zap.
 
 HELPFN <string>
@@ -634,6 +733,9 @@ HELPKEY <string>
 
 HELPCOM <string>
 Help is given on the command <string>.
+
+HELPVAR <string>
+Help is given on the c-var <string>.
 
 HEXASCII
 Toggle hex/ascii entry mode.
@@ -720,6 +822,7 @@ The region can be pasted again using cY.
 This is the equivalent of Emacs Meta-W.
 
 KEYMAP <word>
+** Deprecated; use KEYMAPN instead.
 Change the keymap to <word> for the next key press only.
 After the next key press the keymap will revert to BASEMAP value.
 (Eg Used for ctrl-X extensions in the Emacs key map)
@@ -799,18 +902,23 @@ Wildcarded names may not be used.
 The variables are *not* initialised; all that happens is that their old
 values are stored ready to be restored on exit from the command string.
 
-MAKEDEFAULT
+MAKEDEFAULT <word>
 This saves the window's options as the current default options.
-Follow this by a 'save options' to make the current window dictate
-the default options. Useful for setting default colours.
+If word = 0, then it only does so for the current mode.
+If word <> 0, then it does so for all loaded modes.
+ 
+Follow this by a 'save options' ('save defaults') if you wish to save the
+default options for the next time that you load Zap.
+This is useful for setting the default colours.
 
 MARGIN <word>
 Set the margin to <word>.
 
 MENUOPEN <word> (Chris Rutter)
 Opens Zap internal menu number <word>.
-Note that menus with numbers greater than four may change in future
-versions of Zap.
+Do not rely on menu numbers >=20, as these may change between versions of
+Zap or builds of the menus file.
+ 
 One possible use involves placing the following in the 'Settings' file:
 Command executed on IB ADJUST   &30F    MENUOPEN 2
 
@@ -837,19 +945,25 @@ Toggles a miscellaneous option according to <word>
 10=Autoload Disassembler
 11=Autoload Assembler
 12=Autoload HidePtr
-13=Autoload ZapRedraw
+13=Allow broken Wimp messages.
 14=Silent operation
 15=No anti-aliasing
 16=Autoload IClear
 17=Autoload KeyExtend
 18=No horizontal scroll
+19=Force startup command even when loading files on init
+20=Minibuffer always opens at the full width of the window
 
 MODE <word>
+** Deprecated. Use MODEN instead.
 Change the current display mode to <word>.
-Use MODEN in preference.
 
 MODEN <string>
 Change to the display mode named <string>.
+
+MODENMENU <string>
+Generates the mode menu for the given mode. If no mode is given, the current
+mode is used.
 
 MOVEBOX
 Opens the box for disc reading navigation, if the file is an appropriate one.
@@ -931,10 +1045,10 @@ Outdents the selected region.
 (by the length of the current indent string)
 
 OUTLINEFONT <string>
-<string> is a fontname, optionally preceeded by a '#' character.  If
-present, the hash prevents the font from being installed and cached - useful
-when preventing a second attempt to cache the font when used in conjunction
-with the FONTSIZE command.
+<string> is a font name, optionally preceded by a '#' character. If present,
+the hash prevents the font from being installed and cached - useful when
+preventing a second attempt to cache the font when used in conjunction with
+the FONTSIZE command.
 
 PASTE
 Pastes the last cut region repeatedly.
@@ -1030,7 +1144,7 @@ If <string> is omitted the buffer is saved under its current name.
 (unless it doesn't have a proper name when you are prompted for one)
 
 SAVEOPTIONS
-Saves the current default options to the !Config file.
+Saves the current default options to the !Config file (<Zap$Options>).
 
 SAVESEL
 Opens the save selection box.
@@ -1189,6 +1303,9 @@ TABSASSPACES
 Toggles whether tabs are inserted as spaces or truetabs (char 9).
 (acts like WFLAGS_TOGGLE 11).
 
+THROWBACK_FLAGSTOGGLE <word>
+Used internally to set the Throwback mode options.
+
 TOBACK
 Moves the window to the back of the window stack.
 (via Zap_OpenWindow 4)
@@ -1263,7 +1380,7 @@ It acts much like the WC command.
 
 WFLAGS_TOGGLE <word>
 Command to alter bits of the w_flags or opt_flags word.
-The titlebar is updated after the toggle.
+The title bar is updated after the toggle.
 The <word> is a short 'program' consisting of up to 4 instructions in
 the 4 bytes. Each byte has the form:
  b0-b4 = bit to effect
@@ -1274,7 +1391,7 @@ Eg, &8609 means toggle bit 9 then toggle bit 6 etc.
 
 WFORMAT_ALTER <word>
 Command to alter bits of the w_format or opt_format words.
-The titlebar is updated afterwards but the window not redraw.
+The title bar is updated afterwards but the window not redraw.
 The <word> is as for WFLAGS_TOGGLE.
 
 WFORMAT_TOGGLE <word>
@@ -1300,14 +1417,14 @@ where only the first matching WHEN counts.
 WHILE <string>
 The start of a WHILE...ENDWHILE loop. The loop is only learnt once, if learn
 mode is enabled.
- 
+ 
 <string> is a Zap expression (see IF).
- 
+ 
 Normal usage looks like
 	WHILE <condition>:<command(s)>:ENDWHILE
 and a typical condition string may look like
 	(@MODEN="text" OR @MODEN="email")
-
+ 
 WHILEs may be nested.
  
 WARNING: Infinite loops are very easy to get into. For this reason,
@@ -1324,7 +1441,7 @@ redraw the screen if necessary.
 
 WINFO_ALTER <word>
 Command to alter bits of the w_info or opt_info words.
-The titlebar is updated afterwards but the window not redraw.
+The title bar is updated afterwards, but the window is not redrawn.
 The <word> is as for WFLAGS_TOGGLE.
 
 WINFO_TOGGLE <word>
@@ -1343,19 +1460,24 @@ WORD_FLAGSTOGGLE <word>
 Used internally to set the Word mode options.
 
 WORD_GROUPSIZE
-Sets the Word mode group size. Values in the range 0-15 are allowed.
+Sets the Word mode group size. Values in the range 1-16 are allowed.
 
 WRAPWIDTH <word>
 Set the wordwrap width.
 
+WRITEBUFFER <string>
+Saves the buffer with filename <string>.
+If <string> is not given then it prompts for a filename.
+Unlike WRITEFILE, this doesn't change the filename for the file still open.
+
 WRITEFILE <string>
 Saves the buffer with filename <string>.
 If <string> is not given then it prompts for a filename.
-(it differs from Savefile which doesn't usually prompt)
+(it differs from SAVEFILE which doesn't usually prompt)
 
 YANK
 Paste last cut region from undo buffer to current cursor position.
-On repeated action it pastes previously cut regions in a cyclic manor.
+On repeated action it pastes previously cut regions in a cyclic manner.
 
 | Zap builtin functions
 
@@ -1405,8 +1527,26 @@ Returns 0.
 @FILENAME
 Returns the name of the file.
 
+@GETVAR
+Returns the value of the mode- or file-set configuration variable.
+
 @GREYED <command>
-Returns TRUE if the Zap command <command> would be ticked in a menu.
+Returns TRUE if the Zap command <command> would be greyed in a menu.
+
+@IF <string>
+Returns one of two expressions (which can evaluate to either string or
+integer) depending on whether an expression is true (non-zero). Either
+expression may be omitted; if so, then it is possible that the minibuffer
+will be opened.
+ 
+Syntax:
+  @IF (<condition>,<expr_if_true>)			; NULL if false
+  @IF (<condition>,<expr_if_true>,<expr_if_false>)
+  @IF (<condition>,,<expr_if_false>)			; NULL if true
+ 
+Examples:
+  INSERT $IF (@MODET>4, "Text", "") ;"Text" if text-like mode, "" otherwise
+  EMAIL_STRIPSPCS #IF (@SELECT, &0B, &1B) ; &B if Select pressed, else &1B
 
 @IN <string>
 Array lookup: returns TRUE if the first element is the same as one of the

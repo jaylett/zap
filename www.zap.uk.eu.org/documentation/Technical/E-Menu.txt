@@ -12,8 +12,10 @@ menu from a menus file. The structure pointed to by e_menu is of the form:
 
 	#&00	Menu name (12) (zero terminated)
 	#&0C	Menu width (os coords)
+		  b31 set if help text present for 'no item selected' state
 	#&10	Module offset of 'update menu code' (0 if none)
-	#&14	Menu entries (x n)
+	#&14	Help text pointer (only present if b31 of width word set)
+		Menu entries (x n)
 		-1 to terminate list of entries
 
 Each menu entry is of the form:
@@ -47,6 +49,20 @@ Each menu entry is of the form:
 	#&10	Text for this entry (0 terminated string of any length)
 	ALIGN before next entry.
 
+The menu text strings are MessageTrans tokens if the mode has its
+MessageTrans flag bit set (see e_mode in E-Entry); however, the menu title is
+taken as a literal string if it starts with a NUL (this NUL is then ignored).
+
+The menu help data consists of (n+1) strings, where n is the number of
+entries in the menu. Each string takes one of three forms:
+  1. Literal string, NUL terminated
+  2. Byte &1B (ESC), token name, NUL terminated
+  3. Byte &01, unterminated.
+Form 3 is a shorthand for repeating the most recent help string of
+either of the other two forms.
+The first string is for when the pointer is over the menu but not over a menu
+entry; it cannot be of form 3. The second string is for the first menu entry.
+
 This structure is relocatable and thus can be stored directly in your mode
 extension module. When Zap is run, it converts it into a standard wimp menu
 with all menu entries being indirected strings. The size of the indirected
@@ -55,6 +71,18 @@ specifies a greater amount. The other values are stored at negative offsets
 from the standard wimp structure:
 
 	menu pointer
+	#-16	= Pointer to menu help text block (0 if none).
+		  This is of the form
+		    +0   = ptr to 'no item' help text
+		    +4   = ptr to item 0 help text
+		    +8   = ptr to item 1 help text
+		    +x   = ptr to item y help text
+		    +x+4 = -1
+		    +x+8 = the help text: one NUL-terminated string per entry
+		  Pointers may be null (0) if there is no corresponding help
+		  text.
+	#-12	= Reserved for internal use. Menus not built by Zap_LoadMenu
+		  must have this set to 0.
 	#-8	= Counter giving time menu last updated. Used internally.
 		  Should initially be 0.
 	#-4	= Descriptor saying how the menu should be updated when

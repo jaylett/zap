@@ -176,7 +176,7 @@ and then Zap_PlotCaret.
 
 Zap_SetCaret
 This updates the area of the window containing the the caret given on entry.
-Hence it's effect is usually to draw the caret at it's (new) position. It
+Hence its effect is usually to draw the caret at its (new) position. It
 calculates a value for c_charoff.  See E-Cursors.
 	\E R10=caret block
 
@@ -291,10 +291,10 @@ the entry point, and the next 4 the value to pass in R11 when the entry point
 is called. This will obviously vary if some mode entry points are based on
 other modes. Thus the linked table has the form:
 	e_module	#0	module address,	module workspace address
-	e_title		#8	title address,	undefined
+	e_title		#8	title address,	mode variable table address
 	e_author	#16	author address,	undefined
-	e_basemode	#24	basemode,	undefined
-	e_mode		#32	mode number,	undefined
+	e_basemode	#24	basemode,	clone basemode
+	e_mode		#32	mode number,	mode e.p. suppliers list
 	e_init		#40	init code addr,	value to pass in R11
 	e_menu		#48	wimp menu data,	undefined
 	e_len		#56	undefined,	undefined
@@ -302,6 +302,8 @@ other modes. Thus the linked table has the form:
 	 and the rest as for e_postload.
 I reserved the right to use the undefined words in future. You can change the
 table entries pointer to in R1, but I don't advise it :-)
+The mode entry points suppliers list contains a mode number (byte) per entry
+point.
 	\E R0=mode number.
 	\X R0=pointer to unlinked table in modes module / <=0 if invalid
 	   R1=pointer to linked table in zaps workspace / <=0 if invalid
@@ -422,9 +424,12 @@ As for Zap_DiscardWindow but prompts user if file altered etc.
 
 Zap_BuildMenu
 This is Zap's 'variable length menu' building sub. See E-Menu for details on
-Zap's menu format.
+Zap's menu format. If you want to be able to specify help text, use
+Zap_BuildMenuWithHelp instead.
 	\E R0=menu name (max 12 chars)
 	   R1=address of sub to generate the menu entries
+	      b0 set if the menu name is a MessageTrans token
+	         (no parameters, no GS translation)
 	   R2=address of menu updating sub/0 if none (see E-Menu)
 	   R3=address of menu interpret sub for all entries/0 (see E-Menu)
 	   R4=menu width in chars
@@ -583,7 +588,7 @@ passed to Zap_MiniWrite may contain the following control codes:
 	28=set mark to current cursor offset
 	127=delete character before cursor
 When a command with string parameter is called, R0 points to the user
-editable part of the string.
+editable part of the string. (See also Zap_MiniWriteToken.)
 	\E R0=pointer to zero terminated string
 
 Zap_MiniPrompt
@@ -592,7 +597,10 @@ main use is for reason code R2=6 when a command with string parameter is
 called (see E-Commands). The buffer is not updated on screen (see
 Zap_MiniWrite). Unlike Zap_MiniWrite, the minibuffer cursor is not affected
 by this call (It remains the same number of characters after the mark).
+": " is automatically appended (taking note of whether the string already
+ends with ": ").
 	\E R0=new prompt string
+	      b31 set to suppress automatic appending of ": "
 
 Zap_MiniUpdate
 This call updates the minibuffer on screen (if open). This will usually be
@@ -891,7 +899,7 @@ point (using e_clnoff).
 	\E R0=Offset in line to move the cache reference point to. R8/R9
 
 Zap_ModeData
-This call reads or write the mode dependant options that Zap handles
+This call reads or write the mode dependent options that Zap handles
 automatically for you. See also Zap_ModeColour. Currently there is only one
 word per mode storing the width and things like whether auto-indent is on or
 not. You should use this call with R8=0 to write sensible default values if
@@ -903,15 +911,15 @@ default Text mode values will be used.
 	   R8=window concerned / 0 for the default (!Config) settings.
 	\X R0=variable value if read / old value if written
 	Variables num:	0	b0-b15  stores the "width" for this mode
-				b16	auto indent bit (b16 of w_format)
-				b17	auto width bit (b6 of w_flags)
-				b18	strip spaces bit (b18 of w_format)
-				b19-b21 tab mode bits (b9-b11 of w_flags)
+				b16	auto indent bit     (w_format b16)
+				b17	auto width bit      (w_flags  b6)
+				b18	strip spaces bit    (w_format b18)
+				b19-b21 tab mode bits       (w_flags  b9-11)
 					b19-b20 0=Unix 1=Edit 2=Coltab
 					b21=insert tabs as spaces
-				b22	hex entry mode bit (b5 of w_flags)
-				b23	overwrite bit (b1 of w_flags)
-				b24-b31	display bits (b8-b15 of w_format)
+				b22	hex entry mode bit  (w_flags  b5)
+				b23	overwrite bit       (w_flags  b1)
+				b24-b31	display bits        (w_format b8-15)
 					b24=line numbers shown
 					b25=line numbers as lines (not addr)
 					b26=line numbers in hex
@@ -925,25 +933,29 @@ default Text mode values will be used.
 				b5	Infinite window wrap
 				b6	Use line selection paradigm
 				b7	Spell-as-you-type
-				b8	Big endian	    (b17 of w_format)
-				b9	Reserved
-				b10	Reserved
+				b8	Big endian	    (w_format b17)
+				b9	Strong soft wrap
+				b10	Block edit
 				b11	Reserved
-				b12	Set if linewrap mode on	(b26 w_flags)
-				b13	Set if wordwrap mode on	(b13 w_flags)
+				b12	Set if linewrap mode on	(w_flags b26)
+				b13	Set if wordwrap mode on	(w_flags b13)
 				b14	Reserved
 				b15	Reserved
-				b21	Free mouse clicks   (b21 of w_format)
-				b22	Auto soft wrap	    (b22 of w_format)
-				b23	Confined cursor U/D (b23 of w_format)
-				b24	Confined cursor ->  (b24 of w_format)
-				b25	Smart shift-cursor  (b25 of w_format)
-				b26	Window-wrap	    (b26 of w_format)
-				b27	Soft-wrap	    (b27 of w_format)
+				b21	Free mouse clicks   (w_format b21)
+				b22	Auto soft wrap	    (w_format b22)
+				b23	Confined cursor U/D (w_format b23)
+				b24	Confined cursor ->  (w_format b24)
+				b25	Smart shift-cursor  (w_format b25)
+				b26	Window-wrap	    (w_format b26)
+				b27	Soft-wrap	    (w_format b27)
 				...other bits reserved...
-			2	b0-7	Base keymap number
+			2	b0-7	Reserved (was base keymap number)
+				b8-15	Display colour block number
+				b16-23	Printer colour block number
+				b24-31	Number of colours per block
+			3	b0-7	Number of extra system colours
 				...other bits reserved...
-			3+	reserved.
+			4+	reserved.
 
 Zap_WhichMode
 This call decides which mode a given file should be displayed in.
@@ -996,6 +1008,8 @@ Poll is not called.
 	      + flags:
 		b31 => Don't beep when opening the window
 		b30 => no "Warning: " prefix.
+		b29 => call Zap_LookupTokenR0 first
+	   R4-R7=parameters for %0..%3 (if R1 b29 set)
 	   R8/R9=window in which to show the warning.
 
 Zap_AllWindow
@@ -1116,8 +1130,22 @@ for the new entries!
 
 Zap_CreateThrowback
 Creates a throwback buffer ready for lines being inserted by Zap_Throwback.
- ;E R0=suggested width of window / 0 to use default width
- ;X R0=window offset of window R8/R9=newly created throwback window
+ \E R0=suggested width of window / 0 to use default width
+       b31,30 = 01  R1 = task handle
+	      = 10  R1 = filename
+	      = 11  R1 = name token
+       b29 set	    R2 = list of those tokens which the mode supplies to
+			 Zap_Throwback for use at various line starts. Note
+			 that codes < 32 are *not* ignored.
+			 Format: each entry consists of
+				+0  0
+				+4  Throwback colour number
+				    + special value in top 4 bits
+				+8  Token name (NUL term, padded to align)
+			 The list is terminated by 0,0,<anything>.
+			 The special value must be either 0 or 6; set it to 6
+			 if the colour must be reset after a colon.
+ \X R0=window offset of window R8/R9=newly created throwback window
 
 Zap_Throwback
 Inserts a line in a throwback file for you.
@@ -1125,12 +1153,17 @@ Inserts a line in a throwback file for you.
        set b31 to suppress this being printed automatically.
     R1=filename (of the file that R0 is an offset in)
     R2=information string to print after the line number (eg "Bad syntax")
+       b31 set if this is a MessageTrans token
     R3=string to precede filename  (eg "Errors in file:")
+       b31 set if this is a MessageTrans token
     R4=file offset of linked file / -1 if may not be loaded
     R5=flags to use for the new entry (see f_links,#12)
     R6=string to precede new info block (eg "Line num  Error")
+       b31 set if this is a MessageTrans token
     R7=string to go after filename (eg 10,"Search string: fred")
+       b31 set if this is a MessageTrans token
     R8/R9=throwback window to add entry to
+    (MessageTrans tokens: no GS translation, no parameters.)
  \X Throwback entry added and new title block given if file (or flags)
     have changed KB #
     The line number field is 10 characters wide if not suppressed.
@@ -1314,3 +1347,133 @@ Zap_CalculateChecksum
 Calculates the checksum for the file.
 	\E R9
 	\X R0 = checksum for the file.
+
+Zap_LookupToken
+Looks up a token, placing the result in the supplied buffer; parameter
+substitution is performed, and the string will be NUL-terminated. If no
+buffer is supplied, then no substitution can be done and the string will be
+LF (or possibly CR) terminated. (Uses MessageTrans_Lookup.)
+	\E R1=token
+	   R2=buffer (or 0 to use none)
+	   R3=maximum length (ignored if R2==0)
+	   R4-R7=parameters for %0..%3
+	\X R1=token terminator
+	   R2=result string
+	   R3=length (exc. terminator)
+
+Zap_LookupTokenGS
+Looks up a token, placing the result in the supplied buffer; parameter
+substitution and GS translation (eg. '|J' -> LF) is performed, and the string
+will be NUL-terminated. If no buffer is supplied, then no substitution can be
+done and the string will be LF (or possibly CR) terminated. (Uses
+MessageTrans_GSLookup.)
+	\E R1=token
+	   R2=buffer (or 0 to use none)
+	   R3=maximum length (ignored if R2==0)
+	   R4-R7=parameters for %0..%3
+	\X R1=token terminator
+	   R2=result string
+	   R3=length (exc. terminator)
+
+Zap_LookupError
+Looks up a token, placing the result in the supplied buffer or in a default
+buffer. (Uses MessageTrans_ErrorLookup.)
+	\E R0=error block containing the token
+	   R2=buffer (or 0 to use default)
+	   R3=maximum length (if R2<>0)
+	   R4-R7 -> parameters for %0..%3
+	\X R0=pointer to error buffer
+	   V set
+
+Zap_LookupTokenR0
+Look up token, performing no GS translation or parameter substitution. (This
+is equivalent to Zap_LookupToken with R2=0.)
+	\E R0=token
+	\X R0=string (LF terminated), or token if not found
+
+Zap_ExpandMenu
+This builds a Zap relocatable menu, which can be linked in for Zap to use
+automatically for your mode by calling Zap_ReadMode then writing the menu
+address to [R1,#2*e_menu]. The width is calculated automatically; if writable
+items are present, they are ignored (not expanded) and are assumed to be of
+the supplied width.
+	\E R0=pointer to tokenised menu
+	   R1=submenu handler subroutine (0 = use Zap_ExpandMenu)
+	   R2=module base address
+	\X R0=expanded menu
+The subroutine pointed to by R1 is called whenever a submenu is found and the
+warning flag is not set for it. It has the following conditions:
+	\E R0=pointer to submenu
+	   R1,R2 unchanged
+	\X R0=expanded menu, or 0
+The tokenised menu closely resembles the relocatable menu format (see
+E-Menu), the differences being that all strings are MessageTrans tokens
+except when *started* with a NUL (in which case a string literal follows,
+unaligned), and the menu title is of variable length (to accomodate long
+token names). No GS translation and no parameter substitution is performed.
+
+Zap_MiniWriteToken
+A MessageTrans token-using version of Zap_MiniWrite. GS translation is
+performed (see Zap_LookupTokenGS).
+	\E R0=token
+	   R4-R7=parameters for %0..%3
+
+Zap_MiniPromptToken
+A MessageTrans token-using version of Zap_MiniPrompt. GS translation is
+performed (see Zap_LookupTokenGS).
+	\E R0=token (b31 set to suppress automatic appending of ": ")
+	   R4-R7=parameters for %0..%3
+
+Zap_TestIfCloneBase
+Tests to see if the given mode is the clone base of the current mode. This is
+primarily of use by cloneable modes' configuration commands, which should do
+nothing if this returns Z clear or if being used to update a menu (ie.
+R2=15..20, but see E-Commands) and R0<>R14; this is to prevent you
+accidentally configuring the wrong mode.
+	\E R0=mode R8
+	\X Z set if it's the clone base of the current mode
+		 or if it's the current mode
+	   R0=current mode
+	   R14=menu mode
+
+Zap_ReadVariable
+Reads a user-controlled configuration variable. These are set per mode, and
+in the future will be overridden per file. (See
+ZapResources:Docs.Technical.TMFs for further discussion.)
+ The variable name will be copied and stored in the variable table (don't
+worry about this, you still control the buffer); the result is a pointer
+directly into the variable table, so if you need to use it, COPY IT -
+particularly if you expose it through a function, since the command system
+will try to free the memory used for it when you do so.
+ Note that V does *not* indicate an error condition.
+ Use Z or R0=0 to indicate whether a variable returned or not.
+	\E R0=variable name, r8/r9 optional
+	\X R0=variable / 0 and Z set
+
+Zap_BuildMenuWithHelp
+This is Zap's 'variable length menu with help text' building sub. See E-Menu
+for details on Zap's menu format.
+The interface is as for Zap_BuildMenu, with the following additions:
+	\E R5=pointer to help text / 0
+	The sub passed in R1 has the following extra condition:
+	     \X R1=pointer to help text / 0
+If the first byte of the help text is ESC, then it is assumed to be a token.
+Note that the help text must be permanently stored; if tokenised, no %
+substitution will be performed.
+
+Zap_CharDelDispatch
+If the cursor is in the selection, then this will call the supplied routine
+once for each (logical) line in the selection for which the cursor, at its
+current column number, would still be in the selection. Otherwise, it will
+just call the routine normally.
+In your routine, you will most likely be using Zap_Command; you are advised
+to set b5 of R0 (delink the cursor) and to move it yourself, if necessary, on
+return from Zap_CharDelDispatch.
+	\E R3 = routine (b31 =0 if it inserts/overwrites, =1 if it deletes)
+	   R4-R7 as for e_char or e_delete
+	   R8/R9/R10
+	\X R0-R2,R11 corrupt
+	The routine passed in R3 has:
+		\E R0=1
+		   R4-R10 as above
+		\X must preserve R1-R11; R0 = undefined or error (VS)
