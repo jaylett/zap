@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: buttons,fff,v 1.4 2003/03/14 02:45:37 christian Exp $
+; $Id: buttons,fff,v 1.5 2003/03/15 23:45:29 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -409,7 +409,7 @@ getwind$l	FNJSR	"R9"
 ; ---------------------------------
 ; BUTTONS_START command
 
-		DCD	0
+		DCD	1				; doesn't need caret
 Buttons_Start	FNJSR	"R1-R4,R11"
 		BL	get_workspace
 		BL	filter_e_start			; create buttons for this window
@@ -419,7 +419,7 @@ Buttons_Start	FNJSR	"R1-R4,R11"
 ; ---------------------------------
 ; BUTONS_CLOSE command
 
-		DCD	0
+		DCD	1
 Buttons_Close	FNJSR	"R1-R4,R11"
 		BL	get_workspace
 		BL	delete_buttons			; remove them
@@ -432,7 +432,7 @@ Buttons_Close	FNJSR	"R1-R4,R11"
 ; ---------------------------------
 ; BUTTONS_CHANGE command
 
-		DCD	8				; byte parameter
+		DCD	9				; byte parameter, no R10
 Buttons_Change	FNJSR	"R1-R5,R11"
 		BL	get_workspace
 		LDR	R5,[R8,#w_info]			; see if we have buttons
@@ -451,7 +451,7 @@ Buttons_Change	FNJSR	"R1-R5,R11"
 ; ---------------------------------
 ; BUTONS_MOVE command
 
-		DCD	0
+		DCD	1
 Buttons_Move	FNJSR	"R1-R4,R11"
 		BL	get_workspace
 
@@ -1199,8 +1199,17 @@ execute_script	FNJSR	"R6"
 		TEQ	R1,#'%'
 		BEQ	nofocus$l
 		SUB	R6,R6,#1
-		LDR	R0,[R8,#w_poff]			; put focus in associated window
-		FNcall	Zap_PutCaret,R1
+
+		PUSH	"R8,R9"				; read current cursor position
+		MOV	R1,#var_car_cursor
+		FNcall	Zap_ReadVar,R0
+		LDR	R0,[R0,#c_wind]
+		FNcall	Zap_ConvWindOff,R1
+		MOV	R0,R8
+		PULL	"R8,R9"
+		TEQ	R0,R8
+		LDRNE	R0,[R8,#w_poff]			; put focus in associated window
+		FNcallc	Zap_PutCaret,NE,R1
 
 nofocus$l	LDRB	R1,[R6]				; check for don't learn flag
 		TEQ	R1,#'$'
