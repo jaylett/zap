@@ -1,5 +1,5 @@
 ; Contains mode entry points for BASIC mode.
-; $Id: BASIC,fff,v 1.17 2001/07/06 14:37:09 james Exp $
+; $Id: BASIC,fff,v 1.18 2002/11/18 13:13:52 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
@@ -781,7 +781,7 @@ red15
  STRNE R2,local_cacheddataval2
  STRNE R3,local_cacheddataval3
  STREQ R14,local_cacheddataofs
- FNRTSS				; ret without error
+ FNRTVC				; ret without error
 
 local_cacheddataofs
  DCD &0
@@ -2894,17 +2894,17 @@ test_decexpr
  MOVEQ PC,R14
 test_decdigit
  CMP R0,#'9'
- BICHIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC HI
  CMP R0,#'0'
  MOV PC,R14
 
 test_hexdigit
  CMP R0,#'f'
- BICHIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC HI
  CMP R0,#'a'
  MOVCS PC,R14
  CMP R0,#'F'
- BICHIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC HI
  CMP R0,#'A'
  MOVCS PC,R14
  B test_decdigit
@@ -2913,11 +2913,11 @@ test_hexdigit
 ;X CC = non-alpha - CS = alphanumeric.
 test_alphanum
  CMP R0,#'z'
- BICHIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC HI
  CMP R0,#'_'			; &5F
  MOVCS PC,R14
  CMP R0,#'Z'
- BICHIS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC HI
  CMP R0,#'A'
  MOVCS PC,R14
  B test_decdigit
@@ -4220,7 +4220,7 @@ cln_FO_1
  ADDCS R7,R7,#1			; if so inc phy line (but not log line)
  FNPULL	; and return
  MOVCS PC,R14			; return VC if could do this line
- ORRS PC,R14,#Vbit	; !!! ARM32 FIXME
+ RTV
 
 ;E R2=fileblk R3=line len R7=phy ln R9=file off of start of phy line
 ;X vals updated to _A_ previous log line, VS if error R2-R3,R10-R11 saved
@@ -4455,7 +4455,7 @@ cln_ba_a
  BHI cln_ba_a			; still some chars left
 cln_ba_vs
  MOV R9,R10
- ORRS PC,R14,#Vbit	      ; return start of buffer error	; !!! ARM32 FIXME
+ RTV				; return start of buffer error
 cln_ba_m
  TST   R0,#&FF000000
  ADDEQ R9,R9,#1
@@ -4519,7 +4519,7 @@ clfo_1
  LDRB R0,[R7],#1		; next byte
  TEQ R0,R5,LSR#24
  BNE clfo_1			; no match
- BICS PC,R14,#Cbit	      ; return match found	; !!! ARM32 FIXME
+ RTCC				; return match found
 clfo_2
  LDR R0,[R7],#4
  EOR R0,R0,R5
@@ -4532,7 +4532,7 @@ clfo_2
  BCC clfo_2			; loop for next word
 clfo_vs
  MOV R7,R6			; new nextchar
- ORRS PC,R14,#Cbit	      ; overflown buffer before next match	; !!! ARM32 FIXME
+ RTCS				; overflown buffer before next match
 clfo_m
  TST   R0,#&000000FF
  SUBEQ R7,R7,#1
@@ -4542,7 +4542,7 @@ clfo_m
  SUBEQ R7,R7,#1			; R9 now points to the byte after the match
  CMP R7,R6
  BHI clfo_vs			; was off the end of the buffer
- BICS PC,R14,#Cbit	      ; return match found	; !!! ARM32 FIXME
+ RTCC				; return match found
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Moving to start/end of line					   ;
@@ -5067,14 +5067,14 @@ basic_presave
 check_format
  LDR R0,[R9,#f_len]
  CMP R0,#0
- ORRLES PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCS LE
  FNJSR "R1"
  MOV R0,#0
  BL cln_readc			; get first char of file
  TEQ R0,#&0D
  FNPULL
- BICEQS PC,R14,#Cbit	; !!! ARM32 FIXME
- ORRS PC,R14,#Cbit	; !!! ARM32 FIXME
+ RTCC EQ
+ RTCS
 
 ;E R2=len R3=address of data block
 
@@ -5117,7 +5117,7 @@ basic_start
  BLNE but_destroyanypanes	; destroy any made so far...
  CMP R8,#0			; TT Don't do anything if in IB menu
  BLNE gomakepanehappen
- FNRTSS
+ FNRTVC
 
 ;forfirsttime$l
 ; FNJSR
@@ -5980,7 +5980,7 @@ jo1
 
 basic_copy
  TEQ R0,#2
- MOVEQS PC,R14			; please insert via my e_char	; !!! ARM32 FIXME
+ MOVEQ PC,R14			; please insert via my e_char
  FNJSR "R4"
  MOV R5,R1			; save number of bytes
  FNLDR R0,buf_insert
@@ -6827,7 +6827,7 @@ dn1
  MOV R0,R2			; restore error
  PULL "R1-R2"
  PULL "R7,R14"	; !!! Unmatched return LDM
- ORRS PC,R14,#Vbit	; !!! ARM32 FIXME
+ RTV
 
  LOCAL
 

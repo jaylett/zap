@@ -1,5 +1,5 @@
 ; Contains BASIC module header and non mode specific code.
-; $Id: ZapBASIC,fff,v 1.6 2001/06/16 04:06:13 ds Exp $
+; $Id: ZapBASIC,fff,v 1.7 2002/11/18 13:13:52 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapBasHdr
@@ -46,23 +46,27 @@
  EXPORT basic_getzapversion
  EXPORT test_forkey
 
+ EXPORT ARM32_CCRet
+ EXPORT ARM32_CSRet
 
  AREA |!!!Module_Header_Area|,CODE,READONLY
 
  ENTRY
 
 Module_header
-Start_code	    DCD start_code
-Initialisation_code DCD initialise_code
-Finalisation_code   DCD finalise_code
+Start_code	     DCD start_code
+Initialisation_code  DCD initialise_code
+Finalisation_code    DCD finalise_code
 Service_call_handler DCD 0
-Title_string	    DCD title_string
-Help_string	    DCD help_string
-Command_keyword_tab DCD command_table
-SWI_chunk_number    DCD 0
-SWI_handler_code    DCD 0
-SWI_decoding_table  DCD 0
-SWI_decoding_code   DCD 0
+Title_string	     DCD title_string
+Help_string	     DCD help_string
+Command_keyword_tab  DCD command_table
+SWI_chunk_number     DCD 0
+SWI_handler_code     DCD 0
+SWI_decoding_table   DCD 0
+SWI_decoding_code    DCD 0
+Messages_File	     DCD 0
+Module_Flags	     DCD module_flags
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TITLES AND COMMAND TABLES				       ;
@@ -131,6 +135,9 @@ twhlp
  = "-ctrl option",27,")set.",13,10
 twsyn
  FNS ("Syntax: as for *TaskWindow")
+
+module_flags DCD 1			; 32 bit compatible
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; INITIALISE AND FINALISE				       ;
@@ -528,7 +535,7 @@ div_mod_1
  SUB R3,R3,#4
  TEQ R3,#0
  BNE div_mod_1			; DO NOT CORRUPT CARRY
- MOVS PC,R14	; !!! ARM32 FIXME
+ MOV PC,R14
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; ERRORS					     ;
@@ -545,8 +552,10 @@ $la	ADD R0,PC,#8			; address of the error message
 	DCD (ENUM+$a)			; the error number
 	= $b,0
  |
-$la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#1<<28		; return with an error	; !!! ARM32 FIXME
+$la	ADD R0,PC,#8			; address of the error message
+	CMPVC PC,#1<<31			; don't use SEV son we know how
+	CMNVC PC,#1<<31			;  long the sequence is
+	MOV PC,R14
 	DCD (ENUM+$a)			; the error number
 	= $c,0
  ]
@@ -555,8 +564,10 @@ $la	ADD R0,PC,#0			; address of the error message
 
 	MACRO
 $la	FNierr $a,$b
-$la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#1<<28		; return with an error	; !!! ARM32 FIXME
+$la	ADD R0,PC,#8			; address of the error message
+	CMPVC PC,#1<<31			; don't use SEV son we know how
+	CMNVC PC,#1<<31			;  long the sequence is
+	MOV PC,R14
 	DCD (ENUM+$a)			; the error number
 	= $b,0
 	ALIGN
@@ -653,7 +664,7 @@ strcopy
  BCS strcopy
  MOV R0,#0
  STRB R0,[R1,#-1]
- MOVS PC,R14	; !!! ARM32 FIXME
+ MOV PC,R14
 
 ;E R1=dest R2=source (copy till <32 and add no zero)
 ;X R0=terminatior R1=end of dest R2=char after terminator |
@@ -839,9 +850,9 @@ cln_writec
 ; SERVICE CALL HANDLER					       ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-service_call
- LDR R12,[R12]
- MOVS PC,R14	; !!! ARM32 FIXME
+;service_call
+; LDR R12,[R12]
+; MOV PC,R14
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Run program handling						;
@@ -1546,13 +1557,14 @@ DELWORDLEFT
  MOV R0,R3
 
  TEQ R1,#0
+ BEQ done$l
 dwl01
- BLNE back_word
- SUBNES R1,R1,#1
+ BL back_word
+ SUBS R1,R1,#1
  BNE dwl01
 
 ; \\\ R0 = start of block, R3 = end of block
-
+done$l
  MOV R1,R0
  SUB R2,R3,R0
  FNcall Zap_StartOp
@@ -1564,6 +1576,8 @@ dwl01
 dwl02
  FNRTS
 
+ LOCAL
+
 ; \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\;
 
  DCD (1<<12)
@@ -1574,13 +1588,14 @@ DELWORDRIGHT
  MOV R0,R3
 
  TEQ R1,#0
+ BEQ done$l
 dwr01
- BLNE fwd_word
- SUBNES R1,R1,#1
+ BL fwd_word
+ SUBS R1,R1,#1
  BNE dwr01
 
 ; \\\ R3 = start of block, R0 = end of block
-
+done$l
  MOV R1,R3
  SUB R2,R0,R3
  FNcall Zap_StartOp
@@ -1623,7 +1638,7 @@ fw02
  BCC fw02
 
 fw_eof
- FNRTSS
+ FNRTS
 
 ; \ Move one word backward in file
 ; \ (In) R0 = file offset, (Out) R0 = new file offset
@@ -1647,7 +1662,7 @@ bw02
 
 bw_eof
  ADD R0,R0,#1
- FNRTSS
+ FNRTS
 
 ; redundant code...?
 ; \ Get a character from a file buffer
@@ -1662,7 +1677,7 @@ getc_off
  LDR R1,[R9,#f_ptr]
  LDRB R1,[R1,R0]
 
- FNRTSS
+ FNRTS
 
 ; \ Check whether a character is a word constituent
 ; \ (In) R1=char (Out) CS=Word, CC=NonWord
@@ -1687,6 +1702,13 @@ wordtab
  DCD &00000000        ;\ &C0-&DF
  DCD &00000000        ;\ &E0-&FF
 
+
+; some 32 bit ARM support code
+
+ARM32_CSRet
+	RTCS
+ARM32_CCRet
+	RTCC
 
 ;;;;;;;;;; End Of Assembly ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
