@@ -12,8 +12,8 @@
 #	ZapRedraw (default)	Build ZapRedraw
 #	clean			Wipe .o and .t files, and auto-gen headers
 
-OBJECTS		=  o/ZapRedraw o/DSARedraw o/VDURedraw o/Cache o/Commands \
-		   o/VFRedraw o/Messages o/DSA32
+OBJECTS		=  o/ZapRedraw o/Cache o/Commands o/Messages o/ListFonts \
+		   o/VFRedraw o/DSARedraw o/VDURedraw o/DSA32
 
 asm		= as_ro -t ARM3
 link		= link_ro
