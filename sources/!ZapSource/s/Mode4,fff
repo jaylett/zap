@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.11 2003/04/20 14:55:55 christian Exp $
+; $Id: Mode4,fff,v 2.12 2003/09/02 23:56:23 christian Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -484,6 +484,8 @@ rf_umull	*	(1<<8)
 rf_swi		*	(1<<9)
 rf_fp		*	(1<<10)
 rf_cp		*	(1<<11)
+rf_ef		*	(1<<12)				; ef bits must be 0 in FIX
+rf_efgh		*	(1<<13)				; efgh bits must be 0 in WFS, RFS, WFC, RFC
 
 mode4_redrawline
 	LDR	R1,[R9,#f_len]
@@ -669,7 +671,7 @@ cdone$l	MOV	R0,R1
 	BEQ	undefined$l
 
 	; ascertain the instruction type
-start$l	ADR	R11,opctab$l
+start$l	ADRL	R11,opctab$l
 sloop$l	LDR	R0,[R11],#4
 	AND	R0,R0,R4
 	LDR	R1,[R11],#8
@@ -678,9 +680,25 @@ sloop$l	LDR	R0,[R11],#4
 
 	CMP	R2,#-1
 	MOVEQ	R2,#0
+	MOVEQ	R14,#0
 	LDR	R11,[R11,#-4]		; flags
 	ORR	R2,R2,R11
 	MOV	R11,R11,LSR #24		; initial colour
+
+	TST	R2,#rf_ef		; nasty check for SBZ bits in some
+	MOVNE	R0,#1<<19		; FP ops
+	ORRNE	R0,R0,#1<<7
+	TSTNE	R4,R0
+	BNE	notfp$l
+	TST	R2,#rf_efgh
+	ORRNE	R0,R0,#(1<<6)+(1<<5)
+	TSTNE	R4,R0
+	BEQ	colok$l
+notfp$l	MOV	R11,#c_cpop
+	BIC	R2,R2,#rf_fp
+	ORR	R2,R2,#rf_cp
+
+colok$l	TEQ	R14,#0			; no condition to colour?
 	BEQ	donecond$l
 
 coliloop$l
@@ -1025,7 +1043,18 @@ opctab$l	; mask	   value      colour	 flags
 	OPC	&0E000000, &08000000, c_ldm,     0		; LDM STM
 	OPC	&0C000000, &04000000, c_ldr,	 0		; LDR STR
 	OPC	&0E400090, &00400090, c_ldr,	 0		; LDRH LDRSH LDRSB STRH STRSH STRSB
-	OPC	&0C000F00, &0C000100, c_fpop,	 rf_fp		; FP ops (CP1)
+	OPC	&0F080F90, &0E080180, c_cpop,    rf_cp		; FP op with undefined precision
+	OPC	&0FF08F10, &0ED00100, c_cpop,    rf_cp		; undefined FP op
+	OPC	&0FF08F10, &0EE00100, c_cpop,    rf_cp		; undefined FP op
+	OPC	&0FF08F10, &0EF00100, c_cpop,    rf_cp		; undefined FP op
+	OPC	&0F98FFF0, &0E90F110, c_fpop,    rf_fp		; FP compares
+	OPC	&0F800F10, &0E800110, c_cpop,    rf_cp		; undefined FP register txfer
+	OPC	&0FE00F10, &0E600110, c_cpop,    rf_cp		; undefined FP register txfer
+	OPC	&0FF00F10, &0E000110, c_fpop,    rf_fp		; FLT
+	OPC	&0FF00F10, &0E100110, c_fpop,    rf_fp+rf_ef	; FIX
+	OPC	&0F000F10, &0E000110, c_fpop,    rf_fp+rf_efgh	; WFS RFS WFC RFC
+	OPC	&0C000F00, &0C000100, c_fpop,	 rf_fp		; valid FP ops (CP1)
+	OPC	&0E000F00, &0C000200, c_fpop,	 rf_fp		; LFM / SFM (CP2)
 	OPC	&0C000000, &0C000000, c_cpop,	 rf_cp		; CP load / store
 	OPC	&00000000, &00000000, c_fg,	 0		; default
 
