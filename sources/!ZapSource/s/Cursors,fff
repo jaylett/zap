@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 2.1 2001/05/30 17:21:26 ds Exp $
+; $Id: Cursors,fff,v 2.2 2002/11/10 20:43:43 christian Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -411,7 +411,7 @@ word_clicksend			; hijack Alt+doubleclick
 	FNPULL
 	FNJSR	"R1-R7,R11"
 	BL	find_offset
-	FNRTSS VS
+	FNRTVC	VS
 ; Fake the caret (point) position for fns which don't take int parameters...
 	STR	R0,caret$l
 	ADD	R10,R8,#w_pwind
@@ -597,27 +597,26 @@ callcmd$l
 	BEQ	ret$l
 	PULL	"R2-R7"
 	STMIA	R10,{R2-R7}
-	FNPULL
-	ORRS	PC,R14,#1<<28	; !!! ARM32 FIXME
+	FNRTV
 checkvalid$l
 	TST	R7,#1
-	MOVEQS	PC,R14	; !!! ARM32 FIXME
+	MOVEQ	PC,R14
 	FNJSR	"R0"
 	BL	validate_command
 	STRVC	R7,[R11,R5]
-	FNRTSS	VC
+	FNRTS	VC
 	ADD	R13,R13,#8
 ret$l	PULL	"R2-R7"
 	STMIA	R10,{R2-R7}
 	PULL	"R1-R7,R11,R14"	; !!! Unmatched return LDM
-	BICS	PC,R14,#1<<28	; !!! ARM32 FIXME
+	RTVC
 args$l	TEQ	R7,#0
 	LDR	R6,[R7,#-4]
 	MOV	R6,R6,LSR #24
 	AND	R6,R6,#7
 	TEQ	R6,#2
 	MOVNE	R6,#0
-	MOVS	PC,R14	; !!! ARM32 FIXME
+	MOV	PC,R14
 noact$l	ADR	R0,noactmsg$l
 	MOV	R1,#1<<29
 	BL	warn_user
@@ -2332,17 +2331,17 @@ reclaim_caret
 
 ;X Carets which were reclaimed are now declaimed provided that
 ;  no one has called gain_input to grab the caret.
-;  This call saves flags and R0 |
+;  R0 AND C FLAG preserved |
 
 declaim_caret
- FNJSR
+ FNJSR "R0"
  FNLDR R14,car_omode
- CMN R14,#1			; is caret still lost
+ MOV R0,#-1
+ TEQ R14,R0			; is caret still lost
  FNLDR R14,car_mode,EQ
  FNSTR R14,car_omode,EQ		; restore lost status
- MVNEQ R14,#0
- FNSTR R14,car_mode,EQ		; caret mode to -1
- FNRTSS
+ FNSTR R0,car_mode,EQ		; caret mode to -1
+ FNRTS
 
 ;X R10=input caret R8/R9 related window / CS if none |
 
