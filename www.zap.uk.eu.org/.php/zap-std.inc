@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.9 2002/07/02 13:43:31 james Exp $
+  // $Id: zap-std.inc,v 1.10 2002/11/07 11:36:03 james Exp $
 
   if ($GLOBALS['SERVER_NAME'] != 'zap.tartarus.org' ||
       substr (gethostbyaddr($GLOBALS['REMOTE_ADDR']), -13) == '.tartarus.org')
@@ -17,6 +17,7 @@
     global $root;
     global $docroot;
     $root = ''.$GLOBALS['SCRIPT_NAME'];
+    $root = ereg_replace('docs/', 'documentation/', $root);
     if (substr ($root, -4) == '.php')
       $root = substr ($root, 0, -4);
     $path = '';
