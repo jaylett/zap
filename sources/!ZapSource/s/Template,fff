@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.10 2003/01/26 13:59:01 christian Exp $
+; $Id: Template,fff,v 2.11 2003/02/05 18:22:02 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -207,93 +207,6 @@ au_s0	FNS	("zap_m_authors")
 au_s1	FNS	("Authors")
 
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Set up initial window size config list	    ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;E R11 = template file pointer
-;X wimp_sizelist set up #
-	FNAME	tem_read_sizes
-tem_read_sizes
-	FNJSR	"R1-R3"
-	ADD	R3,R11,#16		; skip header
-	SUB	R3,R3,#24
-te10	LDR	R0,[R3,#24]!
-	CMP	R0,#0
-	FNRTS	LE
-	LDR	R0,[R3,#12]		; identifier first word
-	LDR	R1,te_d0
-	TEQ	R0,R1
-	LDREQB  R0,[R3,#16]
-	TEQEQ	R0,#'_'
-	BNE	te10			; not a "mode_" window
-	MOV	R0,#10
-	ADD	R1,R3,#17
-	MOV	R2,#16
-	SWI	XOS_ReadUnsigned
-	BVS	te10			; ignore error (&clv)
-	CMP	R2,#max_mode
-	BCS	te10
-	BL	tem_add_size
-	BVC	te10
-	FNRTS
-
-te_d0	=	"Mode"
-
-
-;E R2 = mode number R3 = template entry R11 = template file
-;X size added to wimp_sizelist #
-	FNAME	tem_add_size
-tem_add_size
-	FNJSR	"R1-R4"
-	LDR	R0,[R3]
-	ADD	R3,R11,R0		; window definition
-	FNLDR	R0,wimp_sizelist
-	MOV	R4,#0
-te19
-	LDR	R14,[R0,R4]
-	CMP	R14,#0
-	ADDPL	R4,R4,#32
-	BPL	te19			; loop 'till last entry
-	ADD	R1,R4,#40
-	BL	heap_ensure
-	FNRTS	VS
-	FNSTR	R0,wimp_sizelist
-	ADD	R4,R0,R4		; new entry
-	MVN	R0,#0
-	STR	R0,[R4,#32]		; add terminator
-	STR	R2,[R4]			; mode number
-	MOV	R1,R3
-	BL	read_word		; not nec word aligned!
-	BL	tem_get_x
-	STR	R0,[R4,#w_minx]
-	ADD	R1,R3,#8
-	BL	read_word
-	BL	tem_get_x
-	STR	R0,[R4,#w_maxx]
-	ADD	R1,R3,#4
-	BL	read_word
-	MOV	R0,R0,LSL#6		; divide by 1024 @ bit 16
-	STR	R0,[R4,#w_miny]
-	ADD	R1,R3,#12
-	BL	read_word
-	MOV	R0,R0,LSL#6		; was 6 like above...?
-	STR	R0,[R4,#w_maxy]
-	FNRTS
-
-
-;E R0 = x coord
-;X R0 = proportion of 1280 @ bit 16 |
-	FNAME	tem_get_x
-tem_get_x
-	FNJSR	"R1-R3"
-	MOV	R0,R0,LSL#8		; divide by 256 @ bit 16
-	MOV	R1,#5
-	SWI	XZapRedraw_Divide	; BL div_mod
-	FNRTS
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialise templates (claim buffers etc)	    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -370,7 +283,6 @@ create_templates
 	MOV	R10,R0			; save list pointer
 	MOV	R11,R1			; save template file pointer
 	MOV	R9,R2			; save offsets base
-	BL	tem_read_sizes		; read window size templates
 	BLVC	tem_count_list		; count number of templates in list
 	FNSTR	R0,tem_num,VC		; store the number
 	MOVVC	R0,R0,LSL#5		; number of bytes needed for tem_list
