@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.17 2002/11/17 22:44:09 christian Exp $
+; $Id: KeyBits,fff,v 2.18 2002/11/17 23:02:53 christian Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -1431,7 +1431,8 @@ nu1
 ;
 ;	#0  Block length (inclusive of this word)
 ;	#4  b0-b23 Filetype to match (0-fff=filetype &1000=untyped &2000=any)
-;	    b31=load even if shift not pressed
+;	    b24-27 Parameter type of startup command
+;	    b31    load even if shift not pressed
 ;	#8  Command address to execute after file loaded / 0 if none / b0 set
 ;	#12 Command data of command to execute
 ;	#16 Wilcarded filename to match (null if any) 0 term
@@ -1485,18 +1486,16 @@ c$l					; save mode name (not loaded yet usually!)
 command$l				; get command string following
 	PUSH	"R5-R6"
 	BL	read_command		; R7=command/b0 set
-	ORR	R7,R7,R6,LSL #28
+	ORRVC	R3,R3,R6,LSL #24
 	PULL	"R5-R6"
 	MOVVS	R7,#0
-	ADDVSS  R14,R14,#0		; CLV
-					; FNRTS VS
 	CMP	R0,#0
 	BLMI	err41
+	STR	R3,[R5,#4]		; command parameter type
 	STR	R7,[R5,#8]		; command address
 	STR	R1,[R5,#12]		; command parameter
 
-end$l					; got the mode name
-	MOV	R0,#0
+end$l	MOV	R0,#0			; got the mode name
 	STRB	R0,[R6],#4		; add mode name terminator
 	BIC	R6,R6,#3		; align
 	SUB	R0,R6,R5
