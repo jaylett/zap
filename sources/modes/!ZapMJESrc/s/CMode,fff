@@ -56,7 +56,7 @@ start$J		LDR	r0,ws_mode$J
 start$C		LDR	r0,ws_mode$C
 
 		EXPORT	intstart$C
-intstart$C	SAVE	r1,modeblk
+intstart$C	FNJSR	"r1,modeblk"
 		MOV	r1,r0
 		BL	getformat
 		BIC	r1,r1,#255
@@ -64,7 +64,7 @@ intstart$C	SAVE	r1,modeblk
 		BL	setformat
 		MOV	r1,#-1
 		BL	ensuresize$C
-		RTS	VS
+		FNRTS	VS
 		TEQ	fileblk,#0
 		MOVNE	r1,#0
 		STRNE	r1,m_cacheaddr$C
@@ -76,7 +76,7 @@ intstart$C	SAVE	r1,modeblk
 		LDR	r0,[r0,#i_mode]
 		CALL	Zap_RestoreModeWord
 ;		BL	initglobals		; set up global states...
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -107,9 +107,9 @@ cr$L		RN	r3
 tab$L		RN	lr
 
 		EXPORT	postload$C
-postload$C	SAVE	r1-r3
+postload$C	FNJSR	"r1-r3"
 		CMP	R1,#0
-		RTS	NE
+		FNRTS	NE
 ;		SWI	&107
 		LDR	ptr$L,f_ptr
 		LDR	end$L,f_splito
@@ -117,7 +117,7 @@ postload$C	SAVE	r1-r3
 		LDRB	cr$L,w_cr
 		LDRB	tab$L,w_tabchar
 loop$L		CMP	ptr$L,end$L
-		RTS	HS
+		FNRTS	HS
 		LDRB	char$L,[ptr$L],#1
 		TEQ	char$L,#' '
 		TEQNE	char$L,cr$L
@@ -131,7 +131,7 @@ loop$L		CMP	ptr$L,end$L
 		TEQ	char$L,#'/'
 		BNE	notcpp$L
 		CMP	ptr$L,end$L
-		RTS	HS
+		FNRTS	HS
 		LDRB	char$L,[ptr$L],#1
 		TEQ	char$L,#'/'
 		LDREQ	tab$L,ws_mode$CPP
@@ -139,7 +139,7 @@ notcpp$L	LDR	r1,w_format
 		BIC	r1,r1,#255
 		ORR	r1,r1,tab$L
 		STR	r1,w_format
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -958,7 +958,7 @@ newlength$L	RN	r1
 oldlength$L	RN	r2
 
 		EXPORT	ensuresize$C
-ensuresize$C	SAVE	oldlength$L
+ensuresize$C	FNJSR	"oldlength$L"
 		BL	checkmode
 		TEQ	fileblk,#0
 		CMPNE	r1,#0
@@ -972,7 +972,7 @@ ensuresize$C	SAVE	oldlength$L
 		LDR	oldlength$L,m_length
 		CMP	oldlength$L,newlength$L
 		CMPHI	lr,oldlength$L
-		RTS	HS
+		FNRTS	HS
 ;		SWI &107 ; BEEP! - fires...
 		ADD	r1,newlength$L,#&80		; was &80
 resize$L	MOV	r0,modeblk
@@ -980,7 +980,7 @@ resize$L	MOV	r0,modeblk
 		MOVVC	modeblk,r0
 		STRVC	r1,m_length
 		BLVC	setmodeblk
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -989,12 +989,12 @@ resize$L	MOV	r0,modeblk
 ;  Update pause sub-menu
 
 		EXPORT	updatepause$C
-updatepause$C	SAVE
+updatepause$C	FNJSR
 		BL	getdelay$C
 		LDR	r1,[r10,#40]
 		MOV	r2,#4
 		SWI	XOS_ConvertCardinal1
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -1003,12 +1003,12 @@ updatepause$C	SAVE
 ;  Update indent sub-menu
 
 		EXPORT	updateindent$C
-updateindent$C	SAVE
+updateindent$C	FNJSR
 		BL	getindent$C
 		LDR	r1,[r10,#40]
 		MOV	r2,#4
 		SWI	XOS_ConvertCardinal1
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -1017,18 +1017,18 @@ updateindent$C	SAVE
 ;  Handle click on pause sub-menu
 
 		EXPORT	pauseclicked$C
-pauseclicked$C	SAVE
+pauseclicked$C	FNJSR
 		BL	checkmode
-		RTS NE
+		FNRTS NE
 		MOV	r0,r10
 		BL	evaluateentry
-		RTS VS
+		FNRTS VS
 		CMP	r0,#255
 		MOVGT	r0,#255
 		MOVS	r1,r0
 		MOVMI	r1,#0
 		STRB	r0,m_flags1$C
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -1037,12 +1037,12 @@ pauseclicked$C	SAVE
 ;  Handle click on indent sub-menu
 
 		EXPORT	indentclicked$C
-indentclicked$C	SAVE
+indentclicked$C	FNJSR
 		BL	checkmode
-		RTS NE
+		FNRTS NE
 		MOV	r0,r10
 		BL	evaluateentry
-		RTS VS
+		FNRTS VS
 		CMP	r0,#31
 		MOVGT	r0,#31
 		MOVS	r1,r0
@@ -1051,7 +1051,7 @@ indentclicked$C	SAVE
 		BIC	r0,r0,#31<<17
 		ORR	r0,r0,r1,LSL #17
 		STR	r0,m_flags1$C
-		RTS
+		FNRTS
 
 
 		LOCAL
@@ -1059,11 +1059,11 @@ indentclicked$C	SAVE
 
 ;  Returns indent size in r0
 
-getindent$C	SAVE
+getindent$C	FNJSR
 		BL	checkmode
 		LDREQ	r0,m_indent$C
 		MOVNE	r0,#0
-		RTS
+		FNRTS
 
 ;getindent$C	SAVE
 ;		BL	checkmode
@@ -1078,10 +1078,10 @@ getindent$C	SAVE
 
 ;  Returns delay in r0
 
-getdelay$C	SAVE
+getdelay$C	FNJSR
 		BL	checkmode
 		LDREQB	r0,m_flags1$C
-		RTS
+		FNRTS
 
 
 		END
