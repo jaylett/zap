@@ -1,5 +1,5 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 2.15 2003/08/26 00:28:51 christian Exp $
+; $Id: Macros,fff,v 2.16 2003/09/06 16:13:57 christian Exp $
 
 ; count in-core storage
 	GBLA InCoreTotal
@@ -657,6 +657,38 @@ LogCount SETA	LogCount+1
 LC	SETS	"log$LogCount"
  ]
 	MEND
+
+
+; Debugging call to syslog - always works regardless of contents
+; of Zap$Log variable, logs to ZapDebug with default priority of 0
+		GBLA	DebugCount
+		GBLS	DC
+DebugCount	SETA	0
+DC		SETS	"log$DebugCount"
+
+		MACRO
+$la		DEBUGF	$t,$p
+$la
+		STMFD	R13!,{R0-R3,R8-R12,R14}
+		ADR	R0,name$DC
+		ADR	R1,text$DC
+		[ "$p" = ""
+		MOV	R2,#0
+		|
+		MOV	R2,#$p
+		]
+		MOV	R3,R13
+		SWI	XSysLog_LogFormatted
+		B	jump$DC
+text$DC		=	"$t",0
+name$DC		=	"ZapDebug",0
+		ALIGN
+jump$DC		LDMFD	R13!,{R0-R3,R8-R12,R14}
+
+DebugCount	SETA	DebugCount+1
+DC		SETS	"log$DebugCount"
+		MEND
+
 
 ; end of macros
 
