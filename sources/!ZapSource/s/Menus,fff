@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.37 2003/11/18 00:01:02 christian Exp $
+; $Id: Menus,fff,v 2.38 2004/04/12 18:55:47 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -313,32 +313,18 @@ Fontlist
 	FNRTS	VS
 	FNLDR	R0,font_outlinelist
 	TEQ	R9,#0
-	FNRTS	NE
-	MOV	R3,R0
-	BL	shade$l
+	;FNRTS	NE
+	MOVEQ	R3,R0
+	BLEQ	shade_entire_menu
 	FNRTS
 getlist$l
 	FNJSR
 	MOV	R2,#1<<19:OR:1<<21
-	FNLDR	R0,font_name
-	TEQ	R8,#0
-	BLNE	read_vdu_font_name	; tick the font name
+	BL	read_vdu_font_name	; tick the font name
 	MOV	R6,R0
 	SWI	XFont_ListFonts
 	FNRTS
-shade$l FNJSR	"R1,R2"
-	ADD	R1,R3,#28
-shlp$l  LDMIA	R1,{R2-R4}
-	ORR	R4,R4,#1<<22
-					; STR	R4,[R1,#8]
-	ORR	R2,R2,#1<<4		; since we're recursing we may as well
-	STMIA	R1,{R2-R4}		; allow the submenu to be opened :)
-	CMP	R3,#&8000
-	BLGT	shade$l
-	TST	R2,#128
-	ADDEQ	R1,R1,#24
-	BEQ	shlp$l
-	FNRTS
+
 
 fontlist_decodemenu
 	FNJSR	"R1,R2"
@@ -348,9 +334,86 @@ fontlist_decodemenu
 	FNLDR	R3,wimp_block
 	MOV	R4,#256
 	SWI	XFont_DecodeMenu
-	MOV	R0,R3
-	MOV	R2,#0
-	BL	Outlinefont
+	MOVVC	R0,R3
+	MOVVC	R2,#0
+	BLVC	Outlinefont
+	FNRTS
+
+
+	LOCAL
+
+	DCD	7+(1<<16)
+Bitmaplist
+	TEQ	R2,#16
+	MOVNE	PC,R14
+
+	FNJSR
+	FNLDR	R0,font_bitmaplist
+	MOV	R1,#0
+	TEQ	R0,#0
+	FNSTR	R1,font_bitmaplist,NE
+	SUBNE	R0,R0,#16
+	BLNE	heap_free
+	MOV	R1,#0
+	MOV	R4,#0
+	BL	getlist$l
+	ADDVC	R0,R3,R5
+	ADDVC	R0,R0,#16
+	BLVC	heap_claim
+	FNRTS	VS
+	MOV	R1,#0
+	MOV	R4,#0
+	STMIA	R0!,{R1,R4}
+	STMIA	R0!,{R1,R4}
+	FNSTR	R0,font_bitmaplist
+	MOV	R1,R0
+	ADD	R4,R1,R3
+	BL	getlist$l
+	FNRTS	VS
+	FNLDR	R0,font_bitmaplist
+	TEQ	R9,#0
+	;FNRTS	NE
+	MOVEQ	R3,R0
+	BLEQ	shade_entire_menu
+	FNRTS
+getlist$l
+	FNJSR
+	MOV	R2,#1<<19:OR:1<<21
+	BL	read_dsa_font_name	; tick the font name
+	MOV	R6,R0
+	SWI	XZapRedraw_ListFonts
+	FNRTS
+
+
+bitmaplist_decodemenu
+	FNJSR	"R1,R2"
+	MOV	R0,#0
+	FNLDR	R1,font_bitmaplist
+	MOV	R2,R11
+	FNLDR	R3,wimp_block
+	MOV	R4,#256
+	SWI	XZapRedraw_DecodeMenu
+	MOVVC	R0,R3
+	MOVVC	R2,#0
+	BLVC	Bitmapfont
+	FNRTS
+
+
+; shade a menu and all its submenus
+; E R3 -> menu
+; X
+shade_entire_menu
+	FNJSR	"R1,R2"
+	ADD	R1,R3,#28
+shlp$l  LDMIA	R1,{R2-R4}
+	ORR	R4,R4,#1<<22
+	ORR	R2,R2,#1<<4		; since we're recursing we may as well
+	STMIA	R1,{R2-R4}		; allow the submenu to be opened :)
+	CMP	R3,#&8000
+	BLHS	shade_entire_menu
+	TST	R2,#128
+	ADDEQ	R1,R1,#24
+	BEQ	shlp$l
 	FNRTS
 
 ; colour list background1,background2,foreground etc
@@ -1202,524 +1265,6 @@ execsub$l
 	BLVC	create_window_caret
 	FNRTS
 
-
-	LOCAL
-
-; create list of bitmap fonts
-	DCD	7+(1<<16)+(1<<15)
-Bitmaplist
-	FNJSR
-	TEQ	R2,#15
-	BEQ	shade$l
-	TEQ	R2,#16			; create submenu?
-	FNRTS	NE
-	ADR	R0,name$l
-	ADR	R1,buildsub$l
-	ADR	R2,create$l
-	ADR	R3,execsub$l
-	MOV	R4,#11
-	MOV	R8,#0			; offset in the directory
-	MOV	R6,#0
-	BL	build_font_menu
-	FNRTS
-shade$l
-	TEQ	R8,#0			; doesn't work...
-	MOVEQ	R0,#2			; shade if on the options menu
-	MOVNE	R0,#0
-	FNRTS
-name$l  =	27,"zap_m_bitmap",0
-	ALIGN
-buildsub$l				; uses WB
-	FNJSR	"R1-R7"
-	LDR	R0,[R6]
-	ORR	R0,R0,#1<<3
-	MOV	R14,#1
-	STMIA	R6,{R0,R14}		; set warning bit; submenu off this entry
-	LDR	R14,[R6,#8]		; possibly a flags problem...?
-	BIC	R14,R14,#(1<<3)+(1<<6)+(1<<7)
-	TEQ	R9,#0
-	ORREQ	R14,R14,#1<<22
-	STR	R14,[R6,#8]		; possibly a flags problem...?
-	ADR	R0,mw_bitmaplist
-	STR	R0,[R7,#-12]		; open code
-	MOV	R0,#0			; execsub$l
-	STR	R0,[R7,#-4]		; no exec sub
-	STR	R0,[R7,#-16]
-next$l					; get next file name
-	MOV	R0,#10
-	ADR	R1,dir$l
-	FNLDR	R2,wimp_block
-	MOV	R3,#1
-	MOV	R4,R8			; current offset in the directory
-	MOV	R5,#&100
-	ADR	R6,wild$l
-	SWI	XOS_GBPB
-	FNRTS	VS
-	MOVCC	R0,#-1
-	FNRTS	CC			; nothing read - reached the end
-	MOV	R8,R4			; save next thing to look at
-	LDR	R0,[R2,#16]		; object type
-	TST	R0,#2
-	BEQ	next$l			; not a directory
-	MOV	R1,R7
-	ADD	R2,R2,#20		; dir name
-	BL	strcopy			; copy in the name
-	MOV	R0,#0			; no index
-	FNRTS
-dir$l	=	|zap$|,"Fonts:",0
-wild$l  =	"*",0
-	ALIGN
-create$l
-	FNJSR
-	ADD	R5,R10,#28		; first menu item
-	CMP	R8,#0
-	ADREQ	R6,dir$l		; anywhere...
-	BEQ	a$l
-	BL	read_dsa_font_name
-	MOV	R6,R0
-a$l
-	LDR	R1,[R5,#12]		; buffer
-	MOV	R2,R6			; font name
-	BL	strCMPstr		; R0=next point in text
-	LDREQB  R0,[R0]
-	TEQEQ	R0,#'.'
-	LDR	R0,[R5]
-	ORREQ	R0,R0,#1		; ticking the font in use...
-	BICNE	R0,R0,#1		; and clearing any other ticks...
-	STR	R0,[R5],#24
-	TST	R0,#1<<7		; at end yet
-	BEQ	a$l
-	FNRTS
-execsub$l				; R3=address of prev item start R10=text
-	CMP	R8,#0			; IB friendly...
-	MOVEQ	PC,R14			; IB friendly...
-	FNJSR	"R0-R12"
-	FNLDR	R1,wimp_data		; buffer
-	MOV	R2,R10
-	BL	strcopy
-	FNLDR	R0,wimp_data		; text for this item = font name
-	MOV	R2,#0			; 'execute command'
-	BL	Bitmapfont
-	FNRTS
-
-	LOCAL
-
-;E Called by warning code
-; R5=off in mother menu R10=address of text
-;X Created bitmaplist submenu R1=submenu
-; Other registers preserved!
-
-mw_bitmaplist
-	FNJSR	"R2-R10"
-	ADR	R9,font_path_name
-	MOV	R1,R9			; must match above... :-(
-	ADR	R2,dir$l		; R9="Fonts:"
-	BL	strcpy
-	MOV	R2,R10
-	BL	strcopy			; R9=Fonts:<name>
-	MOV	R0,R10
-	ADR	R1,buildsub$l
-	ADR	R2,create$l
-	ADR	R3,mwbml_execsub
-	MOV	R4,#11
-	MOV	R8,#0			; R8=offset in the directory
-	MOV	R6,#0
-	BL	build_menu
-	MOV	R1,R0			; in R1
-	FNRTS				; menu pointer in R0...
-buildsub$l				; uses WB
-	FNJSR	"R1-R6,R10,R11"
-	MOV	R11,R0			; save buffer pointer
-	MOV	R10,R6
-next$l					; get next file name
-	MOV	R0,#10
-	MOV	R1,R9			; from CALLING ROUTINE : *where*...?
-	FNLDR	R2,wimp_block		; space...
-	MOV	R3,#1
-	MOV	R4,R8			; current offset in the directory
-	MOV	R5,#&100
-	ADR	R6,wild$l
-	SWI	XOS_GBPB
-	FNRTS	VS
-	MOVCC	R0,#-1
-	FNRTS	CC			; nothing read - reached the end
-	MOV	R8,R4			; save next thing to look at
-	LDR	R0,[R2,#16]		; object type
-	TEQ	R0,#2
-	BEQ	doadir$l
-	TST	R0,#1
-	BEQ	next$l			; not a file
-	LDRB	R14,[R2,#21]
-	CMP	R14,#31
-	LDRLEB  R14,[R2,#20]
-	CMPLE	R14,#'0'
-	BEQ	next$l
-	LDR	R0,[R2,#0]		; load address
-	BL	calc_ftype
-	BCC	next$l			; untyped
-	SUB	R0,R0,#&F00
-	TEQ	R0,#&FD
-	TEQNE	R0,#&FF
-	BNE	next$l			; not data or text type / any will do.
-	MOV	R1,R11
-	ADD	R2,R2,#20		; filename
-	BL	strcopy
-	MOV	R0,#0			; no index
-	FNRTS
-doadir$l
-	LDR	R0,[R10]
-	MOV	R14,#1
-	ORR	R0,R0,#1<<3
-	STMIA	R10,{R0,R14}		; set warning bit; submenu off this entry
-	ADR	R0,mw_substylelist	; warn code...
-	STR	R0,[R7,#-12]		; open code
-	MOV	R1,R11
-	ADD	R2,R2,#20		; filename of directory...
-	BL	strcopy
-	MOV	R0,#0			; no index
-	FNRTS
-dir$l	=	|zap$|,"Fonts:",0
-wild$l  =	"*",0
-	ALIGN
-create$l				; R10=address of menu = menu name
-	FNJSR
-	CMP	R8,#0			; IB friendly...
-	FNRTS	EQ
-	BL	read_dsa_font_name
-	MOV	R2,R0
-	MOV	R1,R10			; Font name first part (title bar?)
-	BL	strCMPstr		; R0=char after match
-	FNRTS	NE			; doesn't match family
-	MOV	R6,R0
-	ADD	R5,R10,#28		; first menu item
-	LDRB	R0,[R6],#1		; R6=start of second half
-	TEQ	R0,#'.'
-	FNRTS	NE
-a$l
-	LDR	R1,[R5,#12]		; from menu buffer
-	MOV	R2,R6			; rest of font name
-	BL	strCMPstr		; new str
-	BLEQ	weedoutcases
-	LDR	R0,[R5]
-	ORREQ	R0,R0,#1		; ticking the font in use...
-	BICNE	R0,R0,#1		; and clearing any other ticks...
-	STR	R0,[R5],#24
-	TST	R0,#1<<7		; at end yet
-	BEQ	a$l
-	FNRTS
-weedoutcases
-	LDRB	R0,[R0]
-	CMP	R0,#'.'
-	MOVEQ	PC,R14
-	CMP	R0,#31
-	MOVLES  R0,#0
-	MOV	PC,R14
-mwbml_execsub				; R3=address of prev item start R10=text
-	CMP	R8,#0			; IB friendly...
-	MOVEQ	PC,R14			; IB friendly...
-	FNJSR	"R0-R12"
-	FNLDR	R1,wimp_data		; buffer
-	LDR	R2,[R3,#12]		; text
-	BL	strcpy
-	MOV	R0,#'.'
-	STRB	R0,[R1],#1
-	MOV	R2,R10
-	BL	strcopy
-
-	FNLDR	R0,wimp_data		; text for this item = font name
-	MOV	R2,#0			; 'execute command'
-	BL	Bitmapfont
-	FNRTS
-
-
-	LOCAL
-
-;E Called by warning code
-; R5=off in mother menu R10=address of text
-;X Created bitmaplist submenu R1=submenu
-; Other registers preserved!
-font_path_name
-	=	|zap$|,"Fonts:"
-font_path_leaf
-	FNS	("00x00zzzzz.NameOfFont.Style+ForGoodMeasure")
-
-mw_substylelist
-	FNJSR	"R2-R10"
-
-	ADR	R9,font_path_name
-	MOV	R1,R9			; must match above... :-(
-	BL	asfarasastops$l
-	MOV	R14,#'.'		; at the right spot?
-	STRB	R14,[R1],#1
-
-	MOV	R2,R10			; new name
-	BL	strcopy			; R9=Fonts:<size>.<name>.<sub-style>
-
-	MOV	R0,R10			; menu title...
-	ADR	R1,buildsub$l
-	ADR	R2,create$l		; not needed...? for ticks...
-	ADR	R3,execsub$l
-	MOV	R4,#43			; width...(very wide :-< use new WM...)
-	MOV	R8,#0			; R8=counter...
-	MOV	R6,#0
-	BL	build_second_font_menu  ; don't bother to preserve r9...
-	MOV	R1,R0			; in R1
-	FNRTS				; return menu pointer in R0
-
-buildsub$l				; uses WB
-	FNJSR	"R1-R7,R11"		; r7 not changed so OK.
-	MOV	R11,R0			; save buffer pointer
-	LDR	R14,[R6,#8]		; possibly a flags problem...?
-	BIC	R14,R14,#(1<<3)+(1<<6)+(1<<7)
-	STR	R14,[R6,#8]		; possibly a flags problem...?
-next$l					; get next file name
-	MOV	R0,#10
-	MOV	R1,R9			; from CALLING ROUTINE : *where*...?
-	FNLDR	R2,wimp_data		; block	; space...
-	ADD	R2,R2,#&90		; new ;(
-	MOV	R3,#1
-	MOV	R4,R8			; current offset in the directory
-	MOV	R5,#&100
-	ADR	R6,wild$l
-	SWI	XOS_GBPB
-	FNRTS	VS
-	MOVCC	R0,#-1
-	FNRTS	CC			; nothing read - reached the end
-	MOV	R8,R4			; save next thing to look at
-	LDR	R0,[R2,#16]		; object type
-	TST	R0,#1
-	BEQ	next$l			; not a file
-	LDRB	R14,[R2,#21]
-	CMP	R14,#31
-	LDRLEB  R14,[R2,#20]
-	CMPLE	R14,#'0'
-	BEQ	next$l
-	LDR	R0,[R2,#0]		; load address
-	BL	calc_ftype
-	BCC	next$l			; untyped
-	SUB	R0,R0,#&F00
-	TEQ	R0,#&FD
-	TEQNE	R0,#&FF
-	BNE	next$l			; not data or text type / any will do.
-	MOV	R1,R11			; normal
-	ADD	R2,R2,#20		; filename
-	BL	lengthenssname
-	BL	strcopy
-	MOV	R0,#0			; no index
-	FNRTS
-dir$l	=	|zap$|,"Fonts:",0
-wild$l  =	"*",0
-	ALIGN
-create$l				; R10=address of menu = menu name
-	CMP	R8,#0			; IB friendly...
-	MOVEQ	PC,R14
-	FNJSR
-	BL	read_dsa_font_name
-	MOV	R2,R0
-	ADRL	R1,font_path_leaf
-	BL	strCMPstr		; R0=char after match
-	FNRTS	NE			; doesn't match family
-	MOV	R6,R0
-	ADD	R5,R10,#28		; first menu item
-	LDRB	R0,[R6],#1		; R6=start of second half
-	TEQ	R0,#'.'
-	FNRTS	NE
-a$l
-	FNLDR	R1,wimp_data		; block		; space...
-	LDR	R2,[R5,#12]		; from menu buffer
-	BL	strcopy
-	FNLDR	R2,wimp_data		; block		; space...
-	BL	shortenname
-
-	MOV	R1,R2
-	MOV	R2,R6			; rest of font name
-	BL	strCMPstr		; new str
-	BLEQ	weedoutcases
-	LDR	R0,[R5]
-	ORREQ	R0,R0,#1		; ticking the font in use...
-	BICNE	R0,R0,#1		; and clearing any other ticks...
-	STR	R0,[R5],#24
-	TST	R0,#1<<7		; at end yet
-	BEQ	a$l
-	FNRTS
-execsub$l				; R3=address of prev item start R10=text
-	CMP	R8,#0			; IB friendly...
-	MOVEQ	PC,R14			; IB friendly...
-	FNJSR	"R0-R12"
-	FNLDR	R1,wimp_data		; buffer for final font name
-	ADRL	R2,font_path_leaf	; where we've got to so far ...
-	BL	strcpy
-	MOV	R0,#'.'
-	STRB	R0,[R1],#1		; got the path up to now
-	MOV	R5,R1
-	MOV	R2,R10
-	ADD	R1,R5,#&30
-	BL	strcopy			; copy the leaf in
-	ADD	R2,R5,#&30
-	BL	shortenname		; translate into a short name
-	MOV	R1,R5
-	BL	strcopy			; copy substyle file leaf onto the current path
-
-	FNLDR	R0,wimp_data		; text for this item = font name
-	PUSH	"R0-R12"
-	MOV	R2,#0			; 'execute command'
-	BL	Bitmapfont
-	PULL	"R0-R12"
-	FNRTS
-
-asfarasastops$l
-	FNJSR				; "R0"
-loop$l
-	LDRB	R14,[R1]
-	CMP	R14,#'.'
-	CMPNE	R14,#31
-	ADDGT	R1,R1,#1
-	BGT	loop$l
-	FNRTS				; R1 = PTR TO FINAL 0 or '.'
-
-;E R2 = pointer to substyle name E.G. 'U'
-;X R2 = pointer to long substyle name E.g. 'Underlined'
-lengthenssname
-	FNJSR	"R1,R3-R7"
-	MOV	R7,R2
-	MOV	R6,#0
-	FNLDR	R3,wimp_data
-
-	MOV	R4,R3
-bloop$l
-	LDRB	R0,[R2],#1
-	BIC	R0,R0,#32
-	CMP	R0,#32
-	BCC	prealoop$l
-	TEQ	R0,#'B'
-	TEQNE	R0,#'I'
-	TEQNE	R0,#'S'
-	TEQNE	R0,#'U'
-	BNE	theend$l
-	B	bloop$l
-prealoop$l
-	MOV	R2,R7
-
-aloop$l
-	LDRB	R0,[R2],#1
-	BIC	R0,R0,#32
-	TEQ	R0,#'B'
-	ADREQ	R5,boldlong$l
-	TEQNE	R0,#'I'
-	TEQNE	R0,#'S'
-	TEQNE	R0,#'U'
-	BNE	theend$l
-	TEQ	R0,#'I'
-	ADREQ	R5,italiclong$l
-	TEQ	R0,#'S'
-	ADREQ	R5,strikethroughlong$l
-	TEQ	R0,#'U'
-	ADREQ	R5,underlinedlong$l
-	BL	copyitin$l
-	B	aloop$l
-theend$l
-	CMP	R3,R4
-	MOVNE	R2,R4
-	MOVNE	R14,#0
-	STRNEB  R14,[R3]
-	MOVEQ	R2,R7
-	FNRTS
-
-copyitin$l
-	FNJSR	"R1,R2"
-	MOV	R1,R3
-	CMP	R6,#0
-	ADRNE	R2,plus$l
-	BLNE	strcpy
-	MOV	R0,R5
-	BL	lookup_token_R0
-	MOV	R2,R0
-	BL	strcpy
-	MOV	R6,#1
-	MOV	R3,R1
-	FNRTS
-
-plus$l
-	=	" + ",0
-
-	ALIGN
-
-
-;E R2 = pointer to long substyle name e.g. 'Underlined'
-;X R2 = pointer to substyle name e.g. 'U'
-shortenname
-	FNJSR	"R0-R1,R3-R6"
-	ADR	R4,local_verytemp
-	MOV	R6,R4
-	MOV	R3,R2
-	MOV	R5,#'U'
-	ADR	R0,underlinedlong$l
-	BL	matched$l
-	BL	skipon$l
-	BEQ	enditnow$l
-
-	MOV	R5,#'S'
-	ADR	R0,strikethroughlong$l
-	BL	matched$l
-	BL	skipon$l
-	BEQ	enditnow$l
-
-	MOV	R5,#'I'
-	ADR	R0,italiclong$l
-	BL	matched$l
-	BL	skipon$l
-	BEQ	enditnow$l
-
-	MOV	R5,#'B'
-	ADR	R0,boldlong$l
-	BL	matched$l
-	BL	skipon$l
-
-enditnow$l
-	CMP	R4,R6
-	MOVNE	R14,#0
-	STRNEB  R14,[R4]
-	MOVNE	R2,R6			; shortened name
-	MOVEQ	R2,R3			; null string
-	FNRTS
-
-local_verytemp
-	DCD	0
-	DCD	0
-
-matched$l
-	FNJSR
-	BL	lookup_token_R0		; \X r0 = string or token
-	MOV	R1,R0
-	MOV	R2,R3
-	BL	strcmpstr
-	STREQB  R5,[R4],#1
-	MOVEQ	R3,R0
-	FNRTS
-
-;E R3 text to check
-;X EQ if end found.
-; R3 updated to nexr non ' '/'+'
-skipon$l
-	FNJSR
-threeloop$l
-	LDRB	R14,[R3],#1
-	TEQ	R14,#0
-	FNRTS	EQ
-	TEQ	R14,#'+'
-	TEQNE	R14,#' '
-	BEQ	threeloop$l
-	SUB	R3,R3,#1
-	FNRTS
-
-boldlong$l
-	FNS	("zap_m_bold")
-italiclong$l
-	FNS	("zap_m_italic")
-strikethroughlong$l
-	FNS	("zap_m_strkthru")
-underlinedlong$l
-	FNS	("zap_m_uline")
 
 	LOCAL
 
@@ -2680,6 +2225,8 @@ update_menu
 	FNJSR	"R1-R11"
 	FNLDR	R3,font_outlinelist
 	TEQ	R1,R3
+	FNLDR	R3,font_bitmaplist,NE
+	TEQNE	R1,R3
 	FNRTS	EQ
 	FNLDR	R3,menu_count		; time needs to be updated for
 	LDR	R4,[R1,#-8]		; last time menu updated
@@ -2900,10 +2447,13 @@ update_menu_path
 	ADD	R0,R0,#1
 	FNSTR	R0,menu_count		; update menu count
 	MOV	R5,#0			; offset in previous menu
-a$l
-	FNLDR	R0,font_outlinelist
+
+a$l	FNLDR	R0,font_outlinelist
 	TEQ	R1,R0
+	FNLDR	R0,font_bitmaplist,NE
+	TEQNE	R1,R0
 	FNRTS	EQ			; stop at outline font menu
+
 	MOV	R0,R5
 	BL	update_menu		; recreate this menu
 	FNRTS	VS
@@ -3410,43 +2960,6 @@ so6
 	FNRTS
 
 
-;E As for build_menu but uses the font menu buffer
-;X As for build_menu
-	FNAME	build_font_menu
-build_font_menu
-	FNJSR
-	BL	swap$l
-	BL	build_menu
-	BL	swap$l
-	FNRTS
-swap$l					; swap over without changing flags
-	FNJSR	"R0"
-	FNLDR	R0,font_entries
-	FNLDR	R14,menu_entries
-	FNSTR	R0,menu_entries
-	FNSTR	R14,font_entries
-	FNLDR	R0,font_struct
-	FNLDR	R14,menu_struct
-	FNSTR	R0,menu_struct
-	FNSTR	R14,font_struct
-	FNLDR	R0,font_help
-	FNLDR	R14,menu_help
-	FNSTR	R0,menu_help
-	FNSTR	R14,font_help
-	FNRTS
-
-	LOCAL
-
-local_f_ss_vals
-	DCD	0
-	DCD	0
-
-build_second_font_menu
-	FNJSR
-	BL	swapmenu
-	BL	build_menu
-	BL	swapmenu
-	FNRTS
 swapmenu				; swap over without changing flags
 	FNJSR	"R0"
 	FNLDR	R0,font_ssentries
@@ -3486,6 +2999,8 @@ menu_click
 	BL	menu_decode		; R2=item R3=last item R11=sequence end
 	TEQ	R3,#0
 	BEQ	outline$l
+	TEQ	R3,#1
+	BEQ	bitmap$l
 	LDR	R10,[R2,#12]		; address of item text
 	LDR	R4,[R10,#-16]		; item flags
 	LDR	R5,[R10,#-4]		; sub to call
@@ -3553,6 +3068,10 @@ outline$l				; for outline fonts...
 	MOV	R11,R2
 	BL	fontlist_decodemenu
 	FNRTS
+bitmap$l				; for bitmap fonts...
+	MOV	R11,R2
+	BL	bitmaplist_decodemenu
+	FNRTS
 
 
 	LOCAL
@@ -3569,10 +3088,16 @@ menu_get_help
 	MOV	R5,R1
 	TEQ	R4,#0
 	BMI	gotitem$l
-	FNLDR	R7,font_outlinelist
-loop$l  TEQ	R5,R7
+loop$l  FNLDR	R7,font_outlinelist
+	TEQ	R5,R7
 	ADREQ	R1,outline$l
 	BEQ	token$l
+
+	FNLDR	R7,font_bitmaplist
+	TEQ	R5,R7
+	ADREQ	R1,bitmap$l
+	BEQ	token$l
+
 	LDR	R2,[R11],#4		; get next selection
 	ADD	R14,R2,R2,LSL #1
 	ADD	R5,R5,R14,LSL #3
@@ -3638,8 +3163,8 @@ none$l	ADD	R3,R3,#28+12		; menu items text buffer
 	MOVVC	R1,#0
 	FNRTS
 
-outline$l
-	=	"zap_h_outline",0
+outline$l	=	"zap_h_outline",0
+bitmap$l	=	"zap_h_bitmap",0
 	ALIGN
 
 
@@ -3649,19 +3174,25 @@ outline$l
 ;X R2=clicked item R3=previous clicked item R11=end of seq (-1) |
 ; If clicked item is in menu generated by Font_ListFonts, then
 ;   R2->relevant menu offsets R3=0
+; If clicked item is in menu generated by ZapRedraw_ListFonts, then
+;   R2->relevant menu offsets R3=1
 	FNAME	menu_decode
 menu_decode
-	FNJSR	"R1,R4"
-	ADD	R2,R1,#28		; current chosen item
+	FNJSR	"R1,R4,R8-R10"
+	MOV	R10,R11
+	FNLDR	R4,font_outlinelist
+	MOV	R9,R1
+	MOV	R8,#0
+
+a$l	ADD	R2,R1,#28		; current chosen item
 	MOV	R3,R2			; previous chosen item
 	LDR	R0,[R11]
 	CMP	R0,#0
 	FNRTS	MI			; nothing selected
-	FNLDR	R4,font_outlinelist
 
 me1	TEQ	R1,R4
 	MOVEQ	R2,R11
-	MOVEQ	R3,#0
+	MOVEQ	R3,R8
 	FNRTS	EQ			; return if font menu (Font_ListFonts)
 	LDR	R0,[R11],#4		; get next selection
 	ADD	R1,R1,#28		; first entry
@@ -3671,11 +3202,19 @@ me1	TEQ	R1,R4
 	MOV	R2,R1			; currently chosen item
 	LDR	R0,[R11]
 	CMP	R0,#0
-	FNRTS	MI			; reached end
+	BMI	next$l			; reached end
 	LDR	R1,[R1,#4]		; submenu pointer
 	CMP	R1,#&8000		; is it valid
-	BGT	me1			; yes
+	BHS	me1			; yes
+
+next$l	TEQ	R8,#0			; try again with bitmap list
+	MOVEQ	R8,#1			;
+	FNLDR	R4,font_bitmaplist,EQ	;
+	MOVEQ	R11,R10			;
+	MOVEQ	R1,R9			;
+	BEQ	a$l			;
 	FNRTS
+
 
 ;E Heap set up
 ;X Menu file read into heap blocks and then linked #
