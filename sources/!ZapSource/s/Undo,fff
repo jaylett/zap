@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.8 2002/11/22 10:39:37 christian Exp $
+; $Id: Undo,fff,v 2.9 2002/11/22 13:22:48 christian Exp $
 
 ; *** Important notes on symbolisation ***
 ;
@@ -188,6 +188,16 @@ undo_Type_mask		*	(0x57)
 undo_Block_Start	*	(1:SHL:5)
 undo_Block_IsAtomic	*	(1:SHL:4)
 undo_Block_DontFreeData	*	(1:SHL:3)
+
+
+; YANK structure:
+;  yank_ptr points to an unterminated list of yank block of length yank_len.
+;  yank_off is the current offset in it
+;
+;  each block is 8 bytes long and takes the following structure:
+;    0  Pointer to data + b31 set   OR   File offset (undo reference)
+;    4  Length of data                   Offset in undo buffer
+;  b30 of #0 means this should be yanked as one block (eg multiple cK's)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -565,6 +575,7 @@ pastegc_command	FNLDR	r0,opt_switches			; opt_switches word
 		ORR	r0,r0,#(sendmessage_RecordAndCall :OR: sendmessage_CallOnReply)
 		MOV	r3,#48				; length
 
+		FNLDR	R2,wimp_gctask			; task currently owning the clipboard
 		ADR	r5,reply$l
 		BL	message_send			; go
 
@@ -589,6 +600,7 @@ gc_claimentity	FNJSR	"r1"
 		FNRTS	EQ
 
 		LDR	r0,[r1,#4]			; task handle of this message
+		FNSTR	r0,wimp_gctask			; keep it for later
 		FNLDR	r1,wimp_task			; Zap's task handle
 		CMP	r0,r1
 		FNRTS	EQ				; don't do anything on our message
