@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.5 2002/11/10 01:13:48 christian Exp $
+; $Id: Cache,fff,v 1.6 2003/05/10 22:33:52 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -810,8 +810,13 @@ loop$l		;MOV	R0,R9
 
 ; convert font bitmaps from 1bpp to currentbpp
 ; E r0 -> 1bpp source  r1 -> font block  r6 = last char
-; X r2 -> converted bitmaps
+; X r2 -> converted bitmaps  (may be the same block)
 convert_font	FNJSR	"R0,R1,R5-R8"
+		FNLDR	R5,redraw_block+r_bpp
+		TEQ	R5,#0
+		MOVEQ	R2,R0
+		FNRTS	EQ
+
 		MOV	R3,R6
 		ADD	R4,R1,#fb_charw			; create fake redraw block
 		LDMIA	R4,{R5-R8}
@@ -1269,7 +1274,8 @@ fromsystem$l	MOV	R1,R11
 
 		STR	R2,[R11,#fb_data]		; store in font block
 
-		BL	cache_free			; free 1bpp block
+		TEQ	R0,R2
+		BLNE	cache_free			; free 1bpp block
 
 		LDR	R0,[R11,#fb_flags]
 		TST	R0,#ff_ssallowed		; substyles allowed?
@@ -1322,6 +1328,9 @@ install_font	FNJSR	"R1,R4-R6,R10,R11"
 		MOVVC	R5,R2
 		LDRVS	R5,[R1,#fb_data]
 		MOVVS	R0,#0
+
+		TEQ	R0,R2				; don't free the 1bpp block if
+		MOVEQ	R0,#0				; we're in a 1bpp mode
 
 none$l		ADD	R1,R1,#fb_data			; store pointer in all blocks
 		MOV	R2,#substyles-1
