@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.26 1999/04/14 00:26:42 ds Exp $
+; $Id: Commands,fff,v 1.1.2.27 1999/04/14 23:22:46 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -575,17 +575,11 @@ key_command_table
 
 	DCD	7+(3<<3)+(1<<6)+(1<<28)
 Allfiles
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	ADR	R10,callallroutine$l
-	BL	do_allfiles
- ; SUBS R14,R14,R14
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt_token
-	FNRTS
+	B	do_allfiles
 s$l
 	FNS	("zap_p_allfiles")
 callallroutine$l
@@ -599,9 +593,10 @@ callallroutine$l
 
 	DCD	7+(3<<3)+(1<<6)+(1<<28)
 Allmodes
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	MOV	R7,R0
  ; suspicious code to deal with *other modes.*..!?
 	FNLDR	R11,opt_format
@@ -615,10 +610,6 @@ a$l
 	BCC	a$l
 	AND	R0,R11,#&FF
 	BL	tochangeibmode		; back to how it was before...
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt_token
 	FNRTS
 s$l
 	FNS	("zap_p_allmodes")
@@ -637,9 +628,10 @@ callallroutine2$l
 
 	DCD	7+(3<<3)+(1<<6)+(1<<28)
 Allwindows
-	FNJSR
 	CMP	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	ADR	R10,callallroutine$l
 	MOV	R7,R0
 	BL	do_allwindow
@@ -648,10 +640,6 @@ Allwindows
 	CMP	R8,#0
 	MOVEQ	R0,#0
 	BLEQ	set_caret_mode		; no caret
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt_token
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
@@ -688,13 +676,9 @@ Altersel
 
 	DCD	7+(1<<15)
 Autoindent
-	FNJSR
 	MOV	R0,#0
 	MOV	R1,#1<<16
-	BL new_wind_format_set
-;  CMP R2,#15
-;  BEQ grey$l
-	FNRTS
+	B	new_wind_format_set
 
 ; grey$l
 ;  MOV R10,R0
@@ -905,9 +889,7 @@ Cli
 
 	DCD	0
 Cancel
-	FNJSR
-	BL	yank_cancel
-	FNRTS				; cancel any yank operation
+	B	yank_cancel		; cancel any yank operation
 
 	DCD	7+(1<<15)
 Clearsel
@@ -1044,9 +1026,10 @@ CloneBase
 
 	DCD	7+(3<<3)+(1<<6)+(1<<14)
 CloneCreate
-	FNJSR
 	TEQ	R2,#6
-	BEQ	prompt$l
+	ADREQ	R0,p$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	SUB	R6,R0,#1
 	BL	str$l			; get clone name
 	SUBS	R3,R7,R6
@@ -1110,11 +1093,6 @@ s$l	LDRB	R0,[R1],#1
 error$l	FNPULL
 	B	lookup_error
 
-prompt$l
-	ADR	R0,p$l
-	BL	minibuffer_prompt_token
-	FNRTS
-
 str$l	LDRB	R0,[R6,#1]!
 	TEQ	R0,#32
 	BEQ	str$l
@@ -1149,19 +1127,16 @@ CloneDelete
 CloneHide
 	MOV	R3,#1
 clone_dh$l
-	FNJSR
 	TEQ	R2,#6
-	BEQ	prompt$l
+	ADREQ	R0,p$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	SUB	R1,R0,#1
 s$l	LDRB	R0,[R1,#1]!
 	TEQ	R0,#32
 	BEQ	s$l
 	MOV	R2,R3
 	BL	remove_clone_mode_entry
-	FNRTS
-prompt$l
-	ADR	R0,p$l
-	BL	minibuffer_prompt_token
 	FNRTS
 p$l	=	"zap_p_delclone",0
 	ALIGN
@@ -1211,11 +1186,12 @@ cl18
 
 	DCD	7+(3<<3)+(1<<6)+(1<<11)+(1<<12)+(1<<17)+(1<<28)
 Command					; R1=number of times (inc uni arg)
+	TEQ	R2,#6
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	FNJSR
 	TEQ	r2,#17
 	BEQ	m$l
-	TEQ	R2,#6
-	BEQ	p$l			; minibuffer
 	LDRB	R14,[R0]		; get first character
 	TEQ	R14,#0
 	MOVEQ	R0,#0			; close minibuffer
@@ -1240,10 +1216,6 @@ m$l
 	MOVEQ	r0,#0			; clear entry
 	CMP	r0,#2
 	FNLDR	r0,mini_bufl,EQ		; get minibuffer size into r0
-	FNRTS
-p$l
-	ADR	R0,s$l
-	BL	minibuffer_prompt_token
 	FNRTS
 s$l	FNS	("zap_p_command")
 
@@ -1325,22 +1297,19 @@ s$l	FNS	("zap_p_command")
 
 	DCD	1<<23
 Copy
-	FNJSR
 	FNLDR	R0,car_mode
 	TEQ	R2,#23
 	BEQ	Copy_fn
 	TEQ	R0,#2
-	BEQ	co11			; copy already initiated
+	MOVEQ	R0,R1			; number of bytes to copy
+	BEQ	copy_text		; copy already initiated
 	TEQ	R0,#1
-	FNRTS	NE			; not in a state to initiate copy
+	MOVNE	PC,R14			; not in a state to initiate copy
+	FNJSR
 	MOV	R0,#2
 	BL	set_caret_mode		; initialise copy
 	MOV	R14,#-1
 	FNSTR	R14,car_column		; column preferred by cursor
-	FNRTS
-co11
-	MOV	R0,R1			; number of bytes to copy
-	BL	copy_text
 	FNRTS
 Copy_fn
 	TEQ	R0,#2
@@ -1728,15 +1697,10 @@ noundo$l
 
  DCD (3<<3)+(1<<6)
 Date
- FNJSR
  TEQ R2,#6
- BEQ da13
- BL insert_date
- FNRTS
-da13
+ BNE insert_date
  ADR R0,da_s0
- BL minibuffer_prompt_token
- FNRTS
+ B minibuffer_prompt_token
 da_s0
  FNS ("zap_p_date")
 
@@ -1924,8 +1888,7 @@ Delline
  DCD 0
 Deletewordnext
  FNJSR
- LDRB	R7,[R8,#w_format]
- CMP	R7,#5 ; BASIC
+ BL	isitBASICmode
  BEQ	BASICfudge1$l
  LDR R7,[R10,#c_off]
  MOV R11,#e_splus
@@ -1979,11 +1942,19 @@ BASICfudge1$l
 	BL	command_string
 	FNRTS
 
+isitBASICmode
+	FNJSR	"R0,R11"
+	MOV	R0,#14
+	MOV	R11,#e_interrogate
+	BL	call_mode
+	AND	R0,R0,#255
+	TEQ	R0,#2 ; tokenised mode
+	FNRTS
+
  DCD 0
 Deletewordprev
  FNJSR
- LDRB	R7,[R8,#w_format]
- CMP	R7,#5 ; BASIC
+ BL	isitBASICmode
  BEQ	BASICfudge2$l
  LDR R7,[R10,#c_off]
  MOV R11,#e_sminus
@@ -2212,13 +2183,11 @@ Escape
 
  DCD 0+(1<<28)
 Execute
- FNJSR
  FNLDR R3,key_flags
  BIC R3,R3,#4
  FNSTR R3,key_flags		; turn off learn first!
  FNLDR R0,key_learn		; learn buffer
- BL execute_strokes
- FNRTS
+ B execute_strokes
 
  DCD 0
 Fastundo
@@ -2564,16 +2533,13 @@ docs$l	= "Filer_OpenDir ZapResources:Docs",0
 
  DCD 7+(3<<3)+(1<<6)
 Helpcom
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  MOV R2,#0
  BL find_command_help
  BLVC display_help
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 s$l FNS ("zap_p_helpcom")
 
@@ -2581,16 +2547,14 @@ s$l FNS ("zap_p_helpcom")
 
 	DCD 7+(3<<3)+(1<<6)
 Helpfn
-	FNJSR
 	TEQ	R2,#6
-	BEQ	p$l
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
+	FNJSR
 	MOV	R2,#0
 	ORR	R0,R0,#1<<31
 	BL	find_command_help
 	BLVC	display_help
-	FNRTS
-p$l	ADR	R0,s$l
-	BL	minibuffer_prompt_token
 	FNRTS
 s$l	FNS	("zap_p_helpfn")
 
@@ -2598,17 +2562,14 @@ s$l	FNS	("zap_p_helpfn")
 
  DCD 7+(3:SHL:3)+(1:SHL:6)
 Helpvar
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  MOV R2,#0
  ORR R0,R0,#1:SHL:30
  BL find_command_help
  BLVC display_help
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 s$l
  FNS ("zap_p_helpvar")
@@ -2617,9 +2578,10 @@ s$l
 
  DCD 7+(3<<3)+(1<<6)+(1<<8)
 Helpkey
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  SUB R1,R2,#&8000
  CMP R1,#&200
  BCC prekey$l			; user has pressed a key
@@ -2662,10 +2624,6 @@ prekey$l
  STRVCB R14,[R0]		; put & at start
  BLVC minibuffer_write
  MOVVC R0,#&1D			; return operation finished
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 s$l FNS ("zap_p_helpkey")
 
@@ -2717,9 +2675,8 @@ Infinitewrap
  CMP R2,#15
  BEQ ww_new_wind_format_set
  CMP R8,#0			; ib menu...?
- FNRTS EQ
- LDR R0,[R8,#w_format]
- TST R0,#bit_windowwrap
+ LDRNE R0,[R8,#w_format]
+ TSTNE R0,#bit_windowwrap
  FNRTS EQ
 
  LDR R0,[R8,#w_width]
@@ -2756,21 +2713,18 @@ Insertblock
 
  DCD (3<<3)+(1<<6)		; string input
 Insert
- FNJSR
  TEQ R2,#6
- BEQ is2
- MOV R1,R0
+is2
+ ADREQ R0,is_s0
+ BEQ minibuffer_prompt_token
+ FNJSR
+ SUB R1,R0,#1
 is1
- LDRB R14,[R1],#1
+ LDRB R14,[R1,#1]!
  TEQ R14,#0
  BNE is1
- SUB R1,R1,#1
  SUB R1,R1,R0
  BL Char			; insert the chars
- FNRTS
-is2
- ADR R0,is_s0
- BL minibuffer_prompt_token
  FNRTS
 is_s0
  FNS ("zap_p_insert")
@@ -2791,9 +2745,11 @@ Insertblockgs
 
  DCD (3<<3)+(1<<6)
 Insertgs
- FNJSR
  TEQ R2,#6
- BEQ is3
+is3
+ ADREQ R0,is_s1
+ BEQ minibuffer_prompt_token
+ FNJSR
  FNLDR R1,wimp_kbdbuf
  MOV R2,#kbdbuf_size*4
  SWI XOS_GSTrans
@@ -2801,55 +2757,27 @@ Insertgs
  MOVVC R1,R2			; length
  BLVC Char
  FNRTS
-is3
- ADR R0,is_s1
- BL minibuffer_prompt_token
- FNRTS
 is_s1
  FNS ("zap_p_insertgs")
-
- LOCAL
 
  DCD 0+(3<<3)+(1<<6)+(1<<10)
 Insertdate
  CMP R2,#6
- BEQ prompt$l
- ;FNJSR
- ;FNLDR R0,wimp_dateformat
- B insert_date
- ;FNRTS
-prompt$l
+ BNE insert_date
  FNLDR R0,wimp_dateformat
  MOV PC,R14
-
- LOCAL
 
  DCD 0+(3<<3)+(1<<6)+(1<<10)
 Inserttime
  CMP R2,#6
- BEQ prompt$l
- ;FNJSR
- ; FNLDR R0,wimp_timeformat
- B insert_date
- ;FNRTS
-prompt$l
+ BNE insert_date
  FNLDR R0,wimp_timeformat
  MOV PC,R14
-
- LOCAL
 
  DCD (3<<3)+(1<<6)+(1<<10)+(1<<15)
 Indent
  CMP R2,#6
- BEQ prompt$l
- FNJSR
- MOV R6,R0
- BL shade_no_sel
- FNRTS CS
- MOV R0,R6
- BL indent_selection
- FNRTS
-prompt$l
+ BNE indent_selection
  FNLDR R0,wimp_indentstring
  MOV PC,R14
 
@@ -2857,9 +2785,10 @@ prompt$l
 
  DCD (3<<3)+(1<<6)+(1<<8)+(1<<17)
 Indentby
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  CMP R2,#&8000
  BCS q$l
  TEQ R2,#17
@@ -2876,10 +2805,6 @@ Indentby
  BLVC strcopy			; copy to current indent string
  FNLDR R0,wimp_indentstring,VC
  BLVC indent_selection
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 q$l
  SUB R14,R2,#&8100
@@ -2911,8 +2836,6 @@ clearstr$l = 21,0
 
  ALIGN
 
- LOCAL
-
  DCD 0
 Joinline
  MOV R11,#e_joinline
@@ -2941,14 +2864,17 @@ Keymap
 ke_s0
  FNS (" - ")
 
+	LOCAL
+
 	&	3<<3 :OR: 1<<6 :OR: 1<<23 :OR: 1<<28
 Keymapn
+	TEQ	R2,#6
+	ADREQ	R0,s$l
+	BEQ	minibuffer_prompt_token
 	TEQ	R2,#23
 	LDREQB	R0,[R8,#w_currentmap]
 	STMFD	R13!,{R14}
 	BEQ	keymap_name
-	TEQ	R2,#6
-	BEQ	prompt$l
 	BL	find_key_table_by_name
 	TEQ	R0,#0
 	STRPLB	R0,[R8,#w_currentmap]
@@ -2957,10 +2883,6 @@ Keymapn
 bad_keymap_jump
 	LDMFD	R13!,{R14}
 	B	bad_keymap
-prompt$l
-	ADR	R0,s$l
-	LDMFD	R13!,{R14}
-	B	minibuffer_prompt_token
 s$l	FNS	("zap_p_keymap")
 
  DCD (1<<15)
@@ -2979,13 +2901,11 @@ Keepregion
 
  DCD 1<<12
 Lastcylinder
- FNJSR
  MOV R0,R1
  MOV R1,#0
  MOV R2,#0
  MVN R3,#0
- BL new_read_disc
- FNRTS
+ B new_read_disc
 
  DCD 1<<12
 Lastsector
@@ -3005,16 +2925,13 @@ Lasttrack
 
  DCD 0
 Learn
- FNJSR
  FNLDR R0,key_flags
  TST R0,#4
  EOR R0,R0,#4			; toggle mode
  FNSTR R0,key_flags
- BNE le1			; switch off learn mode
+ MOVNE PC,R14			; switch off learn mode
  MOV R0,#0
  FNSTR R0,key_llen		; reset buffer
- FNRTS
-le1
  FNRTS
 
  DCD 7 + (1<<15)
@@ -3087,8 +3004,6 @@ Linewrap
  FNJSR "R2"
  TEQ R2,#15
  BEQ linewrap_justtest
- FNRTS EQ
-
  ; ;MOV R0,#1 << 27		; clear softwrap
  ; ;MOV R1,#0			; toggle nothing
  ; ;TEQ R8,#0
@@ -3160,11 +3075,9 @@ Linenos
 
  DCD 7 + (1<<15)
 Lineselect
- FNJSR
  MOV R0,#0
  MOV R1,#(1<<6)
- BL new_info_set
- FNRTS
+ B new_info_set
 
  LOCAL
 
@@ -3187,16 +3100,11 @@ s$l FNS ("zap_m_linesep")
 
  DCD 7+(3<<3)+(1<<6)
 Loadmodule
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
  ORR R0,R0,#1<<31			; extra * command not given
- BL load_mode_module
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
- FNRTS
+ B load_mode_module
 s$l = "zap_p_loadmodule",0
  ALIGN
 
@@ -3680,9 +3588,10 @@ get_mode_number
 Moden
  TEQ R2,#23
  BEQ Moden_fn
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  BL find_mode_number		; find mode + load module
  FNRTS VS
  CMP R0,#0
@@ -3692,10 +3601,6 @@ Moden
  LDRNEB R1,[R8,#w_format]	; mode number
  TEQ R0,R1
  BLNE new_mode			; only change if to different mode
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 s$l
  = "zap_p_moden",0
@@ -3956,20 +3861,11 @@ Oscli
  MOV R3,#1
  B os_cli
 
- LOCAL
-
  DCD (3<<3)+(1<<6)+(1<<10)+(1<<15)
 Outdent
  CMP R2,#6
- BEQ prompt$l
- FNJSR
- MOV R6,R0
- BL shade_no_sel
- FNRTS CS
- ORR R0,R6,#1<<31
- BL indent_selection
- FNRTS
-prompt$l
+ ORRNE R0,R0,#1<<31
+ BNE indent_selection
  FNLDR R0,wimp_indentstring
  MOV PC,R14
 
@@ -4007,13 +3903,11 @@ Quicksave
 
  DCD 0+(1<<28)
 Quote
- FNJSR
  FNLDR R0,key_flags
  ORR R0,R0,#1<<3		; set quote flag
  FNSTR R0,key_flags
  ADR R0,qu_s0
- BL minibuffer_write_token
- FNRTS
+ B minibuffer_write_token
 qu_s0
  FNS ("zap_m_quote")
 
@@ -4079,9 +3973,8 @@ Returnnoindent
  DCD 7+(1<<15)
 Renumber
  CMP R2,#15
- BEQ returnifonibmenu
- MOV R11,#e_renumber
- B call_mode
+ MOVNE R11,#e_renumber
+ BNE call_mode
 
 returnifonibmenu
  CMP R8,#0
@@ -4091,14 +3984,12 @@ returnifonibmenu
 
  DCD 7+(1<<15)
 Readonly
- FNJSR
  LDR R0,[R9,#f_flags]
  TST R0,#flags_PermanentReadOnly
  MOV R0,#0			; mask
  MOV R1,#0			; eor
  MOVEQ R1,#flags_ReadOnly	; allowed to change state
- BL new_file_flags_set
- FNRTS
+ B new_file_flags_set
 
  DCD 0
 Redo
@@ -4150,9 +4041,9 @@ Searchforward
 
  DCD 7+(1<<15)
 Softwrap
- FNJSR
  TEQ R2,#15
  BEQ softwrap_justtest
+ FNJSR
  MOV R0,#2			; sw possible...?
  MOV R11,#e_interrogate
  BL call_mode
@@ -4177,8 +4068,7 @@ Softwrap
 softwrap_justtest
  MOV R0,#0		; clear nothing
  MOV R1,#1<<27		; toggle softwrap
- BL new_wind_format_set
- FNRTS
+ B new_wind_format_set
 
 ;  DCD 7+(1<<15)
 ; Strongsoftwrap
@@ -4395,18 +4285,13 @@ Scup
 
  DCD 0
 Selregion
- FNJSR
  FNLDR R0,car_mode
  TEQ R0,#3
- BEQ se39			; already in sel mode
+ BEQ default_caret		; already in sel mode: turn off select area
  TEQ R0,#1
- FNRTS NE
+ MOVNE PC,R14
  MOV R0,#3
- BL set_caret_mode
- FNRTS
-se39
- BL default_caret		; turn off select area
- FNRTS
+ B set_caret_mode
 
  LOCAL
 
@@ -4512,9 +4397,10 @@ Dropmark
 
  DCD 7+(3<<3)+(1<<6)+(1<<17)
 Setmarginwidth
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  TEQ R2,#17
  BEQ a$l
  BL minibuffer_eval
@@ -4534,10 +4420,6 @@ Setmarginwidth
  FNSTR R1,opt_info,EQ
  STRNE R1,[R8,#w_info]
  BLVC new_window_status
- FNRTS
-p$l
- ADR R0,s$l
- BL minibuffer_prompt_token
  FNRTS
 a$l
  TEQ R0,#0
@@ -4571,9 +4453,10 @@ local_bpltemp
 
  DCD 7 + (3<<3) + (1<<6) + (1<<17)
 Setwidth
- FNJSR
  TEQ R2,#6
- BEQ p$l
+ ADREQ R0,s$l
+ BEQ minibuffer_prompt_token
+ FNJSR
  TEQ R2,#17
  BEQ a$l
  BL minibuffer_eval		; coz it's a string up to here...
@@ -4611,12 +4494,6 @@ abnormalwidthsetting
  LDR R0,local_bpltemp
  BL new_window_status_forcebpl ; _preserve
  FNRTS
-p$l
- ;CMP R9,#0			; not needed any more...
- ;BEQ abort$l			; this doesn't work :( why not!
- ADR R0,s$l
- BL minibuffer_prompt_token
- FNRTS
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
@@ -4640,23 +4517,9 @@ s$l = "zap_m_setwidth",0
 
  DCD 7 + (1<<15)
 Spellasyoutype
- FNJSR
  MOV R0,#0
  MOV R1,#(1<<7)
- BL new_info_set
-; CMP R2,#15
-; BEQ grey$l
- FNRTS
-
-; grey$l
-;  MOV R10,R0
-;  MOV R0,#13			; sw possible...?
-;  MOV R11,#e_interrogate
-;  BL call_mode
-;  CMP R0,#13
-;  MOVEQ R0,R10
-;  ORRNE R0,R10,#2
-;  FNRTS
+ B new_info_set
 
  LOCAL
 
@@ -4709,27 +4572,17 @@ Stopop
 
  DCD (1<<12)
 Stilldown
- FNJSR
- ;PUSH "R0-R12"
- ;BL scrub_caret
- ;PULL "R0-R12"
- PUSH "R0-R12"
+ FNJSR "R0-R12"
  BL Scdown
- PULL "R0-R12"
- BL Down
- FNRTS
+ FNPULL
+ B Down
 
  DCD (1<<12)
 Stillup
- FNJSR
- ;PUSH "R0-R12"
- ;BL scrub_caret
- ;PULL "R0-R12"
- PUSH "R0-R12"
+ FNJSR "R0-R12"
  BL Scup
- PULL "R0-R12"
- BL Up
- FNRTS
+ FNPULL
+ B Up
 
  DCD (2<<3)
 Stripspaces
@@ -4787,13 +4640,12 @@ Swapwindow
 
  DCD 7
 Switchtab
- FNJSR
  LDR R0,[R8,#w_flags]
  ANDS R14,R0,#3<<9		; extract current tab mode
  BICNE R0,R0,#3<<9		; Unix tab mode
  ORREQ R0,R0,#1<<9		; set edit tab mode
  STR R0,[R8,#w_flags]
- FNRTS
+ MOV PC,R14
 
  LOCAL
 
@@ -4833,28 +4685,21 @@ Togglemark
 
  DCD 7+(1<<15)
 Toggleundo
- FNJSR
  TEQ R8,#0
  LDRNE R7,[R9,#f_flags]
  FNLDR R7,opt_flags,EQ
  TEQ R2,#15
  ANDEQ R0,R7,#1			; the undo bit
- FNRTS EQ
+ MOVEQ PC,R14
  TEQ R8,#0
- BNE a$l
- EOR R7,R7,#1
- FNSTR R7,opt_flags
- FNRTS
-a$l				; its on a window
- TST R7,#1
- BEQ b$l			; undo off
- BL open_UndoBox		; question whether to switch off
- FNRTS
-b$l				; switch it on
- ORR R7,R7,#1
+ EOREQ R7,R7,#1
+ FNSTR R7,opt_flags,EQ
+ MOVEQ PC,R14
+ TST R7,#1			; it's on a window
+ BNE open_UndoBox		; if on, question whether to switch off
+ ORR R7,R7,#1			; switch it on
  STR R7,[R9,#f_flags]
- BL new_file_title
- FNRTS
+ B new_file_title
 
  DCD 0
 Togglewind
@@ -4993,9 +4838,10 @@ Toggleinsert
 
  DCD (3<<3)+(1<<6)+(1<<8)
 Universalarg
- FNJSR
  TEQ R2,#6
- BEQ un16
+ ADREQ R0,un_s0
+ BEQ minibuffer_prompt_token
+ FNJSR
  CMP R2,#&8000
  BCS un18
  BL minibuffer_eval
@@ -5005,10 +4851,6 @@ Universalarg
  SWIVC XHourglass_Off
  ADRVC R0,un_s1
  BLVC minibuffer_write_token
- FNRTS
-un16
- ADR R0,un_s0
- BL minibuffer_prompt_token
  FNRTS
 un18
  SUB R0,R2,#&8000		; number of the key
@@ -5478,7 +5320,8 @@ Writebuffer
  CMP R9,#0
  MOVEQ PC,R14
  TEQ R2,#6
- BEQ prompt$l
+ ADREQ R0,p$l
+ BEQ minibuffer_prompt_token
 
  FNJSR
  MOV R4,R0			; save filename
@@ -5499,22 +5342,14 @@ Writebuffer
  SWI XOS_File
  FNRTS
 
-prompt$l
- ADR R0,p$l
- B minibuffer_prompt_token
 p$l
  FNS ("zap_p_writebuffer")
 
  DCD (3<<3)+(1<<6)+(1<<9)
 Writefile
- FNJSR
  TEQ R2,#6
- BEQ wr10
- BL save_to_file		; this has the intelligence to get it right in exceptional cases
-; BL new_file_name
-; BLVC save_text
- FNRTS
-wr10
+ BNE save_to_file		; this has the intelligence to get it right in exceptional cases
+ FNJSR
  LDR R0,[R9,#f_name]
  BL check_file_name		; does name contain path
  MOVVC R7,R0			; save whether it conatins a path
@@ -5613,12 +5448,9 @@ err$l ERR "zap_e_manycmdtables"
 ;  (ie calls get_selection)
 
 shade_no_sel
- FNJSR
  TEQ R2,#15
- BEQ a$l
- BL get_selection		; just read the selection position
- FNRTS
-a$l
+ BNE get_selection		; just read the selection position
+ FNJSR
  BL get_selection
  MOVCC R0,#0
  MOVCS R0,#2			; shade if none

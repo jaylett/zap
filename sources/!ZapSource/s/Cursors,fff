@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.8 1999/03/18 01:52:55 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.9 1999/04/14 23:22:49 ds Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -2512,6 +2512,30 @@ get_selection
  ADDS R0,R0,#0			; clc
  FNRTS
 
+;E R10 (assumes R8 valid if non-0)
+;X CC R1=file off of line start R2=len of line R8/R9 |
+; Normally called if get_selection returns CS
+; (uses e_linestart & e_linenext)
+
+get_line
+	TEQ	R10,#0
+	MOVEQS	PC,R14
+	FNJSR	"R11"
+	TEQ	R8,#0
+	LDREQ	R0,[R10,#c_wind]
+	BLEQ	conv_wind_off
+	LDR	R0,[R10,#c_off]
+	PUSH	"R0"
+	MOV	R11,#e_linestart
+	BL	call_mode
+	MOV	R1,R0
+	PULL	"R0"
+	MOV	R11,#e_linenext
+	BL	call_mode
+	SUB	R2,R0,R1
+	ADDS	R0,R0,#0	; CLC
+	FNRTS
+
 ;E R8,R9
 ;X R1,2,3,8,corrupted / selection completely redrawn...
 
@@ -4294,8 +4318,8 @@ num$l
  FNLDR R7,red_blkbuf
 start$l				; R0=string pointer / -ve to outdent
  BL get_selection		; R8/R9 for selection
- FNRTS CS			; no selection
-
+ BLCS get_line
+ FNRTS CS
  LDR R4,[R8,#w_format]
  FNLDR R5,opt_flags
  PUSH "R4,R5"
@@ -4329,6 +4353,7 @@ loop$l
  MOV R5,R0
 atstart$l			; R4=start of line to indent
  BL get_selection		; R8/R9 for selection
+ BLCS get_line
  ADD R2,R1,R2			; sel end
  CMP R4,R2			; was in R5...
  BGE end$l			; out of selected area
