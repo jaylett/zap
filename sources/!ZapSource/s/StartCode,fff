@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.10 2002/01/21 23:32:40 ds Exp $
+; $Id: StartCode,fff,v 2.11 2002/11/10 01:43:42 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -30,7 +30,6 @@
 
  IMPORT correct_font
  IMPORT open_QuitBox
- IMPORT minimise_font_memory
  IMPORT gc_claimentity
  IMPORT gc_datarequest
  IMPORT poll_word_changed
@@ -2834,59 +2833,24 @@ do_templates$l
  BL	reload_templates
 
 do_fonts$l
-; BL read_font_info		; recache fonts
-
-; FNLDR R2,font_charw
-; FNLDR R3,font_charh
-; FNSTR R2,red_charw
-; FNSTR R3,red_charh		; for ensure_workarea_sprite
-
-; BL correct_font
-
-; BL font_resetcache ; ?????
  ADR	R10,sub$l
  BL	do_allwindow		; update all windows
- BLVC	minimise_font_memory	; remove old fonts
- BLVC	read_font_info
-; MOVVC R14,#0
-; FNSTR R14,font_cachedto,VC
  FNRTS
+
 sub$l
  FNJSR
  BL	create_palette		; update the palette block
-
  LDRVC	R0,[R8,#w_flags]
  ORRVC	R0,R0,#1<<31		; mark window to be altered
  STRVC	R0,[R8,#w_flags]		; on next open... (bug...!)
-
-; LDRVC R0,[R8,#w_format]	; don't ignore redraws...
-; BICVC R0,R0,#1<<29
-; STRVC R0,[R8,#w_format]
-
-; BLVC alter_window ; doesn't work...
-
- LDRVC	R2,[R8,#w_font]		; font cache not valid any more
- MOVVC	R3,#font_data0
- MOVVC	R1,#-1
- BLVC	fill_words		; clear the entries in the cached font block
- BLVC	blat_cache_of_this_window
-; BLVC Updatewindow		; this doesn't work here.
-; new bit...
-; MOVVC R1,R8
-; SWI XWimp_GetWindowState
-; BLVC open_window
-; BLVC ccd_workxy			; R2,R3=max x,min y
-; MOVVC R0,R2
-; MOVVC R2,R3
-; MOVVC R3,R0
-; MOVVC R1,#0
-; MOVVC R4,#0
-; LDRVC R0,[R8,#w_handle]
-; SWIVC XWimp_ForceRedraw	; invalidate area (/should/ already be on
  FNRTS
+
+
 
  LOCAL
 
+; palette changed WIMP message
+;
 palette_changed			; called before a mode change + doesn't
  FNJSR				; redraw itself (contrary to the manual!)
  SYSLOG "Message: palette_changed", LOG_STATUS

@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.4 2002/01/21 23:32:40 ds Exp $
+; $Id: Redraw,fff,v 2.5 2002/11/10 01:43:42 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -45,24 +45,18 @@
  EXPORT ccd_blk_yrow
  EXPORT ccd_blk_yrow_vis
  EXPORT ccd_workxy
- EXPORT check_font_manager
  EXPORT colons
  EXPORT colon
  EXPORT convert_coords
  EXPORT ensure_redblk
- EXPORT font_ensure
- EXPORT font_resetcache
- EXPORT font_readinfo
  EXPORT pnt_fit_pages
  EXPORT pnt_get_pagesize
  EXPORT print_file
  EXPORT quick_print
- EXPORT read_font_info
  EXPORT red_overflow
  EXPORT redraw_request
  EXPORT redraw_window
  EXPORT redraw_all
- EXPORT setup_multiple_fonts
  EXPORT tidy_cache_line
  EXPORT update_area
  EXPORT update_between_offsets
@@ -123,367 +117,41 @@ null$l MOV PC,R14
 
 ;;;;;;;;;;;;;;;;;;;; Redraw Area ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;E R4=largest character used R8/R9 red_*
-;X Area redrawn (dispatches according to w_flags & w_rh) #
-;  Area redrawn via ZapRedraw_RedrawArea SWI
+;E
+;X Area redrawn via ZapRedraw_RedrawArea SWI
 ;  Must set up red_flags/screen/bpl/caddr/cbpl/cbpc/palette
 ;  Must NOT use wimp block.
 ;  (charh,charw,linesp already set up - see redraw_to_red)
-;  NB red_workarea already 64 + sprite size so that's ok
 
 redraw_area
- LDR R0,[R8,#w_flags]		; get flags
- ANDS R0,R0,#redraw_font_mask
- BEQ redraw_area_1to1
- TEQ R0,#redraw_dsa_system_doubleheight
- BEQ redraw_area_1to2
- TEQ R0,#redraw_vdu_system
- BEQ redraw_area_vdu
- TEQ R0,#redraw_vdu_font
- BEQ redraw_area_fontvdu
- TEQ R0,#redraw_fast_font
- BEQ redraw_area_fontfast
- LDR R0,[R8,#w_format]
- TST R0,#format_UseDoubleHeightScaling
- BEQ redraw_area_1to1		; 1 to 1 scale
- B redraw_area_1to2		; 1 to 2 scale
-
-redraw_area_1to1
- FNJSR "R1-R3"
- BLVC setup_multiple_fonts
- FNLDR R0,scn_bpp,VC
- FNLDR R2,red_charw,VC
- FNLDR R3,red_charh,VC
- SWIVC XZapRedraw_CachedCharSize	; doesn't need R1.
- FNRTS VS
- FNSTR R2,red_cbpl
- FNSTR R3,red_cbpc
- LDR R14,[R8,#w_info]		; for enable ss bit
- TST R14,#bit_nosubstyles
- MOVEQ R0,#&C ; 6
- MOVNE R0,#&4
- FNSTR R0,red_flags
- LDR R0,[R8,#w_palette]
- FNSTR R0,red_palette
- ADD R1,R12,#red_flags
- ADR R2,main_fastfont_extension
- SWI XZapRedraw_RedrawArea
- FNRTS
-
-redraw_area_1to2
- FNJSR "R1-R3"
- BLVC setup_multiple_fonts
- FNLDR R0,red_linesp,VC
- MOVVC R0,R0,LSR#1		; halve line spacing
- FNSTR R0,red_linesp,VC
- FNLDR R0,scn_bpp,VC
- FNLDR R2,red_charw,VC
- LDRVC R3,[R8,#w_rh]		; height taken from window
- MOVVC R3,R3,LSR#1
- FNSTR R3,red_charh,VC		; halve the height
- SWIVC XZapRedraw_CachedCharSize
- FNRTS VS			; NB calls setup_red_blk so corrupts
- FNSTR R2,red_cbpl
- FNSTR R3,red_cbpc
- LDR R14,[R8,#w_info]		; for enable ss bit
- TST R14,#bit_nosubstyles
- MOVEQ R0,#&E ; 6
- MOVNE R0,#&6
- FNSTR R0,red_flags
- LDR R0,[R8,#w_palette]
- FNSTR R0,red_palette
- ADD R1,R12,#red_flags
- ADR R2,main_fastfont_extension
- SWI XZapRedraw_RedrawArea
- FNRTS
-
-redraw_area_fontfast
- FNJSR "R1-R3"
- MOV R0,#1
- BL font_ensure			; ensure set up for fast redraw
- BLVC font_cachefont		; ensure relevant characters cached
- FNLDR R0,font_cmain,VC
- MOVVC R14,#1<<2		; extension sub given
- FNSTR R14,red_flags,VC
- FNSTR R0,red_caddr,VC
- FNLDR R0,font_bpl,VC
- FNSTR R0,red_cbpl,VC
- FNLDR R0,font_bpc,VC
- FNSTR R0,red_cbpc,VC
- LDRVC R0,[R8,#w_palette]
- FNSTR R0,red_palette,VC
- FNLDR R0,opt_switches,VC
- ANDVC R0,R0,#switch_SuppressAntialiasedDSA
- STRVC R0,local_aliasing_defeat
- ADDVC R1,R12,#red_flags
- ADRVC R2,fastfont_extension
- MOVVC R3,R12
- SWIVC XZapRedraw_RedrawArea
- FNRTS
-
-local_aliasing_defeat
- DCD 0
-
- LOCAL
-
-; do this every time redraw area is called :-(
-setup_multiple_fonts
- FNJSR "R1-R6"
- MOV R0,#0
- FNLDR R2,font_list			; red_charw/charh
- FNLDR R3,font_start
- LDR R4,[R8,#w_font]
- MOV R1,R4
- MOV R5,#(font_number - 1)		; number of fonts-1 - hardwired?
- ADR R6,local_font_wspace + 4
-loop$l
- LDR R14,[R4],#4
- CMP R14,#-1
- LDREQ R14,[R1]				; base sub style if not present.
- LDR R0,[R2,R14,LSL#5]			; problems here...?
- ADD R14,R3,R0
- STR R14,[R6],#4
- SUBS R5,R5,#1
- BPL loop$l
- LDR R14,local_font_wspace + 4
- FNSTR R14,red_caddr			; address of the bitmaps (FF:eeek?)
- FNRTS
-
-local_font_wspace
- % (font_number * 4 + 4)
-
- LOCAL
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Tim's first attempt at font styles ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-main_fastfont_extension
- TEQ R4,#0
- MOVEQ PC,R14			; in line spacing
- TEQ R0,#0
- BEQ linestart$l
- TEQ R0,#10			; font and colour change
- TEQNE R0,#9			; font change
- MOVNE PC,R14
-
- FNJSR "R2"
- ADR R2,local_font_wspace + 4
- LDRB R14,[R3,#-1]
-incolour$l
- ORR R14,R14,R14,LSL #8
- AND R14,R14,#&1E0
- LDR R0,[R2,#-4]		; what's wrong with using R2...?
- SUB R4,R4,R0			; offset in cache
- LDR R0,[R2,R14,LSR #3]
- STR R0,[R2,#-4]
- ADD R4,R4,R0
- FNRTS
-linestart$l
- FNJSR "R2"
- ADR R2,local_font_wspace + 4
- LDR R0,[R1,#r_caddr]
- STR R0,[R2,#-4]		; font is reset(?)
- MOV R14,R9,LSR#24		; new entry conditon...! (normally 0?)
- B incolour$l
-
- LOCAL
-
-;E As for a redraw area extension
-;   R0=control code 0=line start 1=colour change 4=merge etc
-;   R4=0 if in line spacing or cache address+row
-;X Changes the address of the font to deal with the colours etc.
-;  Uses scratch work space font_wspace which has format:
-;   #0 Current font being used
-;   #4 Current foregound mask
-;   #8 Current background mask
-
-fastfont_extension
- TEQ R4,#0
- MOVEQ PC,R14			; in line spacing
- FNJSR "R2"
- FNLDR R2,font_wspace		; work area
- TEQ R0,#0
- BEQ linestart$l
- TEQ R0,#1
- BEQ colour$l
- TEQ R0,#4
- BEQ merge$l
- TEQ R0,#8
- BEQ cursor$l
- TEQ R0,#10
- BEQ colour$l
- FNRTS
-
-font$l
- FNRTS
-
-colourandfont$l
- FNRTS
-
-linestart$l			; start of a line
- LDR R0,[R1,#r_caddr]
- STR R0,[R2]			; font is reset
-colour$l			; colour change
- LDR R0,[R2]
- SUB R4,R4,R0			; offset in cache
- STR R10,[R2,#4]		; Save actual foregound mask
- STR R11,[R2,#8]		; Save actual background mask
- FNLDR R0,font_formask
- FNLDR R14,font_bacmask
- TEQ R0,R10
- TEQEQ R14,R11
- BEQ aliased$l			; matches anti-aliased cache font
- TEQ R0,R11
- TEQEQ R14,R10
- BEQ inverse$l			; matches inverse anti-alias
- FNLDR R0,scn_bpp		; Bits per pixel...
- CMP R0,#3			; In > 256 colours?
- BCC justendallthis
- LDR R0,local_aliasing_defeat
- CMP R0,#0
- BNE justendallthis
- FNLDR R0,scn_bpp		; Bits per pixel...
- CMP R0,#3			; In 256 colours?
- BEQ twofivesixcols		; In 256 colours?
- CMP R0,#4			; In 256 colours?
- BEQ thirtytwokcols		; In 256 colours?
-
-sixteenmcols			; In 16M colours.
- EOR R0,R10,R11
- TST R0,#&80
- TSTEQ R0,#&8000
- TSTEQ R0,#&800000
- BEQ justendallthis		; the *very* worst cases...
- FNLDR R0,font_cache
- STR R0,[R2]
- ADD R4,R4,R0
- FNRTS
-
-thirtytwokcols			; In 32K colours.
- EOR R0,R10,R11
- TST R0,#&4200
- TSTEQ R0,#&10
- BEQ justendallthis		; the *very* worst cases...
- FNLDR R0,font_cache
- STR R0,[R2]
- ADD R4,R4,R0
- FNRTS
-
-twofivesixcols			; In 256 colours.
- EOR R0,R10,R11
- TST R0,#&F0
- BEQ justendallthis		; the *very* worst cases...
- FNLDR R0,font_cache
- STR R0,[R2]
- ADD R4,R4,R0
- FNRTS
-
-justendallthis
- FNLDR R0,font_cmain		; use non aliased bitmaps
- STR R0,[R2]
- ADD R4,R4,R0
- FNRTS
-
-aliased$l			; cols are cached in anti-alias cache
- FNLDR R0,font_cache
- STR R0,[R2]
- ADD R4,R4,R0
- MOV R10,#-1			; copy the cache values
- MOV R11,#0
- FNRTS
-inverse$l			; cols are the inverse of anti-alias cache
- FNLDR R0,font_cache
- STR R0,[R2]
- ADD R4,R4,R0
- EOR R11,R10,R11		; correct masks to invert the
- MVN R10,R11			; colours - calculate cases
- FNRTS
-merge$l
- LDR R10,[R2,#4]
- LDR R11,[R2,#8]		; restore
- LDR R0,[R2]
- SUB R4,R4,R0			; offset
- FNLDR R0,font_cmain		; not changing font - stacked!!
- ADD R4,R4,R0			; always use main font
- FNRTS
-cursor$l			; doing a cursor merge
- CMP R7,#&100
- BCC swap$l			; just swap over colours (&7F=a block)
- LDR R0,[R2]
- SUB R0,R4,R0			; offset in cache
- FNPULL
- FNLDR R2,font_cmain		; use this for the mask character
- ADD R2,R2,R0			; add character offset
- MOV PC,R14
-swap$l				; cursor is a block (&7F) so cols will swap
- LDR R0,[R2]
- SUB R4,R4,R0			; offset in cache
- FNLDR R0,font_formask
- FNLDR R14,font_bacmask
- TEQ R0,R8
- TEQEQ R14,R9
- BEQ swapaliased$l		; matches anti-aliased cache font
- TEQ R0,R9
- TEQEQ R14,R8
- BEQ swapinverse$l		; matches inverse anti-alias
- FNLDR R0,font_cmain		; Selections...?
- ADD R4,R4,R0			; swap to main cache
- FNRTS
-swapaliased$l
- FNLDR R0,font_cache
- ADD R4,R4,R0
- MOV R8,#-1
- MOV R9,#0
- FNRTS
-swapinverse$l
- FNLDR R0,font_cache
- ADD R4,R4,R0
- EOR R9,R8,R9			; correct masks to invert the
- MVN R8,R9			; colours - calculate cases
- FNRTS
-
-;;;;;;;;;;;;; end of fast font extension ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-redraw_area_vdu
  FNJSR "R1"
- MOV R0,#1+(1<<4)		; vdu redraw + fast rectangles :-)
- FNSTR R0,red_flags
- MOV R0,#0			; system font
- FNSTR R0,red_caddr
- FNSTR R0,red_cbpl		; x offset
- FNLDR R0,red_charh
- FNLDR R1,scn_magy
- MOV R0,R0,LSL R1
- SUB R0,R0,#1
- FNSTR R0,red_cbpc		; y offset
  LDR R0,[R8,#w_palette]
  FNSTR R0,red_palette
- ADD R1,R12,#red_flags
- SWI XZapRedraw_RedrawArea
- FNRTS
+ LDR R0,[R8,#w_font]
+ FNSTR R0,red_caddr
 
-redraw_area_fontvdu
- FNJSR "R1"
- LDR R14,[R8,#w_info]		; for enable ss bit
- TST R14,#bit_nosubstyles
- FNLDR R14,red_flags
- MOVNE R14,#1+(1<<4)		; vdu redraw + fast rectangles :-)
- MOVEQ R14,#9+(1<<4)		; vdu redraw + sub-styles...
- FNSTR R14,red_flags
- FNLDR R0,font_name
- FNSTR R0,red_caddr
- FNLDR R0,font_xoff
- FNSTR R0,red_cbpl		; x offset
- FNLDR R0,font_yoff
- FNSTR R0,red_cbpc		; y offset
- FNLDR R0,font_size
- FNLDR R1,red_workarea
- STR R0,[R1]
- LDR R0,[R8,#w_palette]
- FNSTR R0,red_palette
+ MOV R1,#rf_realvdu				; init r_flags
+ LDR R0,[R8,#w_flags]
+ AND R0,R0,#redraw_font_mask
+
+ TEQ R0,#redraw_vdu_system			; set VDU flag
+ TEQNE R0,#redraw_vdu_font
+ ORREQ R1,R1,#rf_vdu
+
+ TEQ R0,#redraw_dsa_system_doubleheight		; set doubleheight flag
+ ORREQ R1,R1,#rf_doubleheight
+
+ TEQ R0,#redraw_dsa_system_scaled		; auto scaling flag
+ ORREQ R1,R1,#rf_autoscale
+
+ LDR R0,[R8,#w_info]				; for enable ss bit
+ TST R0,#bit_nosubstyles
+ ORREQ R1,R1,#rf_substyles
+
+ FNSTR R1,red_flags
  ADD R1,R12,#red_flags
  SWI XZapRedraw_RedrawArea
+
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -512,194 +180,6 @@ check_scn_valid
  CMP R0,R0
  FNRTS
 
-;E scn_& setup for new mode
-;X font info updated according to font_cache -1/0/cache WB #
-
-read_font_info
- FNLDR R0,font_cache
- TEQ R0,#0
- MOVEQ PC,R14			; doesn't want fonts
- FNJSR "R1"
- BL font_findfont		; get font handle
- FNRTS VS
- MOV R1,R0			; save handle
- BL font_readinfo		; bounding box in font_[xy]off, font_char[wh]
- BVS re38
- FNLDR R0,font_cache
- CMP R0,#0
- BLGT font_resetcache
- BVS re38
- MOV R0,R1
- SWI XFont_LoseFont
- FNRTS
-re38
- PUSH "R0"
- MOV R0,R1			; handle
- MOV R14,#-1
- FNSTR R14,font_cache		; cache no longer valid
- MOV R14,#10
- FNSTR R14,font_size		; go back to reasonable font size
- SWI XFont_LoseFont
- PULL "R0"			; restore error
- FNRTV
-
-;E font_charw/charh/xoff/yoff set up
-;X Cache ensured, font_bpl/bpc/cachedto set up #
-
-font_resetcache
- FNJSR "R1-R5"
- MOV R0,#&1F			; last char cached =&1F
- FNSTR R0,font_cachedto
- FNLDR R0,scn_bpp
- FNLDR R2,font_charw
- FNLDR R3,font_charh
- FNSTR R2,red_charw
- FNSTR R3,red_charh		; for ensure_workarea_sprite
- SWI XZapRedraw_CachedCharSize  ; R3=number of bytes per main character
- MOVVC R5,R3			; save number of bytes per character
- FNSTR R2,font_bpl,VC
- FNSTR R3,font_bpc,VC
- BLVC ensure_workarea_sprite	; ensure enough room for caching
- FNRTS VS			; eg called by new_font
- MOV R1,R3,LSL#8		; &100 chars
- ADD R1,R1,R3,LSL#4		; &110 chars
- FNLDR R0,font_cache
- CMP R0,#0
- FNRTS EQ
- BLVC heap_ensure			; check cache big enough
- FNSTR R0,font_cache,VC
- FNLDR R0,font_cmain,VC
- BLVC heap_ensure		; check main cache big enough
- FNSTR R0,font_cmain,VC
- MOVVC R0,#0
- FNLDR R2,font_charw,VC
- FNLDR R3,font_charh,VC
- SWIVC XZapRedraw_CachedCharSize; R3=number of bytes per init character
- MOVVC R1,R3,LSL#8		; &100 chars
- ADDVC R1,R1,R3,LSL#4		; &110 chars
- FNLDR R0,font_cinit,VC
- BLVC heap_ensure		; check initial cache big enough
- FNSTR R0,font_cinit,VC
- MOVVC R4,#'z'
- BLVC font_cachefont		; cache letters up to 'z' in all 3 caches
- FNLDR R2,font_cache,VC
- ADDVC R1,R2,R5,LSL#6		; source is character 64
- MOVVC R3,R5,LSL#5		; copy 32 chars
- BLVC move_bytes			; fill in ctrl A-ctrl Z in aa cache
- FNLDR R2,font_cache,VC
- ADDVC R1,R2,R5,LSL#5		; source is character 48
- ADDVC R1,R1,R5,LSL#4
- MOVVC R3,R5			; copy 1 char
- BLVC move_bytes			; fill in ctrl 0
- ADDVC R1,R12,#red_flags
- MOVVC R2,#0
- MOVVC R3,#&110
- SUBVC R3,R3,#1
- FNLDR R4,font_cinit,VC
- SWIVC XZapRedraw_AddVduBitmaps	; add ctrl letters etc initial keymap
- MOVVC R2,#&100
- SWIVC XZapRedraw_ConvertBitmap	; convert &100+
- MOVVC R2,#&7F
- MOVVC R3,#&7F
- SWIVC XZapRedraw_ConvertBitmap	; convert the delete character
- MOVVC R2,#0
- MOVVC R3,#&1F
- SWIVC XZapRedraw_ConvertBitmap	; convert the control letters
- FNRTS
-
-;E R4=char to cache up to. font_* set up and cached claimed.
-;  workarea ensured big enough for the sprite
-;X font cache updated #
-;  redraw block set up for bitmap conversion
-
-font_cachefont
- FNLDR R0,font_cachedto
- CMP R4,R0
- MOVLE PC,R14			; already cached
- FNJSR "R1-R7"
- ADD R6,R0,#1			; first character to cache
- MOV R7,R4			; last character to cache
- MOV R0,#2			; possibly in current mode ... :-)
- BL cachefont_setup		; set up for full caching
- FNLDR R0,red_charh,VC
- FNLDR R14,scn_magx,VC
- MOVVC R0,R0,LSL R14		; convert x to work os
- ADDVC R5,R5,R0,LSR #2		; y offsets (os)...
-
- FNLDR R14,red_workarea,VC
- STRVC R4,[R14,#28]		; a_stack1
- STRVC R5,[R14,#32]		; a_stack2
-
- MOVVC R0,#2			; In mode 0 :-(
- SWIVC XZapRedraw_CacheFontChars;
- FNRTS VS
- MOV R0,#1			; possibly in current mode ... :-)
- BL cachefont_setup		; set up for full caching
- FNLDR R14,red_workarea,VC
- STRVC R4,[R14,#28]		; a_stack1
- STRVC R5,[R14,#32]		; a_stack2
- MOVVC R0,#1			; in the normal screen mode... :-)
- SWIVC XZapRedraw_CacheFontChars
- FNRTS VS
- FNLDR R0,font_cmain
- FNSTR R0,red_caddr
- MOV R2,R6
- MOV R3,R7
- FNLDR R4,font_cinit
- SWI XZapRedraw_ConvertBitmap
- FNSTR R7,font_cachedto,VC	; actually cached to
- FNRTS
-
-;E R0=type of call 1/2
-;X R1=redraw block with workarea ensured and r_caddr,r_cbpl
-;  r_cbpc,r_charw,r_charh,r_palette setup
-;  R2=fontname R3=fontsize R4/R5=font os offsets
-
-cachefont_setup
- FNJSR "R8"
- MOV R8,#0			; use default option colours
- MOV R5,R0			; save type of call
- TEQ R5,#1
- FNLDR R0,font_cache,EQ
- FNLDR R0,font_cinit,NE
- FNSTR R0,red_caddr
- FNLDR R2,font_charw
- FNLDR R3,font_charh
- FNSTR R2,red_charw
- FNSTR R3,red_charh
- TEQ R5,#1
- FNLDR R0,scn_bpp,EQ
- MOVNE R0,#0
- SWI XZapRedraw_CachedCharSize
- FNSTR R2,red_cbpl
- FNSTR R3,red_cbpc
- FNLDR R3,font_wspace
- FNSTR R3,red_palette
- MVNVC R0,#0			; read
- MOVVC R1,#0			; mode 0
- MOVVC R2,#1			; background
- BLVC mode_colour
- STRVC R0,[R3]
- STRVC R0,[R3,#4]			; backgrounds (24 bit)
- MVNVC R0,#0
- MOVVC R2,#2			; foreground
- BLVC mode_colour
- STRVC R0,[R3,#8]			; foreground (24 bit)
- ADDVC R1,R12,#red_flags
- MOVVC R2,R3			; source palette=dest
- MOVVC R4,#3			; 3 entries (0,1,2)
- MOVVC R0,#2			; get masks
- ADDVC R3,R3,#12			; dest palette
- SWIVC XZapRedraw_CreatePalette
- LDRVC R0,[R3]
- FNSTR R0,font_bacmask,VC
- LDRVC R0,[R3,#8]
- FNSTR R0,font_formask,VC
- FNLDR R2,font_name,VC
- FNLDR R3,font_size,VC
- FNLDR R4,font_xoff,VC
- FNLDR R5,font_yoff,VC
- FNRTS
 
 ;;;;;;;;;;; keep blank line buffer updated ;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -784,13 +264,10 @@ redraw_to_red
  MOVCS R3,R0			; clip to file end
  CMP R2,R3
  MOVCS R2,R3			; ensure R2<=R3
- LDR R5,[R8,#w_rh]		; character height
- FNSTR R5,red_charh		; save character height in pixels
- LDR R0,[R8,#w_rl]
- SUB R0,R0,R5			; line spacing
+ LDR R0,[R8,#w_linesp]
  FNSTR R0,red_linesp
- LDR R0,[R8,#w_rw]
- FNSTR R0,red_charw		; char horizontal size in pixs
+ LDR R0,[R8,#w_font]
+ FNSTR R0,red_caddr
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1305,6 +782,8 @@ invert_caret
  SWI XZapRedraw_AddCursorSmart
  FNRTS VS
  SUB R1,R0,R11			; new last used offset
+ MOV R0,R4			; free the cursor characters
+ BL heap_free
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1312,7 +791,7 @@ invert_caret
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R4=b0-b8=caret type (0-4) R3=cursor length
-;X R7=colour+high byte and R4=r_workarea contains the string #
+;X R7=colour+high byte and R4 -> heap block containing the string #
 ;  R3>=1 updated length of caret
 
 ; What we're doing here is to prepare all the relevant data for ZapRedraw_AddCursor.
@@ -1324,13 +803,13 @@ invert_caret
 
 get_caret_string
  FNJSR "R1-R2"
- MOV R0,R3
- BL ensure_workarea
+ ADD R0,R3,#1
+ BL heap_claim
  FNRTS VS
+ MOV R1,R0
  MOV R2,R3			; copy length
  AND R0,R4,#&FF			; get type
- FNLDR R4,red_workarea
- MOV R1,R4			; copy dest
+ MOV R4,R1			; copy dest
  MOV R7,#(syscol_CurFg:SHL:16)
  ORR R7,R7,#(syscol_CurBg:SHL:24)
  ORR R7,R7,#(8:SHL:8)		; use 'merge cursors' in ZapRedraw_AddCursor (not 'merge characters')
@@ -1433,9 +912,9 @@ cr17
  ORREQ R14,R14,#8
  FNSTR R14,red_flags
 
- LDR R14,[R7]
- CMN R14,#1			;flag to say no special font data.
- MOVEQ R7,R3
+ ;LDR R14,[R7]
+ ;CMN R14,#1			;flag to say no special font data.
+ ;MOVEQ R7,R3
  SWI XZapRedraw_PrepareDataLine
 
  CMP R0,R9
@@ -1666,8 +1145,6 @@ red_cache_lines
  LDR R2,[R8,#w_txtlen]		; byte width of cache lines
  LDR R0,[R8,#w_txt]
  MLA R6,R2,R6,R0		; address of line in cache
- MOV R3,#0
- STR R3,local_ss_info_word
  MVN R5,#0			; region lines
  FNLDR R1,car_selection		; selection caret
  BL get_wind_off
@@ -1685,12 +1162,6 @@ red_cl_l0
  BVS red_cl_11
  BL generate_cache_font_data
 
- LDR R14,local_ss_info_word
- CMP R14,#2
- LDR R14,[R8,#w_info]		; for enable ss bit
- BICCS R14,R14,#bit_nosubstyles
- STR R14,[R8,#w_info]		; for enable ss bit
-
  CMP R10,R3
  BLT red_cl_12			; before the region start
  CMP R10,R5
@@ -1703,8 +1174,6 @@ red_cl_12
  BCC red_cl_l0			; do next line if not
  MOV R1,#einit_RedrawEnd
  BL calle_init
- LDR R0,local_ss_info_word
- BL setup_fontmc_with_extras	; slow and maybe not even needed :-)
  STRVS R0,[R13]
  PULL "R0,R1"
  FNRTS
@@ -1712,14 +1181,10 @@ red_cl_11
  STR R0,[R13,#4]!
  MOV R1,#einit_RedrawEnd
  BL calle_init
- LDR R0,local_ss_info_word
- BL setup_fontmc_with_extras
  ADDVS R13,R13,#4
  LDRVC R0,[R13],#4
  FNRTV				; escape
 
-local_ss_info_word
- & 0
 
 generate_cache_font_data
  FNJSR "R0,R11"
@@ -1743,20 +1208,14 @@ perform_block_copy
  ADD R2,R1,R3,LSL#1		; R2 = font data.
  SUB R3,R3,#1
  BL get_mode_colours_ptr
- LDR R14,local_ss_info_word
 looping$l			; unravel?
  LDRB R5,[R1,R3]		; colour data...
  CMP R5,R6,LSR #2		; /should/ always be true...? danger
  LDRLOB R5,[R7,R5,LSL #2]	; FONT DATA!!!! - LO for safety...
+ AND R5,R5,#&E9
  STRB R5,[R2,R3]
- ORR R5,R5,R5,LSL #8
- AND R5,R5,#&1E0
- MOV R5,R5,LSR #5
- MOV R0,#1
- ORR R14,R14,R0,LSL R5
  SUBS R3,R3,#1
  BPL looping$l
- STR R14,local_ss_info_word
  FNRTS
 
  LOCAL
@@ -1769,27 +1228,21 @@ fg_and_bg_hijacked
  ADD R2,R1,R3			; dest
  SUB R3,R3,#1
  BL get_mode_colours_ptr
- LDR R14,local_ss_info_word
 loop$l
- LDRB R0,[R4,R3]
+ LDRB R0,[R4,R3]		; read fg colour
  MOV R5,#0
- CMP R0,R6,LSR #2
- LDRLOB R5,[R7,R0,LSL #2]
- LDRB R0,[R1,R3]
+ CMP R0,R6,LSR #2		; range check
+ LDRLOB R5,[R7,R0,LSL #2]	; load zap palette entry
+ LDRB R0,[R1,R3]		; read bg colour
  CMP R0,#9
- MVNLO R0,#0
+ MVNLO R0,#0			; ignore system colours
  CMP R0,R6,LSR #2
- LDRLOB R0,[R7,R0,LSL #2]
- ORRLO R5,R5,R0
- STRB R5,[R2,R3]
- ORR R5,R5,R5,LSL #8
- AND R5,R5,#&1E0
- MOV R5,R5,LSR #5
- MOV R0,#1
- ORR R14,R14,R0,LSL R5
+ LDRLOB R0,[R7,R0,LSL #2]	; load zap palette entry
+ ORRLO R5,R5,R0			; merge substyles
+ AND R5,R5,#&E9			; remove invalid bits
+ STRB R5,[R2,R3]		; store in style buffer
  SUBS R3,R3,#1
  BPL loop$l
- STR R14,local_ss_info_word
  FNRTS
 
  LOCAL
@@ -1802,10 +1255,9 @@ fg_and_bg_hijacked_with_style_info
  ADD R2,R1,R3			; dest
  SUB R3,R3,#1
  BL get_mode_colours_ptr
- LDR R14,local_ss_info_word
 loop$l
- LDRB R5,[R2,R3]
- LDRB R0,[R4,R3]
+ LDRB R5,[R2,R3]		; as above, but merge the
+ LDRB R0,[R4,R3]		; mode provided style as well
  CMP R0,R6,LSR #2
  LDRLOB R0,[R7,R0,LSL #2]
  ORRLO R5,R5,R0
@@ -1815,15 +1267,10 @@ loop$l
  CMP R0,R6,LSR #2
  LDRLOB R0,[R7,R0,LSL #2]
  ORRLO R5,R5,R0
+ AND R5,R5,#&E9
  STRB R5,[R2,R3]
- ORR R5,R5,R5,LSL #8
- AND R5,R5,#&1E0
- MOV R5,R5,LSR #5
- MOV R0,#1
- ORR R14,R14,R0,LSL R5
  SUBS R3,R3,#1
  BPL loop$l
- STR R14,local_ss_info_word
  FNRTS
 
 ;X R6=number of colours
@@ -2347,157 +1794,6 @@ update_between_offsets
  BLVC update_region
  FNRTS
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Font subs						   ;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
- LOCAL
-
-;X font manager 2.42 and some cache / VS
-
-check_font_manager
- FNJSR "R1-R3"
- SWI XFont_CacheAddr
- BLVS err$l
- FNRTS VS
- CMP R0,#242			; version number
- BLLT err$l
- FNRTS
-err$l ERR "zap_e_needFM242"
-
-;X R0=font handle of font_name scaled font_size #
-
-font_findfont
- FNJSR "R1-R5"
- FNLDR R1,font_name
- FNLDR R14,font_size		; font size in points
- MOV R2,R14,LSL #16
- MOV R2,R2,LSR #12		; font size in 1/16 point
- TST R14,#&FF000000
- TSTEQ R14,#&FF0000
- MOVNE R3,R14,LSR #16
- MULNE R3,R2,R3
- ADDNE R14,R3,R3
- ADDNE R14,R14,R3,LSL #4
- ADDNE R14,R14,R3,LSL #6
- MOVNE R3,R14,LSR #13
- MOVEQ R3,R2			; x size = y size
- MOV R4,#0
- MOV R5,#0
- SWI XFont_FindFont
- FNRTS
-
-;E R0=font handle
-;X bounding box info read to font_charw etc
-
-font_readinfo
- FNJSR "R1-R6"
- BL font_charbbox
- FNRTS VS
- FNLDR R5,scn_magx
- FNLDR R6,scn_magy
- SUB R3,R3,R1			; os width
- RSB R1,R1,#0			; os x plot off
- SUB R4,R4,R2			; os height
- RSB R2,R2,#0			; os y plot off
- MOV R3,R3,LSR R5		; width in pixs
- MOV R4,R4,LSR R6		; height in pixs
- FNLDR R0,font_leftred
- SUB R3,R3,R0
- SUB R1,R1,R0,LSL R5
- FNLDR R0,font_botred
- SUB R4,R4,R0
- SUB R2,R2,R0,LSL R6
- FNLDR R0,font_rightred
- SUB R3,R3,R0
- FNLDR R0,font_topred
- SUB R4,R4,R0
- FNSTR R1,font_xoff		; os x offset
- FNSTR R2,font_yoff		; os y offset
- FNSTR R3,font_charw		; width in pixs
- FNSTR R4,font_charh		; height in pixs
- FNRTS
-
- LOCAL
-
-;E R0=font handle
-;X R1-R4=smallest box containg all the letters and numbers (in OS)
-;  (As for Font_ReadInfo but 'silly' characters mess up the values there)
-
-font_charbbox
- FNJSR "R5-R11"
- MOV R9,R0			; handle
- MOV R11,#&10			; use os
-
- MOVVC R11,#&0			; use millipoints
- BLVC getthevalues
-
- ADDVC R1,R7,#200		; it rounds down (400mps=1os)
- ADDVC R2,R8,#800		; max x & max y
- SWIVC XFont_ConverttoOS
- MOVVC R3,R1
- MOVVC R4,R2
- ADDVC R1,R5,#200		; min x & min y
- ADDVC R2,R6,#200
- SWI XFont_ConverttoOS
- FNRTS
-
-getthevalues
- FNJSR "R1-R4"
- MOV R5,#0
- MOV R6,#0
- MOV R7,#0
- MOV R8,#0			; current smallest box
- MOV R10,#'0'			; current character
-a$l
- MOV R0,R9
- MOV R1,R10
- MOV R2,R11			; use millipoints /or/ os units
- SWI XFont_CharBBox		; returns box in R1-R4
- FNRTS VS
- CMP R1,R5
- MOVLT R5,R1
- CMP R2,R6
- MOVLT R6,R2
- CMP R3,R7
- MOVGT R7,R3
- CMP R4,R8
- MOVGT R8,R4			; update box size
- ADD R10,R10,#1			; next character
- TEQ R10,#'9'+1
- MOVEQ R10,#'A'
- TEQ R10,#'Z'+1
- MOVEQ R10,#'a'
- CMP R10,#'z'
- BLE a$l
- FNRTS
-
-;E R0=access state -1=VDU >0=Cached
-;X ensures font_cache At Least in this state (-1<cache) #
-
-font_ensure
- FNJSR "R1"
- MOV R1,R0			; save type
- BL check_font_manager
- FNRTS VS
- FNLDR R0,font_cache
- CMP R0,#0			; already cached?
- FNRTS GT
- CMP R1,#0			; requires caching?
- BGT fo20
- CMP R0,#0			; already set up for vdu?
- FNRTS MI
-fo20
- CMP R1,#0
- BLE fo21			; don't need a cache
- MOV R0,#0
- BL heap_claim
- FNRTS VS
- MOV R1,R0			; claimed cache
-fo21
- FNSTR R1,font_cache		; new cache type
- BL read_font_info		; set up
- FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Printout subs							   ;
@@ -2529,9 +1825,8 @@ default_height$l & 841889 ; 29.7cm
 pnt_fit_pages
  FNJSR "R1-R11"
  MOV R6,R0			; save width in chars
- MVN R0,#0
- BL font_ensure
- FNRTS VS	; set up font values
+ BL pnt_find_font
+ FNRTS VS
  FNLDR R10,wimp_print
  FNLDR R11,opt_flags
  TST R11,#1<<15			; sideways print
@@ -2545,7 +1840,7 @@ pnt_fit_pages
  SWI XZapRedraw_Divide		; BL div_mod
  STR R0,[R10,#print_column_gap]
  MOV R4,R0			; page width
- FNLDR R0,font_charw		; font width in pixels
+ FNLDR R0,pnt_charw		; font width in pixels
  FNLDR R14,scn_magx		; x os scaling
  MOV R0,R0,LSL R14		; font width in os coords
  MOV R14,#400
@@ -2568,12 +1863,13 @@ pnt_fit_pages
  MOV R0,R0,LSL#8		; paper height pix @ b16
  LDR R1,[R10,#print_xscale]	; x scaling @ b16
  SWI XZapRedraw_Divide		; height in pixels after scaling
- FNLDR R1,font_charh
+ FNLDR R1,pnt_charh
  SWI XZapRedraw_Divide		; height in chars
  MOV R3,R0
  TST R11,#1<<16
  SUBEQ R3,R3,#3			; subtract room for title
  STR R3,[R10,#print_lines_per_column]
+ BL pnt_lose_font
  FNRTS
 
 ;E R0=use colour R8/R9=file
@@ -2582,28 +1878,28 @@ pnt_fit_pages
 print_file
  FNJSR "R1-R5,R7,R8,R10"
  FNSTR R0,opt_temporary		; colour flag
+ BL pnt_find_font
+ FNRTS VS
  LDR R1,[R8,#w_rl]
  LDR R2,[R8,#w_rw]
  LDR R3,[R8,#w_rh]
  LDR R4,[R8,#w_linesp]		; save old redraw vals
- FNLDR R5,font_yoff ; red_cbpc		; obviously doesn't help
- FNLDR R0,font_charw
+ FNLDR R0,pnt_charw
  STR R0,[R8,#w_rw]
- FNLDR R0,font_charh
+ FNLDR R0,pnt_charh
  STR R0,[R8,#w_rl]
  STR R0,[R8,#w_rh]		; set up font ones
  MOV R14,#0
  STR R14,[R8,#w_linesp]
- FNSTR R5,font_yoff
  ADR R10,print_file_sub
  BL do_longop			; print the pages
  STR R1,[R8,#w_rl]
  STR R2,[R8,#w_rw]
  STR R3,[R8,#w_rh]
  STR R4,[R8,#w_linesp]
- FNSTR R5,font_yoff ; red_cbpc
  MOV R14,#0
  FNSTR R14,opt_temporary
+ BL pnt_lose_font		; this copes with VS
  FNRTS				; may be VS and error...
 
 print_file_sub
@@ -2775,7 +2071,7 @@ pnt_send_title
  ADD R3,R10,#print_plot_position
  LDR R4,[R10,#print_width]
  LDR R5,[R10,#print_height]
- FNLDR R0,font_charw		; font height in pixels
+ FNLDR R0,pnt_charw		; font height in pixels
  FNLDR R14,scn_magy
  MOV R0,R0,LSL R14		; font height in os
  MOV R14,#400
@@ -2908,23 +2204,14 @@ print_area_font
  FNJSR "R1,R8"
  MOV R14,#9			; vdu redraw + sub-styles + |vdu background|
  FNSTR R14,red_flags
- FNLDR R14,font_name
+ FNLDR R14,pnt_font
  FNSTR R14,red_caddr
- FNLDR R14,font_xoff
- FNSTR R14,red_cbpl		; x offset
- FNLDR R14,font_yoff
- FNSTR R14,red_cbpc		; y offset
- FNLDR R14,font_size
- FNLDR R1,red_workarea
- STR R14,[R1]
-
- FNLDR R0,red_flags
 
  BL set_up_print_palette
  FNSTR R0,red_palette,VC
 
  ADDVC R1,R12,#red_flags
- SWIVC XZapRedraw_RedrawArea	; !?!?!? vdu-background...!
+ SWIVC XZapRedraw_RedrawArea
  FNRTS
 
 set_up_print_palette
@@ -3005,6 +2292,46 @@ redraw_clip
  ADD R1,R1,#28
  BL rectangle_clip
  FNRTS
+
+; get the font to be used during printing
+; E R8
+; X pnt_font, pnt_charw, pnt_charh setup
+pnt_find_font	FNJSR
+		BL	read_vdu_font_name
+		LDR	R2,[R8,#w_vdufontsize]
+		MOV	R3,R2,LSR #16			; aspect ratio
+		MOV	R2,R2,LSL #16
+		MOV	R2,R2,LSR #12			; font size (points / 16)
+		ADD	R4,R12,#font_leftred
+		MOV	R1,#3				; VDU mode, reduction block present
+		SWI	XZapRedraw_FindFont
+
+		FNSTR	R0,pnt_font,VC
+		ADDVC	R1,R12,#red_flags
+		MOVVC	R2,#0				; pixels, ignore r_linesp, don't scale
+		SWIVC	XZapRedraw_ReadCharSize
+		FNSTR	R2,pnt_charw,VC
+		FNSTR	R3,pnt_charh,VC
+		FNRTS
+
+
+; lose the font used during printing
+; E possibly VS and R0 = error
+; X
+pnt_lose_font	FNJSR	"R11"
+		MOVVC	R11,#0
+		ADDVSS	R11,R0,#0			; keep the error and CLV
+		ADD	R1,R12,#pnt_font
+		MOV	R0,#0
+		SWP	R0,R0,[R1]                      ; get font and clear it
+		TEQ	R0,#0
+		SWINE	XZapRedraw_LoseFont
+		FNRTS	VS
+
+		MOVS	R0,R11				; see if we had an error
+		FNRTS	EQ
+		FNRTV
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Quick print subs						 ;

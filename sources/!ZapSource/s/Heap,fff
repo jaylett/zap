@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 2.3 2001/07/23 16:11:57 james Exp $
+; $Id: Heap,fff,v 2.4 2002/11/10 01:43:42 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -33,6 +33,7 @@ heap_size		* &1000		; initial heap size / inc size
 ; heap_start ->	heap_end	Acorn syle (OS_Heap) Heap [Zap block -1]
 ;
 ; font_start -> font_end	Font bitmaps buffer       [Zap block -2]
+;   *** now delegated to ZapRedraw
 ;
 ; (file_list!0)+f_ptr		First file buffer	  [Zap block  0]
 ; ....
@@ -47,9 +48,8 @@ heap_size		* &1000		; initial heap size / inc size
 ; For OS < 3.5 all blocks are stacked on top of each other as above,
 ; resizing one moves all the others.
 ;
-; For OS >= 3.5 the font bitmaps buffer and the file buffers are in
-; two dynamic areas starting at font_start and (file_list!0)+f_ptr
-; (if the first block isn't dead!!) respectively.
+; For OS >= 3.5 the file buffers are in a dynamic area starting at
+; (file_list!0)+f_ptr (if the first block isn't dead!!).
 ;
 ; NB Matters are complicated by the fact that some file blocks are marked
 ; as dead (f_ptr=-1) and so that block does not 'exist'! Setting a file's
@@ -74,7 +74,7 @@ set_block_size
  FNJSR "R1-R11"
  SYSLOGF "set_block_size %0d to %1x",LOG_MEMORY
  FNLDR R11,wimp_version		; get version number
- MOV R10,R0			; R10=block number (-1 = heap -2=font)
+ MOV R10,R0			; R10=block number (-1 = heap)
  ADD R5,R1,#3
  BIC R5,R5,#3			; R5=new size word aligned
  BL get_zap_block
@@ -83,8 +83,6 @@ set_block_size
  BGE file$l			; it's a file block
  CMP R10,#-1
  BEQ heap$l
- CMP R10,#-2
- BEQ font$l
  BL err$l			; unrecognised!
  FNRTS
 heap$l
@@ -93,15 +91,6 @@ heap$l
  SUB R7,R7,R4
  ADR R8,heapsub$l
  FNLDR R9,env_top
- B move$l
-font$l
- ADR R6,fontslot$l
- FNLDR R7,font_end
- SUB R7,R7,R4
- ADR R8,fontsub$l
- CMP R11,#320
- FNLDR R9,env_top,LT		; in the wimpslot
- FNLDR R9,font_end,GE		; in it's own dynamic area
  B move$l
 file$l
  ADR R6,fileslot$l
@@ -121,7 +110,7 @@ file$l
 ;               R10=block number R11=wimp version
 ; R9=address of top of the area the block sits in
 ; R10=block number
-; R11=new block size
+; R11=wimp version
 move$l
  SUBS R5,R5,R7			; R5=signed change in size of block
  BGT moveup$l
@@ -135,26 +124,20 @@ moved$l				; block has been moved
  CMP R10,#-2
  MOVEQ R10,#-1			; font becomes -1
  MOVNE R10,#-2			; heap becomes -2
+ 		; FIXME: the above 3 lines aren't necessary anymore, but
+ 		; I'm confused, because what they appear(ed) to be doing
+ 		; should _never_ have worked (it adjusted the font block
+ 		; twice) - cl
 update$l			; update from next block
  ADD R10,R10,#1			; next block
  CMP R10,R9
  FNRTS GE			; already updated blocks above - Exit
- CMP R10,#0
- BLT upfont$l
  FNLDR R1,file_list
  ADD R1,R1,R10,LSL#f_shift
  LDR R0,[R1,#f_ptr]
  CMP R0,#-1
  ADDNE R0,R0,R5
  STRNE R0,[R1,#f_ptr]		; update file start if it exists
- B update$l
-upfont$l
- FNLDR R0,font_start
- ADD R0,R0,R5
- FNSTR R0,font_start
- FNLDR R0,font_end
- ADD R0,R0,R5
- FNSTR R0,font_end
  B update$l
 ; shift block up (R5>0)
 moveup$l
@@ -210,10 +193,6 @@ fileslot$l			; change dynamic area files sit in
  BL set_dynamic_area
  FNSTR R1,file_end,VC		; update new top if there is no error
  FNRTS
-fontslot$l
- CMP R11,#320
- BLT wimpslot$l			; resize wimpslot for old case
- MOV PC,R14			; dynamic area already resized
 ; subroutines needed to resize blocks
 heapsub$l			; change heap size by R0
  FNJSR "R1-R3"
@@ -225,17 +204,6 @@ heapsub$l			; change heap size by R0
  FNLDR R1,heap_start
  MOV R0,#5
  SWI XOS_Heap			; enlarge heap (can't fail)
- FNRTS
-fontsub$l			; resize font block
- FNJSR "R1"
- FNLDR R1,font_end
- ADD R1,R1,R0			; new font end
- CMP R11,#320
- BLT fontdone$l			; old OS
- FNLDR R0,font_area		; area number
- BL set_dynamic_area		; resize
-fontdone$l
- FNSTR R1,font_end,VC		; set new size if no error
  FNRTS
 filesub$l			; resize a file block
  FNJSR "R1"
@@ -267,7 +235,6 @@ err2$l ERRlit "Corrupted block area (set_block_size)"
 get_zap_block
  FNJSR
  CMP R0,#-1
- FNLDR R0,font_start,LT		; -2=font
  FNLDR R0,heap_start,EQ		; -1=heap
  FNRTS LE
 loop$l				; find next file
@@ -370,21 +337,10 @@ init_heap
  FNLDR R0,wimp_version		; OS version
  CMP R0,#320
  BGT newos$l
- FNSTR R1,font_start
- FNSTR R1,font_end
  FNSTR R1,file_end		; set up the rest of the vars
- SYSLOG "init_heap initialised font and file buffers",LOG_MEMORY
+ SYSLOG "init_heap initialised file buffers",LOG_MEMORY
  FNRTS
-newos$l				; use dynamic areas for files and fonts
- MOV R1,#0
- MOV R2,#8*1024*1024		; max size = 8 meg
- ADR R3,font$l
- BL create_dynamic_area
- FNRTS VS
- FNSTR R0,font_area
- FNSTR R1,font_start
- FNSTR R1,font_end
- SYSLOGF "init_heap created font DA #%0d at %1x",LOG_MEMORY
+newos$l				; use dynamic areas for files
  MOV R1,#0
  MOV R2,#-1			; max size = total ram
  ADR R3,file$l
@@ -394,7 +350,6 @@ newos$l				; use dynamic areas for files and fonts
  FNSTR R1,file_end
  SYSLOGF "init_heap created file DA #%0d at %1x",LOG_MEMORY
  FNRTS
-font$l = |zap$|," bitmaps",0
 file$l = |zap$|," files",0
  ALIGN
 
@@ -427,8 +382,6 @@ kill_heap
  FNLDR R1,wimp_version
  CMP R1,#320
  FNRTS LE			; no dynamic areas to kill
- FNADD R2,R12,font_area		; kill fonts
- BL kill$l
  FNADD R2,R12,file_area		; kill files
  BL kill$l
  FNRTS
@@ -611,6 +564,7 @@ heap_free
  SYSLOGF "heap_free %0x",LOG_MEMORY+2
  MOVS R2,R0
  FNRTS MI			; return if pointer negative
+ FNRTS EQ			; or 0
  MOV R0,#3
  FNLDR R1,heap_start
  SWI XOS_Heap			; free heap block

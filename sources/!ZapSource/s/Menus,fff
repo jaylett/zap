@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.15 2002/09/14 19:12:15 christian Exp $
+; $Id: Menus,fff,v 2.16 2002/11/10 01:43:42 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -23,14 +23,12 @@
  GET h.Messages
 
  IMPORT create_ColourBox
- IMPORT conv_font_off
- IMPORT get_font_off
- IMPORT find_zap_font
- IMPORT minimise_font_memory
- IMPORT add_font_suffix
  IMPORT Bitmapfont
+ IMPORT Outlinefont
  IMPORT get_MiniBuf
  IMPORT strcopy
+ IMPORT read_dsa_font_name
+ IMPORT read_vdu_font_name
 
  EXPORT init_menus
  EXPORT create_menu
@@ -320,10 +318,14 @@ Fontlist
 	BL	shade$l
 	FNRTS
 getlist$l
+	FNJSR
 	MOV	R2,#1<<19:OR:1<<21
-	FNLDR	R6,font_name
+	FNLDR	R0,font_name
+	TEQ	R8,#0
+	BLNE	read_vdu_font_name		; tick the font name
+	MOV	R6,R0
 	SWI	XFont_ListFonts
-	MOV	PC,R14
+	FNRTS
 shade$l	FNJSR	"R1,R2"
 	ADD	R1,R3,#28
 shlp$l	LDMIA	R1,{R2-R4}
@@ -381,16 +383,9 @@ a$l
 exec$l
  FNJSR "R1,R2"			; preserve for no good reason...?
 exec_gotname$l
- MOV R0,R10			; font name string
- BL str_len
- ADD R1,R0,#8
- FNLDR R0,font_name
- BL heap_ensure
- FNSTR R0,font_name,VC
- MOVVC R1,R0
- MOVVC R2,R10
- BLVC strcopy			; copy in new font name
- BLVC new_font
+ MOV R2,#0
+ MOV R0,R10
+ BL Outlinefont
  FNRTS
 fontlist_decodemenu
  FNJSR "R1,R2"			; must be same as in exec$l (above)
@@ -1259,10 +1254,8 @@ create$l
  CMP R8,#0
  ADREQ R6,dir$l			; anywhere...
  BEQ a$l
- LDRNE R0,[R8,#w_font]
- LDRNE R0,[R0,#font_data0]
- BLNE conv_font_off		; R7=font block
- LDR R6,[R7,#4]			; font name
+ BL read_dsa_font_name
+ MOV R6,R0			;
 a$l
  LDR R1,[R5,#12]		; buffer
  MOV R2,R6			; font name
@@ -1289,6 +1282,7 @@ execsub$l			; R3=address of prev item start R10=text
  MOV R2,R10
  BL strcopy
  FNLDR R0,wimp_data		; text for this item = font name
+ MOV R2,#0			; 'execute command'
  BL Bitmapfont
  FNRTS
 
@@ -1393,11 +1387,9 @@ create$l			; R10=address of menu = menu name
  FNJSR
  CMP R8,#0			; IB friendly...
  FNRTS EQ
- LDR R0,[R8,#w_font]
- LDR R0,[R0,#font_data0]
- BL conv_font_off		; R7=font block
+ BL read_dsa_font_name
+ MOV R2,R0			;
  MOV R1,R10			; Font name first part (title bar?)
- LDR R2,[R7,#4]			; font name
  BL strCMPstr			; R0=char after match
  FNRTS NE			; doesn't match family
  MOV R6,R0
@@ -1438,6 +1430,7 @@ mwbml_execsub			; R3=address of prev item start R10=text
 
  FNLDR R0,wimp_data		; text for this item = font name
 ; PUSH "R0-R12"
+ MOV R2,#0			; 'execute command'
  BL Bitmapfont
 ; PULL "R0-R12"
  FNRTS
@@ -1529,12 +1522,9 @@ create$l			; R10=address of menu = menu name
  CMP R8,#0			; IB friendly...
  MOVEQ PC,R14
  FNJSR
- LDR R0,[R8,#w_font]
- LDR R0,[R0,#font_data0]
- BL conv_font_off		; R7=font block
- ;MOV R1,R10			; Font name first part (title bar?)
+ BL read_dsa_font_name
+ MOV R2,R0
  ADRL R1,font_path_leaf
- LDR R2,[R7,#4]			; font name
  BL strCMPstr			; R0=char after match
  FNRTS NE			; doesn't match family
  MOV R6,R0
@@ -1580,6 +1570,7 @@ execsub$l			; R3=address of prev item start R10=text
 
  FNLDR R0,wimp_data		; text for this item = font name
  PUSH "R0-R12"
+ MOV R2,#0			; 'execute command'
  BL Bitmapfont
  PULL "R0-R12"
  FNRTS
@@ -1797,21 +1788,21 @@ build$l
  LDR R14,[R6,#8]		; possibly a flags problem...?
  BIC R14,R14,#(1<<3)+(1<<6)+(1<<7)
  STR R14,[R6,#8]		; possibly a flags problem...?
- MOV R1,R0                      ; pointer to buffer
- MOV R2,#32                     ; buffer len
- MOV R3,R8                      ; name pointer
+ MOV R1,R0			; pointer to buffer
+ MOV R2,#32			; buffer len
+ MOV R3,R8			; name pointer
  MOV R4,#3
  ADR R0,type$l
  SWI XOS_ReadVarVal
  MOVVS R0,#-1			; no more
  BVS end$l
  MOV R0,#0
- STRB R0,[R1,R2]                ; terminate string
- ADD R1,R3,#10                  ; start of hex digits
- BL hex_read                    ; convert to filetype in R0
- MOV R8,R3                      ; save new name pointer
+ STRB R0,[R1,R2]		; terminate string
+ ADD R1,R3,#10			; start of hex digits
+ BL hex_read			; convert to filetype in R0
+ MOV R8,R3			; save new name pointer
 end$l
- ADDS R0,R0,#0                  ; clv
+ ADDS R0,R0,#0			; clv
  FNRTS
 type$l FNS ("File$Type_*")
 
@@ -3648,9 +3639,9 @@ fake$l
 	MOV	R14,R13
 	PUSH	"R0-R5,R10"
 	LDMIA	R10,{R0-R5}	; read w_pwind...w_pwidth
-	STMIA   R14!,{R0-R5}	; store them in fake block
+	STMIA	R14!,{R0-R5}	; store them in fake block
 	MOV	R10,#0
-	STMIA   R14!,{R0-R2,R5,R10} ; fill out the rest of the block
+	STMIA	R14!,{R0-R2,R5,R10} ; fill out the rest of the block
 	PULL	"R0-R5"
 	ADD	R10,R13,#4	; point R10 at the fake block
 	BL	process_key_command

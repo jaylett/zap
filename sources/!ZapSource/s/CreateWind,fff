@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.4 2001/07/23 16:11:57 james Exp $
+; $Id: CreateWind,fff,v 2.5 2002/11/10 01:43:42 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -17,10 +17,8 @@
  GET h.Update
  GET h.Commands
  GET h.TMTVars
+ GET h.Fonts
 
-; IMPORT choose_font
- IMPORT choose_fontm
- IMPORT correct_font
  IMPORT get_mode_0Box
  IMPORT getmoduleversionnumber
 
@@ -49,7 +47,6 @@
  EXPORT swap_window
  EXPORT scroll_request
  EXPORT test_open_dir
- EXPORT new_font
  EXPORT new_title
  EXPORT create_title
  EXPORT calculate_open_block
@@ -134,10 +131,8 @@ ne2
  MOV R3,#wind_blk		; number of bytes in block
  SWI XZapRedraw_MoveBytes	; BL move_bytes		; copy block
  BL claim_window_buffers
- LDRVC R1,[R7,#w_font]
- LDRVC R2,[R8,#w_font]
- MOVVC R3,#&80
- SWIVC XZapRedraw_MoveBytes	; copy font info
+ MOVVC R0,#0                    ; we don't have a font yet -
+ STRVC R0,[R8,#w_font]		; correct_wind_blk will find it.
  ADDVC R0,R7,#w_mode0
  BLVC copy_mode_buffers		; do the mode words
  LDRVC R0,[R7,#w_modedata]	; source block
@@ -202,6 +197,10 @@ create_window_block
  SUB R0,R9,R0
  MOV R0,R0,LSR#f_shift
  STR R0,[R8,#w_file]		; file offset
+ MOV R0,#0
+ STR R0,[R8,#w_dsafontname]	; use default fonts
+ STR R0,[R8,#w_vdufontname]	;
+ STR R0,[R8,#w_vdufontsize]	;
  FNLDR R0,opt_format
  LDR R14,ext2$l
  AND R0,R0,R14
@@ -238,9 +237,8 @@ create_window_block
  BVS err$l
  FNLDR R0,opt_modedata		; R0=source options
  BL create_modedata		; R0=created mode data block
- LDRB R14,[R8,#w_format]
- STR R0,[R8,#w_modedata]	; save R0 window options
- BL choose_fontm		; choose deafult font - w_fontx set up
+ STRVC R0,[R8,#w_modedata]	; save R0 window options
+ BLVC find_font			; get font handle for redraw
  BLVC choose_mode_format	; load mode and call e_init (needs opts)
  MOVVC R7,R0			; R7=wimp_modelist block returned
  BLVC create_title		; create title
@@ -309,9 +307,6 @@ claim_window_buffers
  MOVVC R0,#&40
  BLVC heap_claim		; claim palette block (default 16 cols)
  STRVC R0,[R8,#w_palette]
- MOVVC R0,#font_blk
- BLVC heap_claim		; claim font block (8 fonts * 2 for cache)
- STRVC R0,[R8,#w_font]
  FNRTS
 
  LOCAL
@@ -446,7 +441,6 @@ correct_wind_blk
  STR R0,[R8,#w_coff]
  STR R0,[R8,#w_cline]
  STR R0,[R8,#w_clogl]
- LDR R14,local_nws_correctflags
  BL correct_font
  FNRTS VS
  LDR R14,local_nws_correctflags
@@ -1065,7 +1059,7 @@ possiblewidthproblems
  ADD	R1,R10,#44
  MOV	R0,#&8000
  STR	R0,[R1,#8]
-; STR     R0,[R8,#w_maxx]	; new maxx
+; STR	  R0,[R8,#w_maxx]	; new maxx
 
  LDR	R0,[R8,#w_handle]
 
@@ -1379,7 +1373,8 @@ free_window
  SYSLOGF "free_window wind %8x (%0d)", LOG_WINDOW
  PULL "R0"
  ]
- BL free_mode_buffers
+ BL lose_font
+ BLVC free_mode_buffers
  LDRVC R0,[R8,#w_txt]
  BLVC heap_free
  LDRVC R0,[R8,#w_title]
@@ -1388,7 +1383,9 @@ free_window
  BLVC heap_free
  LDRVC R0,[R8,#w_palette]
  BLVC heap_free
- LDRVC R0,[R8,#w_font]
+ LDRVC R0,[R8,#w_vdufontname]
+ BLVC heap_free
+ LDRVC R0,[R8,#w_dsafontname]
  BLVC heap_free
  BLVC free_modedata
  FNRTS
@@ -1873,10 +1870,7 @@ alter_window
  LDR R0,[R8,#w_flags]
  BIC R0,R0,#1<<31
  STR R0,[R8,#w_flags]		; clear the condition flag
-; BL font_readinfo ; (first?)???
- BL read_font_info		; recache fonts
- BLVC correct_font		; choose new font w_rl etc ; no difference
-; FNRTS VS
+ BL read_font_sizes
  LDRVC R3,[R8,#w_scrollx]		; old scroll offset
  FNLDR R0,scn_magxold,VC
  MOVVC R3,R3,ASR R0		; old x pix scroll
@@ -2458,27 +2452,6 @@ al4
  SUBEQ R3,R3,#1
  FNRTS
 
-;E
-;X Windows updated for a change of outline font
-
-new_font
- FNJSR "R10"
- SYSLOGF "new_font (windows about to be updated)", LOG_WINDOW
- BL read_font_info
- ADRVC R10,new_font_sub
- BLVC do_allwindow
- FNRTS
-
-new_font_sub
- LDR R0,[R8,#w_flags]
- AND R0,R0,#&320000
- CMP R0,#&120000
- MOVCC PC,R14			; not using outline fonts
- FNJSR
- BL save_window_status ; save old posn
- BLVC new_window_status_forcebpl ; _samewidth ; new posn (calls correct_font)
- ;BL callupdatewindow
- FNRTS
 
 ;E R8/R9
 ;X Title recreated/buffer reflected and window reopened #
