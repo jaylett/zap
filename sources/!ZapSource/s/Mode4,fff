@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.1.2.10 1999/02/22 19:54:11 james Exp $
+; $Id: Mode4,fff,v 1.1.2.11 1999/04/14 00:26:45 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -398,7 +398,7 @@ mode4_width
 	ORR	R1,R1,R0
 	STR	R1,[R14]		; save in our mode word
 	ADD	R0,R0,#18
-	TST	R1,#1 << 28		; binary?
+	TST	R1,#mode4_BinaryOpcodes
 	ADDNE	R0,R0,#27
 	FNRTS
 
@@ -557,7 +557,7 @@ mode4_redrawline
 	MOV	R1,#7
 	MOV	R2,#11
 	LDR	R0,localmodeword
-	TST	R0,#1 << 28
+	TST	R0,#mode4_BinaryOpcodes
 	ADDNE	R2,R2,#27
 	MOV	R0,#10			; colour of hex/binary
 	BL	colour_chars_both	; colour the hex dump column
@@ -629,7 +629,7 @@ atprehex$l
 	STR	R0,local_temp4r6 + 20	; recover previous attempt...
 	STR	R7,local_temp4r6 + 16	; save it...
 	LDR	R0,localmodeword
-	TST	R0,#1 << 28		; binary mode
+	TST	R0,#mode4_BinaryOpcodes
 	BNE	insertbinarydata
 	TST	R2,#1<<17
 	ADDEQ	R6,R6,#6		; little endian
@@ -717,7 +717,7 @@ dis_loop_in_redraw
 	TST	R2,#2048		; second column not reached...
 	BLEQ	secondcolnotreached2
 notaconditionhere2
-; TST R4,#1 << 31
+; TST R4,#mode4_Unconditional
  ;BNE notaconditionhere ; ???
 	TST	R2,#1<<22		; second column not reached...
 	BLEQ	tochkcondcode		; ????????????????????
@@ -726,7 +726,7 @@ notaconditionhere2
  ;TST R2,#2048				; second column not reached...
  ;BEQ secondcolnotreached
 notaconditionhere
-	TST	R4,#1 << 30		; flag says no conditions...
+	TST	R4,#mode4_MinimalColouring
 	BNE	backfromfoundaregister
 
 	TST	R2,#2048		; second column not reached...
@@ -769,7 +769,7 @@ backfromfoundaregister
 	TEQNE	R0,#'-'			; hyphen
 	BICEQ	R2,R2,#32		; Registers
 	BICEQ	R2,R2,#3 << 14		; fp & cp registers
-	TST	R4,#1 << 30
+	TST	R4,#mode4_MinimalColouring
 	BNE	dontcheckthese_minimal
 	TEQ	R0,#'#'			; hyphen
 	ORREQ	R2,R2,#128		; &ampersand -> hex...
@@ -818,9 +818,9 @@ dontcheckthese_minimal
 	TST	R2,#128			; # immediates
 	MOVNE	R11,#21
 
-	TST	R4,#1 << 30		; minimal/unconditional...
+	TST	R4,#mode4_MinimalColouring
 	BNE	mode4_keepingitsimple	; ?????????????????????????????????
- ;TST R4,#1 << 31		; minimal...
+ ;TST R4,#mode4_Unconditional
  ;BNE bfnumberreductionpossible ; mode4_keepingitsimple
 
 	BIC	R14,R0,#&20
@@ -877,7 +877,7 @@ tobfnumberreductionpossible
 
 numberreductionpossible
 	LDR	R4,localmodeword
-	TST	R4,#1 << 30		; minimal
+	TST	R4,#mode4_MinimalColouring
 	MOVNE	PC,R14
 	MOV	R11,#&14		; 'numbers'
 	CMP	R0,#'-'
@@ -1205,7 +1205,7 @@ foundanasmcommenthere
 	ORR	R2,R2,#1
 	MOV	R11,#11
 	LDR	R4,localmodeword
-	TST	R4,#1 << 29
+	TST	R4,#mode4_CommentFree
 	BEQ	mode4_keepingitsimple
 	LDR	R4,[R8,#w_txtw]		; offset to foreground mask
 	ADD	R4,R4,R4
@@ -1279,7 +1279,7 @@ mode4_lineoff
 	ADD R0,R8,#w_mode0
 	LDR R1,[R0,R1,LSL #2]
 	MOV R0,#0
-	TST R1,#1 << 28		; binary?
+	TST R1,#mode4_BinaryOpcodes
 	AND R1,R1,#255			; bottom 8 bits
 	ADD R1,R1,#18			; hex width
 	ADDNE R1,R1,#27		; + bin width
@@ -1644,7 +1644,7 @@ secondcolnotreached
 	BICCS	R0,R0,#&20
 	BCS	asmcondfound
 
-	TST	R4,#1 << 31
+	TST	R4,#mode4_Unconditional
 	MOVNE	PC,R14
 
 	CMP	R0,#'V'
@@ -1696,7 +1696,7 @@ skipchk1$l
 	CMPNE	R14,#'S'
 	BNE	notaconditionhere
 asmcondfound
-	TST	R4,#1 << 31
+	TST	R4,#mode4_Unconditional
 	MOVNE	PC,R14
 
 	LDR	R14,[R8,#w_format]
@@ -1931,7 +1931,7 @@ callallroutine$l
 	DCD	&8017
 Code_disasmtoggle		; global cases dealt with here...
 	LDR	R6,[R0]		; gets word argument...
-	CMP	R6,#&1C
+	CMP	R6,#&18
 	BCS	backtonormal$l
 	FNJSR
 	MOV	R0,#4
@@ -1949,11 +1949,11 @@ r$l	MOVNE	R0,#2		; in case R2=15
 	MOV	R7,R0
 	CMP	R2,#15
 	BEQ	but_tickquery2		; R2=15 indicates a 'tickquery'
-	MOV	R5,R7,LSR #28
+	MOV	R5,R7,LSR #24
 	BL	getdisasmdata
 	MOV	R7,R0,LSL #8
-	BIC	R7,R7,#(&F << 28)
-	ORR	R7,R7,R5,LSL #28
+	BIC	R7,R7,#(&FF << 24)
+	ORR	R7,R7,R5,LSL #24
 	MOV	R5,#0
 	AND	R1,R6,#&FF
 	BL	mode4_execute
@@ -2409,7 +2409,7 @@ binarytest$l
 	LDRB	R0,[R8,#w_format]	; mode number
 	ADD	R14,R8,#w_mode0
 	LDR	R0,[R14,R0,LSL #2]	; load in our mode word
-	TST	R0,#1 << 28		; binary?
+	TST	R0,#mode4_BinaryOpcodes
 	MOVNE	R0,#2
 	MOVEQ	R0,#16
 	FNRTS
