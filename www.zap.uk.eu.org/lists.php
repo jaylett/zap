@@ -1,5 +1,5 @@
 <?php
-  // $Id: lists.php,v 1.2 2002/04/24 23:21:43 ds Exp $
+  // $Id: lists.php,v 1.3 2004/10/27 11:35:28 james Exp $
   include ".php/zap-std.inc";
   setroot ('lists');
   zap_header ("Zap mailing lists", 'up:/', 'next:mailers:mailers');
@@ -12,39 +12,19 @@
 
 <p>The web interface also allows you to configure some aspects of your subscription, such as whether you receive the list as posts are sent to it, or as a regular digest. You can also access the list archives in this way.</p>
 
-<p>Some time ago now, we changed the names of the lists. Where previously they would have been of the form <tt>beta@zap.tartarus.org</tt>, they are now <tt>zap-beta@zap.tartarus.org</tt>.</p>
-
 <p>All Zap lists, except for <em>zap-announce,</em> are 'open'; that is, you don't have to be subscribed to the lists to post to them (this is particularly important for things like the bug list). <em>zap-announce</em> is moderated; each message sent to it is checked first by one of the Zap development team. Please try to ensure that you send your message to the correct list (especially in the case of bugs, because they should get fixed faster if they get sent to the right place :-).</p>
 
 <dl>
- <dt><a href="mailto:zap-buglist@zap.tartarus.org">zap-buglist</a></dt>
+ <dt><a href="mailto:zap-users@zap.tartarus.org">zap-users</a></dt>
   <dd>
-   <p>This is the list where bug reports are discussed. Please do <em>not</em> send bug reports to this address; use <tt><a href="mailto:bugs@zap.tartarus.org">bugs@zap.tartarus.org</a></tt> instead.</p>
-   <p>Note that email to this list will have its <em>Reply-To</em> header set to the list. This is evil, and I shouldn't do it, but I discovered I more or less had to, because so many people were replying to the bug submission email address instead of the list. See <a href="http://www.unicom.com/pw/reply-to-harmful.html">Reply-To Munging Considered Harmful</a> for an overview of why this makes me shiver uncontrollably. Ideally I'll write a small filter which will add <em>Reply-To</em> to emails coming in from the submission address <em>only</em>, so I can remove this.</p>
-   <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-buglist">Subscribe to zap-buglist</a></p>
+   <p>This is the list for most questions about Zap, suggestions for new features, and so on. It is largely non-technical. (There were previously three distinct lists, <em>zap-buglist</em>, <em>zap-beta</em> and <em>zap-technical</em>; as a result, archives don't currently extend back very far.)</p>
+   <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-users">Subscribe to zap-users</a></p>
   </dd>
-
- <dt><a href="mailto:zap-beta@zap.tartarus.org">zap-beta</a></dt>
-  <dd>
-   <p>This is the discussion list for people participating in beta testing of Zap. (You can 'become' a beta tester simply by <a href="download">downloading</a> the latest beta version and starting to use it.) Please do <em>not</em> send beta bug reports to this address; use <tt><a href="mailto:betabugs@zap.tartarus.org">betabugs@zap.tartarus.org</a></tt> instead.</p>
-   <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-beta">Subscribe to zap-beta</a></p>
-  </dd>
-
- <dt><a href="mailto:zap-features@zap.tartarus.org">zap-features</a></dt>
-  <dd>
-   <p>A largely non-technical list for discussion of proposed new features.</p>
-   <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-features">Subscribe to zap-features</a></p>
-  </dd>
-
- <dt><a href="mailto:zap-devel@zap.tartarus.org">zap-devel</a></dt>
-  <dd>
-   <p>A largely technical list for discussion of alterations and additions to the core of Zap.</p>
-   <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-devel">Subscribe to zap-devel</a></p>
-  </dd>
+ </dt>
 
  <dt><a href="mailto:zap-technical@zap.tartarus.org">zap-technical</a></dt>
   <dd>
-   <p>Other technical issues: this is where to ask questions such as &quot;How do I write a mode/command to do ...&quot;</p>
+   <p>A largely technical list for discussion of alterations and additions to Zap or its extensions. (There were previously two distinct lists, <em>zap-technical</em> and <em>zap-devel</em>; as a result, archives don't currently extend back very far, as much development discussion happened in the <em>zap-devel</em>.)</p>
    <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-technical">Subscribe to zap-technical</a></p>
   </dd>
 
@@ -58,9 +38,9 @@
 
 <p>If you need to filter mail from these lists, the best way to do it is to filter on the List-Id header. This will appear something like below. (If you need it, we have information specific to <a href="mailers">using the Zap mailing lists with Acorn mail software</a>.)</p>
 
-<pre>List-Id: Technical discussion of Zap development. &lt;zap-devel.zap.tartarus.org&gt;
+<pre>List-Id: General discussion and queries about Zap &lt;zap-users.zap.tartarus.org&gt;
 </pre>
 
 <?php
-  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
+  zap_body_end ('$Date: 2004/10/27 11:35:28 $');
 ?>

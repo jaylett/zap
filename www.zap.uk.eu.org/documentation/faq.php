@@ -1,5 +1,5 @@
 <?php
-  // $Id: faq.php,v 1.6 2003/05/21 18:23:26 ds Exp $
+  // $Id: faq.php,v 1.7 2004/10/27 11:35:41 james Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
@@ -144,7 +144,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
   addQa ($qa, 'recent', 'What are the recent changes?',
 	'<p>The changes since the version 1.40 release are covered in the <a href="changes"><code>ZapResources:Docs.Changes</code></a> file.</p>'.
 	'<p>Zap\'s history prior to version 1.35 will hopefully be made available on <a href="http://www.zap.tartarus.org/">the Zap web site</a> at some point.</p>');
-  $buglist = '<p>James Aylett is maintaining a combined bug and wishlist. You can access it through the <a href="http://cvs.tartarus.org/zap/sja-notes/Buglist,fff">CVS gateway</a>. (Simply select the revision with the highest number, which will be at the top.)</p>';
+  $buglist = '<p>There is a combined bug and wishlist. You can access it through the <a href="http://cvs.tartarus.org/zap/sja-notes/Buglist,fff">CVS gateway</a>. (Simply select the revision with the highest number, which will be at the top.)</p>';
   addQa ($qa, 'planned', 'What is planned for future versions?',
 	$buglist);
 
@@ -161,7 +161,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 	'<p>A7000+s (and <em>possibly</em> some other computers), appear to have corrupt versions of some of the ROM fonts, notably <em>Homerton.Medium.Oblique</em>. Viewing this can cause the desktop font to be reset to the system font.</p>'.
 	'<p>The template set \'OldStyle\' uses some of these, and previously was the default template set for Zap. The default set does not have these problems.</p>');
   addQa ($qa, 'found', 'I\'ve found a bug! What should I do?',
-	'<p>Tell us about it. Please send bug reports to <a href="mailto:bugs@zap.tartarus.org">bugs@zap.tartarus.org</a>, and <strong>not</strong> to any of the mailing lists.</p>');
+	'<p>Tell us about it. Please send bug reports to <a href="mailto:zap-users@zap.tartarus.org">zap-users@zap.tartarus.org</a>, and we\'ll try to help.</p>');
 
   echo "<h2>Questions</h2>\n";
 
@@ -171,5 +171,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2003/05/21 18:23:26 $');
+  zap_body_end ('$Date: 2004/10/27 11:35:41 $');
 ?>

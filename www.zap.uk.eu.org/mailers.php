@@ -1,5 +1,5 @@
 <?php
-  // $Id: mailers.php,v 1.1 2002/01/23 20:27:02 ds Exp $
+  // $Id: mailers.php,v 1.2 2004/10/27 11:35:28 james Exp $
   include ".php/zap-std.inc";
   setroot ('mailers');
   zap_header ("Configuring your mailreader", 'up:/', 'previous:lists:lists');
@@ -64,14 +64,14 @@
    <li>Name: <kbd>Zap devel</kbd></li>
    <li>When...
     <ul>
-     <li><em>list-id =</em> <kbd>* &lt;zap-devel.zap.tartarus.org&gt;</kbd></li>
+     <li><em>list-id =</em> <kbd>* &lt;zap-users.zap.tartarus.org&gt;</kbd></li>
      <li><em>off</em></li>
      <li><em>off</em></li>
     </ul>
    </li>
    <li>Then...
     <ul>
-     <li><em>redirect</em> <kbd>Folder.maillist.Zap.devel</kbd></li>
+     <li><em>redirect</em> <kbd>Folder.maillist.Zap.users</kbd></li>
     </ul>
    </li>
    <li>Filter expiry = never</li>
@@ -100,12 +100,12 @@
  <li>Click on the <em>Add</em> button. This will open a filter editing window.</li>
  <li>Enter the details as follows (you'll want to change the bits marked as <kbd>keyboard input</kbd> to match the mailing list that you are subscribing to):
   <ul>
-   <li>Filter name: <kbd>Zap devel</kbd></li>
-   <li>If match occurs, <em>store message in</em> <kbd>Folder.maillist.Zap.devel</kbd></li>
+   <li>Filter name: <kbd>Zap users</kbd></li>
+   <li>If match occurs, <em>store message in</em> <kbd>Folder.maillist.Zap.users</kbd></li>
    <li><em>Mail</em> ticked, <em>News</em> unticked</li>
    <li>Matching criteria
     <ul>
-     <li><em>List-Id =</em> <kbd>* &lt;zap-devel.zap.tartarus.org&gt;</kbd></li>
+     <li><em>List-Id =</em> <kbd>* &lt;zap-users.zap.tartarus.org&gt;</kbd></li>
      <li><em>off</em></li>
      <li><em>off</em></li>
      <li><em>off</em></li>
@@ -138,9 +138,9 @@
  <li>Otherwise, double click on the list name; again, this will open a configuration window. <em>Note, however, that the list's old address will continue to work. It is recommended that, if you plan to make this change, you wait until the changeover is complete.</em></li>
  <li>Enter (or edit) the details as follows (you'll want to change the bits marked as <kbd>keyboard input</kbd> to match the mailing list that you are subscribing to):
   <ul>
-   <li>Name: <kbd>Zap devel</kbd></li>
-   <li>Folder: <kbd>Folder.maillist.Zap.devel</kbd></li>
-   <li>Address: <kbd>zap-devel@zap.tartarus.org</kbd></li>
+   <li>Name: <kbd>Zap users</kbd></li>
+   <li>Folder: <kbd>Folder.maillist.Zap.users</kbd></li>
+   <li>Address: <kbd>zap-users@zap.tartarus.org</kbd></li>
   </ul>
  </li>
  <li>Click on the <em>OK</em> button, or press Return.</li>
@@ -184,8 +184,8 @@
 <ol>
  <li>If you have not previously told Pluto about this mailing list, click on the <em>Add</em> button. This will open a mailing list configuration window.</li>
  <li>Otherwise, select the mailing list from those listed by Pluto. Again, this will open a configuration window.</li>
- <li>Look at the <em>List-Id:</em> address in the emails, and take the name which is before the <em>@</em> symbol. For example, in postings to the Zap features mailing list, this header contains the address <em>zap-features@zap.tartarus.org</em> (this is the same address as in the <em>To:</em> header).</li>
- <li>In the Name box enter <kbd>mail.features</kbd></li>
+ <li>Look at the <em>List-Id:</em> address in the emails, and take the name which is before the <em>@</em> symbol. For example, in postings to the Zap users mailing list, this header contains the address <em>zap-users@zap.tartarus.org</em> (this is the same address as in the <em>To:</em> header).</li>
+ <li>In the Name box enter <kbd>mail.isers</kbd></li>
  <li>Set the Mailing List option. There are other options to allow you to specify a Default User, Signature and Box; these are described in Pluto's manual.</li>
 </ol>
 
@@ -200,5 +200,5 @@
 <p>Contributions welcome...</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:02 $');
+  zap_body_end ('$Date: 2004/10/27 11:35:28 $');
 ?>
