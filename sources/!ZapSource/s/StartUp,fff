@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.7 1999/01/26 00:15:23 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.8 1999/01/30 00:30:20 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -175,7 +175,6 @@ list$l
  DCD 4,ext_comm_flags
  DCD 0,wimp_clicksend
  DCD 0,startup_command
- DCD 0,default_mode
  DCD if_limit*4,if_bits	; eeek lots of memory :-<
  ;DCD 0,tem_offsets
  DCD -1
@@ -1002,21 +1001,36 @@ line$l				; next line loop
  LDRB R0,[R10]
  TEQ R0,#'*'
  BEQ start$l			; start the mode now
+ PUSH "R3,R4"
  SUB R10,R10,#1			; re-read this line
  MOV R3,#0			; current extension type (mode names atm)
 object$l			; next object loop
  BL str_next			; start of next line
- FNRTS CS			; end of file
+ BCS eof$l			; end of file
  MOV R1,R10
  BL str_skip			; skip spaces and tabs
  CMP R1,R10
+ PULL "R3,R4",EQ
  BEQ line$l			; weren't any to skip - not indented
  LDRB R0,[R10]
  TEQ R0,#'-'
  ADDEQ R3,R3,#1			; onto the next object type
  BEQ object$l
+ TEQ R3,#0
+ BNE notmode$l
+ FNLDR R1,default_mode
+ MOV R2,R10
+ BL strCMPstr			; does this module contain the default mode?
+ BNE notmode$l
+ LDRB R0,[R0]
+ CMP R0,#32
+ PULL "R3,R4",LE		; if so, load it
+ BLE start$l
+notmode$l
  BL add_external_object
  BVC object$l
+eof$l
+ PULL "R3,R4"
  FNRTS
 next$l				; skip to start of next line
  BL str_next

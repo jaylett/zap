@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.1.2.6 1999/01/26 00:15:20 ds Exp $
+; $Id: ModeBits,fff,v 1.1.2.7 1999/01/30 00:30:16 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -15,6 +15,7 @@
  GET h.Commands
  GET h.TMTVars
  GET h.Mode4
+ GET h.Version
 
  IMPORT err23
  IMPORT read_given_config_block
@@ -122,8 +123,14 @@ find$l				; find the module in the OS list
  BIC R0,R0,#&FF
  ORR R2,R0,R10			; add mode actually is
  STR R2,[R7,#2*e_mode]		; actual mode number + flags
+ MOV R0,R6,LSR #2		; one byte per entry
+ BL heap_claim
+ FNRTS VS
+ STR R0,[R7,#2*e_mode+4]
+ MOV R11,R0			; mode entry point supplier table (mode nos.)
  LDR R0,[R9,#e_basemode]
  STR R0,[R7,#2*e_basemode]	; basemode number
+ STR R0,[R7,#2*e_basemode+4]	; clone basemode number
  LDR R0,[R9,#e_title]
  ADD R0,R0,R8
  STR R0,[R7,#2*e_title]		; title
@@ -159,6 +166,7 @@ entry$l				; next entry loop
  BLE usebase$l			; use basemode offset
  ADD R0,R8,R0			; address of sub
  MOV R1,R2			; workspace pointer
+ ORR R10,R10,R10,LSL #8
  B fillin$l
 usebase$l			; use the basemode value for this offset
  CMP R3,#&8000			; NOW check if R3 valid
@@ -166,9 +174,14 @@ usebase$l			; use the basemode value for this offset
  FNRTS VS
  ADD R14,R3,R4,LSL#1		; basemode entry
  LDMIA R14,{R0,R1}		; address and workspace
+ LDR R14,[R3,#2*e_mode+4]
+ LDRB R14,[R14,R4,LSR #2]	; supplying mode
+ ORR R10,R14,R10,LSL #8
 fillin$l			; R0,R1=sub,workspace ptr
  ADD R14,R7,R4,LSL#1
  STMIA R14,{R0,R1}		; save the entry
+ STRB R10,[R11,R4,LSR #2]	; and the supplier
+ MOV R10,R10,LSR #8
  ADD R4,R4,#4			; next sub
  B entry$l			; loop
 end$l				; table completed
@@ -320,7 +333,7 @@ a$l
  LDRB R10,[R9],#1
  TEQ R10,#&FF
  FNRTS EQ			; finished
- MOV R0,#136			; *** Zap version number ***
+ MOV R0,#version_major*100+version_minor ; *** Zap version number ***
  MOV R1,#11			; advise vsn no >= 136
  MOV R11,#e_init
  BL call_given_mode
@@ -558,33 +571,42 @@ next$l
 ; Calling a mode entry point				;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+do_call_mode
+	LDMFD	R13!,{R0-R2,PC}
+
 ;E R0-R10=args R8=wind block giving mode R11=entry point offset
 ;X R0-R11=as returned by the sub (R11 usually subs workspace)
 
 call_mode
- STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ STMFD R13!,{R14}		; save return address
+ STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
  LDRB R0,[R8,#w_format]		; display mode
  ADD R1,R12,#(command_store + 4)
  ADD R1,R1,#(mode_store - command_store); start of list+4
  LDR R0,[R1,R0,LSL #3]		; mode dispatch table in R0
+call_mode_common
+ LDR R2,[R0,#2*e_mode+4]
+ LDR R2,[R2,R11,LSR #2]		; mode supplying the entry point
  LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
  LDR R11,[R0,#4]		; workspace pointer to use
- STR R1,[R13,#8]		; overwrite the blank with the address
- LDMFD R13!,{R0-R1,PC}		; restore args and call the sub (R14=ret)
+ STR R1,[R13,#12]		; overwrite the blanks with the address
+ STR R2,[R13,#16]		;   and the mode number
+ BL do_call_mode		; restore args and call the sub (R14=ret)
+ LDMFD R13!,{R14,PC}		; return
 
 ;E R0-R9=args R10=mode number to call R11=entry point offset
 ;X R0-R11=as returned by sub & mode called if valid (returns o/w)
 
 call_given_mode
- STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ STMFD R13!,{R14}		; save return address
+ STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
  ADD R1,R12,#(command_store + 4); start of list+4
  ADD R1,R1,#(mode_store - command_store); start of list+4
  LDR R0,[R1,R10,LSL #3]		; mode dispatch table in R0
  CMP R0,#0			; do nothing if mode blank
- LDRGT R1,[R0,R11,LSL #1]!	; address of the sub + save
- LDRGT R11,[R0,#4]		; workspace pointer
- STRGT R1,[R13,#8]		; overwrite the blank with the address
- LDMFD R13!,{R0-R1,PC}		; restore args and call the sub (R14=ret)
+ BGT call_mode_common
+ LDMFD R13!,{R0-R2,R14}
+ LDMFD R13!,{R14,PC}
 
 	LOCAL
 ; NOW OBSOLETE!!
@@ -604,19 +626,24 @@ callbasemode$l = "Zap_CallBaseMode",0
 ;  R0-R11 as returned by sub #
 
 call_given_base_mode
- STMFD R13!,{R0-R1,R14}		; save args (and R14 as a Blank)
+ STMFD R13!,{R14}		; save return address
+ STMFD R13!,{R0-R2,R14,PC}	; save args and two blanks
  ADD R1,R12,#(command_store + 4) ; start of list+4
  ADD R1,R1,#(mode_store - command_store) ; start of list+4
  LDR R0,[R1,R9,LSL #3]		; linked table
  LDRB R0,[R0,#2*e_basemode]	; base mode
  LDR R0,[R1,R0,LSL #3]		; linked table
+ LDR R2,[R0,#2*e_mode+4]
+ LDR R2,[R2,R11,LSR #2]		; mode supplying the entry point
  LDR R1,[R0,R11,LSL #1]!	; address of the sub + save
  LDR R11,[R0,#4]		; workspace pointer
- STR R1,[R13,#8]		; address to jump to
+ STR R1,[R13,#12]		; address to jump to
+ STR R2,[R13,#16]		;   and the mode number
  LDR R0,[R8,#w_file]		; file block offset
  FNLDR R9,file_list
  ADD R9,R9,R0,LSL #f_shift	; create file block pointer
- LDMFD R13!,{R0-R1,PC}		; restore args and jump
+ BL do_call_mode		; restore args and call the sub (R14=ret)
+ LDMFD R13!,{R14,PC}		; return
 
  LOCAL
 
