@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.1.2.9 1999/04/25 19:58:41 ds Exp $
+; $Id: Mode11,fff,v 1.1.2.10 1999/10/07 15:15:12 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1145,14 +1145,14 @@ process_entry
  MOV R10,R0			; save data word
  BL get_throwback		; set up R8/R9 (returned)
  BCC exists$l			; file already exits
- MOV R0,#0			; default
+ MOV R0,#throwback_TaskHandle	; default
+ LDR R1,[R1,#4]			; task handle of message sender
  BL create_throwback		; create a file
  FNRTS VS
  FNSTR R0,throw_file		; save throwback window
  MOV R0,#11
  STR R0,[R9,#f_cmode]		; throwback window
- LDR R0,[R1,#4]			; task handle of message sender
- STR R0,[R9,#f_source]		; this was the source
+ STR R1,[R9,#f_source]		; this was the source
 exists$l
  MOV R0,R10			; restore data word
  FNLDR R1,throw_name		; file name
@@ -1190,13 +1190,25 @@ find_throwback_file_sub
  LOCAL
 
 ;E R0=suggested width of window / 0 to use default width
+;  b31 => R1 is throwback filename, b30 => R1 is task handle, look
+;  it up to get filename, b29 => R1 is a token, look it up (if b31 set)
 ;X R0=window offset of window R8/R9=newly created throwback window
+;  R1 preserved
 ;  (not cmode 11 that's reserved for throwback protocol files)
 ;  (however, if c_source is 0...)
+flags$l
+ & 0
+titledata$l
+ & 0
 
 create_throwback
  FNJSR "R1-R4,R10-R11"
- ADDS R10,R0,#0			; save suggest width of window
+; ADDS R10,R0,#0
+ AND R11,R0,#(throwback_Filename :OR: throwback_TaskHandle :OR: throwback_FilenameIsToken)
+ STR R11,flags$l		; save flags
+ STR R1,titledata$l
+ BICS R10,R0,#(throwback_Filename :OR: throwback_TaskHandle :OR: throwback_FilenameIsToken)
+	 			; save suggested width of window
  BEQ width$l
  MOV R8,#0			; config setting
  MOV R0,#-1			; read
@@ -1207,7 +1219,7 @@ create_throwback
  MOVVC R0,R0,LSR#16
  ORRVC R0,R10,R0,LSL#16
  BLVC mode_data			; write
-width$l				; width done
+width$l				; width done (in R10)
  MOVVC R0,#&FF0
  ORRVC R0,R0,#&F			; text
  MOVVC R1,#1
@@ -1216,9 +1228,51 @@ width$l				; width done
  ORRVC R3,R3,#1<<31
  MOVVC R4,#11
  ORRVC R4,R4,#1<<31		; force mode 11
- BLVC create_file			; R8/R9=new file
+ BLVC create_file		; R8/R9=new file
  BLVC restore$l
  BLVC get_wind_off
+ MOV R10,R0			; preserve
+ LDR R11,flags$l
+ TST R11,#throwback_Filename
+ BEQ not_filename$l
+ LDR R0,titledata$l
+ TST R11,#throwback_FilenameIsToken
+ BEQ done_lookup$l
+ BL lookup_token_R0
+ BVS return$l
+done_lookup$l
+ BL new_file_name
+ BLVC new_file_title
+ ; Setting the title may fail, but we still have a valid throwback window
+return$l
+ MOV R0,R10			; restore
+ FNRTSS
+not_filename$l
+ TST R11,#throwback_TaskHandle
+ FNRTS EQ
+ PUSH "R1-R6"			; R0 already preserved in R10
+ SUB R13,R13,#20		; space for message
+ LDR R0,tasknamerq$l
+ LDR R1,titledata$l
+ STR R1,[R13,#20]
+ MOV R1,R13
+ MOV R2,#0			; broadcast
+ MOV R3,#24			; message length
+ ADR R5,tasknameis$l
+ MOV R6,R10			; window offset of window
+ BL message_send
+ ADD R13,R13,#20
+ PULL "R1-R6"
+ B return$l			; never set just yet
+tasknamerq$l
+ & (0x400c6 :OR: sendmessage_CallOnReply :OR: sendmessage_SendMessage)
+tasknameis$l			; only called on reply
+ FNJSR
+ MOV R0,R11
+ BL conv_wind_off		; \X R8/R9
+ ADD R0,R1,#28			; task name
+ BL new_file_name
+ BLVC new_file_title
  FNRTS
 restore$l
  TEQ R10,#0			; default used?
