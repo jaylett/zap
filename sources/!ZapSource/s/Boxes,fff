@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 2.11 2001/05/25 08:50:04 james Exp $
+; $Id: Boxes,fff,v 2.12 2001/05/28 17:20:00 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -522,7 +522,7 @@ converttoarrowiftab
  SUB R0,R5,#&100
  TEQ R0,#&8A ; TAB
  TEQNE R0,#&9A ; sTAB
- MOVNES PC,R14
+ MOVNES PC,R14	; !!! ARM32 FIXME
  TEQ R0,#&8A
  MOVEQ R5,#&8E
  MOVNE R5,#&8F
@@ -677,8 +677,8 @@ reporterr$l
 ;
  MOV R0,R11
  ADDS R14,R14,#0		; CLC?
- LDMFD R13!,{R14}
- ORRS PC,R14,#Vbit		; doesn't call c_ret :-(
+ FNPULL
+ ORRS PC,R14,#Vbit		; doesn't call c_ret :-(	; !!! ARM32 FIXME
 ; ADDS R14,PC,#&FF000000	; set V...
 ; B c_ret
 
@@ -1044,8 +1044,8 @@ soonto_c_ret
  MOV R2,#&00
  BL slab_icon_in_temporarily
  MOV R0,R11			; preserve error pointer...
- LDMFD R13!,{R14}
- ORRS PC,R14,#Vbit		; doesn't call c_ret :-(
+ FNPULL
+ ORRS PC,R14,#Vbit		; doesn't call c_ret :-(	; !!! ARM32 FIXME
 
  ;BL leaf_update
  ;BL lc_simulate_select_to_close ; Make sure replace dbox closes (TT).
@@ -2326,7 +2326,7 @@ lc_SrchRep_CopySel		; paste selection into icon
  ADDHI R4,R4,R7
 ; MOV R3,R2
  MOV R11,R1
- STMFD R13!,{R9,R10}
+ PUSH "R9,R10"
  LDRB R9,[R8,#w_cr]
  LDRB R10,[R8,#w_tabc]
 loop$l
@@ -2434,7 +2434,7 @@ tick$l
 
 ctrllist
  ADR R2,ctrllist
- MOVS PC,R14
+ MOVS PC,R14	; !!! ARM32 FIXME
 
 startofsrccntoffs
  DCD 0
@@ -3155,7 +3155,7 @@ cw_Dzap_sht
  LDR R0,[R10,#&28]
  TEQ R0,#2
  BNE smalldisk$l
- STMFD R13!,{R4}
+ PUSH "R4"
  LDR R4,[R10,#&50]		; disk size (low)
  LDR R0,[R10,#&64]		; disk size (high)
  BL icon_bufferhex16
@@ -3206,24 +3206,24 @@ icons$l = 13,16,18,21,24,27,2,3,4,5,&FF
 ; displays icon: 'disk address' or 'sector address'
 
 cw_Dzap_bigdisk
- STMFD R13!,{R14}
+ FNJSR
  LDR R1,[R6,#84]		; no. of icons
  CMP R1,#33
- LDMLTFD R13!,{PC}^		; do nothing if no icon 33 (sector addr)
+ FNRTSS LT		; do nothing if no icon 33 (sector addr)
  FNLDR R1,wimp_dzap
  LDR R1,[R1,#&28]
  TEQ R1,#2
  MOV R0,#1
  MOVEQ R1,#0
  MOVNE R1,#1
- STMFD R13!,{R1}
+ PUSH "R1"
  MOV R5,#25
  BL icon_alter
  MOV R0,#1
  LDMFD R13!,{R1}
  EOR R1,R1,#1
  MOV R5,#33
- LDMFD R13!,{R14}
+ FNPULL
  B icon_alter
 
 
@@ -3469,7 +3469,7 @@ someuserbits$l
  BLVC icon_set
  FNRTS VS
 no_userbits$l
- STMFD R13!,{R6,R7}
+ PUSH "R6,R7"
  SWI &A0140 ; XPDriver_Info
  LDMFD R13!,{R6,R7}
  MOVVS R3,#0
@@ -4171,7 +4171,7 @@ stop$l	BL	long_op_off
 
 	DCD	1 + c_CanCreateSubMenu + c_TickableMenuEntry	; No R10, but opens a window + shade.
 WCSel
-	STMFD	R13!,{R14}
+	FNJSR
 	MOV	R7,R2			; Remember R2.
 	MOV	R4,R8
 	MOV	R5,R9
@@ -4205,7 +4205,7 @@ WCSel
 
 	DCD	1 + c_CanCreateSubMenu		; No R10, but opens a window.
 WC
-	STMFD	R13!,{R14}
+	FNJSR
 	; BL get2_WCBox ; set up r0.
 	; BL open_leaf_com
 	;
@@ -4259,13 +4259,26 @@ loop$l ; Word count loop.
 	ADDEQ	R5,R5,#1		; Increment word count.
 
 	B	loop$l
+
+WCnoselmessage
+	FNS	("zap_NoSelToAnalyse")
+
+WCError
+	MOV	R8,R4
+	MOV	R9,R5
+	CMP	R7,#15;CMPCS
+	ADRLO	R0,WCnoselmessage
+	MOVLO	R1,#warn_UseMessageTrans
+	BLLO	warn_user
+	FNRTS
+
 ;E R2 = input to command eg 16 R5 = number to be displayed R11=type
 ; R7 = 16...?
 ; R11 =	0
 ;	1 - matches
 ;	2 - total
 toWCOutput
-	STMFD	R13!,{R14}
+	FNJSR
 WCOutput
 	; Convert word count to string.
 	MOV	R0,R5			; Number to convert (word count).
@@ -4274,9 +4287,9 @@ WCOutput
 	ADR	R1,WCString
 	MOV	R2,#16			; Size of buffer.
 	SWI	XOS_ConvertSpacedCardinal4
-	LDMVSFD	R13!,{PC}		; Return on error.
+	FNRTS	VS		; Return on error.
 	BL	cnvrtspcsinstr
-	LDMVSFD	R13!,{PC}		; Return on error.
+	FNRTS	VS		; Return on error.
 	; Catenate " word".
 	CMP	R11,#2
 	MOVLO	R0,#' '
@@ -4296,7 +4309,7 @@ WCOutput
 	BEQ	dontclose$l
 	MOV	R1,#-1
 	SWI	XWimp_CreateMenu
-	LDMVSFD	R13!,{PC}
+	FNRTS	VS
 	; This isn't necessary, because we call Wimp_CreateMenu below
 	; which will do this job for us if necessary. However doing this
 	; now fails if the last menu was this window - because we've
@@ -4313,7 +4326,7 @@ dontclose$l
 	BL	adjusttitledata
 
 	CMP	R7,#16
-	LDMEQFD	R13!,{PC}
+	FNRTS	EQ
 
 	MOV R7,R0
 
@@ -4329,19 +4342,19 @@ dontclose$l
 	MOV	R1,R7
 	SWI	XWimp_CreateMenu
 	; Return.
-	LDMFD	R13!,{PC}
+	FNRTS
 
 words$l
 	TEQ	R5,#1
 	ADREQ	R1,wordone_text$l
 	ADRNE	R1,wordmany_text$l
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 matches$l
 	TEQ	R5,#1
 	ADREQ	R1,matchone_text$l
 	ADRNE	R1,matchmany_text$l
-	MOVS	PC,R14
+	MOVS	PC,R14	; !!! ARM32 FIXME
 
 wordone_text$l		= "zap_wc_word",0
 wordmany_text$l		= "zap_wc_words",0
@@ -4365,6 +4378,10 @@ adjusttitledata
 	BL	strcopy
 	FNRTS
 
+WCString
+	=	10,"Help! I'm trapped!",10
+WCString_End
+
 wordcounttb
 	=	"zap_i_wc",0
 
@@ -4373,23 +4390,6 @@ matchcounttb
 
 totalcounttb
 	=	"zap_i_tc",0
-
-WCnoselmessage
-	FNS	("zap_NoSelToAnalyse")
-
-WCError
-	MOV	R8,R4
-	MOV	R9,R5
-	CMP	R7,#15;CMPCS
-	ADRLO	R0,WCnoselmessage
-	MOVLO	R1,#warn_UseMessageTrans
-	BLLO	warn_user
-	LDMFD	R13!,{PC}
-
-WCString
-;	=	"-- Nathalie L. Foster --"
-	=	10,"-- Sorry Elliot --",10
-WCString_End
 	ALIGN
 
 cw_WCBox
@@ -5027,7 +5027,7 @@ c_ret$l
 	B	lc_MoveBox_tofront
 	B	s_ret			; close it...
 lc_MoveBox_tofront
-	STMFD	R13!,{R14}
+	FNJSR
 	BL	Tofront
 	FNLDR	R7,tem_list,VC		; address of the template list
 	LDRVC	R7,[R7,#t_MoveBox*32+8]	; 32 bytes each entry
@@ -5037,7 +5037,7 @@ lc_MoveBox_tofront
 	MVNVC	R0,#0
 	STRVC	R0,[R1,#w_infront]
 	SWIVC	XWimp_OpenWindow
-	LDMFD	R13!,{PC}		;
+	FNRTS		;
 keys$l = 'X',3,'C',4,'R',5,'T',6,'A',7,'S',8,0
 	ALIGN
 

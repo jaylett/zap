@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.2 2000/10/05 00:13:14 ds Exp $
+; $Id: CreateFile,fff,v 2.3 2001/05/28 17:20:00 ds Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -430,7 +430,7 @@ create_file_block
  STRVC R1,[R9,#f_flags]		; file flags
  BLVC init_kill_buffer		; create undo buffer & marker buffer
 ; FNRTS VS
- LDMVCFD R13,{R1-R5,R14}	; read input vars (R14?)
+ LDMVCFD R13,{R1-R5,R14}	; read input vars (R14?)	; !!! Unmatched return LDM
  STRVC R2,[R9,#f_load]
  STRVC R3,[R9,#f_exec]		; load and exec address
  FNLDR	R0,wimp_attr,VC
@@ -484,7 +484,7 @@ create_empty
 ;X created new empty file and R9 set up WB #
 
 create_empty_file
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  SYSLOGF "create_empty_file type %0x",LOG_FILE
  MOV R4,R0			; save filetype
  BL calc_load			; R2/R3=load/exec
@@ -496,7 +496,7 @@ create_empty_file
  MOVVC R0,R4
  FNLDR R1,wimp_block,VC
  BLVC get_ftype			; read filetype
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  LDR R0,[R1]
  AND R14,R0,#&FF
  TEQ R14,#'&'			; if the name begins with '&',
@@ -519,7 +519,7 @@ create_empty_file
 
  BLVC initialise_checksums
 
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 name$l FNS ("NewFile")
 
  LOCAL
@@ -951,7 +951,7 @@ err$l
  STR R0,[R9,#f_proposed_name]	; we won't be trying again ...
  MOV R0,R5
  FNPULL
- ORRS PC,R14,#Vbit		; return with the error
+ ORRS PC,R14,#Vbit		; return with the error	; !!! ARM32 FIXME
 
  LOCAL
 
@@ -1119,7 +1119,7 @@ ischanged$l
  FNRTS
 clean_exit
  FNPULL
- BICS PC,R14,#&FC000000
+ BICS PC,R14,#&FC000000	; !!! ARM32 FIXME
 largefile$l
 	TST	R0,#flags_Modified
 	ORR	R0,R0,#flags_Modified
@@ -1504,27 +1504,27 @@ err$l
 ;X R8/R9=window on the file (loaded if necessary) WB #
 
 find_file
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  SYSLOGF "file_find %0s",LOG_FILE
  MOV R1,R0			; save file name
  BL find_file_look
- LDMVSFD R13!,{R1,PC}
+ FNRTS VS
  TEQ R9,#0
  BEQ fi20			; load it
  BL find_window
- LDMFD R13!,{R1,PC}
+ FNRTS
 fi20
  MOV R0,R1
  BL install_file
  BLVC conv_wind_off		; set up R8/R9
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 ;E R0=pointer to file name
 ;X R9=file blk of this file / 0 if not found WB #
 ;  Filename canicalised before checking
 
 find_file_look
- STMFD R13!,{R1-R5,R14}
+ FNJSR "R1-R5"
  SYSLOGF "file_file_look %0s",LOG_FILE
  MOV R3,R0			; save name pointer
  FNLDR R0,wimp_version
@@ -1537,7 +1537,7 @@ find_file_look
  MOV R4,#0
  MOV R5,#&100
  SWI XOS_FSControl
- LDMVSFD R13!,{R1-R5,PC}
+ FNRTS VS
  FNLDR R3,wimp_block
 fi30
  FNLDR R9,file_list
@@ -1545,14 +1545,14 @@ fi30
 fi15
  SUBS R4,R4,#1			; any left?
  MOVMI R9,#0
- LDMMIFD R13!,{R1-R5,PC}
+ FNRTS MI
  LDR R0,[R9,#f_ptr]
  CMP R0,#0
  BLE fi16			; not a valid file
  LDR R1,[R9,#f_name]
  MOV R2,R3
  BL strCMP			; case insensitive compare
- LDMEQFD R13!,{R1-R5,PC}
+ FNRTS EQ
 fi16
  ADD R9,R9,#file_blk		; next
  B fi15
@@ -1565,7 +1565,7 @@ fi16
 ;X file dumped to new text file #
 
 dump_file
- STMFD R13!,{R1-R11,R14}
+ FNJSR "R1-R11"
  SYSLOGF "dump_file window offset %0d",LOG_FILE
  MOV R6,R0			; save window offset
  FNLDR R1,opt_flags
@@ -1575,25 +1575,25 @@ dump_file
  ORR R0,R0,#&FF
  BL create_empty_file
  FNSTR R1,opt_flags
- LDMVSFD R13!,{R1-R11,PC}
+ FNRTS VS
  MOV R10,R9			; save file pointer
  MOV R0,R6
  BL conv_wind_off		; get source window
  LDR R5,[R8,#w_height]		; number of lines
  MOV R4,#0			; first line
 du1
- STMFD R13!,{R4-R5,R10}
+ PUSH "R4-R5,R10"
  MOV R2,R4
  ADD R3,R4,#1
  BL update_cache		; R0=cached lines
- LDMFD R13!,{R4-R5,R10}
- LDMVSFD R13!,{R1-R11,PC}
+ PULL "R4-R5,R10"
+ FNRTS VS
  MOV R1,R0
  LDR R2,[R8,#w_txtw]
  MOV R0,#0
  BL tidy_cache_line
- LDMVSFD R13!,{R1-R11,PC}
- STMFD R13!,{R8-R9}
+ FNRTS VS
+ PUSH "R8-R9"
  MOV R9,R10			; output file
  MOV R8,#0			; no window
  MOV R3,R1			; text
@@ -1601,8 +1601,8 @@ du1
  LDR R1,[R9,#f_len]		; offset
  MOV R0,#&11			; insert block
  BL execute_command
- LDMFD R13!,{R8-R9}
- LDMVSFD R13!,{R1-R11,PC}
+ PULL "R8-R9"
+ FNRTS VS
  ADD R4,R4,#1			; next line
  CMP R4,R5
  BCC du1			; fill it in
@@ -1632,7 +1632,7 @@ du1
 
  BLVC initialise_checksums
 
- LDMFD R13!,{R1-R11,PC}
+ FNRTS
 
 ;X all files killed
 
@@ -1682,7 +1682,7 @@ itisthere$l
 ;X R2=load address R3=execution address (current date) WB #
 
 calc_load
- STMFD R13!,{R1,R14}
+ FNJSR "R1"
  CMP R0,#&1000
  CMPNE R0,#&2000
  CMPNE R0,#&100000		; FTE...
@@ -1695,11 +1695,11 @@ calc_load
  ORRCS R2,R2,#&F0000000		; FTE...
  BL read_current_time
  ADD R2,R2,R0			; time high
- LDMFD R13!,{R1,PC}
+ FNRTS
 cl19
  MOV R2,#0
  MOV R3,#0
- LDMFD R13!,{R1,PC}
+ FNRTS
 
 local_timestore
  DCD 0
@@ -1723,12 +1723,12 @@ read_current_time
 ;X buffer contains file type string ending in 0 #
 
 get_ftype
- STMFD R13!,{R1-R4,R14}
+ FNJSR "R1-R4"
  MOV R2,R0
  MOV R4,R1			; save buffer
  MOV R0,#18
  SWI XOS_FSControl
- LDMVSFD R13!,{R1-R4,PC}
+ FNRTS VS
  STMIA R4,{R2,R3}
 ; STR R2,[R4]
 ; STR R3,[R4,#4]
@@ -1740,7 +1740,7 @@ cw3
  BHI cw3
  MOV R0,#0
  STRB R0,[R4,#-1]		; take off trailing spaces
- LDMFD R13!,{R1-R4,PC}
+ FNRTS
 
  LOCAL
 
@@ -1749,7 +1749,7 @@ cw3
 ;X sprite name for this file type put in buffer #
 
 get_file_sprite
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R6"
  MOV R4,R0			; save type
  MOV R5,R1			; save buffer start
  CMP R4,#&1000
@@ -1768,13 +1768,13 @@ get_file_sprite
  SWICS XOS_ConvertHex6
  SWICC XOS_ConvertHex4
 
- LDMVSFD R13!,{R1-R6,PC}
+ FNRTS VS
  MOV R0,#'_'
  STRB R0,[R4]			; change file0yyy to file_yyy
  MOV R0,#40
  MOV R2,R5
  SWI XWimp_SpriteOp		; R1-R6 read sprite info
- LDMVCFD R13!,{R1-R6,PC}
+ FNRTS VC
 untyped$l
 	CMP	R4,#-1
 	BNE	typed$l		; typed? use file_xxx anyway
@@ -1790,7 +1790,7 @@ untyped$l
 	STRB	R1,[R5,#8]
 	MOV	R2,R5
 	SWI	XWimp_SpriteOp	; check for existence
-	LDMVCFD	R13!,{R1-R6,PC}	; if exists then return, else use file_xxx
+	FNRTS	VC	; if exists then return, else use file_xxx
 typed$l	LDR	R6,str_file_xxx$l
 	STR	R6,[R5,#4]
 	MOV	R6,#0
@@ -1800,7 +1800,7 @@ typed$l	LDR	R6,str_file_xxx$l
 	STRB	R1,[R5,#8]
 	MOV	R2,R5
 	SWI	XWimp_SpriteOp
-	LDMFD	R13!,{R1-R6,PC}
+	FNRTS
 str_file$l	= "file"
 str_file_xxx$l	= "_xxx"
 str_file_lxa$l	= "_lxa"
@@ -1822,7 +1822,7 @@ te1
 	CMN	R0,#1
 	BLNE	test_changed
 	FNPULL	NE
-	ORRNES	PC,R14,#1<<29	; sec, rts
+	ORRNES	PC,R14,#1<<29	; sec, rts	; !!! ARM32 FIXME
 	ADD	R9,R9,#file_blk
 	SUBS	R2,R2,#1
 	BHI	te1		; next file
@@ -2373,11 +2373,11 @@ f$l = "<Wimp$Scrap>",0
  [ USE_WRITE_FILES=1
    LOCAL
 write_loaded_files
-   STMFD   r13!,{r0-r5,r9,r14}           ; Stack registers
+   FNJSR   "r0-r5,r9"           ; Stack registers
    MOV     r0,#&83+(1<<2)+(1<<3)         ; mark as making errors
    ADR     r1,writefile$l                ; the filename to write to
    SWI     XOS_Find
-   LDMVSFD r13!,{r0-r5,r9,pc}^           ; if error, return from call
+   FNRTSS VS           ; if error, return from call
    MOV     r5,r0                         ; r5 = file handle
 
    FNLDR   R9,file_list
@@ -2411,7 +2411,7 @@ done$l
    MOV     r0,#0                         ; close file code
    MOV     r1,r5                         ; r1 = handle
    SWI     XOS_Find                      ; close it
-   LDMFD   r13!,{r0-r5,r9,pc}^           ; Return from call
+   FNRTSS           ; Return from call
 
 failed$l
    MOV     r0,#0                         ; close file code
@@ -2420,7 +2420,7 @@ failed$l
    MOV     r0,#6                         ; delete file
    ADR     r1,writefile$l                ; get filename
    SWI     XOS_File
-   LDMFD   r13!,{r0-r5,r9,pc}^           ; Return from call
+   FNRTSS           ; Return from call
 
 writefile$l
    = "ZapGenerated:OpenFiles",0
@@ -2429,11 +2429,11 @@ writefile$l
 ; load the files that have died
 ; uses wimp_data (WD) -  I hope this has ~256 bytes in it
 load_openfiles
-   STMFD   r13!,{r0-r5,r9,r14}           ; Stack registers
+   FNJSR   "r0-r5,r9"           ; Stack registers
    MOV     r0,#&43+(1<<2)+(1<<3)         ; mark as making errors
    ADR     r1,writefile$l                ; the filename to write to
    SWI     XOS_Find
-   LDMVSFD r13!,{r0-r5,r9,pc}^           ; if error, return from call
+   FNRTSS VS           ; if error, return from call
    MOV     r5,r0                         ; r5 = file handle
 
 read_all_files$l
@@ -2452,7 +2452,7 @@ read_file$l
    B       read_all_files$l              ; and get the next file
  |
 load_openfiles
-   MOVS    pc,R14                        ; do nothing
+   MOVS    pc,R14                        ; do nothing	; !!! ARM32 FIXME
  ]
 ; gerph change <<<
 
