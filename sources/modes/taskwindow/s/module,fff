@@ -1,0 +1,532 @@
+; Contains TaskWindow module header and non mode specific code.
+; $Id: module,fff,v 1.1 2003/02/06 14:53:03 christian Exp $
+; -*- armasm -*-
+
+ GET h.ZapTWHdr
+ GET h.TaskWindow
+ GET h.Version
+
+ EXPORT get_workspace
+ EXPORT Zap
+ EXPORT init_mode_word
+ EXPORT title_string
+ EXPORT strstr
+ EXPORT str_len
+ EXPORT strcmpstr
+ EXPORT strcpy
+ EXPORT strcopy
+ EXPORT cln_readc
+ EXPORT test_shiftctrl
+ EXPORT loadlineeditor
+ EXPORT test_forkey
+ EXPORT red_overflow
+ EXPORT set_width
+ EXPORT calc_mode_width
+
+ EXPORT ARM32_CCRet
+ EXPORT ARM32_CSRet
+
+
+
+	AREA |!!!Module_Header_Area|,CODE,READONLY
+
+	ENTRY
+
+Module_header
+	DCD	0				; start code
+	DCD	initialise_code			; initialise
+	DCD	0				; finalise
+	DCD	0				; service calls
+	DCD	title_string			; title
+	DCD	help_string			; help
+	DCD	command_table			; commands
+	DCD	0				; SWIs
+	DCD	0                               ;
+	DCD	0                               ;
+	DCD	0                               ;
+	DCD	0				; messages
+	DCD	module_flags			; flags
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; TITLES AND COMMAND TABLES				       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+help_string
+	=	|zap$|,"TaskWindow",9
+	=	version,"(00 Jan 0000)"
+	[ BUILD > ""
+	 =	" ",BUILD
+	 [ (BUILD:RIGHT:1 < "0" :LOR: BUILD:RIGHT:1 > "9") :LAND: patch_level <> ""
+	  =	"-",patch_level
+	 ]
+	|
+	 [ test_flag
+	  =	" [TEST"
+	  [ patch_level <> ""
+	   =	" ",patch_level
+	  ]
+	  =	"]"
+	 |
+	  [ patch_level <> ""
+	   =	" patch-",patch_level
+	  ]
+	 ]
+	]
+	FNS	(" © Zap Developers")
+
+title_string
+	FNS	(|zap$|:CC:"TaskWindow")
+
+command_table
+	FNS	(|zap$|:CC:"_TaskWindow")
+	DCD	TaskWindow
+	DCD	&FF0001
+	DCD	twsyn
+	DCD	twhlp
+	DCD	0
+
+twhlp	=	"This command enables",27,2,"Zap task "
+	=	"window",27,"(be used via CTRL-F12. It ensures that",27,2
+	=	"-ctrl option",27,")set.",13,10
+twsyn	FNS	("Syntax: as for *TaskWindow")
+
+module_flags
+	DCD	1			; 32 bit compatible
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; INITIALISE AND FINALISE				       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+initialise_code
+	FNJSR
+	MOV	R0,#6
+	MOV	R3,#variable_size
+	SWI	XOS_Module		; claim varable workspace
+	MOVVC	R11,R2			; claimed block (R11 from now on)
+	STRVC	R11,[R12]		; save as my workspace pointer
+	STRVC	R11,workspace_address
+
+	MOVVC	R0,#18
+	ADRVC	R1,Zap
+	SWIVC	XOS_Module		; find zap
+	MOVVC	R12,R4			; zap workspace
+
+	ADRVCL	R0,key_command_table	; add command table
+	FNcallc Zap_AddCommands,VC,R1
+
+	ADRVCL	R0,twmode_table_start
+	FNcallc	Zap_AddMode,VC,R1
+
+	MOVVC	R1,#0
+	MOVVC	R2,R11
+	MOVVC	R3,#variable_size
+	FNcallc Zap_FillWords,VC	; clear workspace
+	FNRTS
+
+Zap	FNS	(|zap$|)
+
+
+; Address in module to store our workspace
+workspace_address
+	DCD	0
+
+;X R11=module workspace |
+get_workspace
+	LDR	R11,workspace_address
+	MOV	PC,R14
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Set initial mode words				     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+;X modes have their opt_mode words set up if they were 0
+;  colours also set up
+
+init_mode_word
+	FNJSR	"R1-R4,R8"
+	MOV	R8,#0			; default options
+
+	FNLDR	R1,mode_taskwindow,VC
+	ADRVC	R3,taskwind$l
+
+	LDR	R4,[R3],#4		; number of extra colours
+	PUSH	"R1"
+	ADD	R1,R1,#&100		; variable number
+	FNcall  Zap_ReadVar		; R0=mode word
+	PULL	"R1"
+	FNRTS	VS
+	TEQ	R0,#0
+	BNE	toinit_cols
+	PUSH	"R1"
+	LDR	R0,[R3]			; get width etc
+	ADD	R1,R1,#&100
+	FNcall  Zap_WriteVar		; width kept here
+	PULL	"R1"
+	LDRVC	R0,[R3]
+	MOVVC	R2,#0
+	FNcallc Zap_ModeData,VC		; set the width etc
+	ADDVC	R0,R3,#4
+	ADDVC	R4,R4,#9
+	BLVC	forcedocols		; setup initial colours
+	FNRTS
+
+toinit_cols
+	ADD	R0,R3,#4
+	ADD	R4,R4,#9
+	BL	init_cols		; setup initial colours
+	FNRTS
+
+taskwind$l
+	DCD	2
+	DCD	80			; 12=taskwindow
+	DCD	&97070077
+	DCD	&0000EBC9
+
+	LOCAL
+
+forcedocols
+	FNJSR	"R1-R5"
+	MOV	R3,R0
+	MOV	R0,#0
+	B	thethickofthecols
+
+modbas_localraero
+	DCD	0
+
+;E R0=pointer to words of wimp colours R1=mode number R4=num of cols
+;  R8=window to set /0
+;X Default colours set up #
+
+init_cols
+	FNJSR	"R1-R5"
+	PUSH	"R0"
+	MVN	R0,#0
+	FNcall  Zap_ModeColourNum	; Read palette size
+	PULL	"R3"
+	CMP	R0,R4
+	FNRTS	"GE"			; why doesn't it work?
+					; SUB R0,R0,#9
+thethickofthecols
+	STR	R0,modbas_localraero
+	PUSH	"R3"
+	MOV	R0,R4
+	FNcall  Zap_ModeColourNum	; change palette size
+	PULL	"R3"
+	FNRTS	VS
+	MOV	R2,#0			; colour number
+a$l
+	TST	R2,#7			; 8 colour boundry?
+	LDREQ	R5,[R3],#4		; next bit of data
+	LDR	R0,modbas_localraero
+	CMP	R2,R0
+	BLT	postinitcolour		; Debugging - Why doesn't it work?
+	AND	R0,R5,#&F		; wimp colour
+	FNcall  Zap_ModeColour
+	FNRTS	VS
+postinitcolour
+	MOV	R5,R5,LSR#4		; next colour
+	ADD	R2,R2,#1
+	CMP	R2,R4
+	BCC	a$l
+	FNRTS
+
+
+	LOCAL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Leaving/entering mode					       ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=new width or -1 to read R8=window/0 R10=mode
+;X width written #
+set_width
+	FNJSR	"R1,R2"
+	MOV	R1,R0
+	FNcall	Zap_GetModeWord,R0
+	FNRTS	VS
+	MOV	R2,R0,LSR #16
+	EOR	R0,R0,R2,LSL #16		; clear bottom 16 bits
+	CMP	R1,#-1
+	MOVNE	R2,R2,LSL #16
+	MOVNE	R1,R1,LSL #16
+	ORRNE	R0,R2,R1,LSR #16		; new width
+	FNcallc	Zap_PutModeWord,NE,R2
+	FNRTS
+
+
+;E R0=mode number R1=return character R8/R9
+;X R0=w_bpl calculated as for standard text mode #
+calc_mode_width
+	FNJSR	"R1-R2"
+	ADD	R14,R1,R1,LSL#8
+	ADD	R14,R14,R14,LSL#16
+	STR	R14,[R8,#w_cr]		; set up return character
+	MOV	R1,R0			; mode number
+	ADD	R0,R8,#w_mode0
+	LDR	R0,[R0,R1,LSL#2]	; mode word
+	MOV	R0,R0,LSL #16		; TT bug Fix...
+	MOV	R0,R0,LSR #16		; TT bug Fix...
+	CMP	R0,#5
+	MOVLE	R0,#5
+	STR	R0,[R8,#w_bpl]		; save the width
+	FNRTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Redraw line						      ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; update buffer pointers VS if overflowed
+
+red_overflow
+	FNJSR
+	LDR	R0,[R9,#f_ptr]
+	LDR	R14,[R9,#f_bufl]
+	ADD	R0,R0,R14		; end of buffer
+	CMP	R10,R0
+	BCS	ov1			; end is off end of buffer=overflow
+	MOV	R10,R0			; end of second buffer
+	LDR	R0,[R9,#f_splits]	; split size
+	ADD	R5,R5,R0
+	ADD	R7,R7,R0		; move into second buffer
+	CMP	R7,R10			; is it off the end of the second buf
+	FNRTS	CC			; return if not
+ov1	FNRTV				; return with overflow
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; STRING HANDLING					     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;; find string length
+
+	LOCAL
+
+;E R0=pointer to string terminated by 0 or 10 or 13
+;  May contain tabs or other ctrl chars
+;X R0=length of string not including the terminator |
+str_len	FNJSR	"R1"
+	MOV	R1,R0
+a$l	LDRB	R14,[R0],#1
+	TEQ	R14,#0
+	TEQNE	R14,#10
+	TEQNE	R14,#13
+	BNE	a$l
+	SUB	R0,R0,R1		; length including terminator
+	SUB	R0,R0,#1		; length excluding terminator
+	FNRTS
+
+
+;;;; copy strings
+
+;E R1=dest R2=source (copy till <32 and zero added)
+;X R0=0 R1=end of dest (after 0) R2=char after terminator |
+strcopy	LDRB	R0,[R2],#1
+	STRB	R0,[R1],#1
+	CMP	R0,#32
+	BCS	strcopy
+	MOV	R0,#0
+	STRB	R0,[R1,#-1]
+	MOV	PC,R14
+
+
+;E R1=dest R2=source (copy till <32 and add no zero)
+;X R0=terminatior R1=end of dest R2=char after terminator |
+strcpy	LDRB	R0,[R2],#1
+	CMP	R0,#32
+	MOVCC	PC,R14
+	STRB	R0,[R1],#1
+	B	strcpy
+
+
+	LOCAL
+
+;E R1=string R2=text (NB null strings R1 always fail to match)
+;X EQ if R1 matches start of text and R0=next point in text |
+strcmpstr
+	FNJSR	"R1-R2"
+	LDRB	R0,[R1]
+	CMP	R0,#&20			; is R1 null
+	FNRTS	CC			; return if so (with NE)
+
+a$l	LDRB	R0,[R1],#1
+	CMP	R0,#&20
+	BCC	b$l
+	LDRB	R14,[R2],#1
+	TEQ	R0,R14			; does the match continue
+	BEQ	a$l
+	FNRTS
+
+b$l	MOV	R0,R2
+	TEQ	R0,R0			; EQ
+	FNRTS
+
+
+	LOCAL
+
+;E R0=byte R1=buffer R2=number
+;X R0 saved R1=next byte after R2 R0's R2 undef |
+strstr	SUBS	R2,R2,#1
+	STRGEB  R0,[R1],#1
+	BGE	strstr
+	MOV	PC,R14
+
+
+;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
+test_shiftctrl
+	FNJSR	"R0,R2-R3"
+	MOV	R3,#0			; flags
+	MOV	R0,#&81			; shift either inkey = 0
+	MOV	R1,#&FF
+	MOV	R2,#&FF
+	SWI	XOS_Byte
+	CMP	R1,#&FF			; cmp and clv
+	ORREQ	R3,R3,#1
+	MOV	R0,#&81
+	MOV	R1,#&FE			; ctrl either inkey = 1
+	MOV	R2,#&FF
+	SWI	XOS_Byte
+	CMP	R1,#&FF
+	ORREQ	R3,R3,#2
+	MOV	R1,R3
+	FNRTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Read/write file bytes					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=offset R9=file
+;X R0=byte R1=corrupt, no checking |
+
+	LOCAL
+cln_readc
+	LDR	R1,[R9,#f_len]
+	CMP	R0,R1
+	BCS	eof$l
+	LDR	R1,[R9,#f_splito]
+	CMP	R0,R1
+	LDRCS	R1,[R9,#f_splits]
+	ADDCS	R0,R0,R1
+	LDR	R1,[R9,#f_ptr]
+	LDRB	R0,[R1,R0]
+	MOV	PC,R14
+
+eof$l	LDRB	R0,[R8,#w_cr]		; but what if no R8!?!?!?!
+	MOV	PC,R14
+
+
+; ------------------------------------------------
+
+loadlineeditor
+	FNJSR	"R0-R5"
+	MOV	R0,#9			; auto load LE
+	BL	getoptswitches
+	FNRTS	EQ
+	MOV	R0,#18
+	ADR	R1,lineeditor
+	SWI	XOS_Module
+	ADRVS	R0,lineeditorpath
+	SWIVS	XWimp_StartTask
+	CLV
+	FNRTS
+
+lineeditor	=	"LineEditor",0
+lineeditorpath	FNS	("Obey ZapExtensions:BootLineEd")
+
+
+	LOCAL
+
+getoptswitches
+	FNJSR	"R0-R10"
+	STR	R0,ptrtooptswval
+	ADR	R0,miscopsname
+	FNcall	Zap_FindCommand,R1
+	CMP	R0,#0
+	FNRTS	EQ
+	MOV	R7,R0
+	MOV	R2,#15
+	ADR	R0,ptrtooptswval
+	MOV	R8,#0
+	MOV	R9,#0
+	MOV	R10,#0
+	FNcall	Zap_ProcessCommand
+	CMP	R0,#0
+	FNRTS
+
+ptrtooptswval	DCD 0
+miscopsname	FNS ("MISCOPS")
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R0=inkey number (not eored)
+;X CS if key pressed |
+
+test_forkey
+	FNJSR	"R1-R2"
+	EOR	R1,R0,#&FF
+	MOV	R2,#&FF
+	MOV	R0,#&81
+	SWI	XOS_Byte
+	CMP	R1,#&FF
+	FNRTS
+
+
+ 	DCD 7				; can be called from main menu
+Taskwindow
+	FNJSR
+	BL	get_workspace
+	MOV	R10,#0
+	BL	create_task_window
+	FNRTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Command service calls					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+key_service_call
+	MOV	PC,R14			; allow zap to kill now
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Command table						    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; define a new command $a=command name $b=label for the command
+
+	MACRO
+$la	FNcom	$a,$b
+$la	=	"$a",0
+	ALIGN
+	DCD	$b
+	MEND
+
+key_command_table
+	DCD	key_command_table
+	DCD	key_service_call
+	FNcom	"TASKWINDOW",Taskwindow
+	FNcom	"TASKWINDOW_CONTROL",TaskWindow_Control
+	FNcom	"TASKWINDOW_FLAGSTOGGLE",Cmdtaskwindowflagstoggle
+	DCD	0
+
+
+
+; some 32 bit ARM support code
+
+ARM32_CSRet
+	RTCS
+ARM32_CCRet
+	RTCC
+
+
+
+ END

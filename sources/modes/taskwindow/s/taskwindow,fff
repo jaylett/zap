@@ -1,14 +1,9 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.10 2003/02/05 19:48:53 christian Exp $
+; $Id: taskwindow,fff,v 1.11 2003/02/06 14:53:03 christian Exp $
 ; -*- armasm -*-
 
- GET h.ZapBasHdr
- GET h.ZapBASIC
- GET h.BASIC
- GET h.Buttons
-
- IMPORT charchar
- IMPORT bas_execute
+ GET h.ZapTWHdr
+ GET h.Module
 
  EXPORT twmode_table_start
  EXPORT TaskWindow
@@ -72,11 +67,11 @@
 twmode_table_start
 	DCD	twmode_table_start
 	DCD	twmode_title
-	DCD	basic_author
+	DCD	twmode_author
 	DCD	0
-	DCD	12+&200			; want mode 12+taskwindow input
+	DCD	12 + 1<<9 + 1<<14	; want mode 12+taskwindow input + mode menu file
 	DCD	twmode_init
-	DCD	0			; menu
+	DCD	twmode_menu		; menu
 	DCD	twmode_table_end-twmode_table_start
 
 	DCD	0			; postload
@@ -134,25 +129,29 @@ twmode_table_start
 	;DCD	0			; stripspaces
 twmode_table_end
 
-twmode_title
-	FNS	("Taskwindow")
+twmode_title	=	"Taskwindow",0
+twmode_author	=	"Dominic Symes",0
+twmode_menu	=	"ZapTaskWindow:Menus",0
+		ALIGN
+
 
 	LOCAL
 
+; ----------- e_init -----------
+
 twmode_init
-	CMP	R1,#8
+	CMP	R1,#7
 	ADDLO	PC,PC,R1,LSL #2
 	B	other$l
-	B	dying$l
-	B	starting$l
-	B	started$l
-	B	taskwindow_kill
-	MOV	PC,R14
-	B	taskwindow_diesilently
-	B	cols$l
-	B	taskwindow_menu		; OK
-other$l
-	TEQ	R1,#15
+	B	dying$l			; Zap about to exit
+	B	starting$l		; Starting mode
+	B	started$l		; Started mode
+	B	taskwindow_kill		; Deleting owned file
+	MOV	PC,R14			; Saving owned file
+	B	taskwindow_diesilently	; Deleting altered owned file
+	B	cols$l			; Creating colours submenu
+
+other$l	TEQ	R1,#15			; Reuest pathname
 	MOVNE	PC,R14
 	TEQ	R9,#0
 	MOVEQ	PC,R14
@@ -160,27 +159,23 @@ other$l
 	LDR	R0,[R0,#2]
 	MOV	R0,R0,LSR #16		; lower 16 bits of task handle
 	SWI	&6258A			; DDEUtils_ 10
-	MOVVS	R0,#0
-	MOVS	PC,R14
-cols$l
-	ADR	R1,twmode_cols
+	SUBVSS	R0,R0,R0		; R0 = 0 + clv
 	MOV	PC,R14
 
-taskwindow_menu
-	FNJSR
-	BL	loadmenuifrequired
-	FNcall  Zap_ReadMenu
-	LDRVC	R1,[R0,#8]
-	FNRTS
+cols$l	ADR	R1,twmode_cols
+	MOV	PC,R14
 
+; Zap is deleting a file we own
 taskwindow_diesilently
 	FNJSR	"R0,R2-R11"
-	LDR	R1,localcopyof_mode_taskwindow
+	BL	get_workspace
+	FNLDR	R1,mode_taskwindow
 	FNcall  Zap_GetModeWord
 	ANDS	R1,R0,#1 << 30		; die silently bit...
 	MOVNE	R1,#-1
 	FNRTS
 
+; Zap has started our mode
 started$l
 	FNJSR	"R3"
 	ADR	R0,s6$l
@@ -190,22 +185,23 @@ started$l
 	ADR	R3,s4$l
 	BLVC	alias_general
 	BLVC	init_mode_word		; set up mode words if needed
+
+	MOVVC	R0,#256
+	FNcallc	Zap_Claim,VC,R1
+	FNSTR	R0,buffer,VC
 	FNRTS
 
-dying$l
-	FNJSR	"R1,R2,R3,R4"
+; Zap is about to exit
+dying$l	FNJSR	"R1,R2,R3,R4"
 	ADR	R0,s7$l
 	ADR	R3,s4$l
 	BL	alias_general
 	MOVVC	R0,#-1			; don't kill the module yet
 	FNRTS
 
-localcopyof_mode_taskwindow
-	DCD	0
-
+; Zap is telling us our mode number
 starting$l
 	FNSTR	R0,mode_taskwindow	; mode used by taskwindow
-	STR	R0,localcopyof_mode_taskwindow
 	MOV	PC,R14
 
 s4$l	=	"Alias$Taskwindow",0
@@ -221,12 +217,12 @@ twmode_cols
 	=	0
 	ALIGN
 
+
 	LOCAL
 
 ;E R0=string to alias taskwindow command to
 ;  R3 = name of os_var to be set
 ;X command aliased #
-
 alias_general
 	FNJSR	"R1-R4"
 	MOV	R1,R0			; var value
@@ -245,10 +241,9 @@ twmode_start
 	PUSH	"R0-R12"		; BUG!!!!!!!!!!!!!!!!!!!
 	BL	loadlineeditor
 	PULL	"R0-R12"
-	STR	R11,local_stored_areeleven
 	FNLDR	R1,mode_taskwindow	; mode number of taskwindow mode
 	MOV	R0,R1
-	BL	restore_mode_word
+	FNcall	Zap_RestoreModeWord,R1
 	FNRTS	VS
 	LDR	R0,[R9,#f_cmode]
 	TEQ	R0,R1
@@ -261,7 +256,7 @@ twmode_start
 	FNRTS	EQ
 	BIC	R0,R0,#1
 	STR	R0,[R7,#52]		; resume task
-	FNLDR	R1,buf_detoken
+	FNLDR	R1,buffer
 	MOV	R0,#20
 	STR	R0,[R1]			; length
 	MOV	R0,#0
@@ -277,7 +272,7 @@ twmode_end
 	FNJSR	"R1-R3,R7"
 	FNLDR	R1,mode_taskwindow	; mode used by taskwindows
 	MOV	R0,R1
-	BL	save_mode_word
+	FNcall	Zap_SaveModeWord,R1
 	FNRTS	VS
 	LDR	R0,[R9,#f_cmode]
 	TEQ	R0,R1
@@ -290,7 +285,7 @@ twmode_end
 	FNRTS	NE
 	ORR	R0,R0,#1
 	STR	R0,[R7,#52]
-	FNLDR	R1,buf_detoken
+	FNLDR	R1,buffer
 	MOV	R0,#20
 	STR	R0,[R1]			; length
 	MOV	R0,#0
@@ -302,6 +297,9 @@ twmode_end
 	SWI	XWimp_SendMessage	; suspend task
 	FNRTS
 
+
+; ------------ TASKWINDOW_CONTROL command ------------
+
 	DCD	7+(2<<3)+(1<<15)
 TaskWindow_Control
 	CMP	R8,#0
@@ -311,8 +309,9 @@ TaskWindow_Control
 	CMP	R0,#0
 	MOVLE	PC,R14
 	FNJSR	"R7,R10,R11"		; must match with later on pre_kill...!
+	BL	get_workspace
 	LDRB	R7,[R8,#w_format]
-	LDR	R10,localcopyof_mode_taskwindow
+	FNLDR	R10,mode_taskwindow
 	CMP	R10,R7
 	BNE	tickq0a$l
 	LDR	R10,[R0]
@@ -424,12 +423,9 @@ TaskWindowSuspend$l
 	SWI	XWimp_SendMessage	; suspend task
 	FNRTS
 
-suspend$l
-	DCD	&808C6			; TaskWindow_Suspend
-morite$l
-	DCD	&808C4			; TaskWindow_Morite
-resume$l
-	DCD	&808C7			; TaskWindow_Resume
+suspend$l	DCD	&808C6			; TaskWindow_Suspend
+morite$l	DCD	&808C4			; TaskWindow_Morite
+resume$l	DCD	&808C7			; TaskWindow_Resume
 
 TaskWindowLink$l
 	LDR	R14,[R7,#52]		; flags
@@ -453,7 +449,7 @@ TaskWindowResurrect
 	BEQ	tickq6$l
 	BIC	R14,R14,#15
 	STR	R14,[R7,#52]		; flags
-	LDR	R11,local_stored_areeleven ; [R12]	; this module's workspace...?
+	BL	get_workspace
 	BL	resurrect_task_window
 	LDR	R0,[R8,#w_bpl]
 	BL	twmode_setwidth		; clear screen...?
@@ -482,6 +478,7 @@ TaskWindowKill
 	PULL	"R0-R2"
 	FNRTS
 
+
 	LOCAL
 
 ;;;;;;;;;;;;;;;;;;;
@@ -503,8 +500,8 @@ taskwindow_kill
 	FNcall  Zap_Free,R10		; free the buffer
 	FNRTS
 
-local_stored_areeleven
-	DCD	0
+
+; ----------- e_redrawline ------------
 
 twmode_redrawline
 	FNJSR	"R4,R12"
@@ -856,7 +853,7 @@ create_task_window
 	FNRTS	VS
 rude_tw_entry
 	MOV	R6,#&20			; space
-	FNLDR	R1,buf_detoken		; place to put start command
+	FNLDR	R1,buffer		; place to put start command
 	MOVS	R2,R10
 	ADREQ	R2,tw_s1		; use default
 	MOV	R0,#'%'
@@ -884,7 +881,7 @@ rude_tw_entry
 	STRNEB  R6,[R1],#1		; add extra space on the end
 	MOV	R0,#0
 	STRB	R0,[R1]			; terminator
-	FNLDR	R0,buf_detoken
+	FNLDR	R0,buffer
 	SWI	XWimp_StartTask		; try and start up task
 	FNRTS
 
@@ -895,7 +892,7 @@ tw_s2	FNS	(" -ctrl -txt &")
 	LOCAL
 
 ; Taskwindow is telling me its handle. I use its task handle to find out
-; its name. Uses buf_detoken.
+; its name. Uses buffer.
 
 TaskWindow_Ego
 	FNJSR	"R1-R11"
@@ -926,7 +923,7 @@ TaskWindow_Ego
 	FNcall  Zap_GetFileOff		; R0=file offset
 	MOV	R6,R0			; save as the private word
 	LDR	R0,mess$l		; Task Name Request Message + want reply
-	FNLDR	R1,buf_detoken		; message
+	FNLDR	R1,buffer		; message
 	LDR	R14,[R7]		; task id
 	STR	R14,[R1,#20]
 	MOV	R2,#0			; broadcast
@@ -1116,7 +1113,7 @@ tw_showcursor
 	FNcallc Zap_ShowCursor,VC
 	FNRTS
 nocur$l
-	FNLDR	R10,buf_retoken		; simulate cursor
+	FNLDR	R10,buffer		; simulate cursor
 	FNcall  Zap_GetWindOff
 	STRVC	R0,[R10,#c_wind]
 	STRVC	R0,[R10,#c_owind]
@@ -1127,7 +1124,7 @@ nocur$l
 	STRVC	R0,[R10,#c_width]
 	STRVC	R0,[R10,#c_owidth]
 	BLVC	twc_buf_xy_nopad	; get cursor posn
-	STRVC	R2,[R10,#c_col]		; may use buf_detoken if adding y's
+	STRVC	R2,[R10,#c_col]		; may use buffer if adding y's
 	STRVC	R2,[R10,#c_ocol]
 	STRVC	R3,[R10,#c_line]	; update cursor posn
 	STRVC	R3,[R10,#c_oline]
@@ -1222,16 +1219,17 @@ actively_ignore_input
 	MOV	R2,#0
 	FNRTS
 
+
 twmode_char
 	FNJSR
-	LDR	R14,[R9,#f_source]
-	LDR	R14,[R14,#52]		; flags
-	TST	R14,#7			; ignore or suspended
-	FNRTS	NE
-	FNLDR	R1,mode_taskwindow
-	BL	charchar
-	MOV	R0,R7
-	MOV	R1,R5
+	;LDR	R14,[R9,#f_source]
+	;LDR	R14,[R14,#52]		; flags
+	;TST	R14,#7			; ignore or suspended
+	;FNRTS	NE
+	;FNLDR	R1,mode_taskwindow
+	;BL	charchar
+	;MOV	R0,R7
+	;MOV	R1,R5
 	BL	taskwindow_input
 	FNRTS
 
@@ -1256,12 +1254,12 @@ taskwindow_input
 	BGT	large$l
 	ADD	R5,R4,#24+3		; header size
 	BIC	R5,R5,#3		; and word align for message size
-	FNLDR	R0,buf_detoken		; message buffer
+	FNLDR	R0,buffer		; message buffer
 	MOV	R1,R7
 	ADD	R2,R0,#24
 	MOV	R3,R4
 	FNcall  Zap_MoveBytes		; copy data into message buffer
-	FNLDR	R1,buf_detoken
+	FNLDR	R1,buffer
 	STR	R5,[R1,#0]		; message size
 	MOV	R0,#0
 	STR	R0,[R1,#12]		; my ref
@@ -1325,12 +1323,12 @@ oninthere$l
 	BEQ	notagain$l
 	ADD	R5,R4,#24+3		; header size
 	BIC	R5,R5,#3		; and word align for message size
-	FNLDR	R0,buf_detoken		; message buffer
+	FNLDR	R0,buffer		; message buffer
 	MOV	R1,R7
 	ADD	R2,R0,#24
 	MOV	R3,R4
 	FNcall  Zap_MoveBytes		; copy data into message buffer
-	FNLDR	R1,buf_detoken
+	FNLDR	R1,buffer
 	STR	R5,[R1,#0]		; message size
 	MOV	R0,#0
 	STR	R0,[R1,#12]		; my ref
@@ -1482,16 +1480,16 @@ tw_padd_x
 	MOV	PC,R14
 
 ;E R0=char R2=num
-;X R3=buf_detoken containg R2*char in R0 #
+;X R3=buffer containg R2*char in R0 #
 
 tw_getblanks
 	FNJSR	"R1-R2"
 	MOV	R3,R0			; save char
-	FNLDR	R0,buf_detoken
+	FNLDR	R0,buffer
 	MOV	R1,R2
 	FNcall  Zap_Ensure
 	FNRTS	VS
-	FNSTR	R0,buf_detoken
+	FNSTR	R0,buffer
 	MOV	R1,R0			; buffer
 	MOV	R0,R3			; char
 	MOV	R3,R1			; save buffer pointer
@@ -1612,7 +1610,7 @@ tw_increment
 	MOV	PC,R14
 
 ;E R2=x off R3=y off R4=width R7=buffer R8/R9
-;X line data read to buf_detoken ; blanks if outside window #
+;X line data read to buffer ; blanks if outside window #
 
 tw_getline
 	LDR	R0,[R7,#20]		; min y
@@ -1622,18 +1620,18 @@ tw_getline
 	CMP	R3,R0
 	BGE	tw32
 	FNJSR	"R1-R6"
-	FNLDR	R0,buf_detoken
+	FNLDR	R0,buffer
 	MOV	R1,R4
 	FNcall  Zap_Ensure
 	FNRTS	VS
-	FNSTR	R0,buf_detoken
+	FNSTR	R0,buffer
 	MOV	R5,R2			; save x val
 	BL	twc_to_xy_nopad		; get work xy
 	FNRTS	VS
 	BL	tw_findoffset		; R6=line start R1=line width
 	FNRTS	VS
 	MOV	R2,R1			; save line width
-	FNLDR	R3,buf_detoken		; buffer
+	FNLDR	R3,buffer		; buffer
 tw29
 	CMP	R4,#0			; finished ?
 	FNRTS	LE
@@ -1653,7 +1651,7 @@ tw32
 	FNRTS
 
 ;E R2=x off R3=y off R4=width R7=buffer R8/R9
-;X line data written from buf_detoken #
+;X line data written from buffer #
 
 tw_putline
 	FNJSR	"R1-R6"
@@ -1664,7 +1662,7 @@ tw_putline
 	FNRTS	VS
 	MOV	R2,R5			; restore x val
 	MOV	R5,R4			; save length
-	FNLDR	R4,buf_detoken		; get data
+	FNLDR	R4,buffer		; get data
 	CMP	R1,R2
 	BLLT	tw_padd_x
 	FNRTS	VS
@@ -2224,50 +2222,70 @@ taskwindow_mode
 	ADDVC	R2,R2,#1		; width
 	FNRTS
 
+
+
+; ---------- TASKWINDOW_FLAGSTOGGLE command -----------
+
 	DCD	&8017
 Cmdtaskwindowflagstoggle
-	CMP	R0,#0
-	MOVLE	PC,R14
-	LDR	R10,[R0]		; REM gets word argument...
+	FNJSR	"R1-R4,R11"
+	BL	get_workspace
+	MOV	R4,R0
 
-	ADRL	R1,localcopyof_mode_taskwindow
-	LDR	R1,[R1]
-	CMP	R1,#0
-	MOVLE	PC,R14
+	FNLDR	R1,mode_taskwindow
+	FNcall  Zap_GetModeWord,R0
 
-	FNJSR
-	PUSH	"R1-R11"
-	FNcall  Zap_GetModeWord
-	PULL	"R1-R11"
-	MOV	R7,R0
+	MOV	R3,R0
+	LDR	R0,[R4]
+	BL	calculate_masks
 
-	CMP	R2,#15
-	BEQ	but_tickquery		; REM bit 15 of R2 indicates a 'tickquery'
-
-	MOV	R5,#0
-
-	AND	R1,R10,#&FF
-	BL	bas_execute
-	MOV	R1,R10,LSR #8
-	AND	R1,R1,#&FF
-	TST	R1,#&80
-	BLNE	bas_execute
-	MOV	R1,R10,LSR #16
-	AND	R1,R1,#&FF
-	TST	R1,#&80
-	BLNE	bas_execute
-	MOV	R1,R10,LSR #24
-	AND	R1,R1,#&FF
-	TST	R1,#&80
-	BLNE	bas_execute
-
-	MOV	R0,R7
-	ADRL	R1,localcopyof_mode_taskwindow
-	LDR	R1,[R1]
-	FNcall  Zap_PutModeWord
+        TEQ	R2,#15
+        BNE	set$l
+	AND	R3,R3,R1		; check tick state
+	TEQ	R3,R1			; all set?
+	MOVEQ	R0,#1			; yes so tick
+	MOVNE	R0,#0
 	FNRTS
 
+set$l	BIC	R0,R3,R0		; set new options
+	EOR	R0,R0,R1
+
+	FNLDR	R1,mode_taskwindow	; save them
+	FNcall	Zap_PutModeWord
+	FNRTS
+
+
+;E R0 = 4 x 8 bit instruction blocks. Each block has format:
+;	b0-b4 = 0-31 number of bit in the word to toggle
+;	b5/b6 = 00 => toggle the bit
+;		01 => set the bit
+;		10 => clear the bit
+;		11 => reserved
+;	b7    = must be set to show this block active (except lowest byte
+;		where its unused by this sub - others may use it)
+;X R0 = BIC mask  R1 = eor to accomplish this
+calculate_masks
+	FNJSR	"R2-R3"
+	ORR	R2,R0,#1<<7		; lowest byte always contains a block
+	MOV	R0,#0
+	MOV	R1,#0			; default mask/eor (does nothing)
+a$l	TST	R2,#1<<7		; active block?
+	FNRTS	EQ			; no - finished
+	AND	R3,R2,#&1F		; bit number
+	MOV	R14,#1
+	MOV	R14,R14,LSL R3		; bit mask
+	ANDS	R3,R2,#&60		; action
+	ORREQ	R1,R1,R14		; toggle
+	TEQ	R3,#&20
+	ORREQ	R0,R0,R14
+	ORREQ	R1,R1,R14		; set the bit
+	TEQ	R3,#&40
+	ORREQ	R0,R0,R14		; clear the bit
+	MOV	R2,R2,LSR#8
+	B	a$l
+
 	LOCAL
+
 
 local_stored_cur_posn
 	DCD	-1
@@ -2350,7 +2368,7 @@ callback_cur_posn
 	FNJSR	"R0-R12"
 	LDR	R11,local_stored_cur_posn + 16
 	LDR	R12,local_stored_cur_posn + 20
-	FNLDR	R1,buf_detoken		; scrap... :/
+	FNLDR	R1,buffer		; scrap... :/
 	SWI	XWimp_GetPointerInfo
 	LDR	R1,[R1,#8]
 	CMP	R1,#0
