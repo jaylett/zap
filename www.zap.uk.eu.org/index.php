@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.6 2003/05/21 18:24:22 ds Exp $
+  // $Id: index.php,v 1.7 2004/10/27 11:35:21 james Exp $
   include ".php/zap-std.inc";
   setroot ('index');
   zap_header ("Zap - a programmers' editor", 'top:');
@@ -15,7 +15,7 @@
   {
     global $ftproot;
     $link = readlink ($ftproot.$leaf);
-    echo '<li>', ucfirst ($leaf), '</a> distribution (v', $link,
+    echo '<li>', ucfirst ($leaf), ' distribution (v', $link,
 	 '): <a href="/ftp/pub/', $leaf,
 	 '/">directory,</a> <a href="download#',
 	 ereg_replace ('\.', '', $link), "\">downloads page</a>\n";
@@ -39,5 +39,5 @@
 <p>Anyone still using the zap.uk.eu.org domain should change to use the new <a href='http://zap.tartarus.org/'>web</a> and <a href='ftp://zap.tartarus.org/'>ftp</a> site addresses of zap.tartarus.org.</p>
 
 <?php
-  zap_body_end ('$Date: 2003/05/21 18:24:22 $');
+  zap_body_end ('$Date: 2004/10/27 11:35:21 $');
 ?>
