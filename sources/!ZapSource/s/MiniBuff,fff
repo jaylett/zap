@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help
-; $Id: MiniBuff,fff,v 2.15 2002/11/18 00:18:11 christian Exp $
+; $Id: MiniBuff,fff,v 2.16 2002/11/18 00:43:46 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -42,6 +42,7 @@
  EXPORT minibuffer_prompt
  EXPORT minibuffer_prompt_token
  EXPORT minibuffer_prompt_and_history
+ EXPORT minibuffer_prompt_and_history_no_suffix
  EXPORT minibuffer_prompt_token_and_history
  EXPORT minibuffer_update
  EXPORT minibuffer_show
@@ -747,9 +748,8 @@ minibuffer_prompt
 	FNJSR	"R1-R7"
 	FNLDR	R14,key_flags
 	TST	R14,#2			; are we in an execute strokes loop
-	FNRTS	NE
-	AND	R7,R0,#1<<31
-	BIC	R0,R0,#1<<31
+	BNE	done$l
+	FNLDR	R7,opt_temporary
 	MOV	R4,R0			; save string
 	BL	str_len			; find length
 	MOV	R5,R0			; save length
@@ -768,7 +768,7 @@ minibuffer_prompt
 	ADD	R2,R3,R6		; new length (after insert)
 	FNLDR	R1,mini_bufl
 	CMP	R2,R1			; will it fit?
-	FNRTS	GE
+	BGE	done$l
 	FNSTR	R2,mini_len		; update length
 	ADD	R2,R0,R6
 	FNSTR	R2,mini_mark		; update mark
@@ -792,6 +792,8 @@ minibuffer_prompt
 	STREQB  R0,[R1,R5]!
 	MOVEQ	R0,#' '
 	STREQB  R0,[R1,#1]		; append ": " to prompt
+done$l	MOV	R0,#0
+	FNSTR	R0,opt_temporary
 	FNRTS
 
 
@@ -799,17 +801,15 @@ minibuffer_prompt
 ;X Text replaces the text before mark, updating all offsets #
 	FNAME	minibuffer_prompt_token
 minibuffer_prompt_token
-	FNJSR	"R1-R7,R11"
-	AND	R11,R0,#1<<31
-	BIC	R0,R0,R11
+	FNJSR	"R1-R7"
 	MOV	R1,R0
 	MOV	R4,R0
 	SUB	R13,R13,#256
 	MOV	R2,R13
 	MOV	R3,#256
 	BL	lookup_token
-	ORRVC	R0,R2,R11
-	ORRVS	R0,R4,R11
+	MOVVC	R0,R2
+	ADDVSS	R0,R4,#0		; and clv
 	BL	minibuffer_prompt
 	ADD	R13,R13,#256
 	FNRTS
@@ -837,6 +837,19 @@ minibuffer_prompt_token_and_history
 	MOVVC	R0,R1
 	BLVC	lineeditor_select
 	FNRTS
+
+
+;E R0=pointer to text R4-R7=parameters R1=history buffer
+;X Text replaces the text before mark, updating all offsets;
+;  buffer selected #
+; let's have a competition for the longest function name :)
+	FNAME	minibuffer_prompt_and_history_no_suffix
+minibuffer_prompt_and_history_no_suffix
+	FNJSR
+	MOV	R14,#1<<31
+	FNSTR	R14,opt_temporary
+	FNPULL
+	B	minibuffer_prompt_and_history
 
 
 ;X Minibuffer updated on screen (if open) with scroll offsets
