@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.4 2000/09/12 23:06:32 ds Exp $
+; $Id: Menus,fff,v 2.5 2000/09/15 17:31:12 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -128,9 +128,8 @@ $ll	* menu_num_off
 
 cm_buffernum
  FNJSR
- ADD R1,R10,#28			; first item
- LDR R2,[R1,#20]		; buffer length
- LDR R1,[R1,#12]		; buffer address
+ LDR R2,[R10,#28+20]		; buffer length
+ LDR R1,[R10,#28+12]		; buffer address
  SWI XOS_ConvertInteger4
  ADDS R0,R0,#0			; clv
  FNRTS
@@ -140,9 +139,8 @@ cm_buffernum
 
 cm_bufferhex
  FNJSR
- ADD R1,R10,#28			; first item
- LDR R2,[R1,#20]		; buffer length
- LDR R1,[R1,#12]		; buffer address
+ LDR R2,[R10,#28+20]		; buffer length
+ LDR R1,[R10,#28+12]		; buffer address
  MOV R14,#'&'
  STRB R14,[R1],#1
  SUB R2,R2,#1			; add & at start
@@ -155,11 +153,10 @@ cm_bufferhex
 
 cm_bufferstring
  STMFD R13!,{R1-R4,R14}
- ADD R1,R10,#28			; first item
  MOV R2,R0			; source string
- LDR R3,[R1,#20]		; buffer length
+ LDR R3,[R10,#28+20]		; buffer length
  MOV R4,#&1F			; max term char
- LDR R1,[R1,#12]		; buffer address
+ LDR R1,[R10,#28+12]		; buffer address
  BL strmove
  LDMFD R13!,{R1-R4,PC}
 
@@ -168,11 +165,10 @@ cm_bufferstring
 
 cm_bufferhex_icon
  STMFD R13!,{R1-R2,R14}
- ADD R1,R10,#28
  ADD R2,R5,R5,LSL#1		; R5*3
- ADD R1,R1,R2,LSL#3		; R5*24
- LDR R2,[R1,#20]		; buffer len
- LDR R1,[R1,#12]
+ ADD R1,R10,R2,LSL#3		; R5*24
+ LDR R2,[R1,#28+20]		; buffer len
+ LDR R1,[R1,#28+12]
  MOV R14,#'&'
  STRB R14,[R1],#1
  SUB R2,R2,#1
@@ -290,6 +286,7 @@ sub_minifont
 Fontlist
 	TEQ	R2,#16
 	MOVNE	PC,R14
+
 	FNLDR	R0,wimp_version
 	CMP	R0,#300 ; sufficient ;-)
 	BLT	old_fontlist$l
@@ -1349,16 +1346,10 @@ next$l				; get next file name
  MOV R0,#0			; no index
  FNRTS
 doadir$l
- MOV R0,#1
- STR R0,[R10,#4]			; submenu off this entry - yes...
  LDR R0,[R10]
+ MOV R14,#1
  ORR R0,R0,#1<<3
- STR R0,[R10]			; set warning bit
- ;LDR R0,[R6]			; submenu creation...
- ;ORR R0,R0,#1<<3
- ;STR R0,[R6]			; set warning bit
- ;MOV R0,#1
- ;STR R0,[R6,#4]			; submenu off this entry - yes...
+ STMIA R10,{R0,R14}		; set warning bit; submenu off this entry
  ADD R7,R7,#4			; add in room for open code...
  ADR R0,mw_substylelist		; warn code...
  STR R0,[R7,#-12]		; open code
@@ -2255,11 +2246,10 @@ a$l				; R0=buffer size to use
  FNRTS VS
  MOV R5,R0			; start of the menu
  MOV R0,#0
- STR R0,[R5],#4			; clear the help
- STR R0,[R5],#4			; clear the width
- STR R0,[R5],#4			; clear the count
- ADR R0,cm_leaf_box
- STR R0,[R5],#4			; set create menu routine
+ MOV R14,#0
+ STMIA R5!,{R0,R14}		; clear help and width
+ ADR R14,cm_leaf_box
+ STMIA R5!,{R0,R14}		; clear count & set create menu routine
  TST R4,#1<<17
  MOVEQ R0,R10			; pointer to command name
  BEQ b$l
@@ -3052,8 +3042,8 @@ a$l
  CMP R1,#&8000
  FNRTS LT
  TST R1,#3
- FNRTS NE			; was a window
- B a$l				; recurse onto this submenu
+ BEQ a$l			; recurse onto this submenu
+ FNRTS				; was a window
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; MENU WARNING CODE				       ;
@@ -3323,6 +3313,7 @@ build_menu_ensure
 
  FNRTS
 
+	[ 1=0
 ;E R0=pointer to a menu structure
 ;X entries on this menu reversed #
 
@@ -3337,22 +3328,21 @@ reverse_menu
 re34
  CMP R5,R2			; finished?
  BCS re33
- MOV R3,#0			; count
+ MOV R3,#6			; count
 re35
- LDR R0,[R5,R3]
- LDR R14,[R2,R3]
- STR R0,[R2,R3]
- STR R14,[R5,R3]
- ADD R3,R3,#4
- CMP R3,#24
- BCC re35			; swap loop
- ADD R5,R5,#24
- SUB R2,R2,#24
+ LDR R0,[R5]
+ LDR R14,[R2]
+ STR R0,[R2],#4
+ STR R14,[R5],#4
+ SUBS R3,R3,#1
+ BNE re35			; swap loop
+ SUB R2,R2,#48
  B re34
 re33
  MOV R0,R4
  BL add_menu_stop
  LDMFD R13!,{R1-R5,PC}
+	]
 
  LOCAL
 
@@ -3414,11 +3404,10 @@ count_menu_clear
 add_menu_stop
  FNJSR
  ADD R0,R0,R0,LSL#1		; *3
- ADD R14,R1,#28			; start of entries
- ADD R0,R14,R0,LSL#3		; +num*24
- LDR R14,[R0,#-24]		; last entry
+ ADD R0,R1,R0,LSL#3		; +num*24
+ LDR R14,[R0,#28-24]		; last entry
  ORR R14,R14,#1<<7
- STR R14,[R0,#-24]		; add stop
+ STR R14,[R0,#28-24]		; add stop
  FNRTS
 
 ;E R0=menu structure

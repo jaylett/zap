@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.3 2000/09/12 23:06:32 ds Exp $
+; $Id: KeyBits,fff,v 2.4 2000/09/15 17:31:12 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -177,7 +177,7 @@ ck_num
  STMFD R13!,{R0}		; save ctrl letter
  ADR R14,ck_num_table		; inkey numbers
  LDR R0,[R14,R0,LSL #1]
- MOV R0,R0,LSL #16
+; MOV R0,R0,LSL #16
  MOV R0,R0,LSR #16
  BL special_test_forkey		; is digit 0-9 pressed?
  LDMFD R13!,{R0}
@@ -186,16 +186,16 @@ ck_num
  B ck_ctrl
 
 ck_num_table
- = 39,&1A
- = 48,&11
- = 49,&12
- = 17,&13
- = 18,&14			; digit inkey numbers
- = 19,&15
- = 52,&16
- = 36,&17
- = 21,&18
- = 38,&19
+ = 48,&11 ;1 ; digit inkey numbers
+ = 39,&1A ;0
+ = 17,&13 ;3
+ = 49,&12 ;2
+ = 19,&15 ;5
+ = 18,&14 ;4
+ = 36,&17 ;7
+ = 52,&16 ;6
+ = 38,&19 ;9
+ = 21,&18 ;8
  ALIGN
 
 ck_back
@@ -374,7 +374,7 @@ ck_digit
  STMFD R13!,{R0}
  ADR R14,ck_knum_table
  LDR R0,[R14,R0,LSL #1]		; keypad inkey number
- MOV R0,R0,LSL #16
+; MOV R0,R0,LSL #16
  MOV R0,R0,LSR #16
  BL special_test_forkey
  LDMFD R13!,{R0}
@@ -386,16 +386,16 @@ ck_digit
  B ck_null
 
 ck_knum_table
- = 106,&65
- = 107,&5A
- = 124,&5B
- = 108,&5C
- = 122,&48
- = 123,&49
- =  26,&4A
- =  27,&37
- =  42,&38
- =  43,&39
+ = 107,&5A ;1
+ = 106,&65 ;0
+ = 108,&5C ;3
+ = 124,&5B ;2
+ = 123,&49 ;5
+ = 122,&48 ;4
+ =  27,&37 ;7
+ =  26,&4A ;6
+ =  43,&39 ;9
+ =  42,&38 ;8
  ALIGN
 
 ck_std_or_fn
@@ -628,7 +628,7 @@ spcdel$l
  B char$l			; this traps and replaces by string
 
 bak$l L "<-|","<-|"
-esc$l L "Esc","Esc"
+esc$l L "Esc","Escape"
 del$l L "Del","Delete"
 tab$l L "Tab","Tab"
 cpy$l L "Cpy","Copy"
@@ -637,7 +637,7 @@ pnt$l L "Pnt","Print"
 ret$l L "Ret","Return"
 hom$l L "Hom","Home"
 ent$l L "Ent","Enter"
-spc$l L "Spc","Spc"
+spc$l L "Spc","Space"
  ALIGN
 
 sh11
@@ -764,12 +764,10 @@ find_key
 find$l
  BL find_key_table_maybe_name
  FNRTS MI			; not found
- LDR R1,[R0,#8]			; first char
- LDR R2,[R0,#12]		; last char
- LDR R4,[R0,#4]			; table address
+ LDMIB R0,{R0-R2}		; table address, first char, last char
 a$l
- LDMIA R4!,{R0,R5,R14}		; read the words back
- TEQ R7,R0
+ LDMIA R0!,{R4,R5,R14}		; read the words back
+ TEQ R7,R4
  BEQ b$l			; possible match
 d$l				; failed match
  ADD R1,R1,#1
@@ -780,8 +778,8 @@ d$l				; failed match
 b$l				; commands match
  TEQ R11,#0
  BMI count$l
- LDR R0,[R7,#-4]
- TST R0,#7<<3			; parameter type (0=none)
+ LDR R4,[R7,#-4]
+ TST R4,#7<<3			; parameter type (0=none)
  BEQ c$l
  TEQ R3,R5			; check data matches
  TEQEQ R11,R14			; ...and actual parameter types too
