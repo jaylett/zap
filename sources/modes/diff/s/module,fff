@@ -1,5 +1,5 @@
 ; Diff colouring mode
-; $Id: module,fff,v 1.10 2002/08/31 09:09:03 james Exp $
+; $Id: module,fff,v 1.11 2003/03/04 16:31:11 christian Exp $
 ;
 ; (c) Zap Developers 2001
 ;
@@ -24,6 +24,10 @@
 	DCD	0
 	DCD	0
 	DCD	0
+	DCD	0
+	DCD	module_flags
+
+module_flags	DCD	1		; 32 bit compatible
 
 help_string = "ZapDiff",9
 	    = version,"(00 Jan 0000)"
@@ -104,9 +108,9 @@ mode_table
 	DCD	mode_name
 	DCD	mode_author
 	DCD	0		;  basemode = text
-	DCD	emode_UsesMessageTrans :OR: emode_MayBeCloned :OR: emode_ModeWordIsBlock
+	DCD	emode_UsesMessageTrans + emode_MayBeCloned + emode_ModeWordIsBlock ;+ emode_MenuFile
 	DCD	mode_init
-	DCD	0
+	DCD	0 ;mode_menu
 	DCD	mode_table_end - mode_table
 	DCD	0
 	DCD	0
@@ -158,6 +162,9 @@ mode_table
 	DCD	mode_prevline
 mode_table_end
 
+;mode_menu	=	"ZapDiff:Menus",0
+		ALIGN
+
 ; initialise our mode. Various things happen here, and it's one
 ; of the more complex entry points as a result. Some reason codes,
 ; aren't anything to do with initialisation at all.
@@ -172,8 +179,8 @@ mode_table_end
 
 	LOCAL
 mode_init
-	CMP	r1, #einit_ModeMenu
-	BEQ	init_modemenu
+	;CMP	r1, #einit_ModeMenu
+	;BEQ	init_modemenu
 	CMP	r1, #einit_ModeStarting
 	BEQ	init_modestarting
 
@@ -260,25 +267,25 @@ init_modestarting
 	MOV	pc, lr
 
 ; Load our mode menu
-	LOCAL
-init_modemenu
-	FNJSR
-	BL	load$l
-	LDRVC	r1, [r0, #4]
-	FNRTVC	; don't report an error if we can't load our mode menu
-load$l
-	FNJSR
-	LDR	r0, [r11, #ws_menudata]
-	CMP	r0, #0
-	FNRTS	NE
-
-	ADR	r0, menu_path$l
-	FNcall	Zap_LoadMenu
-	STRVC	r0, [r11, #ws_menudata]
-	FNRTS
-menu_path$l
-	=	"<ZapDiff$Menus>", 0
-	ALIGN
+;	LOCAL
+;init_modemenu
+;	FNJSR
+;	BL	load$l
+;	LDRVC	r1, [r0, #4]
+;	FNRTVC	; don't report an error if we can't load our mode menu
+;load$l
+;	FNJSR
+;	LDR	r0, [r11, #ws_menudata]
+;	CMP	r0, #0
+;	FNRTS	NE
+;
+;	ADR	r0, menu_path$l
+;	FNcall	Zap_LoadMenu
+;	STRVC	r0, [r11, #ws_menudata]
+;	FNRTS
+;menu_path$l
+;	=	"<ZapDiff$Menus>", 0
+;	ALIGN
 
 
 ; Check to see if we have enough colours allocated to this mode yet.
@@ -416,7 +423,6 @@ maybe_rcs$l
 	B	unknowndiff$l
 
 
-; preserves flags
 ; R0=char at offset R0
 ;readchar
 ;	FNJSR	"r1"
@@ -424,13 +430,13 @@ maybe_rcs$l
 ;	LDR	r14,[r9,#f_len]
 ;	CMP	r0,r14
 ;	MOVHS	r0,#-1
-;	FNRTSS	HS
+;	FNRTS	HS
 ;	LDR	r14,[r9,#f_splito]
 ;	CMP	r0,r14
 ;	LDRHS	r14,[r9,#f_splits]
 ;	ADDHS	r0,r0,r14
 ;	LDRB	r0,[r1,r0]
-;	FNRTSS
+;	FNRTS
 
 ; When a window enters or leaves our mode, we need to ask Zap to restore
 ; or store the per-mode data for us.
@@ -573,10 +579,13 @@ context$l
 
 context_meta$l
 	TEQ	r0,r4
-	BLEQ	nextchar$l
-	TEQEQ	r0,r4		; first three chars must be identical
-	BLEQ	nextchar$l
-	TEQEQ	r4,#' '		; fourth must be a space
+	BNE	not_cm$l
+	BL	nextchar$l
+	TEQ	r0,r4		; first three chars must be identical
+	BNE	not_cm$l
+	BL	nextchar$l
+	TEQ	r4,#' '		; fourth must be a space
+not_cm$l
 	MOVNE	r4,r0
 	BNE	informationals$l
 
@@ -643,7 +652,6 @@ loop$l	LDR	r3, [r6],#4
 done$l
 	FNRTS
 
-; preserves flags
 ; R4=char, R7,R10 updated
 nextchar$l
 	FNJSR
@@ -651,9 +659,8 @@ nextchar$l
 	BLHS	overflow$l
 	LDRVCB	r4,[r7],#1
 	MOVVS	r4,#-1
-	FNRTSS
+	FNRTS
 
-; preserves flags
 ; R4=last char, R7,R10 updated
 lastchar$l
 	FNJSR	"r5"
@@ -661,10 +668,10 @@ lastchar$l
 	LDRB	r5,[r8,#w_cr]
 lc$l	CMP	r7,r10
 	BLHS	overflow$l
-	FNRTSS	VS
+	FNRTS	VS
 	LDRB	r14,[r7],#1
 	TEQ	r14,r5
-	FNRTSS	EQ
+	FNRTS	EQ
 	MOV	r4,r14
 	B	lc$l
 
