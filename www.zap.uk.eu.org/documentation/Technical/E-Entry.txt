@@ -141,22 +141,22 @@ R1=2  => Zap has started up your mode (and all other modes in your module).
 	 it's zero.
 	 If so, then you don't have any options, and should create some as
 	 appropriate. You'll need to:
-	 	* set up Zap-handled mode data variables (see Zap_ModeData)
-	 	* set up mode-handled data words (see E-Vars)
-	 	* set the number of extension colours you use using
-	 	  Zap_ModeColourNum
-	 	* set sensible defaults for your extension colours
+		* set up Zap-handled mode data variables (see Zap_ModeData)
+		* set up mode-handled data words (see E-Vars)
+		* set the number of extension colours you use using
+		  Zap_ModeColourNum
+		* set sensible defaults for your extension colours
 	 If not, then you already have configured options. You should do
 	 the following to ensure that they are up to date:
-	 	* read the current number of extension colours for your mode
-	 	  using Zap_ModeColourNum. If you now use more colours, you
-	 	  should set this (again using Zap_ModeColourNum), and set up
-	 	  sensible defaults for the new colours.
-	 	* if you use more than one mode-handled data word, then you
-	 	  should check to see that the block loaded from the config
-	 	  file is long enough. If it isn't, you should extend it and
-	 	  fill in sensible defaults for the new options you supply.
-	 	  (See E-Vars.)
+		* read the current number of extension colours for your mode
+		  using Zap_ModeColourNum. If you now use more colours, you
+		  should set this (again using Zap_ModeColourNum), and set up
+		  sensible defaults for the new colours.
+		* if you use more than one mode-handled data word, then you
+		  should check to see that the block loaded from the config
+		  file is long enough. If it isn't, you should extend it and
+		  fill in sensible defaults for the new options you supply.
+		  (See E-Vars.)
 	 R0=the mode number assigned to your mode.
 R1=3  => Zap is deleting a file with your mode number in f_cmode. R9=file
 	 block on entry. See E-File.
@@ -238,12 +238,21 @@ R1=15 => Request pathname
 	 \E R0 = pointer to 256-byte buffer
 	    R8,R9 may be set up (check)
 	 \X R0 = pointer to the directory name (it need not be in the buffer)
-	         (ctrl terminated, buffer not freed)
+		 (ctrl terminated, buffer not freed)
 	       = 0 (default to the file's pathname, or if none, the CSD)
 	 This call is used by Taskwindow mode (in ZapBASIC) in conjunction
 	 with a patched version of DDEUtils 1.53, 1.54 or 1.55 in order to
 	 return the prefix directory (if set). Later versions of DDEUtils
 	 contain the necessary SWI.
+R1=16 => Miscellaneous "variable changed" message.
+	 \E R2 = 0, 8 or 9 (representing opt_*, R8 or R9)
+	    R3 = offset (e.g. w_wrapwidth)
+	    R8/R9
+	 This is used to inform the mode that a change may have occurred,
+	 requiring some action on the part of the mode such as a redraw of
+	 the affected window.
+	 This call is issued by:
+	   WRAPWIDTH
 
 e_menu
 Offset of submenu in Zap's format / 0 for none. This menu comes off the
@@ -801,7 +810,7 @@ character later on in the line may affect earlier colours - you may want to
 set this to the start of the current logical line. The cache reference point
 (w_cline/w_coff) is moved so that it is most R0, and is thus not corrupted by
 the insertion/deletion. If you wish to move it further back (eg if a control
-code later in a line effects the formatting of earlier bits) then now is the
+code later in a line affects the formatting of earlier bits) then now is the
 time to do so - via Zap_ClipCache.
  e_prevline is called before e_nextline. Complicated colouring modes (eg
 colour C mode) need to know what data is being inserted/deleted to decide
@@ -1012,3 +1021,30 @@ function name in preference to "B" or "BL".
 	\X R0=number of possibilities (R0=0 => R1 undefined)
 	   R1=heap block containing (R0) pointers to heap blocks
 	All heap blocks to be freed by the caller.
+
+e_stripspaces
+Space-stripping control, allowing a mode to determine whether or not specific
+spaces and/or tabs should be removed or otherwise replaced. It may also do it
+all itself if it so wishes. This is used by the STRIPSPACES command as well
+as the automatic space-stripping on saving.
+
+	\E R0 = action
+		0: Prepare for space stripping.
+		  \E R1 = the STRIPSPACES parameter.
+		  \X R0 = 0 if the mode wants the standard action (default)
+			<>0 if it has done it all itself
+		     R1 = (possibly modified) parameter (if R0 = 0)
+		1: Space/tab stripping.
+		  \E R1 = offset of area to be removed
+		     R2 = length of area to be removed
+		  \X R0 = 0 to suppress removal
+			  1 to allow normal removal (default)
+			  2 if it has performed the replacement itself
+		     R1 = length of the replacement text (if R0 = 2)
+		2: reserved for tabification.
+		  (unimplemented)
+		255: Finished.
+		  \E -
+		  \X -
+	   R8/R9
+	\X as detailed above

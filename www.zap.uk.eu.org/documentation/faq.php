@@ -1,12 +1,12 @@
 <?php
-  // $Id: faq.php,v 1.4 2002/07/01 21:59:48 ds Exp $
+  // $Id: faq.php,v 1.5 2002/11/07 11:08:38 james Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
   zap_body_start ();
 ?>
 
-<h1 align=center>Zap 1.44 FAQ</h1>
+<h1 align=center>Zap 1.45 FAQ</h1>
 
 <p>
 <em>This FAQ covers common issues raised by the current version of Zap only - it is not intended to be a general Zap FAQ.</em> Answers to many of the frequently asked questions about Zap are addressed in the relevant !Help files. This document does not attempt to address questions such as &quot;Can I get a program like Zap for other operating-systems?&quot; either.
@@ -90,26 +90,28 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 	'<p>Currently, it is not possible to configure the fonts that Zap uses from the iconbar menu. If you wish to configure the fonts, you should change the relevant variables in <code>ZapUser:Config.Settings</code>. For more information, please see the relevant section in <a href="manual/Contents">the manual</a>.</p>');
   addQa ($qa, 'old', 'Can I use my old configuration with the new version?',
 	'<p>If you were previously using v1.40 of Zap, you can keep on using your <code>!ZapUser</code> configuration. Note, however, that you won\'t get all the benefit of the latest version unless you upgrade your configuration at the same time as Zap; see <a href="#config.from140">here</a></p>'.
-	'<p>If you are upgrading from version v1.35 or earlier, you will need to use the copy of <code>!ZapUser</code> supplied with the new version of Zap, and merge your old configuration with it. See <a href="#config.from135">here</a> for more information on how to do this. Note also that information about extensions does not need to be added by hand any more; and also, that extensions from v1.35 almost certainly won\'t work with v1.44. (However there are no extensions we know of that do not have recent versions that <em>will</em> work with v1.44.)</p>');
-  addQa ($qa, 'from140', 'Upgrading configuration from v1.40 to v1.44',
+	'<p>If you are upgrading from version v1.35 or earlier, you will need to use the copy of <code>!ZapUser</code> supplied with the new version of Zap, and merge your old configuration with it. See <a href="#config.from135">here</a> for more information on how to do this. Note also that information about extensions does not need to be added by hand any more; and also, that extensions from v1.35 almost certainly won\'t work with v1.45. (However there are no extensions we know of that do not have recent versions that <em>will</em> work with v1.45.)</p>');
+  addQa ($qa, 'from140', 'Upgrading configuration from v1.40 to v1.45',
 	'<p>From v1.40 onwards, all configuration lives in <code>ZapUser:Config</code>. In general, most of these files do not change from version to version, and so you don\'t need to worry about updating them. For v1.40 to v1.45, the following changes need to be made:</p>'.
 	'<ul>'.
 	' <li><p><code>!ZapBoot</code> has changed substantially; it is suggested that you copy the new version over and make any changed you need. In practice, you are unlikely to have changed anything, except perhaps the file type claims (lines such as <code>ZapRunType FFF</code>).</p></li>'.
-	' <li><p><code>!ZapRun</code> has changed substantially to support internationalisation; it is suggested that you copy the new version over and make any changes you need. In practice, the only parts you are likely to have changed are the templates set, and perhaps the file type claims. Note that some template sets haven\'t been updated for v1.44, and so aren\'t supplied any more (and see <a href="#bug.a7000+">here</a>). In addition, note that the old system variables <code>Zap$HelpPath_&lt;mode&gt;</code> are no longer required.</p></li>'.
+	' <li><p><code>!ZapRun</code> has changed substantially to support internationalisation; it is suggested that you copy the new version over and make any changes you need. In practice, the only parts you are likely to have changed are the templates set, and perhaps the file type claims. Note that some template sets haven\'t been updated for v1.45, and so aren\'t supplied any more (and see <a href="#bug.a7000+">here</a>). In addition, note that the old system variables <code>Zap$HelpPath_&lt;mode&gt;</code> are no longer required.</p></li>'.
+        ' <li><p><code>!ZapBooted</code> has been added to complete the Zap boot sequence.</p></li>'.
 	' <li><p><code>Country</code> has been added to support internationalisation; it can be used to override your system country. You should copy this file over, and edit it if you need to set your country explicitly.</p></li>'.
 	' <li><p><code>Settings</code> has had two variables added. &amp;322 can be used to specify a command to execute on startup, and &amp;323 specifies the default mode. See the manual for more information.</p></li>'.
 	' <li><p>A directory <code>TMFs</code> has been added. You should copy this across. TMFs are files that set per-mode variables, used to make some commands and operations more configurable. See the manual for more information.</p></li>'.
 	' <li><p>The <code>Keys</code> file has changed significantly; firstly, the method of specifying alternate keymaps has changed from using &amp;400 variables in a block, to using &amp;800 variables immediately before the keymap in question, to declare them. Secondly, support for country-specific <code>Keys</code> files has been added; instead of a single file, you should have a directory, <code>ZapUser:Config.Keys</code>, containing a file for each country (eg: <code>ZapUser:Config.Keys.UK</code>, <code>ZapUser:Config.Keys.France</code>).</p>'.
 	'  <p>Unless you made significant alterations to your keys file, we suggest that you copy in the new keys directory and make any changes you need. Alternatively, move your current <code>ZapUser:Config.Keys</code> to <code>ZapUser:Config.Keys.UK</code> (or another country name, as appropriate), and edit it to use the new file format.</p>'.
 	'  <p>See the manual for more information about internationalisation, and about the new <code>Keys</code> file format.</p></li>'.
+        ' <li><p>Two files, <code>FileIdHigh</code> and <code>FileIdLow</code>, have been added to support auto-detection of file types based on theirs contents.</p></li>'.
 	' <li><p>The <code>Menus</code> file has also become internationalised, in the same way. In addition, we now generate menus files from a source format which allows you to name menus instead of referring to them by number. Further, areas of the source file can be made optional - the idea is that more or less everyone can use the same source file, while still being able to configure things a fair amount. We strongly suggest that, if you don\'t like the new default menus, you copy the new menus directory, look at, and possibly edit, the appropriate source file (they are supplied in the directory <code>ZapUser:Config.Menus.Source</code>), and generate your menus file from that.</p>'.
 	'  <p>See the manual for more information about internationalisation, and about the new <code>Menus</code> source format, and the method for generating the final file from source.</p></li>'.
 	'</ul>');
-  addQa ($qa, 'from135', 'Upgrading configuration from v1.35 or earlier to v1.44',
+  addQa ($qa, 'from135', 'Upgrading configuration from v1.35 or earlier to v1.45',
 	'<p>Up to version 1.35, configuration of Zap lived in three files: <code>!Zap.!Config</code>, <code>!Zap.Menus</code>, and <code>!Zap.Keys</code>. Since then, all configuration has lived inside a new application directory, <code>!ZapUser</code>. We strongly advise that you try the new configuration as it stands, simply copying <code>!Zap.!Config</code> to <code>ZapUser:Config.!Config</code>, to preserve editing and display configuration.</p>'.
 	'<p>(Note that if you do this, however, many of Zap\'s newer features will not be enabled - you would be advised to spend some time looking through the menus and playing with the new options, or to browse either the Changes file, supplied as <code>ZapResources:Docs.Changes</code>, or the entire manual, to get an idea of what Zap is now capable of.)</p>'.
 	'<p>If you choose to copy your configuration across, you will need to install the <code>!ZapUser</code> application directory that comes with the new version of Zap, and then copy individual files. Note, however, that the old <code>Keys</code> file has been split into several different files: <code>Keys</code>, <code>Settings</code>, <code>TypesHigh</code> and <code>TypesLow</code>; and that many things have changed - in particular, many path checks (&amp;500 variables) and filetype checks (&amp;1xxx variables) no longer live in the user configuration, but are stored with the extension that they use.</p>'.
-	'<p>Upgrading configuration by hand from v1.35 or earlier to v1.44 is a long and difficult process. It is far easier to take a fresh v1.44 configuration and adapt that to your needs.</p>'.
+	'<p>Upgrading configuration by hand from v1.35 or earlier to v1.45 is a long and difficult process. It is far easier to take a fresh v1.45 configuration and adapt that to your needs.</p>'.
 	'<p>Note also that brackets in key definitions are treated slightly differently from <em>Zap 1.35</em> - they no longer act as comments.</p>');
   addQa ($qa, 'hideptr', 'Why isn\'t \'HidePtr\' loaded with Zap these days?',
 	'<p>Because it\'s not universally popular. Loading it automatically is an <em>option</em> available from the <code>Options.Misc.Autoload</code> menu.</p>');
@@ -118,7 +120,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
   addQa ($qa, 'softwrap', 'SoftWrap mode is missing! What have you done with it?',
 	'<p>There\'s no <em>SoftWrap</em> mode any more because soft-wrap is now a <em>wrap option</em> for most modes. As <em>Text</em> mode can now perform soft-wrap, there\'s no longer any need for a separate <em>SoftWrap</em> mode.</p>');
   addQa ($qa, 'extx', 'Zap extension <em>Wibble</em> isn\'t included - can I plug it in?',
-	'<p>If it is a extension from v1.40, then it should be available in a version for v1.44 (although most v1.40 extensions will work with v1.44 anyway). Older extensions probably won\'t work.</p>');
+	'<p>If it is a extension from v1.40, then it should be available in a version for v1.45 (although most v1.40 extensions will work with v1.45 anyway). Older extensions probably won\'t work.</p>');
 
   addSection ($qa, 'control', 'Controlling Zap');
   addQa ($qa, 'keymod', 'Why does Zap sometimes fail to take notice of <em>Shift</em> and <em>Ctrl</em>?',
@@ -167,5 +169,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2002/07/01 21:59:48 $');
+  zap_body_end ('$Date: 2002/11/07 11:08:38 $');
 ?>
