@@ -49,8 +49,12 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -upper -o $@
+asmflags	= -objasm -nolocal -upper -pedantic -o $@
 linkflags	= -o o/tmplink -B 0 -bin
+
+# Bits we use to grab the build parameter to make ...
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
 
 # We need rm, but it's almost always the same. You may need to change
 # this on dubious Unixoids so we're using GNU rm instead of the vendor
@@ -72,7 +76,7 @@ t/%:		s/%,fff
 		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
 
 o/%:		s/%,fff
-		$(asm) $(asmflags) $<
+		$(asm) $(asmflags) $(__BUILD) $<
 
 # Final target:
 
