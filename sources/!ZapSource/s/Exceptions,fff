@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: Exceptions,fff,v 1.2 1999/01/12 18:23:47 dj Exp $
+; $Id: Exceptions,fff,v 1.1.2.3 1999/01/19 18:44:47 dj Exp $
 
  GET h.ModuleBits
  GET h.ZapHeader
@@ -28,33 +28,33 @@ storewkspandstack
 
 init_setup_abort_handlers
 	STMFD	R13!,{R0-R3,R8,R14}
-	MOV	R1,#4
+	MOV	R1,#var_wimp_task
 	BL	read_var
 	STR	R0,do_dump_zapsthtemp
 	BL	storewkspandstack
 	ADR	R8,dump_buffer
 
-	MOV	R0,#1
+	MOV	R0,#environ_UndefinedInstruction
 	ADR	R1,dump_UndefinedInstruction
 	BL	changeenv
 
-	MOV	R0,#2
+	MOV	R0,#environ_PrefetchAbort
 	ADR	R1,dump_PrefetchAbort
 	BL	changeenv
 
-	MOV	R0,#3
+	MOV	R0,#environ_DataAbort
 	ADR	R1,dump_DataAbort
 	BL	changeenv
 
-	MOV	R0,#4
+	MOV	R0,#environ_AddressException
 	ADR	R1,dump_AddressException
 	BL	changeenv
 
-	MOV	R0,#6
+	MOV	R0,#environ_Error
 	ADR	R1,dump_UntrappedError
 	BL	changeenv2
 
-	MOV	R0,#11
+	MOV	R0,#environ_Exit
 	ADR	R1,dump_ExitCondition
 	BL	changeenv
 
@@ -66,15 +66,15 @@ deregister_abort_handlers
 	STMFD	R13!,{R0-R4,R8,R14}
 	BL	unset_running_var
 	ADR	R8,dump_buffer
-	MOV	R0,#1
+	MOV	R0,#environ_UndefinedInstruction
 	BL	changeenvback
-	MOV	R0,#2
+	MOV	R0,#environ_PrefetchAbort
 	BL	changeenvback
-	MOV	R0,#3
+	MOV	R0,#environ_DataAbort
 	BL	changeenvback
-	MOV	R0,#4
+	MOV	R0,#environ_AddressException
 	BL	changeenvback
-	MOV	R0,#6
+	MOV	R0,#environ_Error
 	BL	changeenvback
 	MOV	R0,#7
 	LDR	R2,ebuffer			; free it...
@@ -84,8 +84,9 @@ deregister_abort_handlers
 deregister_exit_abort_handler
 	STMFD	R13!,{R0-R4,R8,R14}
 ;	BL	unset_running_var		; ! here ? NNeeded/nowork
-	ADR	R8,dump_buffer + (12 * 5)
-	MOV	R0,#11
+;	ADR	R8,dump_buffer + (12 * 5)
+	ADR	R8,dump_store_ExitCondition
+	MOV	R0,#environ_Exit
 	BL	changeenvback
 	LDMFD	R13!,{R0-R4,R8,PC}^
 
@@ -312,7 +313,7 @@ rest_straightforwards
 
 chg_eng_n_copy_words
 	FNJSR
-	MOV	R0,#13
+	MOV	R0,#environ_ExceptionRegisters
 	MOV	R1,#0
 	MOV	R2,#0
 	MOV	R3,#0

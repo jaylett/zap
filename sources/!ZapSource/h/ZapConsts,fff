@@ -1,7 +1,322 @@
 ; Define more constants used by Zap.
 ; In particular, this includes layout of structures that hasn't been put
 ; elsewhere.
-; $Id: ZapConsts,fff,v 1.1.2.4 1999/01/18 14:11:46 dj Exp $
+;
+; At some stage in the future, this will be split into several smaller
+; files. However until we've completely symbolised Zap, this is just
+; another hassle.
+;
+; $Id: ZapConsts,fff,v 1.1.2.5 1999/01/19 18:44:43 dj Exp $
+
+; Layout for Byte mode config
+mode1_NumberOfGroups		*	(255:SHL:0)
+mode1_SuppressControlCharacters	*	(1:SHL: 8)
+mode1_GroupNumberDump		*	(1:SHL: 9)
+mode1_GroupASCIIDump		*	(1:SHL:10)
+mode1_BinaryNumberDump		*	(1:SHL:11)
+mode1_ReplacementControlChar	*	(255:SHL:16)
+mode1_ReplacementControlChar_shift	*	(16)
+mode1_BytesPerGroup		*	(15:SHL:24)
+mode1_BytesPerGroup_shift	*	(24)
+
+; Layout for Word mode config
+mode2_NumberOfGroups		*	(255:SHL:0)
+mode2_SuppressControlCharacters	*	(1:SHL: 8)
+mode2_GroupNumberDump		*	(1:SHL: 9)
+mode2_GroupASCIIDump		*	(1:SHL:10)
+mode2_BinaryNumberDump		*	(1:SHL:11)
+mode2_ReplacementControlChar	*	(255:SHL:16)
+mode2_ReplacementControlChar_shift	*	(16)
+mode2_WordsPerGroup		*	(15:SHL:24)
+mode2_WordsPerGroup_shift	*	(24)
+
+; Layout for Code mode config
+mode4_DebuggerFlags		*	(0xfffff:SHL:8)
+mode4_MiscFlags			*	(15:SHL:28)
+
+; Various flags required to certain routines
+command_DontLearn		*	(1:SHL:31)
+warn_DontBeep			*	(1:SHL:31)
+warn_NoPrefix			*	(1:SHL:30)
+warn_UseMessageTrans		*	(1:SHL:29)
+
+; Command table service call numbers
+service_ZapDying		*	( 0)
+service_StartingCommandTable	*	( 1)
+service_StartedCommandTable	*	( 2)
+service_DeleteFile		*	( 3)
+service_DeleteWindow		*	( 4)
+service_GainFocus		*	( 5)
+service_WindowOpen		*	( 6)
+service_LoseFocus		*	( 7)
+
+; Command flags available
+; Note: you *must* bitwise OR these together
+; Typically these are only used by the macro that
+; follows, CFLAGS. (Currently unwritten.)
+c_NoR10				*	(1:SHL: 0)
+c_NoR9				*	(3:SHL: 0)
+c_NoR8				*	(5:SHL: 0)
+c_Param_None			*	(0:SHL: 3)
+c_Param_Bytes			*	(1:SHL: 3)
+c_Param_Words			*	(2:SHL: 3)
+c_Param_String			*	(3:SHL: 3)
+c_Param_Data			*	(4:SHL: 3)
+c_PreMinibuffer			*	(1:SHL: 6)
+c_MinibufferUpdate		*	(1:SHL: 7)
+c_MinibufferKey			*	(1:SHL: 8)
+c_MinibufferTabCompletion	*	(1:SHL: 9)
+c_MinibufferKill		*	(1:SHL:10)
+c_MinibufferOpen		*	(1:SHL:11)
+c_UniversalArg			*	(1:SHL:12)
+c_DecrementR1			*	(1:SHL:13)
+c_TrojanCommand			*	(1:SHL:14)
+c_TickableMenuEntry		*	(1:SHL:15)
+c_CanCreateSubMenu		*	(1:SHL:16)
+c_ProvidesDefaultMenuString	*	(1:SHL:17)
+c_CanSetupMenu			*	c_ProvidesDefaultMenuString
+c_ProvidesMenuEntryText		*	(1:SHL:18)
+c_SpecifiesSubMenu		*	(1:SHL:19)
+c_RemoveMenuEntry		*	(1:SHL:20)
+c_Function			*	(3:SHL:22)
+c_CommandAndFunction		*	(1:SHL:23)
+c_FunctionParam_None		*	(0:SHL:24)
+c_FunctionParam_Byte		*	(1:SHL:24)
+c_FunctionParam_Word		*	(2:SHL:24)
+c_FunctionParam_String		*	(3:SHL:24)
+c_OmitParameter			*	(1:SHL:27)
+c_MovesInputOrKeymap		*	(1:SHL:28)
+
+; We probably want the macro system to be used as follows:
+;	takes		bytes,wind,file,cursor
+;	minibuffer	before,onupdate,onkey
+;	options		trojan,omitparameter
+;	onmenu		tickable,providesdefault
+;	function	bytes
+;
+; If function but takes doen't mention parameter type,
+; c_Function. If both, c_CommandAndFunction.
+;
+; The following bits of code aren't actually in use yet.
+
+;	MACRO
+;	clear_bits	$a, $b
+;$a	SETA	$a :LAND: (:NOT: $b)
+;	MEND
+;
+;	MACRO
+;	set_bit	$a, $b
+;$a	SETA	$a :LAND: (:NOT: $b)
+;	MEND
+
+;	MACRO
+;	CFLAGS	$a
+;
+;; Initial flags word is for a very basic command
+;; $c is used to find the next parameter token
+;	LCLS	$token
+;	LCLA	$flags
+;	LCLA	$c
+;	LCLA	$d
+;$token	SETS	""
+;$flags	SETA	(c_NoR9 :LOR: c_NoR8)
+;$c	SETA	0
+;$d	SETA	0
+;
+;; Go through all comma separated flags tokens
+;	WHILE	$a > ""
+;
+;; Find the end of this token
+;; First, the position of the comma
+;$c	SETA	("," :INSTR: $a)
+;; Now, the end of the whitespace preceding
+;$d	SETA	$c - 1
+;	WHILE	(($a :LEFT: $d) :RIGHT: 1) = " "
+;$d	SETA	$d - 1
+;	WEND
+;
+;$token	SETS	($a :LEFT: $d)
+;; Parse the token
+;	[	$token = "needscursor"
+;	clear_bits	$flags, 7
+;	]
+;	[	$token = "needsfile"
+;	clear_bits	$flags, 2
+;	]
+;	[	$token = "needswindow"
+;	clear_bits	$flags, 4
+;	]
+;
+;	[	$token = "bytes"
+;	set_bits	$flags, c_Param_Bytes
+;	]
+;	[	$token = "words"
+;	set_bits	$flags, c_Param_Words
+;	]
+;	[	$token = "string"
+;	set_bits	$flags, c_Param_String
+;	]
+;	[	$token = "data"
+;	set_bits	$flags, c_Param_Data
+;	]
+;
+;; If there are no more tokens, set $a = ""
+;; Otherwise, skip to the next token
+;	[	$c = -1
+;$a	SETS	""
+;	|
+;$a	SETS	$a :RIGHT: ( :LEN: $a - $c)
+;
+;; Skip whitespace
+;	WHILE	($a :LEFT: 1) = " "
+;$a	SETS	$a :RIGHT: ( :LEN: $a - 1)
+;	WEND
+;
+;	]
+;	WEND
+;
+;; And, finally, write the word
+;	DCD	$flags
+;	MEND
+
+; OS_ChangeEnvironment handler numbers
+environ_MemoryLimit		*	( 0)
+environ_UndefinedInstruction	*	( 1)
+environ_PrefetchAbort		*	( 2)
+environ_DataAbort		*	( 3)
+environ_AddressException	*	( 4)
+environ_Error			*	( 6)
+environ_CallBack		*	( 7)
+environ_BreakPoint		*	( 8)
+environ_Escape			*	( 9)
+environ_Event			*	(10)
+environ_Exit			*	(11)
+environ_UnusedSWI		*	(12)
+environ_ExceptionRegisters	*	(13)
+environ_ApplicationSpace	*	(14)
+environ_CurrentlyActiveObject	*	(15)
+environ_UpCall			*	(16)
+
+; Flag bits in e_mode
+emode_RawKeyboardInput		*	(1:SHL: 8)
+emode_TaskwindowKeyboardInput	*	(1:SHL: 9)
+emode_ModeWordIsBlock		*	(1:SHL:10)
+emode_BinaryMode		*	(1:SHL:11)
+emode_UsesMessageTrans		*	(1:SHL:12)
+emode_MayBeCloned		*	(1:SHL:13)
+emode_ForceModeNumber		*	(1:SHL:31)
+
+; e_init reason codes
+einit_ZapDying			*	(1:SHL: 0)
+einit_ModeStarting		*	(1:SHL: 1)
+einit_ModeStarted		*	(1:SHL: 2)
+einit_DeleteFile		*	(1:SHL: 3)
+einit_SaveFile			*	(1:SHL: 4)
+einit_DeleteModifiedFile	*	(1:SHL: 5)
+einit_ColoursSubmenu		*	(1:SHL: 6)
+einit_ModeMenu			*	(1:SHL: 7)
+einit_TransferFile		*	(1:SHL: 8)
+einit_SpellCheckWord		*	(1:SHL: 9)
+einit_SpellCheck		*	(1:SHL:10)
+einit_ZapVersion		*	(1:SHL:11)
+einit_FunctionDefinition	*	(1:SHL:12)
+einit_RedrawStart		*	(1:SHL:13)
+einit_RedrawEnd			*	(1:SHL:14)
+einit_RequestPathname		*	(1:SHL:15)
+
+; e_search reason codes
+esearch_MatchFound		*	(1)
+esearch_StartLineSearch		*	(2)
+esearch_EndLineSearch		*	(3)
+esearch_MatchEnd		*	(4)
+
+; e_selection reason codes
+eselection_Start		*	(0)
+eselection_Update		*	(1)
+eselection_Save			*	(2)
+
+; e_click buttons
+eclick_Adjust			*	(1:SHL: 0)
+eclick_Select			*	(1:SHL: 2)
+eclick_MultiClickDrag		*	(1:SHL: 3)
+
+; e_interrogate reason codes
+einterrogate_WindowWrapWidth	*	( 0)
+einterrogate_WindowWrap		*	( 1)
+einterrogate_SoftWrap		*	( 2)
+einterrogate_PreSetWidth	*	( 3)
+einterrogate_SoftWrapChars	*	( 4)
+einterrogate_ConfineH		*	( 5)
+einterrogate_ConfineV		*	( 6)
+einterrogate_FreeClick		*	( 7)
+einterrogate_SmartCursor	*	( 8)
+einterrogate_Menu		*	( 9)
+einterrogate_PasteSelection	*	(10)
+einterrogate_ElaborateSubStyles	*	(11)
+einterrogate_LineSelect		*	(12)
+einterrogate_SpellAsYouType	*	(13)
+einterrogate_ModeType		*	(14)
+einterrogate_ColourType		*	(15)
+einterrogate_BinaryBase		*	(16)
+einterrogate_ReturnWordChars	*	(17)
+einterrogate_SubStyles		*	(18)
+einterrogate_EndOfWord		*	(19)
+einterrogate_StartOfWord	*	(20)
+einterrogate_DragType		*	(21)
+einterrogate_ConfineCursor	*	(22)
+einterrogate_BlockEdit		*	(23)
+einterrogate_AutoIndent		*	(24)
+einterrogate_SaveAR_Compile	*	(25)
+
+modetype_Text			*	(14)
+modetype_Binary			*	( 0)
+modetype_Code			*	( 1)
+modetype_Tokenised		*	( 2)
+modetype_TaskWindow		*	( 3)
+modetype_Throwback		*	( 4)
+
+; Zap internal variables
+; These should only rarely be used from within Zap.
+; (ie: when Zap isn't paged in => R12 isn't wsp)
+; We appear to be using these sometimes when FNLDR
+; would be easier.
+var_scn_xos			*	( 0)
+var_scn_yos			*	( 1)
+var_opt_flags			*	( 2)
+var_opt_format			*	( 3)
+var_wimp_task			*	( 4)
+var_car_cursor			*	( 5)
+var_car_input			*	( 6)
+var_car_selection		*	( 7)
+var_wind_num			*	( 8)
+var_file_num			*	( 9)
+var_car_mode			*	(10)
+var_wimp_version		*	(11)
+var_key_default			*	(12)
+var_w_defaultmap		*	(12)
+var_w_basemap			*	(13)
+var_key_last			*	(14)
+var_key_lastcom			*	(15)
+var_mini_ptr			*	(16)
+var_mini_bufl			*	(17)
+var_mini_len			*	(18)
+var_mini_off			*	(19)
+var_mini_mark			*	(20)
+var_yank_ptr			*	(21)
+var_yank_len			*	(22)
+var_w_currentmap		*	(23)
+var_reserved			*	(24)
+var_opt_tab			*	(25)
+var_opt_addr			*	(26)
+var_opt_stline			*	(27)
+var_opt_linesp			*	(28)
+var_env_start			*	(29)
+var_env_top			*	(30)
+var_wimp_iconbar		*	(31)
+var_wimp_timeformat		*	(32)
+var_wimp_dateformat		*	(33)
+var_key_flags			*	(34)
+var_wimp_kbdbuf			*	(35)
 
 ; Zap-handled mode config word #0
 modeconfig_Width		*	(0xffff:SHL:0)
