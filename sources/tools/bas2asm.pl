@@ -66,7 +66,11 @@ sub transform_individual_label($%$)
     if ($$ref_labels{$label}) {
       $label = $$ref_labels{$label};
     } else {
-      warn "Ref to undef '$label' (pre-defined constant?) at line $linenumber\n";
+# We don't do the CHR$ translation (although it works perfectly) because
+# it's usually used in the form "string" + CHR$0 ... which we can't currently
+# cope with. So better flag it as a warning and do it manually.
+#      ($label =~ s/^CHR\$([0-9A-Fa-f]+)$/$1/) or
+	warn "Ref to undef '$label' (pre-defined constant?) at line $linenumber\n";
     }
   }
 #  print "\n";
@@ -117,6 +121,10 @@ sub transform_reg($)
   return $reg;
 }
 
+# Turns [...] and {...} into one operand. Respects "-quotes, with doubling
+# to provide quote character (converted to \" in output). Embedded NULs
+# in a string get the string turned into "...":CC::CHR:0:CC:"...", which
+# isn't pretty but at least is guaranteed to work.
 sub split_operands($)
 {
   my ($line) = @_;
@@ -139,7 +147,12 @@ sub split_operands($)
 	  $inquote_double = 0;
 	}
       }
-      $line .= $chars[$i];
+      if ($chars[$i] =~ m/\x00/) {
+	# embedded NUL! Eek!
+	$line .= "\":CC:CHR:0:CC:\"";
+      } else {
+	$line .= $chars[$i];
+      }
     } else {
       if ($chars[$i] eq ",") {
 	$line = strip_space($line);
@@ -316,6 +329,7 @@ foreach $object (@objects) {
 # fixup AsmText entries in @objects
 # don't reset %labels: BASIC works multi-pass to set them up, so so must we
 my %functions = ();
+my %functions_done = ();
 foreach $object (@objects) {
 #  warn "$$object{'Type'} from $$object{'SourceLine'}";
   if ($$object{'Type'} eq 'Label') {
@@ -327,6 +341,8 @@ foreach $object (@objects) {
     #
     #  * Functions: rewrite to a new type 'Function'. The output
     #    system can write a FIXME comment to flag it.
+    #    Certain functions (FNcall, FNlong_adr) we handle
+    #    automatically; others are flagged to be done manually.
     #  * Directive: EQUS -> =, =,EQUB -> =, EQUW,EQUD -> DCW,DCD
     #    & -> DCD. Others, give an error until we figure them
     #    out. Everything but EQUS, rewrite if it looks like a
@@ -357,11 +373,31 @@ foreach $object (@objects) {
     #           [reg, shift]! or [reg], shift!
     #  * Rewriting labels: look up the current one
     if (substr($$object{'SourceText'}, 0, 2) eq 'FN') {
-      $$object{'Type'} = 'Function';
-      $$object{'AsmText'} = $$object{'SourceText'};
       my $fn_name = strip_space($$object{'SourceText'});
-      $fn_name =~ s/^FN(.*?)\(.*\)$/$1/;
-      $functions{$fn_name}++;
+      my $params = $fn_name;
+      $fn_name =~ s/^FN(.*?)\((.*)\)$/$1/;
+      $params =~ s/^FN(.*?)\((.*)\)$/$2/;
+      $params = strip_space($params);
+      # Now we look for some functions we understand already ...
+      if ($fn_name eq 'call') {
+	# One parameter ...
+	$$object{'AsmText'} = "FNcall\t$params";
+	$functions_done{$fn_name}++;
+      } elsif ($fn_name eq 'long_adr') {
+	# Three parameters (condition, register, label)
+	my @params = split ',', $params;
+	(scalar @params != 3) and die "FNlong_adr() called with the wrong numbers of parameters at line $$object{'SourceLine'}\n";
+	my $asm = 'ADRL' . substr(strip_space($params[0]), 1, 2);
+	$asm = strip_space($asm); # condition is usually "  " (not "AL")
+	$asm =~ tr/a-z/A-Z/;
+	$asm .= "\tr" . strip_space($params[1]) . ", " . transform_label($params[2], \%labels, $$object{'SourceLine'});
+	$$object{'AsmText'} = $asm;
+	$functions_done{$fn_name}++;
+      } else {
+	$$object{'Type'} = 'Function';
+	$$object{'AsmText'} = $$object{'SourceText'};
+	$functions{$fn_name}++;
+      }
     } else { # directives and asm commands
       my $line;
 #      undef $line;
@@ -384,11 +420,11 @@ foreach $object (@objects) {
 
         my ($trans_args, $done_command) = (0, 0);
 
-	$line =~ m/^EQUD$/i and do {
+	$line =~ m/^(EQUD|DCD)$/i and do {
 	  $line = 'DCD'; $trans_args=1; $done_command = 1;
 	  $$object{'Type'} = 'Directive';
 	};
-	$line =~ m/^EQUW$/i and do {
+	$line =~ m/^(EQUW|DCW)$/i and do {
 	  $line = 'DCW'; $trans_args=1; $done_command = 1;
 	  $$object{'Type'} = 'Directive';
 	};
@@ -396,7 +432,7 @@ foreach $object (@objects) {
 	  $line = 'DCD'; $trans_args=1; $done_command = 1;
 	  $$object{'Type'} = 'Directive';
 	};
-	$line =~ m/^EQUB$/i and do {
+	$line =~ m/^(EQUB|DCB)$/i and do {
 	  $line = '='; $trans_args=1; $done_command = 1;
 	  $$object{'Type'} = 'Directive';
 	};
@@ -442,8 +478,8 @@ foreach $object (@objects) {
 	    } elsif ($args[$i] =~ m/^{/) {
 	      # register range
 	      # form is '{' (reg '-' reg | reg) (',' (reg '-' reg | reg))* '}' '^'?
-	      my $flag = ($args[$i] =~ m/^$/);
-	      $args[$i] =~ s/^{(.*)}(\s*)(^)?$/$1/;
+	      my $flag = ($args[$i] =~ m/\^$/);
+	      $args[$i] =~ s/^{(.*)}(\s*)(\^)?$/$1/;
 	      my @reg_list = split ',', $args[$i];
 #	      warn "Register range: $args[$i]";
 	      my $reg;
@@ -452,9 +488,9 @@ foreach $object (@objects) {
 		if ($reg =~ m/-/) {
 		  my @regs = split '-', $reg, 2;
 		  foreach $reg (@regs) {
-		    $args[$i] .= transform_reg($reg) . " - ";
+		    $args[$i] .= transform_reg($reg) . "-";
 		  }
-		  $args[$i] =~ s/ - $/, /;
+		  $args[$i] =~ s/-$/, /;
 		} else {
 		  $args[$i] .= transform_reg($reg) . ", ";
 		}
@@ -551,6 +587,13 @@ if (scalar keys %functions) {
   }
 }
 
+if (scalar keys %functions_done) {
+  warn "Translated the following functions:\n";
+  foreach $object (keys %functions_done) {
+    warn "\tFN$object() ($functions_done{$object})\n";
+  }
+}
+
 # write out
 open OUTFILE, ">$outfile" or die "Couldn't open $outfile: $!";
 
@@ -601,6 +644,7 @@ for ($i=0; $i<scalar(@objects); $i++) {
   };
   $last_type = $$object{'Type'};
 }
+print OUTFILE "\n\n\tEND\n";
 close OUTFILE;
 
 warn "\n---------------------------------------------------------------------------\nYou should now verify the output file '$outfile', fixing up functions and\ngenerally ensuring that the output is correct.\n---------------------------------------------------------------------------\n";
