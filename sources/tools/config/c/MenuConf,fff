@@ -1,10 +1,10 @@
 /*
- * $Id: MenuConf,fff,v 1.3 1999/10/22 11:00:08 james Exp $
+ * $Id: MenuConf,fff,v 1.4 2000/03/15 13:14:28 james Exp $
  * -*- c -*-
  * MenuConf
  * Configure which options to use in building the Menus file, and then build it.
  *
- * (c) James Aylett 1999. <dj@zap.uk.eu.org>
+ * (c) James Aylett 1999, 2000. <dj@zap.uk.eu.org>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@
 
 #include "coopt.h"
 
-#define VERSION_STRING "v0.3 (c) James Aylett 1999"
+#define VERSION_STRING "v0.4 (c) James Aylett 2000"
 
 struct option
 {
@@ -81,6 +81,7 @@ main(int argc, char const * const * argv)
     { 'g', COOPT_REQUIRED_PARAM, "generator" },
     { 'E', COOPT_REQUIRED_PARAM, "extraopts" },
     { 'n', COOPT_NO_PARAM, "noprompt" },
+    { 'f', COOPT_REQUIRED_PARAM, "configfrom" },
     { 'h', COOPT_NO_PARAM, "help" },
     { 'V', COOPT_NO_PARAM, "version" }
   };
@@ -93,6 +94,7 @@ main(int argc, char const * const * argv)
   char *infile=NULL, *outfile=NULL;
   char *generator=NULL;
   char *extraopts=NULL;
+  char *configfrom=NULL;
   struct option *opt=NULL;
 
   list_head = (struct option *)xmalloc(sizeof(struct option));
@@ -131,6 +133,11 @@ main(int argc, char const * const * argv)
             if (extraopts!=NULL)
               fatal_error("you can't specify more than one set of extra options");
             extraopts = (char *)ret.param;
+            break;
+          case 'f':
+            if (configfrom!=NULL)
+              fatal_error("you can't take config from more than one file");
+            configfrom = (char *)ret.param;
             break;
           case 'g':
             if (generator!=NULL)
@@ -235,8 +242,9 @@ main(int argc, char const * const * argv)
         opt = new_option();
         if (*start_ptr == '*')
         {
-          opt->flags.data.selected = 1;
-            start_ptr++;
+          if (configfrom==NULL) /* ignore source default if working from a config file */
+            opt->flags.data.selected = 1;
+          start_ptr++;
         }
         opt->option = xstrdup(start_ptr);
         opt->help = xstrdup(ptr);
@@ -245,6 +253,88 @@ main(int argc, char const * const * argv)
   }
 
   fclose(in);
+
+  /* if there was a config file specified, alter the options based on that */
+  if (configfrom!=NULL)
+  {
+    in = fopen(configfrom, "r");
+    if (in!=NULL)
+    {
+      int state = 0;
+      char c;
+
+      while (!feof(in) && !ferror(in) && state==0)
+      {
+        offset=0;
+        /* get a line into the buffer */
+        do
+        {
+          c = fgetc(in);
+          if (feof(in) || ferror(in) || c=='\n' || c==0)
+            c=0;
+
+          buffer[offset++]=(char)c;
+          if (offset==current_buffer_limit)
+          {
+            current_buffer_limit+=BUFFER_PAGE_SIZE;
+            buffer = (char *)xrealloc((void *)buffer, (size_t)current_buffer_limit);
+          }
+        } while (c!=0);
+        /* Process the line in buffer */
+/*        printf("Processing line '%s'\n", buffer);*/
+        if (strncmp(buffer, "| Arguments", 11)==0)
+        {
+          /* found the configuration line - read the options */
+          unsigned long off = 0;
+          while (off < offset)
+          {
+/*            printf("Testing '%c'\n", buffer[off]);*/
+            if (buffer[off] == '-' && off < offset)
+            {
+              off++;
+/*              printf("Testing '%c'\n", buffer[off]);*/
+              if (buffer[off] == 'D' && off < offset)
+              {
+                unsigned long start_off;
+/*                printf("  Found -D\n");*/
+                off++;
+                while (buffer[off] == ' ' && off < offset)
+                  off++;
+                start_off = off;
+                while (buffer[off] != ' ' && off < offset)
+                  off++;
+/*                printf("  Option from %i to %i\n", start_off, off);*/
+                /*
+                 * we now have a configuration option from buffer+start_off to
+                 * buffer+off-1
+                 */
+                if (start_off < off) /* otherwise don't bother */
+                {
+                  opt = list_head->next;
+                  while (opt!=list_head)
+                  {
+                    if (strncmp(buffer+start_off, opt->option, (int)(off-start_off))==0)
+                    {
+                      opt->flags.data.selected=1;
+                      opt=list_head;
+                    }
+                    else
+                      opt = opt->next;
+                  }
+                }
+              }
+            }
+            off++;
+          }
+          state=1; /* so stop this loop */
+        }
+      }
+
+      fclose(in);
+    }
+    else
+      do_error("couldn't open config file %s; all options off by default", configfrom);
+  }
 
   /* user input */
   while (interactive && bogey)
@@ -332,7 +422,8 @@ main(int argc, char const * const * argv)
   offset = add_string(&buffer, &current_buffer_limit, offset, " ");
   offset = add_string(&buffer, &current_buffer_limit, offset, infile);
 /*  printf("\n\nwould use string:\n%s\n\n", buffer);*/
-  if (system(buffer)!=0)
+  if ((bogey = system(buffer))!=0)
+/*    fatal_error("generator failed - menus file may be invalid (errno = %i, command = %s)", bogey, buffer);*/
     fatal_error("generator failed - menus file may be invalid");
   if (interactive)
     printf("\nGenerated Menus file.\n");
@@ -441,6 +532,7 @@ help(void)
 "\n"
 "  -c, --country COUNTRY   sets the country to use when auto-finding files\n"
 "  -g, --generator FILE    sets the MakeMenus executable to use\n"
+"  -f, --configfrom FILE   read defaults from MakeMenus-generated FILE\n"
 "  -E, --extraopts OPTIONS extra options to pass through to MakeMenus\n"
 "\n"
 "  -n, --noprompt          don't prompt; just use defaults from source file\n"
