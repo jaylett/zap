@@ -1,14 +1,14 @@
 ; Diff colouring mode
-; $Id: module,fff,v 1.2 2001/04/23 18:35:32 james Exp $
-; 
+; $Id: module,fff,v 1.3 2001/04/24 04:17:55 ds Exp $
+;
 ; (c) Zap Developers 2001
-	
+
 	GET	h.Diff
 	GET	h.Version
-	
+
 	AREA	|!!!Module_Header_Area|,CODE,READONLY
 	ENTRY
-	
+
 	DCD	0x00
 	DCD	init_code
 	DCD	finalise_code
@@ -51,7 +51,7 @@ zap_modulename	=	"Zap", 0
 get_workspace
 	LDR	r11, ws_store
 	MOV	pc, lr
-			
+
 init_code
 	FNJSR
 	LDR	r2, [r12, #0]
@@ -93,7 +93,7 @@ mode_name
 mode_author
 	=	"James Aylett", 0
 	ALIGN
-		
+
 mode_table
 	DCD	mode_table
 	DCD	mode_name
@@ -164,6 +164,9 @@ mode_init
 	ADREQ	r1, colsmenu$l
 	MOVEQ	pc, lr
 
+	CMP	r1, #einit_RedrawStart
+	BEQ	init_redrawstart
+
 	TEQ	r1, #einit_ModeStarted
 	MOVNE	pc, lr
 
@@ -203,7 +206,7 @@ init_config
 	MOV	r7, #0
 	STR	r7, [r0, #mb_flags]
 	FNcall	Zap_PutModeWord
-	
+
 	ADR	r3, vardata$l
 	MOV	r2, #0
 	LDR	r7, [r3], #4
@@ -219,13 +222,13 @@ vardata$l
 	DCD	2		; total vars to write
 	DCD	0x77 :OR: (tab_DisplayAsSpaces :SHL: tab_DisplayFormat_config_shift)
 	DCD	0x7 :OR: modeconfig_LineNumberColon :OR: modeconfig_CursorSmart
-	
+
 init_modestarting
 	LDR	r1, [r11, #ws_modenumber]
 	CMP	r1, #-1
 	STREQ	r0, [r11, #ws_modenumber]
 	MOV	pc, lr
-	
+
 	LOCAL
 init_modemenu
 	FNJSR
@@ -264,11 +267,94 @@ set_col$l
 	ADD	r2, r2, #1
 	CMP	r2, #colour_max
 	BLT	set_col$l
-	FNRTS	
+	FNRTS
 cols$l
 	DCD	0xbbefef10	; beige
 	DCD	0x0000dd10	; red
 	DCD	0x00cc0010	; green
+	DCD	0x00885510	; olive
+	DCD	0xFFBB0010	; cyan
+
+
+	LOCAL
+init_redrawstart
+	FNJSR	"r0-r5,r11"
+	MOV	r0,#0
+	LDR	r1,[r9,#f_ptr]
+	LDR	r2,[r9,#f_splito]
+	LDR	r3,[r9,#f_splits]
+	LDR	r5,[r9,#f_len]
+	ADD	r3,r1,r3
+scan$l
+	; check first char of line
+	BL	readchar$l
+	TEQ	r4,#'-'		; '-' => unified format
+	MOVEQ	r4,#diff_UNIFIED
+	BEQ	knowndiff$l
+	TEQ	r4,#'*'		; '*' => context format
+	MOVEQ	r4,#diff_CONTEXT
+	BEQ	knowndiff$l
+	TEQ	r4,#'d'		; 'd' => "diff" line? RCS format?
+	BEQ	diff_or_rcs$l
+	TEQ	r4,#'a'		; 'a' => RCS format, if followed by digit
+	BEQ	maybe_rcs$l
+	TEQ	r4,#'O'		; 'O' => "Only in" line
+	BEQ	nextline$l
+	CMP	r4,#'0'		; digit => standard format? ed format?
+	RSBHSS	r14,r4,#'9'
+	BHS	standard_or_ed$l
+	; anything else - not a diff file...?
+unknowndiff$l
+	MOV	r4,#diff_UNKNOWN
+knowndiff$l
+	BL	get_workspace
+	STR	r4,[r11,#ws_difftype]
+	FNRTS
+
+readchar$l
+	CMP	r0,r5
+	BHS	unknowndiff$l	; OK so long as no extra registers pushed :-)
+	CMP	r0,r2
+	MOVHS	r1,r3
+	LDRB	r4,[r1,r0]
+	ADD	r0,r0,#1
+	MOV	pc,r14
+
+nextline$l
+	MOV	r11,#e_linenext
+	FNcall	Zap_CallMode
+	B	scan$l
+
+standard_or_ed$l
+	; standard is "<number><letter><number>"
+	; ed       is "<number><letter>"
+	BL	readchar$l
+	CMP	r4,#'0'
+	RSBHSS	r14,r4,#'9'
+	BHS	standard_or_ed$l; skip digits
+	CMP	r4,#'a'
+	RSBHSS	r14,r4,#'z'
+	BLO	unknowndiff$l	; must be lowercase letter
+	; if the next chr is a digit, we have standard format
+	BL	readchar$l
+	CMP	r4,#'0'
+	RSBHSS	r14,r4,#'9'
+	MOVLO	r4,#diff_ED
+	MOVHS	r4,#diff_STANDARD
+	B	knowndiff$l
+
+diff_or_rcs$l
+	; RCS is "d<number>" or "a<number>"
+	BL	readchar$l
+	TEQ	r4,#'i'
+	BEQ	nextline$l	; 'i' => "diff" line
+maybe_rcs$l
+	CMP	r4,#'0'
+	RSBHSS	r14,r4,#'9'
+	MOVHS	r4,#diff_RCS
+	BHS	knowndiff$l	; digit => RCS format
+	B	unknowndiff$l
+
 
 mode_start
 	FNJSR
@@ -282,9 +368,10 @@ mode_end
 	FNcall	Zap_SaveModeWord
 	FNRTS
 
+
 	LOCAL
 mode_redrawline
-	FNJSR
+	FNJSR	"r11"
 
 	LDRB	r0, [r7, #0]	; first char of line
 	PUSH	"r0, r6, r9"
@@ -295,18 +382,21 @@ mode_redrawline
 	LDR	pc, [r1, #(2*e_redrawline)]
 
 	PULL	"r4, r6, r9"	; r4 = first char of line
-	LDR	r0, [r9, #f_splito]
-	CMP	r0, #0
-	LDREQ	r0, [r9, #f_splite]
-	MOVNE	r0, #0
-	LDR	r1, [r9, #f_ptr]
-	LDRB	r0, [r0, r1]		; first byte of file
+	BL	get_workspace
+	LDR	r11,[r11,#ws_difftype]
+	CMP	r11,#diff_NUM_TYPES
+	ADDLO	pc,pc,r11,LSL #2
+	B	done$l
+	B	standard$l
+	B	context$l
+	B	unified$l
+	B	done$l	; ed format
+	B	done$l	; rcs format
+			; can't colour ed, rcs without multiline parsing
 
-	CMP	r0, #'-'	; => unified, else normal
-	BEQ	unified$l
-normal$l
+standard$l
 	; add start '>', remove start '<'
-	; control lines are everything else
+	; control lines start with digits
 	CMP	r4, #'>'
 	MOVEQ	r1, #colour_add
 	BEQ	drawline$l
@@ -315,11 +405,36 @@ normal$l
 	MOVEQ	r1, #colour_remove
 	BEQ	drawline$l
 
-	MOV	r1, #colour_control
-	B	drawline$l
+	CMP	r4, #'0'
+	RSBHSS	r14, r4, #'9'
+	MOVHS	r1, #colour_control
+	BHS	drawline$l
+
+informationals$l
+	TEQ	r4,#'d'
+	TEQNE	r4,#'O'
+	MOVEQ	r1,#colour_info
+	BEQ	drawline$l
+	B	done$l
+
+context$l
+	; add start '!', remove start '!' (!)
+	; control lines start and end with '*'
+	; filename lines start with '*' (old) or '-' (new)
+	TEQ	r4, #'!'
+	MOVEQ	r1, #colour_change
+	BEQ	drawline$l
+
+	TEQ	r4, #'*'
+	; TO DO: check last character
+	MOVEQ	r1, #colour_control
+	BEQ	drawline$l
+
+	B	informationals$l
+
 unified$l
-	; add start '+', remove start '-'
-	; control start '@', ignore everything else
+	; add start '+', remove start '-' (also colours old, new filenames)
+	; control start '@'
 	CMP	r4, #'+'
 	MOVEQ	r1, #colour_add
 	BEQ	drawline$l
@@ -331,7 +446,10 @@ unified$l
 	CMP	r4, #'@'
 	MOVEQ	r1, #colour_control
 	BEQ	drawline$l
-	FNRTS	NE
+
+	B	informationals$l
+
+	; can't colour without multiline parsing
 
 drawline$l
 	LDR	r0, [r8, #w_txtw]
@@ -339,7 +457,8 @@ drawline$l
 loop$l	STRB	r1, [r6],#1
 	SUBS	r0, r0, #1
 	BNE	loop$l
-	
+
+done$l
 	FNRTS
 
 	LOCAL
@@ -359,7 +478,7 @@ just_nextline$l
 	MOV	r11, #e_nextline
 	FNcall	Zap_BaseMode
 	FNRTS
-	
+
 	LOCAL
 mode_prevline
 	STR	r0, [ws, #ws_lastprevline]
@@ -369,5 +488,5 @@ just_prevline$l
 	MOV	r11, #e_prevline
 	FNcall	Zap_BaseMode
 	FNRTS
-		
+
 	END
