@@ -1,5 +1,5 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 2.6 2003/09/03 00:09:14 christian Exp $
+; $Id: Mode4dis,fff,v 2.7 2003/12/18 16:14:15 christian Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
@@ -11,14 +11,15 @@
 NEW_DISASM	SETA	1
 
 ; some constants for later
-CLEVER        * 1
-THICK         * 0
-DESCNAMES     * 0
-SIMPLENAMES   * 1
-FILE_NORMAL   * 0 ; when the file isn't AIF or a module
-FILE_AIF      * 1 ; when the file is AIF code
-FILE_MODULE   * 2 ; when the file is a module
-FILE_CHUNK    * 3 ; when the file is a chunk file
+CLEVER         * 1
+THICK          * 0
+DESCNAMES      * 0
+SIMPLENAMES    * 1
+FILE_NORMAL    * 0 ; when the file isn't AIF or a module
+FILE_AIF       * 1 ; when the file is AIF code
+FILE_MODULE    * 2 ; when the file is a module
+FILE_CHUNK     * 3 ; when the file is a chunk file
+FILE_MODULE_32 * 4 ; when the file is a 32 bit module
 
 
 ; OPTIONS >>>
@@ -45,6 +46,7 @@ NAMINGTYPE    * DESCNAMES
 
  IMPORT  mode4_aif_headerstring
  IMPORT  mode4_mod_headerstring
+ IMPORT  mode4_in_mod_header
  [ NEW_DISASM <> 0
  IMPORT  disassemble
  ]
@@ -147,9 +149,19 @@ mode4_clever_dis
    LDR     R14,[R9,#f_load]
    MOV     R14,R14,ASR #8
    CMP     R14,#-6                       ; module?
+   BNE	   notmod$l
+   MOV	   R0,#&30			 ; get flags word offset
+   BL	   mode4_in_mod_header
+   MOVCS   R0,#0			 ; not present
+   BLCC	   cln_readw		         ; read flags word
+   TST	   R0,#1			 ; 32 bit
    MOVEQ   r6,#FILE_MODULE
-   STREQ   r6,localtypemarker            ; mark as a module
-   BEQ     isntaif$l                     ; and it's not AIF
+   MOVNE   r6,#FILE_MODULE_32
+   STR     r6,localtypemarker            ; mark as a module
+   LDR	   R0,[R13]			 ; resotore word
+   B       isntaif$l                     ; and it's not AIF
+
+notmod$l
    CMP     r14,#-3                       ; data file ?
    BEQ     mightbechunk$l
    ;CMP     r14,#-8                       ; absolute?
@@ -439,6 +451,7 @@ chk_destination
    TEQ     r14,#FILE_AIF                 ; is it AIF ?
    BEQ     isaifheader$l                 ; yes, so parse it
    TEQ     r14,#FILE_MODULE              ; is it a Module ?
+   TEQNE   r14,#FILE_MODULE_32           ; is it a Module ?
    BEQ     ismodheader$l                 ; yes, so parse it
 
 notanaiffile$l
@@ -713,9 +726,9 @@ notsharedc$l
 
 ; it could be an SCL routine...
 sharedc$l
-   LDR     r14,localtypemarker           ; read the filetype
-   TEQ     r14,#FILE_AIF                 ; is it AIF ?
-   BNE     notsharedc$l                  ; if not, skip
+   ;LDR     r14,localtypemarker           ; read the filetype
+   ;TEQ     r14,#FILE_AIF                 ; is it AIF ?
+   ;BNE     notsharedc$l                  ; if not, skip
    BL      cln_readw                     ; read this word
    TEQ     r0,r4                         ; is it the MOV pc,#0 thing ?
    BNE     notsharedc$l                  ; if not, it's not SCL
@@ -728,7 +741,12 @@ loopforscl$l
    BL      cln_readw                     ; read it
    TEQ     r0,r4                         ; is it the MOV pc,#0 thing ?
    BEQ     loopforscl$l                  ; if so, get it
-   MOV     r0,#&30
+   LDR	   R14,localtypemarker
+   TEQ	   R14,#FILE_MODULE_32		 ; 32 bit module
+   BEQ	   scl_getstr32$l
+   TEQ     R14,#FILE_MODULE		 ; 26 bit module
+   BEQ	   scl_getstr$l
+   MOV     r0,#&30 		         ; AIF
    BL      cln_readw
    TEQ     r0,#32
    BEQ     scl_getstr32$l

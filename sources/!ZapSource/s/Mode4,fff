@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.16 2003/09/19 21:59:16 christian Exp $
+; $Id: Mode4,fff,v 2.17 2003/12/18 16:14:15 christian Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -42,6 +42,7 @@ NEW_DISASM	SETA	1
 	EXPORT	but_sortwwout
 	EXPORT	mode4_aif_headerstring
 	EXPORT	mode4_mod_headerstring
+	EXPORT	mode4_in_mod_header
  [ NEW_DISASM <> 0
 	EXPORT	disassemble
  ]
@@ -1161,38 +1162,49 @@ loop$l	CMP	R3,R0
 	FNRTS
 
 
+; check a given ofset is valid in the header
+; E r0 = offset
+; X CC, r0 = contents if ok
+;   CS ow
+mode4_in_mod_header
+	FNJSR	"R1-R4"
+	CMP	R0,#(end_mod_stab - mod_stab)
+	MOV	r1,r0			; r1 = offset
+	MOVCS	r0,#0			; if too big, it's not known
+	FNRTS	CS			; definitely not in header
+	MOV	R2,#0			; check valid loop
+checkoff$l				; check it is a valid module offset
+	MOV	R0,R2
+	BL	cln_readw		; get word
+	MOV	R4,R0			; preserve for later...
+	TEQ	R2,#4
+	TEQNE	R2,#8
+	BICEQ	R0,R0,#1 << 31		; clear bit 31 if init/final
+	BL	valid_off		; valid offset?
+	FNRTS	CS			; definitely not in header
+	CMP	R2,R1
+	ADDCC	R2,R2,#4
+	BCC	checkoff$l
+
+	MOV	R0,R4			; get word
+	FNRTCC				; ok
+
 
 ; return a string for the module header
 ; => r0 = offset in file
 ; <= r0 = string pointer, or 0 if not known
 mode4_mod_headerstring
 	FNJSR	"R1-R5"
-	CMP	R0,#(end_mod_stab - mod_stab)
-	MOV	r1,r0			; r1 = offset
-	MOVCS	r0,#0			; if too big, it's not known
-	FNRTS	CS			; definitely not in header
-	MOV	R2,#0			; check valid loop
-	PUSH	"R0"			; save the word
-checkoff$l				; check it is a valid module offset
-	MOV	R0,R2
-	BL	cln_readw		; get word
-	TEQ	R2,#4
-	TEQNE	R2,#8
-	BICEQ	R0,R0,#1 << 31		; clear bit 31 if init/final
-	MOV	R4,R0			; preserve for later...
-	BL	valid_off		; valid offset?
-	PULL	"R0",CS
-	MOVCS	r0,#0			; if too big, it's not known
-	FNRTS	CS			; definitely not in header
-	CMP	R2,R1
-	ADDCC	R2,R2,#4
-	BCC	checkoff$l
-	PULL	"R0"			; word not now needed
+	MOV	R1,R0
+	BL	mode4_in_mod_header
+	MOVCS	R0,#0
+	FNRTS	CS			; not in header
+	MOV	R4,R0
 	ADR	R0,mod_stab
 	LDR	R14,[R0,R1]		; get string offset
 	TST	R14,#1<<31
 	BEQ	nostring$l
-	ADD	R2,R2,#4
+	ADD	R2,R1,#4
 	CMP	R4,R2			; offset must be >= next word
 	FNLDR	R2,wimp_kbdbuf
 	BIC	R14,R14,#1<<31
