@@ -1,29 +1,50 @@
 /*
- * $Id: cshow,fff,v 1.6 1999/07/02 13:19:20 james Exp $
+ * $Id: cshow,fff,v 1.7 1999/10/01 09:20:23 james Exp $
+ * -*- c -*-
  * cshow.c
- * (c) Zap Developers 1999
- *
  * display/edit contents of a Zap config file
+ *
+ * (c) Zap Developers 1999 <bugs@zap.uk.eu.org>
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
  * won't work with blocks on non-integer numbers of words (but this should never happen anyway)
  * the bit which actually deals with the config file is fairly horrible, frankly. Don't go
  * investigating it assuming it'll help you figure out how to access Zap's config files ...
+ *
+ * probably has some other bugs in it. Don't use for anything mission-critical;
+ * we only use it for debugging and occasional very timid maintenance.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "coopt.h"
 
 #define MAX_MODENAME_LENGTH 10
-#define VERSION_STRING "v0.2 (c) Zap developers 1999"
+#define VERSION_STRING "v0.3 (c) Zap developers 1999"
 
 /* eek, global variable ... */
 int writing=1;
 
 void *xmalloc (int);
 void *xrealloc (void *, int);
-void do_error(char *);
+void fatal_error(char *, ...);
+void do_error(char *, ...);
 int do_fill_byte(void *, FILE *, FILE *);
 int do_fill_word(void *, FILE *, FILE *);
 char *read_mode_name (int, FILE *);
@@ -55,8 +76,10 @@ main(int argc, char const * const * argv)
     "\"Line numbers\"         ",
     "\"Control characters\"   "
   };
-  char *top_sys_colour[max_top_sys_colours] = { 
+#if max_top_sys_colours > 0
+  char *top_sys_colour[max_top_sys_colours] = {
   };
+#endif
 
   static const struct coopt_option option[] = {
     { 'i', COOPT_REQUIRED_PARAM, "input" },
@@ -94,7 +117,7 @@ main(int argc, char const * const * argv)
   program_name = argv[0];
   coopt_init(&state, option, sizeof(option) / sizeof(struct coopt_option),
 	     argc-1, argv+1);
-  
+
   do
   {
     ret = coopt(&state);
@@ -106,17 +129,17 @@ main(int argc, char const * const * argv)
         {
           case 'i':
             if (infile!=NULL)
-              do_error("you can't specify more than one input file");
+              fatal_error("you can't specify more than one input file");
             infile = ret.param;
             break;
           case 'o':
             if (outfile!=NULL)
-              do_error("you can't specify more than one output file");
+              fatal_error("you can't specify more than one output file");
             outfile = ret.param;
             break;
 	  case 'O':
 	    if (displayfile!=NULL)
-	      do_error("you can't specify more than one display file");
+	      fatal_error("you can't specify more than one display file");
 	    displayfile = ret.param;
 	    break;
           case 'l':
@@ -127,7 +150,7 @@ main(int argc, char const * const * argv)
             break;
           case 'r':
             if (!ret.param)
-              do_error("you must specify the mode to delete");
+              fatal_error("you must specify the mode to delete");
             deletemodes++;
             deletemodelist = xrealloc (deletemodelist,
                                        deletemodes * sizeof (const char *));
@@ -155,13 +178,17 @@ main(int argc, char const * const * argv)
         if (infile==NULL)
           infile=ret.param;
         else
-          do_error("you can't specify more than one input file");
+          fatal_error("you can't specify more than one input file");
       }
     }
   } while (coopt_is_okay(ret.result));
 
-  if (coopt_is_error(ret.result) || ret.result==COOPT_RESULT_MISSINGPARAM)
-    do_error("error in options processing");
+  if (coopt_is_error(ret.result))
+  {
+    char err[255];
+    coopt_serror(err, 255, &ret, &state);
+    fatal_error("fatal error in options parsing: %s", err);
+  }
 
   /* processing */
   if (infile==NULL || strcmp(infile, "-")==0)
@@ -184,7 +211,7 @@ main(int argc, char const * const * argv)
     else
       out=fopen(outfile, "wb");
   }
-  
+
   if (displayfile!=NULL)
     display=fopen(displayfile, "wb");
 
@@ -192,7 +219,7 @@ main(int argc, char const * const * argv)
   {
     if (out!=stdout && out!=NULL)
       fclose(out);
-    do_error("couldn't open input file");
+    fatal_error("couldn't open input file");
   }
 
   if (out==NULL)
@@ -203,12 +230,12 @@ main(int argc, char const * const * argv)
         fclose(in);
       if (display!=stdout)
 	fclose(display);
-      do_error("couldn't open output file; REQUIRED for --deletemode");
+      fatal_error("couldn't open output file; REQUIRED for --deletemode");
     }
     else
       writing=-1; /* so the ++ and -- don't bring it up to 1, at which point we'd write */
   }
-  
+
   /* they've specified a display file, but we couldn't open it. This is bad. */
   if (display==NULL)
   {
@@ -216,12 +243,12 @@ main(int argc, char const * const * argv)
       fclose(in);
     if (out!=stdout && out!=NULL)
       fclose(out);
-    do_error("couldn't open display file");
+    fatal_error("couldn't open display file");
   }
 
   fill_word(&type, in);
   if (strncmp((char *)&type, "Conf", 4)!=0)
-    do_error("wasn't a conf file");
+    fatal_error("wasn't a conf file");
 
   while (!feof(in) && !ferror(in))
   {
@@ -230,7 +257,7 @@ main(int argc, char const * const * argv)
     int which;
 
     if (fread(&type, 4, 1, in)!=1)
-      do_error("terminated without EOF block marker");
+      fatal_error("terminated without EOF block marker");
     if (fread(&block_len, 4, 1, in)!=1)
       block_len=0;
     if (verboseflag)
@@ -495,8 +522,10 @@ main(int argc, char const * const * argv)
 	      /* Logic for following step isn't quite right - copes poorly
 	       * with no user colours
 	       */
+#if max_top_sys_colours > 0
 	      else if (within_group>(base_sys_colours+non_sys_colours) && non_sys_colours>=0)
 		fprintf(display, "    Colour %s = 0x%8.8x\n", top_sys_colour[within_group],  (unsigned int)type);
+#endif
 	      else
 		fprintf(display, "    Colour #%-3i                    = 0x%8.8x\n", which, (unsigned int)type);
 	    }
@@ -504,7 +533,8 @@ main(int argc, char const * const * argv)
 	    within_group++;
             block_len-=4;
           }
-	  if (which % (sys_colours + non_sys_colours)!=0 && non_sys_colours>=-1)
+	  /* note that we don't bother trapping non_sys_colours == -1 here */
+	  if (which % (sys_colours + non_sys_colours)!=0 && non_sys_colours>-1)
 	  {
 	    fprintf(stderr, "    [num colours is wrong or not set! (%i; should be %i?)]\n", non_sys_colours, which-sys_colours);
 	  }
@@ -613,7 +643,7 @@ do_fill(void *ptr, size_t s, FILE *in, FILE *out)
 {
   int r;
   if (feof(in) || ferror(in))
-    do_error("feof() or ferror()");
+    fatal_error("feof() or ferror()");
   r = fread(ptr, s, 1, in);
   if (r==1)
   {
@@ -623,7 +653,7 @@ do_fill(void *ptr, size_t s, FILE *in, FILE *out)
   }
   else
   {
-    do_error("error on read");
+    fatal_error("error on read");
   }
   return 0;
 }
@@ -650,13 +680,13 @@ read_mode_name (int type, FILE *in)
   char *name = xmalloc (256);
 
   if (!name)
-    do_error ("malloc failed");
+    fatal_error ("malloc failed");
   writing--;
   do
   {
     do_fill_byte (name + len, in, 0);
     if (len >= 255)
-      do_error ("internal overflow on mode name");
+      fatal_error ("internal overflow on mode name");
   } while (name[len++]);
   writing++;
 
@@ -697,13 +727,24 @@ xrealloc (void *ptr, int size)
 }
 
 
-void
-do_error(char *mess)
+void fatal_error(char *format, ...)
 {
-  fprintf(stderr, "%s: %s\n", program_name, mess);
-  exit(1);
+  va_list ap;
+  va_start(ap, format);
+  vfprintf(stderr, format, ap);
+  putc('\n', stderr);
+  va_end(ap);
+  exit(EXIT_FAILURE);
 }
 
+void do_error(char *format, ...)
+{
+  va_list ap;
+  va_start(ap, format);
+  vfprintf(stderr, format, ap);
+  putc('\n', stderr);
+  va_end(ap);
+}
 
 void
 help(void)
