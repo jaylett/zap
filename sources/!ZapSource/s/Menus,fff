@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.26 2002/11/17 04:49:53 christian Exp $
+; $Id: Menus,fff,v 2.27 2002/11/19 13:35:31 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -1124,7 +1124,6 @@ execsub$l
 Bitmaplist
 	FNJSR
 	TEQ	R2,#15
-					; TEQNE R8,#0
 	BEQ	shade$l
 	TEQ	R2,#16			; create submenu?
 	FNRTS	NE
@@ -1134,8 +1133,8 @@ Bitmaplist
 	ADR	R3,execsub$l
 	MOV	R4,#11
 	MOV	R8,#0			; offset in the directory
+	MOV	R6,#0
 	BL	build_font_menu
-	MOV	R1,R0			; menu pointer returned in R0
 	FNRTS
 shade$l
 	TEQ	R8,#0			; doesn't work...
@@ -1145,7 +1144,7 @@ shade$l
 name$l  =	27,"zap_m_bitmap",0
 	ALIGN
 buildsub$l				; uses WB
-	FNJSR	"R1-R6"			; NB Updating R7!!
+	FNJSR	"R1-R7"
 	LDR	R0,[R6]
 	ORR	R0,R0,#1<<3
 	MOV	R14,#1
@@ -1155,16 +1154,15 @@ buildsub$l				; uses WB
 	TEQ	R9,#0
 	ORREQ	R14,R14,#1<<22
 	STR	R14,[R6,#8]		; possibly a flags problem...?
-	ADD	R7,R7,#4		; add in room for open code
 	ADR	R0,mw_bitmaplist
 	STR	R0,[R7,#-12]		; open code
 	MOV	R0,#0			; execsub$l
 	STR	R0,[R7,#-4]		; no exec sub
+	STR	R0,[R7,#-16]
 next$l					; get next file name
 	MOV	R0,#10
 	ADR	R1,dir$l
 	FNLDR	R2,wimp_block
-					; ADD R2,R2,#&40 ; new ;(
 	MOV	R3,#1
 	MOV	R4,R8			; current offset in the directory
 	MOV	R5,#&100
@@ -1229,7 +1227,6 @@ mw_bitmaplist
 	FNJSR	"R2-R10"
 	ADR	R9,font_path_name
 	MOV	R1,R9			; must match above... :-(
-	MOV	R1,R9
 	ADR	R2,dir$l		; R9="Fonts:"
 	BL	strcpy
 	MOV	R2,R10
@@ -1245,11 +1242,8 @@ mw_bitmaplist
 	MOV	R1,R0			; in R1
 	FNRTS				; menu pointer in R0...
 buildsub$l				; uses WB
-	FNJSR	"R1-R6,R10,R11"		; NB Updating R7!!
-	MOV	R11,R0			; save buffer pointer?
-	LDR	R14,[R6,#8]		; possibly a flags problem...?
-	BIC	R14,R14,#(1<<3)+(1<<6)+(1<<7) ; doesn't work...!???!?
-	STR	R14,[R6,#8]		; possibly a flags problem...?
+	FNJSR	"R1-R6,R10,R11"
+	MOV	R11,R0			; save buffer pointer
 	MOV	R10,R6
 next$l					; get next file name
 	MOV	R0,#10
@@ -1291,10 +1285,9 @@ doadir$l
 	MOV	R14,#1
 	ORR	R0,R0,#1<<3
 	STMIA	R10,{R0,R14}		; set warning bit; submenu off this entry
-	ADD	R7,R7,#4		; add in room for open code...
 	ADR	R0,mw_substylelist	; warn code...
 	STR	R0,[R7,#-12]		; open code
-	ADD	R1,R11,#4
+	MOV	R1,R11
 	ADD	R2,R2,#20		; filename of directory...
 	BL	strcopy
 	MOV	R0,#0			; no index
@@ -1382,6 +1375,7 @@ mw_substylelist
 	ADR	R3,execsub$l
 	MOV	R4,#43			; width...(very wide :-< use new WM...)
 	MOV	R8,#0			; R8=counter...
+	MOV	R6,#0
 	BL	build_second_font_menu  ; don't bother to preserve r9...
 	MOV	R1,R0			; in R1
 	FNRTS				; return menu pointer in R0
@@ -2887,10 +2881,10 @@ call_warn_code
 	FNJSR	"R2,R7,R10"
 	LDR	R10,[R2,#12]		; text of the entry
 	LDR	R7,[R10,#-12]		; address to create the submenu
-	LDR	R10,[R10,#-16]		; flags
+	LDR	R14,[R10,#-16]		; flags
 	TEQ	R7,#0
 	BEQ	a$l			; none
-	TST	R10,#mef_SubCommand
+	TST	R14,#mef_SubCommand
 	BNE	com$l			; new command style
 	MOV	R14,PC			; old style
 	MOV	PC,R7			; get the menu address
@@ -3328,23 +3322,23 @@ so6
 ;X As for build_menu
 	FNAME	build_font_menu
 build_font_menu
-	FNJSR	"R6-R7"
+	FNJSR	"R7-R8"
 	BL	swap$l
 	BL	build_menu
 	BL	swap$l
 	FNRTS
 swap$l					; swap over without changing flags
-	FNLDR	R6,font_entries
+	FNLDR	R8,font_entries
 	FNLDR	R7,menu_entries
-	FNSTR	R6,menu_entries
+	FNSTR	R8,menu_entries
 	FNSTR	R7,font_entries
-	FNLDR	R6,font_struct
+	FNLDR	R8,font_struct
 	FNLDR	R7,menu_struct
-	FNSTR	R6,menu_struct
+	FNSTR	R8,menu_struct
 	FNSTR	R7,font_struct
-	FNLDR	R6,font_help
+	FNLDR	R8,font_help
 	FNLDR	R7,menu_help
-	FNSTR	R6,menu_help
+	FNSTR	R8,menu_help
 	FNSTR	R7,font_help
 	MOV	PC,R14
 
@@ -3355,23 +3349,23 @@ local_f_ss_vals
 	DCD	0
 
 build_second_font_menu
-	FNJSR	"R6-R7"
+	FNJSR	"R7-R8"
 	BL	swapmenu
 	BL	build_menu
 	BL	swapmenu
 	FNRTS
 swapmenu				; swap over without changing flags
-	FNLDR	R6,font_ssentries
+	FNLDR	R8,font_ssentries
 	FNLDR	R7,menu_entries
-	FNSTR	R6,menu_entries
+	FNSTR	R8,menu_entries
 	FNSTR	R7,font_ssentries
-	FNLDR	R6,font_ssstruct
+	FNLDR	R8,font_ssstruct
 	FNLDR	R7,menu_struct
-	FNSTR	R6,menu_struct
+	FNSTR	R8,menu_struct
 	FNSTR	R7,font_ssstruct
-	FNLDR	R6,font_sshelp
+	FNLDR	R8,font_sshelp
 	FNLDR	R7,menu_help
-	FNSTR	R6,menu_help
+	FNSTR	R8,menu_help
 	FNSTR	R7,font_sshelp
 	MOV	PC,R14
 
