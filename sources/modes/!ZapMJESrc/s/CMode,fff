@@ -1,9 +1,9 @@
 ; **************************************************************************
-; *                                                                        *
-; *  Project: ZapMJE                Purpose: Extensions for Zap            *
-; *  Module: CMode.s                Purpose: C source editing mode         *
-; *  © 1997 Martin Ebourne          Last update: 02-02-97                  *
-; *                                                                        *
+; *									   *
+; *  Project: ZapMJE		    Purpose: Extensions for Zap		   *
+; *  Module: CMode.s		    Purpose: C source editing mode	   *
+; *  © 1997 Martin Ebourne	    Last update: 02-02-97		   *
+; *									   *
 ; **************************************************************************
 
 ;  Things to do: (in approx. order)
@@ -477,31 +477,17 @@ autoheader$C	FNJSR					; DO NOT CHANGE - see function 'nofile'
 		LDR	R0,f_len
 		MOV	R1,#0
 		CALL	Zap_SplitBuffer			; coagulate :-) the buffer
-		LDR	r1,f_name
-		BL	count
-		CALL	Zap_Claim
-		FNRTS	VS
-		ADD	r3,r0,#2
-		BL	strcpy
-finddotloop$L	LDRB	r4,[r0,#-1]!
-		CMP	r0,r3
-		TEQ	r4,#'.'
-		BHI	finddotloop$L
-		LDREQB	r4,[r0,#-2]
-		TEQEQ	r4,#'.'
-		BNE	nofile
-		LDRB	r4,[r0,#-1]
-		TEQ	r4,#'h'
-		BEQ	nofile
-		MOV	r4,#'h'
-		STRB	r4,[r0,#-1]
-		SUB	r1,r3,#2
-		MOV	r0,#&C5				;  Update
-		SWI	XOS_Find
-		BVS	nofile
+
+		BL	get_header_filename
+		MOVS	r3,r1
+		MOVEQ	R0,#0
+		MOVNE	r0,#&CF				;  Update
+		SWINE	XOS_Find
+		BVS	nofile$L
 		MOVS	handle$L,r0
-		BEQ	nofile
-		SUB	r0,r3,#2
+		BEQ	nofile$L
+
+		MOV	r0,r3
 		CALL	Zap_Free
 		FNRTS	VS
 		MOV	buf$L,#0			; no buffer yet
@@ -654,8 +640,114 @@ sloop$L		LDRB	R0,[R3,R6]
 statictext$L	=	"static"
 		ALIGN
 
-		LOCAL
+; file not found
+nofile$L	ADD	R3,R3,#2
+		B	nofile
 
+		DCD	x_noparams			;  Flags for command
+
+; create header file
+		EXPORT	createheader$C
+createheader$C	FNJSR					; DO NOT CHANGE - see function 'nofile'
+		BL	checkmode
+		FNRTS	NE
+		BL	get_header_filename
+		MOVS	r3,r1				; keep pointer for nofile
+		BEQ	nofile$L
+		MOVVC	R7,R1
+		MOVVC	R6,R2
+		MOVVC	R0,#17				; read catalogue info
+		SWIVC	XOS_File
+		MOV	R3,R1
+		BVS	nofile$L
+		TEQ	R0,#0				; do auto header if file already exists
+		FNPULL	NE
+		BNE	autoheader$C
+
+		MOV	r0,#&83				; Create
+		SWI	XOS_Find
+		BVS	nofile$L
+		MOVS	handle$L,r0
+		BEQ	nofile$L
+
+		SUB	R13,R13,#256
+
+		PUSH	R1
+		ADD	R0,R13,#4
+		MOV	R1,R6
+		BL	strcpy
+		MOV	R1,#'_'
+		STRB	R1,[R0],#1
+		MOV	R1,#'H'
+		STRB	R1,[R0],#1
+		MOV	R1,#10
+		STRB	R1,[R0],#1
+		MOV	R1,#0
+		STRB	R1,[R0]
+		SUB	R6,R0,R13			; length of module name
+		SUB	R6,R6,#4
+
+		ADD	R1,R13,#4			; convert to upper case
+toupper$L	LDRB	R2,[R1],#1			;
+		TEQ	R2,#0				;
+		BICNE	R2,R2,#&20			;
+		STRNEB	R2,[R1,#-1]			;
+		BNE	toupper$L			;
+
+		PULL	R1
+
+		ADR	R3,ifndef$L			; #ifndef CMODE_H
+		MOV	R2,#?ifndef$L			;
+		BL	appendtext$L			;
+		MOV	R3,R13				;
+		MOV	R2,R6				;
+		BL	appendtext$L			;
+
+		ADR	R3,define$L			; #define CMODE_H
+		MOV	R2,#?define$L			;
+		BL	appendtext$L			;
+		MOV	R3,R13				;
+		MOV	R2,R6				;
+		BL	appendtext$L			;
+
+		MOV	R0,#10
+		SWI	XOS_BPut
+
+		ADR	R3,autotext$L			; <defs go here>
+		MOV	R2,#?autotext$L + ?autotextend$L
+		BL	appendtext$L			;
+
+		MOV	R0,#10
+		SWI	XOS_BPut
+
+		ADR	R3,endif$L			; #endif
+		MOV	R2,#?endif$L			;
+		BL	appendtext$L			;
+
+		ADD	R13,R13,#256
+
+		MOV	R0,#0				; close it
+		SWI	XOS_Find			;
+
+		MOV	R0,#18				; set type to text
+		MOV	R1,R7				;
+		MOV	R2,#&FF				;
+		ORR	R2,R2,#&F00			;
+		DEBUGF	"setting type of file %1s"
+		SWI	XOS_File			;
+
+		MOV	R0,R7
+		CALL	Zap_Free
+
+		FNPULL					; fill in the defs
+		B	autoheader$C			;
+
+ifndef$L	=	"#ifndef "
+define$L	=	"#define "
+endif$L		=	"#endif",10
+		ALIGN
+
+		LOCAL
 
 ; find function
 ; E R0 = offset of definition
@@ -760,7 +852,7 @@ list$l		=	"$0-9A-Za-z_"
 ;    r4 rangestart - Start of range to be checked (exclusive)
 ;    r5 rangeend   - End of range to be checked (exclusive)
 ;  Exit conditions:
-;    r1-r6         - Set up for first call to findfunc. NOTE: These must not be altered
+;    r1-r6	   - Set up for first call to findfunc. NOTE: These must not be altered
 
 char$L		RN	r0
 ptr$L		RN	r1
@@ -816,9 +908,9 @@ looppff$L	BL	getquick$L
 ;    windowblk, fileblk
 ;  Exit conditions:
 ;    C set if not found or Escape pressed, C clear if found
-;    r1 ptr      - 0 if Escape pressed (C set), offset to function start if found (C clear), else
-;                  rubbish (C set)
-;    r0 char     - Preserved
+;    r1 ptr	 - 0 if Escape pressed (C set), offset to function start if found (C clear), else
+;		   rubbish (C set)
+;    r0 char	 - Preserved
 ;    r2-r6, r10  - Undefined
 ;    r7 lastfunc - Offset to function start, taking account of split
 ;    wsblk, windowblk, fileblk
@@ -1260,5 +1352,36 @@ getdelay$C	FNJSR
 		LDREQB	r0,m_flags1$C
 		FNRTS
 
+
+; get header filename
+; E r9
+; X r1 -> heap block contatining file name / 0
+;   R2 -> leaf name inside block
+get_header_filename
+		FNJSR
+		LDR	r1,f_name
+		BL	count
+		CALL	Zap_Claim
+		BVS	nope$L
+		ADD	r3,r0,#2
+		BL	strcpy
+finddotloop$L	LDRB	r4,[r0,#-1]!
+		CMP	r0,r3
+		TEQ	r4,#'.'
+		BHI	finddotloop$L
+		LDREQB	r4,[r0,#-2]
+		TEQEQ	r4,#'.'
+		BNE	nope$L
+		LDRB	r4,[r0,#-1]
+		TEQ	r4,#'h'
+		BEQ	nope$L
+		MOV	r4,#'h'
+		STRB	r4,[r0,#-1]
+		SUB	r1,r3,#2
+		ADD	R2,R0,#1
+		FNRTS
+
+nope$L		MOV	R1,#0
+		FNRTS
 
 		END
