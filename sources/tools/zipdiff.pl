@@ -3,9 +3,9 @@
 use strict;
 use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
 use Getopt::Long;
-#use Pod::Usage;
+use Pod::Usage;
 
-my ($progname, $progversion) = ("zipdiff.pl", "1.0");
+my ($progname, $progversion) = ("zipdiff.pl", "1.1");
 my ($verbose, $help, $man) = ('', 0, 0);
 my ($zip1, $zip2, $outzip, $inzip, $manifest_file) =
   ('', '', '', '', 'Manifest');
@@ -17,10 +17,10 @@ GetOptions('inzip=s' => \$inzip,
 	   'manifest=s' => \$manifest_file,
 	   'help|?' => \$help,
 	   'man' => \$man,
-	   'verbose' => \$verbose);# or
-#pod2usage(2);
-#pod2usage(1) if $help;
-#pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+	   'verbose' => \$verbose) or
+pod2usage(2);
+pod2usage(1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
 
 $zip1 = shift or die "Missing operand (try --help).\n";
 $zip2 = shift or die "Missing operand (try --help).\n";
@@ -239,6 +239,6 @@ diffs.
 
 =head1 AUTHOR
 
-James Aylett <dj@zap.uk.eu.org>
+James Aylett <dj@zap.tartarus.org>
 
 =cut
