@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 2.6 2002/11/14 19:30:30 christian Exp $
+; $Id: Heap,fff,v 2.7 2003/01/02 00:27:51 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -32,7 +32,7 @@ heap_size		* &1000		; initial heap size / inc size
 ; env_start (&8000)		Stack and fixed buffers (see init_fixed)
 ; heap_start ->	heap_end	Acorn syle (OS_Heap) Heap [Zap block -1]
 ;
-; font_start -> font_end	Font bitmaps buffer       [Zap block -2]
+; font_start -> font_end	Font bitmaps buffer	  [Zap block -2]
 ;   *** now delegated to ZapRedraw
 ;
 ; (file_list!0)+f_ptr		First file buffer	  [Zap block  0]
@@ -73,7 +73,7 @@ heap_size		* &1000		; initial heap size / inc size
 set_block_size
  FNJSR "R1-R11"
  SYSLOGF "set_block_size %0d to %1x",LOG_MEMORY
- FNLDR R11,wimp_version		; get version number
+ FNLDR R11,file_area		; get 'DAs in use' flag
  MOV R10,R0			; R10=block number (-1 = heap)
  ADD R5,R1,#3
  BIC R5,R5,#3			; R5=new size word aligned
@@ -103,14 +103,14 @@ file$l
 ; R4=address of the block start
 ; R5=new block size
 ; R6=address of routine to resize the area in which the block lies
-;  Called with: R0=signed change in size R11=wimp version
+;  Called with: R0=signed change in size R11=file DA number
 ; R7=current length of the block
 ; R8=address of routine to change the block size
 ;  Called with: R0=signed change in size R4,R7 as above
-;               R10=block number R11=wimp version
+;		R10=block number R11=file DA number
 ; R9=address of top of the area the block sits in
 ; R10=block number
-; R11=wimp version
+; R11=file DA number
 move$l
  SUBS R5,R5,R7			; R5=signed change in size of block
  BGT moveup$l
@@ -119,15 +119,15 @@ moved$l				; block has been moved
  FNLDR R9,file_num		; block to stop at
  CMP R10,#0
  BGE update$l			; update from next file block
- CMP R11,#320
- FNRTS GT			; none above - in separate areas
+ TEQ R11,#0
+ FNRTS NE			; none above - in separate areas
  CMP R10,#-2
  MOVEQ R10,#-1			; font becomes -1
  MOVNE R10,#-2			; heap becomes -2
- 		; FIXME: the above 3 lines aren't necessary anymore, but
- 		; I'm confused, because what they appear(ed) to be doing
- 		; should _never_ have worked (it adjusted the font block
- 		; twice) - cl
+		; FIXME: the above 3 lines aren't necessary anymore, but
+		; I'm confused, because what they appear(ed) to be doing
+		; should _never_ have worked (it adjusted the font block
+		; twice) - cl
 update$l			; update from next block
  ADD R10,R10,#1			; next block
  CMP R10,R9
@@ -178,14 +178,14 @@ wimpslot$l			; change wimp slot size by R0
  ADD R0,R0,R1			; new environment top
  BL set_wimpslot		; updates env_top
  FNRTS VS			; failed - don't update pointers
- CMP R11,#320
- FNLDR R14,file_end,LT
- ADDLT R14,R14,R1
- FNSTR R14,file_end,LT		; update file_end if it's in the wimpslot
+ TEQ R11,#0
+ FNLDR R14,file_end,EQ
+ ADDEQ R14,R14,R1
+ FNSTR R14,file_end,EQ		; update file_end if it's in the wimpslot
  FNRTS
 fileslot$l			; change dynamic area files sit in
- CMP R11,#320
- BLT wimpslot$l			; just update the wimpslot
+ TEQ R11,#0
+ BEQ wimpslot$l			; just update the wimpslot
  FNJSR "R1"
  FNLDR R1,file_end		; current top of files
  ADD R1,R1,R0			; new top
@@ -334,9 +334,10 @@ init_heap
  SYSLOGF "init_heap created heap size %3x at %1x",LOG_MEMORY
  ADD R1,R1,R3
  FNSTR R1,heap_end		; end of heap (start of file store)
- FNLDR R0,wimp_version		; OS version
- CMP R0,#320
- BGT newos$l
+ FNLDR R0,wimp_version		; Wimp version
+ TEQ PC,PC
+ CMPNE R0,#320			; use DAs if 26 bit OS and RO 3.5-4
+ BHI newos$l
  FNSTR R1,file_end		; set up the rest of the vars
  SYSLOG "init_heap initialised file buffers",LOG_MEMORY
  FNRTS
@@ -379,17 +380,10 @@ create_dynamic_area
  FNAME kill_heap
 kill_heap
  FNJSR "R1-R2"
- FNLDR R1,wimp_version
- CMP R1,#320
- FNRTS LE			; no dynamic areas to kill
- FNADD R2,R12,file_area		; kill files
- BL kill$l
- FNRTS
-kill$l	FNJSR	; could be in SVC mode...
-	LDR	R1,[R2]
+	FNLDR	R1,file_area
 	TEQ	R1,#0
 	MOVNE	R0,#0
-	STRNE	R0,[R2]
+	FNSTR	R0,file_area,NE
 	MOVNE	R0,#1
 	SWINE	XOS_DynamicArea
  [ LOGGING = SYSLOG
