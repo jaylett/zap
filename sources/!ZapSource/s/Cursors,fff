@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.13 1999/07/17 23:06:59 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.14 1999/08/20 18:43:06 ds Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -79,7 +79,6 @@
 	EXPORT declaim_caret
 	EXPORT set_caret
 	EXPORT indent_selection
-	EXPORT word_align_caret
 	EXPORT word_align_caret_variable
 	EXPORT offset_line_column
 	EXPORT plot_caret
@@ -239,9 +238,7 @@ process_window_click
 	BNE cl15			; standard drag
 
 cl21					; multiple click or drag ...
-	FNLDR R0,clk_time		; time of last click
-	SUBS R0,R10,R0			; interval between clicks
-	CMP R0,#100
+	BL clicktime
 	BGE cl15			; standard click
 	FNLDR R0,clk_buttons
 	TEQ R0,R4
@@ -252,9 +249,7 @@ cl21					; multiple click or drag ...
 	TEQEQ R0,R3			; y square moved?
 	BNE cl15
 
-	FNLDR R0,clk_time		; time of last click
-	SUBS R0,R10,R0			; interval between clicks
-	CMP R0,#100
+	BL clicktime
 	BGE cl15			; standard click
 
 ; this code seems th break triple-click drags and is thus commented out...
@@ -329,6 +324,40 @@ cl16
 	FNSTR R0,clk_wind		; window of the click
 	BL mouse_click			; take click action
 	LDMFD R13!,{R1-R11,PC}
+
+
+; E R10=current time
+; X GE if R10-clk_time >= WimpDoubleClickDelay
+clicktime
+	FNJSR	"R1-R3"
+	FNLDR	R3,wimp_realver
+	CMP	R3,#300		; old WM -> assume 1 second
+	MOVLO	R3,#100
+	BLO	cl99
+	MOV	R0,#161
+	MOV	R1,#223
+	SWI	XOS_Byte
+	EORVC	R2,R2,#10
+	MOVVS	R2,#10
+	CMP	R3,#380		; non-nested WM: up to 25.5s step .1s
+	ADDLO	R3,R2,R2,LSL #2		; R3=R2*5
+	BLO	cl98
+	AND	R3,R2,#15	; nested WM: 0 to 1.5s (.1s), 0 to 15s (1s)
+	ADD	R3,R3,R3,LSL #2		; R3=R3*5
+	MOV	R0,#161
+	MOV	R1,#22
+	SWI	XOS_Byte
+	MOVVS	R2,#0
+	TST	R2,#1
+	ADDNE	R3,R3,R3,LSL #2		; R3=R3*5
+	MOVNE	R3,R3,LSL #1		; R3=R3*2
+cl98	MOV	R3,R3,LSL #1		; R3=R3*2 (for the above *5)
+cl99	FNLDR	R0,clk_time		; time of last click
+	SUB	R0,R10,R0		; interval between clicks
+ FNSTR R3,test_0
+	CMP	R0,R3
+	FNRTS
+
 
 	LOCAL
 
@@ -1547,6 +1576,9 @@ set_caret_update
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -1640,6 +1672,9 @@ set_caret
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -1850,6 +1885,9 @@ clear_caret_always
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_ocol]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_owidth]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -2116,6 +2154,9 @@ scrub_input_carets
  LDR R0,[R8,#w_handle]
  STR R0,[R1]
  LDR R0,[R10,#c_col]
+	LDR R14,[R8,#w_width]
+	CMP R0,R14
+	MOVHI R0,R14		; display clipping
  LDR R14,[R10,#c_width]
  STR R0,[R1,#4]			; x min
  ADD R0,R0,R14
@@ -2348,23 +2389,20 @@ gi1
 
  LOCAL
 
-;E R10=caret
+;E R0 = 2^n-1 (alignment to 2^n byte boundary) R10=caret
 ;X caret word aligned if window in mode 2/4 #
 
-word_align_caret
- MOV R0,#3
-;E R0 = 2^n-1 (alignment to 2^n byte boundary)
 word_align_caret_variable
  STMFD R13!,{R0,R8-R9,R14}
  LDR R0,[R10,#c_wind]
  BL conv_wind_off
  TEQ R8,#0
  LDMEQFD R13!,{R0,R8-R9,PC}
- MOV R0,#2			; word mode or clone?
- BL isthisaclonebase
- MOVNE R0,#4			; code mode or clone?
- BLNE isthisaclonebase
- LDMNEFD R13!,{R0,R8-R9,PC}
+; MOV R0,#2			; word mode or clone?
+; BL isthisaclonebase
+; MOVNE R0,#4			; code mode or clone?
+; BLNE isthisaclonebase
+; LDMNEFD R13!,{R0,R8-R9,PC}
  LDR R0,[R10,#c_off]
  LDMFD R13!,{R14}
  TST R0,R14

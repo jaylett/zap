@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.1.2.7 1999/03/11 18:11:29 james Exp $
+; $Id: Redraw,fff,v 1.1.2.8 1999/08/20 18:43:09 ds Exp $
 
  GET h.ZapHeader
 
@@ -1089,7 +1089,9 @@ ccd_xyline_xyos
  MOVEQ R2,R2,LSL#3
  MULNE R2,R0,R2
  FNLDR R0,scn_magx
- MOV R2,R2,LSL R0		; convert x to work os
+ MOVS R2,R2,LSL R0		; convert x to work os
+ FNLDR R2,wimp_leftgap,EQ	; DS fix.
+ RSBEQ R2,R2,#0			; DS fix.
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
  MOVEQ R3,R3,LSL#3
@@ -1097,10 +1099,10 @@ ccd_xyline_xyos
  FNLDR R0,scn_magy
  MOV R3,R3,LSL R0
  RSB R3,R3,#0			; convert y pix to work os
- CMP R2,#4			; TT fix.
- MOVGT PC,R14
- FNLDR R2,wimp_leftgap		; TT fix.
- RSB R2,R2,#0			; TT fix.
+; CMP R2,#4			; TT fix.
+; MOVGT PC,R14
+; FNLDR R2,wimp_leftgap		; TT fix.
+; RSB R2,R2,#0			; TT fix.
  MOV PC,R14
 
 ;E R2/R3=xycol R8
@@ -1455,6 +1457,9 @@ invert_caret
  LDR R3,[R10,#c_width]
  ADD R0,R0,R3,LSL#4		; amount we need spare
  LDR R2,[R10,#c_col]
+	LDR	R14,[R8,#w_width]
+	CMP	R2,R14
+	MOVHI	R2,R14		; \/\/ display clipping
  ADD R0,R0,R2			; and incase line blank
  BL ensure_red_data
  LDMVSFD R13!,{R2-R11,PC}
@@ -2065,7 +2070,7 @@ redraw_cache_line
  MOV R1,#13
  BL calle_init$l
  LDR R5,[R8,#w_format]		; line format
- TST R5,#1<<8			; is line number required
+ TST R5,#format_ShowLineNumbers
  BEQ re1			; if not then re1
  BL get_linenumber
  BCS re1			; none to draw
@@ -2439,12 +2444,10 @@ linenumbercolons
 ;X the coords changed to os and area redrawn (using update window) #
 
 update_area
- STMFD R13!,{R1-R3,R14}
+ FNJSR "R1-R4"
  LDR R2,[R1,#4]			; xmin
  LDR R3,[R1,#8]			; ymin
  BL ccd_xyline_xyos
- ;CMP R2,#16
- ;MVNLE R2,#16			; hmm. serious. doesn't work...
  STR R2,[R1,#4]			; new xmin
  MOV R14,R3			; new ymax
  LDR R2,[R1,#12]		; xmax
@@ -2453,24 +2456,15 @@ update_area
  CMP R2,R3
  LDR R3,[R1,#16]		; ymax
  STR R14,[R1,#16]		; new ymax ...???
- BCS a_special_case
+ MOVLO R4,#0
+ FNLDR R4,wimp_rightgap,HS
  BL ccd_xyline_xyos
- ;CMP R2,#32
- ;ADDCS R2,R2,#16		; tt kludge :(
+ ADD R2,R2,R4
  STR R2,[R1,#12]		; new xmax
  STR R3,[R1,#8]			; new ymin
  BL update_window		; update window
 ; SWIVC &107
- LDMFD R13!,{R1-R3,PC}
-
-a_special_case
- ; SWI &107
- BL ccd_xyline_xyos
- ADD R2,R2,#16			; tt kludge :(
- STR R2,[R1,#12]		; new xmax
- STR R3,[R1,#8]			; new ymin
- BL update_window		; update window
- LDMFD R13!,{R1-R3,PC}
+ FNRTS
 
 ;E R1=window blk of area in os (handle ...) R8/R9
 ;X window area updated using Wimp_UpdateWindow #
