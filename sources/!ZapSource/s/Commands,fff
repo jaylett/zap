@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.19 2002/11/10 22:49:01 christian Exp $
+; $Id: Commands,fff,v 2.20 2002/11/13 16:12:05 christian Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -4868,6 +4868,15 @@ return_set$l
 
 ; Darren's conditional-related commands start here...
 
+; following stored in if_bits + (if_count * 8)
+if_TypeShift	*	28		;
+if_type_If	*	0               ; looping types stores in top bits
+if_type_Repeat	*	1               ;
+if_type_While	*	2               ;
+if_type_Case	*	3               ;
+
+if_WhenMatched	*	1<<27
+
 	LOCAL
 
 checklearn			; are we going through any REPEAT loop
@@ -4879,7 +4888,7 @@ learn$l	TEQ	R2,R3
 	LDRNE	R14,[R1,R2,LSL #3]
 	FNRTS	EQ
 	ADD	R2,R2,#1
-	MOV	R0,R14,LSR #28
+	MOV	R0,R14,LSR #if_TypeShift
 	TEQ	R0,#1
 	TEQNE	R0,#2
 	BNE	learn$l
@@ -4898,7 +4907,7 @@ loop$l	SUB	R2,R2,#1
 	TEQ	R2,R3
 	LDRNE	R0,[R1,R2,LSL #3]
 	FNRTS	EQ
-	MOV	R0,R0,LSR #28
+	MOV	R0,R0,LSR #if_TypeShift
 	CMP	R0,#1
 	RSBHSS	R14,R0,#3
 	BLO	loop$l
@@ -4913,10 +4922,10 @@ checktrue		; is the most recent IF/WHILE/WHEN/DEFAULT true?
 if$l	SUBS	R2,R2,#1
 	LDRPL	R14,[R1,R2,LSL #3]
 	MOVMI	R14,#1
-	MOV	R3,R14,LSR #28
-	TEQ	R3,#0
-	TEQNE	R3,#2
-	TEQNE	R3,#3
+	MOV	R3,R14,LSR #if_TypeShift
+	TEQ	R3,#if_type_If
+	TEQNE	R3,#if_type_While
+	TEQNE	R3,#if_type_Case
 	BNE	if$l
 	TST	R14,#1
 	FNRTS
@@ -4933,15 +4942,15 @@ If
 	BL	checktrue
 	BEQ	skip$l
 noskip$l
-	MOV	R1,#0
+	MOV	R1,#0			; 'return an int'
 	BL	evaluate_string
 	FNRTS	VS
 	MOVS	R0,R1
-	FNLDR	R2,if_count
-	MOVNE	R0,#1
+	FNLDR	R2,if_count		; current nesting level
+	MOVNE	R0,#1			; either 0 or 1
 	CMP	R2,#if_limit
 	FNLDR	R1,if_bits,LO
-	STRLO	R0,[R1,R2,LSL #3]
+	STRLO	R0,[R1,R2,LSL #3]	; keep truth
 	ADDLO	R2,R2,#1
 	FNSTR	R2,if_count,LO
 	FNRTS	LO
@@ -5012,14 +5021,14 @@ Repeat
 	FNLDR	R2,if_count
 	CMP	R2,#if_limit
 	FNLDR	R1,if_bits,LO
-	ORRLO	R4,R4,#1<<28
+	ORRLO	R4,R4,#if_type_Repeat << if_TypeShift
 	STRLO	R4,[R1,R2,LSL #3]
 	ADDLO	R2,R2,#1
 	FNSTR	R2,if_count,LO
 	MOVLO	R0,#0
 	MOVLO	PC,R14
 	ADR	R0,toomanyIFs_etc
-	ORREQ	PC,R14,#1<<28
+	ORREQ	PC,R14,#Vbit
 
 
 	LOCAL
@@ -5039,7 +5048,7 @@ noskip$l
 	ORRNE	R3,R3,#1
 	CMP	R2,#if_limit
 	FNLDR	R1,if_bits,LO
-	ORRLO	R3,R3,#2<<28
+	ORRLO	R3,R3,#if_type_While << if_TypeShift
 	STRLO	R3,[R1,R2,LSL #3]!
 	STRLO	R4,[R1,#4]
 	ADDLO	R2,R2,#1
@@ -5069,12 +5078,12 @@ noskip$l
 	CMP	R2,#if_limit-1
 	ADRHS	R0,toomanyIFs_etc
 	FNRTV	HS
-	MOV	R1,#256
+	MOV	R1,#256			; max string length
 	BL	evaluate_string
 	FNLDR	R3,if_bits,VC
-	ORRVC	R0,R0,#3<<28
+	ORRVC	R0,R0,#if_type_Case << if_TypeShift
 	ADDVC	R3,R3,R2,LSL #3
-	STMVCIA	R3,{R0,R1}
+	STMVCIA	R3,{R0,R1}		; store string + flags and length
 	ADDVC	R2,R2,#1
 	FNSTR	R2,if_count,VC
 	FNRTS
@@ -5107,7 +5116,7 @@ Else
 	&	7+c_Conditional
 Endif
 	FNJSR
-	FNLDR	R0,if_skip
+	FNLDR	R0,if_skip		; current nested IFs to ignore
 	SUBS	R0,R0,#1
 	FNSTR	R0,if_skip,PL
 	FNRTS	PL
@@ -5280,9 +5289,9 @@ When_internal
 	BIC	R5,R5,#&FC000003
 	BL	compare_in
 	FNRTS	VS
-	LDR	R2,[R1,#-8]
-	BIC	R2,R2,#1
-	ORREQ	R2,R2,#&08000001
+	LDR	R2,[R1,#-8]		; get flags
+	BIC	R2,R2,#1		; clear truth bit
+	ORREQ	R2,R2,#if_WhenMatched + 1 ; set truth flag if matched
 	STR	R2,[R1,#-8]
 	FNRTS
 
@@ -5300,7 +5309,7 @@ Default
 	FNLDR	R2,if_count
 	ADD	R1,R1,R2,LSL #3
 	LDR	R2,[R1,#-8]
-	TST	R2,#&08000000
+	TST	R2,#if_WhenMatched	; see if any previous Whens matched
 	BIC	R2,R2,#1
 	ORREQ	R2,R2,#1
 	STR	R2,[R1,#-8]
@@ -5368,7 +5377,7 @@ pop$l
 	CMP	R5,R1
 	FNRTS	LT
 	LDR	R0,[R4,R5,LSL #3]
-	MOV	R14,R0,LSR #28
+	MOV	R14,R0,LSR #if_TypeShift
 	TEQ	R14,R3
 	FNRTS	EQ
 	TEQ	R14,#3
@@ -5391,9 +5400,9 @@ popblock
 	FNRTS	LT
 	FNSTR	R5,if_count
 	LDR	R0,[R4,R5,LSL #3]
-	MOV	R14,R0,LSR #28
-	TEQ	R14,#3
-	BICEQ	R0,R0,#&FC000003
+	MOV	R14,R0,LSR #if_TypeShift
+	TEQ	R14,#if_type_Case
+	BICEQ	R0,R0,#&FC000003	; free string
 	BLEQ	heap_free
 	FNRTS
 
@@ -5589,10 +5598,10 @@ typecheck
 	ADRLT	R0,nomatching$l
 	BLT	fail$l
 	FNLDR	R2,if_bits
-	LDR	R2,[R2,R3,LSL #3]
-	TEQ	R1,R2,LSR #28
+	LDR	R2,[R2,R3,LSL #3]	; get value + type flags
+	TEQ	R1,R2,LSR #if_TypeShift
 	FNRTVC	EQ
-	MOV	R1,R2,LSR #28
+	MOV	R1,R2,LSR #if_TypeShift
 	ADR	R0,required$l
 	ADD	R1,R1,#4
 fail$l	ADR	R14,cmd$l
@@ -6180,7 +6189,7 @@ gotdata$l			; R0=command data
  BICS R0,R0,#&FC000003
  TSTNE R2,#1<<30
  MOVNE R6,R0
- MOV R4,R9			; save file
+ MOV R4,R9			; keep file
  CMN R10,#0
  BLNE get_input_caret		; may have changed due to the op
  MOVCS R9,R4
@@ -6238,9 +6247,9 @@ freecase$l
  CMP R5,R1
  BLT freedcase$l
  LDR R0,[R4,R5,LSL #3]
- MOV R14,R0,LSR #28
- TEQ R14,#3
- BICEQ R0,R0,#&FC000003
+ MOV R14,R0,LSR #if_TypeShift
+ TEQ R14,#if_type_Case
+ BICEQ R0,R0,#&FC000003		; free string
  BLEQ heap_free
  B freecase$l
 freedcase$l
