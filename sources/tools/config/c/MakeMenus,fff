@@ -1,6 +1,6 @@
 /* MakeMenus.c
    Convert Zap menus source files into a form suitable for use by Zap.
-   Copyright (C) 1999 Darren Salt
+   Copyright (C) 1999, 2000 Darren Salt <ds@zap.uk.eu.org>
    All rights reserved.
 
    Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,7 @@
 /* Written by Darren Salt <ds@youmustbejoking.demon.co.uk>.  */
 
 #define PROGRAM "MakeMenus"
-#define VERSION "0.1.7"
+#define VERSION "0.1.8"
 
 #include "system.h"
 
@@ -193,7 +193,7 @@ help (void)
 "Translate menu name tokens '.foo' in Zap menus files to menu numbers.\n"
 "Use \"-\" for standard input or output.\n"
 "\n"
-"  -D --define=LABEL     define a preprocessor label\n"
+"  -D, --define=LABEL    define a preprocessor label\n"
 "  -Z, --zap-main-menus  the input file is the main Zap menus source file\n"
 "  -O, --old-menu-format create a menus file suitable for Zap 1.40\n"
 "  -o, --output=FILE     create a menus file suitable for Zap 1.40\n"
@@ -921,7 +921,7 @@ preprocessor (const char *op, if_type if_flag)
 static void
 read_menus (if_type if_flag)
 {
-  int i, dash;
+  int i, dash = 0;
   char *s;
 
   while (file < end)
@@ -947,9 +947,9 @@ read_menus (if_type if_flag)
 	      if (!i)
 		goto unrecognised;	/* must be last thing on line */
 	      if (!this_menu->last) {
-	        if (dash)
+		if (dash)
 		  error_tb (2, "dashed line found at menu start");
-	        dash = 1;
+		dash = 1;
 		break;
 	      }
 	      if (this_menu->last->type != LINE)
@@ -1006,6 +1006,7 @@ read_menus (if_type if_flag)
 	  labels[i].aliases = 1;
 	  if (i == labels_used)
 	    labels_used++;
+	  dash = 0;
 	  skipspcs ();
 	  this_menu->title = readstring ();
 	  string_length (this_menu->title, 12);
@@ -1211,7 +1212,7 @@ main (int argc, char *argv[])
 	}
       else
 #endif
-        process ();
+	process ();
       infile = argv[optind++];
     }
   while (infile);
@@ -1287,12 +1288,15 @@ main (int argc, char *argv[])
   {
     time_t date;
     time (&date);
-    i = NUM_MENUS;
-    /* find last used menu */
-    while (i && menus[--i].lineno == 0) ;
-    fprintf (fd, "| File generated on %s\n"
-	     "| Number of valid menu handles\n%i\n", ctime (&date), i + 1);
+    fprintf (fd, "| File generated on %s\n| Arguments:", ctime (&date));
   }
+  i = 1;
+  while (i < argc)
+    fprintf (fd, " %s", argv[i++]);
+  i = NUM_MENUS;
+  /* find last used menu */
+  while (i && menus[--i].lineno == 0) ;
+  fprintf (fd, "\n\n| Number of valid menu handles\n%i\n", i + 1);
   if (ferror (fd))
 write_error:
     error (2, errno, "write error");
