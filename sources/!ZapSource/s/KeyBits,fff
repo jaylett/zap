@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.13 1999/05/24 23:27:17 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.14 1999/06/09 00:10:27 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -37,9 +37,11 @@
  EXPORT add_key_entry
  EXPORT get_key_entry
  EXPORT find_key_entry
+ EXPORT find_key_table_number
  EXPORT find_key_table
  EXPORT find_key_table_by_name
  EXPORT init_basemap
+ EXPORT get_basemap
  EXPORT process_key
  EXPORT test_shiftctrl
  EXPORT process_a_key
@@ -683,10 +685,8 @@ find_key
  FNJSR "R1-R5"
  MOV R3,R0			; save key command data
  FNLDR R0,key_default		; default key map (for menus)
- BL find_key_table
- TEQ R0,#0
- MVNEQ R0,#0			; not found
- FNRTS EQ
+ BL find_key_table_maybe_name
+ FNRTS MI			; not found
  LDR R1,[R0,#8]			; first char
  LDR R2,[R0,#12]		; last char
  LDR R4,[R0,#4]			; table address
@@ -1093,9 +1093,8 @@ rk_keymapdef
 	MOV	R5,#1
 find$l	MOV	R0,R5
 	BL	find_key_table
-	TEQ	R0,#0
-	ADDNE	R5,R5,#1
-	BNE	find$l
+	ADDPL	R5,R5,#1
+	BPL	find$l
 	CMP	R5,#256
 	BLHS	toomany$l
 	BLVC	rk_keymap_getname
@@ -1117,8 +1116,7 @@ find$l	MOV	R0,R5
 	MOV	R4,#32
 	BL	strmove		; copy its name & terminate with NUL
 	FNLDR	R0,wimp_kbdbuf
-	BL	find_key_table_by_name ; ...yes - find its number
-	TEQ	R0,#0
+	BL	find_key_table_number
 	BMI	nobase$l
 	FNRTS	VS
 gotbase$l
@@ -1845,15 +1843,22 @@ notfound$l
  FNRTS
 
 ;E R0->table name or =table number
-;X R0=table number or -ve if no match (nonexistent)
+;X R0=table number / -ve if none
+;  (also PL if found, MI if not)
+find_key_table_number
+	FNJSR
+	BL	find_key_table_maybe_name
+	LDRPL	R0,[R0]
+	FNRTS
+
+;E R0->table name or =table number
+;X R0=table info block pointer / 0 if none
+;  (also PL if found, MI if not)
 
 find_key_table_maybe_name
 	CMP	R0,#256
 	BHS	find_key_table_by_name
-	FNJSR
-	BL	find_key_table
-	LDRPL	R0,[R0]
-	FNRTS
+;	B	find_key_table
 
  LOCAL
 
@@ -1873,7 +1878,8 @@ loop$l
  FNRTS
 
 ;E R0->table name
-;X R0=table number or -ve if no match
+;X R0=table info block pointer / 0 if none
+;  (also PL if found, MI if not)
 
 	LOCAL
 
@@ -1883,6 +1889,7 @@ find_key_table_by_name
 	FNLDR	R4,key_maplist
 loop$l	LDR	R0,[R4],#20
 	TEQ	R0,#0
+	MOVMI	R0,#0
 	FNRTS	MI
 	LDR	R2,[R4,#-4]
 	MOV	R1,R3
@@ -1890,7 +1897,7 @@ loop$l	LDR	R0,[R4],#20
 	BEQ	loop$l
 	BL	strCMP
 	BNE	loop$l
-	LDR	R0,[R4,#-20]
+	SUBS	R0,R4,#20
 	FNRTS
 
 
@@ -1900,38 +1907,25 @@ loop$l	LDR	R0,[R4],#20
 ;X Base map, current map, help map, default map set up for current mode
 
 init_basemap
- FNJSR "R0-R2"
- ADR R0,basemap$l
- BL get_mode_variable
- BEQ nomap$l			; no basemap variable - use default
- BL find_key_table_by_name
- BVC setmap$l
-nomap$l
- MOVVC R1,#0			; 0 if no map name
- MOVVS R1,#1			; 1 if error
- FNLDR R0,key_default
- BL find_key_table_maybe_name
- MOVMI R0,#0			; set to 0 if default basemap is bad
- MOVMI R1,#1
- TEQ R1,#0
- BEQ setmap$l
- MVN R1,#0
- ADR R2,warn$l
- MOV R3,R8
- BL call_back
- MOV R0,#0
+	FNJSR	"R0-R2"
+	BL	get_basemap
+	TEQ	R1,#0
+	BEQ	setmap$l
+	MVN	R1,#0
+	ADR	R2,warn$l
+	MOV	R3,R8
+	BL	call_back
+	MOV	R0,#0
 setmap$l
- STRB R0,[R8,#w_basemap]
- STRB R0,[R8,#w_currentmap]
- STRB R0,[R8,#w_helpmap]
- STRB R0,[R8,#w_defaultmap]
- FNRTSS
-warn$l
- FNJSR "R8-R10"
- MOV R8,R11
- BL bad_keymap
- FNRTS
-basemap$l =	"Basemap",0
+	STRB	R0,[R8,#w_basemap]
+	STRB	R0,[R8,#w_currentmap]
+	STRB	R0,[R8,#w_helpmap]
+	STRB	R0,[R8,#w_defaultmap]
+	FNRTSS
+warn$l	FNJSR	"R8-R10"
+	MOV	R8,R11
+	BL	bad_keymap
+	FNRTS
 
 ;X R0,R1 corrupt; warning displayed
 
@@ -1944,6 +1938,26 @@ bad_keymap
 b$l	=	"zap_UnkKeymap",0
 	ALIGN
 
+;E R8
+;X R0=basemap R1=0 / R0=0 R1=1
+
+get_basemap
+	FNJSR
+	ADR	R0,basemap$l
+	BL 	get_mode_variable
+	BEQ	nomap$l			; no basemap variable - use default
+	BL 	find_key_table_number
+	MOVVC	R1,#0
+	FNRTS	VC
+nomap$l	MOVVC	R1,#0			; 0 if no map name
+	MOVVS	R1,#1			; 1 if error
+	FNLDR	R0,key_default
+	BL 	find_key_table_number
+	MOVMI	R1,#1
+	TEQ	R1,#0
+	MOVNE	R0,#0
+	FNRTS
+basemap$l =	"Basemap",0
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; P R O C E S S	  K E Y	  S U B S			       ;

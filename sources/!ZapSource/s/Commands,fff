@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.33 1999/06/06 22:36:22 ds Exp $
+; $Id: Commands,fff,v 1.1.2.34 1999/06/09 00:10:22 ds Exp $
 
 c_Conditional	* (1<<21)
 
@@ -815,12 +815,12 @@ Basemapn
 	BEQ	keymap_name
 	TEQ	R2,#6
 	BEQ	prompt$l
-	BL	find_key_table_by_name
+	BL	find_key_table_number
 	TEQ	R2,#15
 	BEQ	tick_keymap
 	TEQ	R0,#0
 	LDMFD	R13!,{R14}
-	BPL	basemap_entry
+	BNE	basemap_entry
 	B	bad_keymap
 prompt$l
 	ADR	R0,s$l
@@ -2869,7 +2869,7 @@ Keymap
  SUB R1,R1,#1
  LDR R0,[R0,R1,LSL#2]		; last word in list
  MOV R1,R0
- BL find_key_table
+ BL find_key_table_number
  BMI bad_keymap_jump
  STRPLB R1,[R8,#w_currentmap]
  STRPLB R1,[R8,#w_helpmap]
@@ -2893,8 +2893,7 @@ Keymapn
 	LDREQB	R0,[R8,#w_currentmap]
 	STMFD	R13!,{R14}
 	BEQ	keymap_name
-	BL	find_key_table_by_name
-	TEQ	R0,#0
+	BL	find_key_table_number
 	STRPLB	R0,[R8,#w_currentmap]
 	STRPLB	R0,[R8,#w_helpmap]
 	LDMPLFD	R13!,{PC}
@@ -3581,6 +3580,7 @@ Mode
  BEQ a$l
  TEQ R2,#20
  BEQ b$l
+Mode_entry
  TEQ R2,#19
  BEQ c$l
  TEQ R2,#0
@@ -3633,7 +3633,7 @@ get_mode_number
 
  LOCAL
 
- DCD 7+c_Param_String+c_PreMinibuffer+c_CommandAndFunction+c_MovesInputOrKeymap
+ DCD 7+c_Param_String+c_PreMinibuffer+c_TickableMenuEntry+c_SpecifiesSubMenu+c_CommandAndFunction+c_MovesInputOrKeymap
 Moden
  TEQ R2,#23
  BEQ Moden_fn
@@ -3641,16 +3641,16 @@ Moden
  ADREQ R0,s$l
  BEQ minibuffer_prompt_token
  FNJSR
- BL find_mode_number		; find mode + load module
+ ADR R14,ret$l
+ TEQ R2,#0
+ BEQ find_mode_number		; find mode + load module
+ B test_mode_name		; find mode, don't load
+ret$l
  FNRTS VS
  CMP R0,#0
- FNRTS LT			; no mode found
- TEQ R8,#0
- FNLDRB R1,opt_format,EQ
- LDRNEB R1,[R8,#w_format]	; mode number
- TEQ R0,R1
- BLNE new_mode			; only change if to different mode
- FNRTS
+ BGE Mode_entry
+ MOV R0,#0
+ FNRTS				; no mode found
 s$l
  = "zap_p_moden",0
  ALIGN
