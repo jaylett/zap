@@ -36,11 +36,11 @@
 
 OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/CreateWind o/AlterTxt o/Search o/Commands o/Execute \
-		  o/Update o/Mode0 o/Mode1 o/Mode2 o/Mode3 o/Mode4 o/Mode4dis \
+		  o/Update o/Mode0 o/Mode1+2 o/Mode3 o/Mode4 o/Mode4dis \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
 		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
-		  o/ModuleBits
+		  o/ModuleBits o/TMFs
 
 # You may need to change some of the following if your system is different
 # to mine. (Link and Asm need to point to as_ro and link_ro, whatever
@@ -53,8 +53,8 @@ asmflags	= -objasm -nolocal -upper -pedantic -o $@
 linkflags	= -o o/tmplink -B 0 -bin
 
 # Bits we use to grab the build parameter to make ...
-#__BUILD		= "-DBUILD=$(BUILD)"
-#NEWBUILD	= BUILD=$(BUILD)
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
 
 # We need rm, but it's almost always the same. You may need to change
 # this on dubious Unixoids so we're using GNU rm instead of the vendor
@@ -75,7 +75,8 @@ timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
 t/%:		s/%,fff
 		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
 
-o/%:		s/%,fff
+# Always rebuild when ZapHeader changes ...
+o/%:		s/%,fff h/ZapHeader,fff
 		$(asm) $(asmflags) $(__BUILD) $<
 
 # Final target:
