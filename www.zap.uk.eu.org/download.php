@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.12 2003/05/21 18:24:22 ds Exp $
+  // $Id: download.php,v 1.13 2003/05/22 08:34:38 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -68,7 +68,7 @@ Development release sites
 <p>Version 1.45 of Zap was released on 6th November 2002.
 <?php
   $release='1.45';
-  $patch=''
+  $patch='';
   $patchdir='latest';
 
 if ($patch) {
@@ -276,5 +276,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2003/05/21 18:24:22 $');
+  zap_body_end ('$Date: 2003/05/22 08:34:38 $');
 ?>
