@@ -80,9 +80,13 @@ o/%:		s/%,fff
 
 # Final target:
 
-Zap:		tmplink
+Zap:		objdirs tmplink
 		$(timestamp) < o/tmplink > Zap,ffa
-		
+
+objdirs:
+		mkdir o
+		mkdir t
+
 tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
 		$(link) $(linkflags) $(OBJECTS)
 
