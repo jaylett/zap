@@ -1,5 +1,5 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.6.2.6 2001/07/08 20:18:05 ds Exp $
+; $Id: VDURedraw,fff,v 1.6.2.7 2001/11/10 01:21:44 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -140,8 +140,9 @@ end$l
  BLHS lose_vdu_fonts		; lose them if not from our handle
  LDR R0,[R10,#r_workarea]
  TEQ R0,#0
- MOVEQ R0,R11
- BLEQ cache_free		; free workarea if in cache
+ MOVNE R11,#0
+ MOVS R0,R11
+ BLNE cache_free		; free workarea if in cache and we have some
  MOVS R0,R9			; restore error pointer, if any
  FNRTS EQ
  FNRTV
@@ -210,9 +211,11 @@ notcreatedalready$l
 ; E r10 -> redraw block
 ; X r1 contains value for a_ext2
 get_vdu_fonts
- LDR R1,[R10,#r_caddr]
- CMP R1,#&8000
- MOVLO PC,R14			; already done in handle_to_name
+ LDR R3,[R10,#r_caddr]
+ CMP R3,#0			; (NOT a font handle, system font) - sets C
+ CMPNE R3,#&8000
+ MOVCC PC,R14			; alrady done in handle_to_name
+ MOV R0,R3			; name pointer
 				; FALL THROUGH
  LOCAL
 

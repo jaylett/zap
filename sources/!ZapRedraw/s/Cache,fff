@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.1.2.1 2001/06/11 22:36:08 ds Exp $
+; $Id: Cache,fff,v 1.1.2.2 2001/11/10 01:21:44 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -141,7 +141,7 @@ ok$l		SUBS	R2,R2,#1
 		BNE	loop$l
 		MOV	PC,R14
 
-maybe$l		LDR	R3,[R1,#fb_usage]
+maybe$l		LDR	R3,[R3,#fb_usage]
 		TEQ	R3,#0
 		BEQ	ok$l
 
@@ -285,17 +285,17 @@ err$l		ERROR	err_nohandles,"NoHandles"
 
 
 ; get font block from a handle
-; E r0 = handle
-; X r1 -> font block
-get_font_block	FNJSR	"R2"
-		MOV	R2,R0,LSR #8
-		CMP	R2,#handles+1
-		RSBLOS	R1,R2,#0
+; E r0 = handle  r12
+; X r2 -> font block
+get_font_block	FNJSR	"R1"
+		MOV	R1,R0,LSR #8
+		CMP	R1,#handles+1
+		RSBLOS	R2,R1,#0
 		BHS	bad$l				; out of range
 
-		ADD	R1,R12,#font_handles-4
-		LDR	R1,[R1,R2,LSL #2]
-		TEQ	R1,#0				; not found
+		ADD	R2,R12,#font_handles-4
+		LDR	R2,[R2,R1,LSL #2]
+		TEQ	R2,#0				; not found
 		FNRTS	NE
 
 bad$l		FNPULL
@@ -307,13 +307,12 @@ error_badhandle	ERROR	err_badhandle, "BadHandle"
 ; lose a font
 ; E r0 = handle
 ; X
-lose_font	FNJSR	"R1-R2,R10-R11"
-		MOV	R11,R0
-		BL	get_font_block
+lose_font	FNJSR	"R1-R2"
+		BL	get_font_block			; in R2
 		FNRTS	VS
-		LDR	R2,[R1,#fb_usage]
-		SUBS	R2,R2,#1
-		STRPL	R2,[R1,#fb_usage]
+		LDR	R1,[R2,#fb_usage]
+		SUBS	R1,R1,#1
+		STRPL	R1,[R2,#fb_usage]
 		FNRTS	PL
 		FNPULL
 		B	error_badhandle
@@ -343,7 +342,7 @@ not$l		SUBS	R3,R3,#1
 		BL	cache_compact			; remove free space
 		FNRTS
 
-                LOCAL
+		LOCAL
 
 
 ; free a font block, its name and all substyles
@@ -494,7 +493,7 @@ loop$l		LDR	R2,[R1],#4
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; scan vdu font blocks for a matching font with identical sizes
-; E r0 -> font name / 0   r2 = x size   r3 = aspect ratio  r4 -> shave block
+; E r0 -> font name / 0	  r2 = x size	r3 = aspect ratio  r4 -> shave block
 ; X Z set if match and r1 = internal handle and r2 -> font block   r0 preserved
 scan_vdu_fonts	FNJSR	"R5,R9-R11"
 		MOV	R11,R2
@@ -518,18 +517,18 @@ loop$l		ADD	R3,R3,#1
 		TEQ	R1,R11
 		LDREQ	R1,[R2,#fb_aspect]
 		TEQEQ	R1,R10
-                LDREQ	R1,[R2,#fb_shavel]
-                LDREQ	R5,[R9,#0]
-                TEQEQ	R1,R5
-                LDREQ	R1,[R2,#fb_shavet]
-                LDREQ	R5,[R9,#4]
-                TEQEQ	R1,R5
-                LDREQ	R1,[R2,#fb_shaver]
-                LDREQ	R5,[R9,#8]
-                TEQEQ	R1,R5
-                LDREQ	R1,[R2,#fb_shaveb]
-                LDREQ	R5,[R9,#12]
-                TEQEQ	R1,R5
+		LDREQ	R1,[R2,#fb_shavel]
+		LDREQ	R5,[R9,#0]
+		TEQEQ	R1,R5
+		LDREQ	R1,[R2,#fb_shavet]
+		LDREQ	R5,[R9,#4]
+		TEQEQ	R1,R5
+		LDREQ	R1,[R2,#fb_shaver]
+		LDREQ	R5,[R9,#8]
+		TEQEQ	R1,R5
+		LDREQ	R1,[R2,#fb_shaveb]
+		LDREQ	R5,[R9,#12]
+		TEQEQ	R1,R5
 		BNE	loop$l
 		LDR	R2,[R4,#-4]			; got it - point to block
 		MOV	R1,R3				; and return handle
@@ -548,7 +547,7 @@ new_vdu_font_block
 		BL	find_free_handle
 		MOVVC	R9,R0
 		MOVVC	R10,R1
-                FNRTS	VS
+		FNRTS	VS
 
 		TEQ	R11,#0
 		BEQ	syst$l
@@ -569,8 +568,8 @@ syst$l		MOV	R0,#fb_vdulength
 		STR	R0,[R10]			; store in handle bucket
 		MOV	R3,#1
 		STR	R3,[R0,#fb_usage]		; 1 user
-                MOV	R3,#ff_vdu
-                STR	R3,[R0,#fb_flags]
+		MOV	R3,#ff_vdu
+		STR	R3,[R0,#fb_flags]
 
 		STR	R11,[R0,#fb_name]		; store pointer to name
 
@@ -599,8 +598,8 @@ fill_in_vdu_font_block
 		MOV	R11,R0				; keep font block
 
 		LDR	R0,[R11,#fb_name]
-                TEQ	R0,#0
-                BEQ	syst$l				; system font
+		TEQ	R0,#0
+		BEQ	syst$l				; system font
 
 		LDR	R2,[R11,#fb_xsize]
 		LDR	R10,[R11,#fb_aspect]
@@ -634,28 +633,28 @@ syst$l		MOV	R10,R0
 		MOV	R1,R12				; get fake redraw block
 		STR	R3,[R1,#r_charw]
 		STR	R4,[R1,#r_charh]
-                MOV	R0,#1
-                BL	sprite_size
-                BLVC	cache_alloc
-                FNRTS	VS
-                STR	R0,[R12,#r_workarea]
-                MOV	R0,#&81
-                BL	sprite_size
-                ADD	R0,R0,#a_topofvars+64		; /WHY/ doesn't SpriteSize do this?
-                STR	R0,[R11,#fb_spritesize]		; (+64 for luck)
-                LDR	R0,[R12,#r_workarea]
-                BL	cache_free
+		MOV	R0,#1
+		BL	sprite_size
+		BLVC	cache_alloc
+		FNRTS	VS
+		STR	R0,[R12,#r_workarea]
+		MOV	R0,#&81
+		BL	sprite_size
+		ADD	R0,R0,#a_topofvars+64		; /WHY/ doesn't SpriteSize do this?
+		STR	R0,[R11,#fb_spritesize]		; (+64 for luck)
+		LDR	R0,[R12,#r_workarea]
+		BL	cache_free
 
 		PUSH	"R11"
 		LDR	R0,[R11,#fb_name]
-                LDR	R1,[R11,#fb_xsize]
-                LDR	R2,[R11,#fb_aspect]
-                MOV	R1,R1,LSR #4			; / 16
-                ORR	R1,R1,R2,LSL #16
-                ADD	R11,R12,#buffer
-                STR	R11,[R12,#r_workarea]		; restore r_workarea
+		LDR	R1,[R11,#fb_xsize]
+		LDR	R2,[R11,#fb_aspect]
+		MOV	R1,R1,LSR #4			; / 16
+		ORR	R1,R1,R2,LSL #16
+		ADD	R11,R12,#buffer
+		STR	R11,[R12,#r_workarea]		; restore r_workarea
 		STR	R1,[R11,#a_x1]
-                MOV	R10,R12
+		MOV	R10,R12
 		MOV	R2,#rf_substyles		; find all substyles
 		BL	find_vdu_fonts			; corrupts r8
 		PULL	"R11"
@@ -1085,7 +1084,7 @@ check_file_exists
 add_font_suffix	FNJSR	"R1,R7-R11"
 		MOV	R11,R1
 
-		AND	R10,R0,#1   			; try to get a sensible order
+		AND	R10,R0,#1			; try to get a sensible order
 		ORR	R10,R10,R0,LSR #4		; for the substyle bits
 		AND	R10,R10,#substyles-1
 
@@ -1122,7 +1121,7 @@ loop$l		ADR	R8,masks$l
 
 		LDR	R0,[R11,R8,LSL #2]
 		TEQ	R0,#0
-		MOVEQ	R0,#-1                          ; store -1 in substyle pointer if
+		MOVEQ	R0,#-1				; store -1 in substyle pointer if
 		STREQ	R0,[R11,R8,LSL #2]		; not available
 
 		ADD	R1,R12,#buffer
@@ -1228,7 +1227,7 @@ fromsystem$l	MOV	R1,R11
 		MOV	R1,R11
 		MOV	R0,R10				; source block
 		BL	convert_font			; convert to manybpp
-                BVS	err$l
+		BVS	err$l
 
 		STR	R2,[R11,#fb_data]		; store in font block
 
@@ -1348,7 +1347,7 @@ done$l		BL	cache_compact
 		FNRTS	EQ
 		FNRTV					; register complaint
 
-                LOCAL
+		LOCAL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1359,8 +1358,8 @@ done$l		BL	cache_compact
 ; E r0 = size of block
 ; X r0 -> block / VS
 cache_alloc	FNJSR	"R1-R5"
-		ADD	R0,R0,#7			; round up and align
-		BIC	R0,R0,#3
+		ADD	R0,R0,#12			; round up and align
+		BIC	R0,R0,#7
 start$l		ADD	R1,R12,#cache_freelist-4
 search$l	LDR	R2,[R1,#4]			; search for a free block
 		TEQ	R2,#0
@@ -1374,8 +1373,8 @@ search$l	LDR	R2,[R1,#4]			; search for a free block
 		CMPNE	R3,#cache_min
 		MOVLSS	R3,#0
 ;		STRNE	R3,[R2]
-		LDREQ	R4,[R2,#4]                      ; remove now 0 size free area from
-		STREQ	R4,[R1,#4]                      ; the list
+		LDREQ	R4,[R2,#4]			; remove now 0 size free area from
+		STREQ	R4,[R1,#4]			; the list
 
 		ADDNE	R4,R2,R0			; otherwise correct size and move
 		STRNE	R4,[R1,#4]			; the free block upwards (we
@@ -1397,7 +1396,26 @@ nope$l		BL	cache_grow
 ; free a block from the cache
 ; E r0 -> block
 ; X r0 - r4 corrupt
-cache_free	SUB	R0,R0,#4
+cache_free
+		[ |zap$| = "ZapX"
+		LDR	R1,[R12,#cache_addr]		; validate block to be freed
+		CMP	R0,R1
+		BLO	bad$l				; too low
+		LDR	R2,[R12,#cache_size]
+		ADD	R1,R1,R0
+		CMP	R0,R1
+		BHS	bad$l				; too high
+		SUB	R1,R0,#4
+		TST	R1,#7
+		BNE	bad$l				; unaligned block
+		LDR	R1,[R0,#-4]
+		TST	R1,#7				; unaligned size
+		BNE	bad$l
+		CMP	R1,#256*1024			; and /should/ be less than this big
+		BHS	bad$l
+		]
+
+		SUB	R0,R0,#4
 
 		ADD	R1,R12,#cache_freelist-4
 loop$l		LDR	R2,[R1,#4]			; get next block
@@ -1432,6 +1450,12 @@ nobottom$l	STR	R0,[R1,#4]			; store pointer to next block
 
 		MOV	PC,R14
 
+		[ |zap$| = "ZapX"
+bad$l		MOV	R0,R14
+		DEBUG	R0
+		MOV	PC,R14
+		]
+
 
 
 ; increase the size of the cache
@@ -1447,9 +1471,9 @@ cache_grow	FNJSR	"R0"				; svc mode
 		FNSTR	R2,cache_size
 
 		FNLDR	R2,cache_addr
-		ADD	R0,R0,R2                        ; store size of new space
+		ADD	R0,R0,R2			; store size of new space
 		STR	R1,[R0],#4
-		BL	cache_free                      ; add it to the free list
+		BL	cache_free			; add it to the free list
 		;FNLDR	R0,cache_freespace
 		;ADD	R1,R0,R1
 		FNRTS
@@ -1463,8 +1487,8 @@ cache_grow	FNJSR	"R0"				; svc mode
 cache_compact	FNJSR	"R8-R11"
 
 		FNLDR	R11,cache_freelist
-                TEQ	R11,#0                          ; no free blocks
-                FNRTS	EQ                              ; so nothing to do
+		TEQ	R11,#0				; no free blocks
+		FNRTS	EQ				; so nothing to do
 
 		MOV	R9,#0				; no bytes recovered yet
 		MOV	R8,R11				; initial destination
@@ -1502,7 +1526,7 @@ done$l		FNSTR	R8,cache_freelist		; create one free block at the top
 		FNRTS	VS				; unlikely
 
 		SUBS	R9,R9,R1
-		STRNE	R9,[R8]         		; if block there store new size
+		STRNE	R9,[R8]				; if block there store new size
 		FNSTR	R9,cache_freelist,EQ		; otherwise no free blocks
 
 		FNLDR	R0,cache_size
@@ -1629,7 +1653,6 @@ handle_to_caddr	FNJSR	"R2-R3,R12"
 
 
 
-; FIXME -- check for invalid font handle
 ; update redraw block for cached chrs
 ; E r0 = handle  r1 -> redraw block
 ; X redraw block updated   r0 corrupt
@@ -1637,9 +1660,8 @@ handle_to_caddr	FNJSR	"R2-R3,R12"
 handle_to_redraw
 		FNJSR	"R1-R5,R12"
 		BL	get_r12
-		ADD	R2,R12,#font_handles-4
-		MOV	R3,R0,LSR #8
-		LDR	R2,[R2,R3,LSL #2]		; get font block
+		BL	get_font_block
+		FNRTS	VS
 		ADDS	R2,R2,#fb_charw
 		LDMIA	R2,{R0,R3-R5}			; read it
 		ADD	R2,R1,#r_charw
@@ -1661,26 +1683,24 @@ handle_to_redraw
 		LOCAL
 
 
-; FIXME -- check for invalid font handle
 ; convert a VDU handle to a font name - watch out for fairly dodgy register allocations
 ; E r10 -> redraw block
 ; X r0 -> font name  r11 -> workarea  (+ r_cbpl r_cbpc r_charw r_charh)
 ;   r1 = a_ext2 value (font mgr handles, only if using ZapRedraw handles)
 ;   r8 = bottom byte of r1 (if using ZapRedraw handles)
 handle_to_name  FNJSR	"R2-R7,R12"
-    		BL	get_r12
+		BL	get_r12
 		LDR	R11,[R10,#r_workarea]		; get workarea
-		ADD	R2,R12,#font_handles-4
 		LDR	R0,[R10,#r_caddr]		; get handle
 		CMP	R0,#&8000
 		FNRTS	HS
 		TEQ	R0,#0				; system font
 		FNRTS	EQ
 		MOV	R7,R0
-		MOV	R6,R0,LSR #8
-		LDR	R2,[R2,R6,LSL #2]		; get font block
-		TEQ	R11,#0
-		BNE	ok$l
+		BL	get_font_block
+		FNRTS	VS
+		TEQ	R11,#0				; workarea provided?
+		BNE	ok$l				; yes -- error?
 		LDR	R0,[R2,#fb_spritesize]
 		BL	cache_alloc
 		FNRTS	VS
@@ -1701,7 +1721,7 @@ ok$l		LDR	R7,[R2,#fb_name]
 		AND	R8,R1,#&FF
 		FNRTS
 
-                LOCAL
+		LOCAL
 
 
 ; ensure we have workarea for DSA mode
@@ -1714,12 +1734,10 @@ check_dsa_workarea
 		FNRTS	NE				; already got some
 		BL	get_r12
 		LDR	R0,[R1,#r_caddr]
-		ADD	R2,R12,#font_handles-4
-		MOV	R3,R0,LSR #8
-		LDR	R2,[R2,R3,LSL #2]		; get font block
-		LDR	R0,[R2,#fb_cbpl]
-		ADD	R0,R0,#a_topofvars
-		BL	cache_alloc
+		BL	get_font_block
+		LDRVC	R0,[R2,#fb_cbpl]
+		ADDVC	R0,R0,#a_topofvars
+		BLVC	cache_alloc
 		STRVC	R0,[R1,#r_workarea]
 		LDRVC	R0,[R1,#r_flags]		; flag we've done it
 		ORRVC	R0,R0,#rf_workarea
@@ -1757,8 +1775,8 @@ remove_dsa_workarea
 ; E r0  =  handle  (if 0 read it from r_caddr)
 ;   r1  -> redraw block (uses [r_caddr] [r_linesp] [r_magx r_maxy])
 ;   r2  =  flags:
-;          0 => return values in OS units for the current mode (else pixels)
-;          1 => add value of r_linesp when calculating y values
+;	   0 => return values in OS units for the current mode (else pixels)
+;	   1 => add value of r_linesp when calculating y values
 ;	   2 => take account of r_flags bits 1 and 5
 ; X r1 preserved,  r2,r3 = x,y values
 read_char_size	FNJSR	"R1,R8-R11"
@@ -1767,11 +1785,11 @@ read_char_size	FNJSR	"R1,R8-R11"
 
 		TEQ	R0,#0
 		LDREQ	R0,[R1,#r_caddr]
-		BL	get_font_block
+		BL	get_font_block			; in R2
 		FNRTS	VS
 
-		LDR	R2,[R1,#fb_charw]
-		LDR	R3,[R1,#fb_charh]
+		LDR	R3,[R2,#fb_charh]
+		LDR	R2,[R2,#fb_charw]
 
 		TST	R11,#1<<1
 		LDRNE	R8,[R10,#r_linesp]
@@ -1804,7 +1822,7 @@ not5$l		TST	R9,#rf_doubleheight
 		LOCAL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;  F O N T   M E N U    H A N D L I N G				;
+;  F O N T   M E N U	H A N D L I N G				;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
