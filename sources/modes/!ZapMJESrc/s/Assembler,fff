@@ -54,6 +54,7 @@ nextfieldflag$L	EQU	1<<8
 charconstflag$L	EQU	1<<9				;  Usually in miscreg, stored in colour
 newlflag$L	EQU	1<<10				;    between calls...
 bslashflag$L	EQU	1<<11				;
+cstringflag$L	EQU	1<<12
 colour$L	RN	r2
 width$L		RN	r3
 format$L	RN	r4
@@ -76,15 +77,18 @@ redrawline$ASM	STMFD	sp!,{r6,r12,lr}
 		STMFD	sp!,{modeblk,wsblk}
 		BL	checkmode
 		LDREQ	colour$L,m_cstate$ASM
+		LDREQ	r1,m_flags1$ASM
 		LDMFD	sp!,{modeblk,wsblk}
 		LDMNEFD	sp!,{r6,r12,pc}
 		LDR	width$L,w_txtw
 		AND	format$L,format$L,#2_11<<12
 		LDRB	miscreg$L,w_cr
+		TST	r1,#m_flags1_cstrings
+		ORRNE	miscreg$L,miscreg$L,#cstringflag$L
 		CMP	colour$L,#-1
-		ANDNE	r1,colour$L,#charconstflag$L
+		ANDNE	r1,colour$L,#charconstflag$L + bslashflag$L
 		ORRNE	miscreg$L,miscreg$L,r1
-		BICNE	colour$L,colour$L,#charconstflag$L
+		BICNE	colour$L,colour$L,#charconstflag$L + bslashflag$L
 		BNE	noreset$L
 		MOV	colour$L,#labelcol$L
 		LDR	apparentfptr$L,f_ptr
@@ -97,9 +101,10 @@ redrawline$ASM	STMFD	sp!,{r6,r12,lr}
 		CMP	ptr$L,splito$L
 		MOVLO	splito$L,apparentfptr$L
 		MOV	output$L,#0
+		AND	r1,miscreg$L,#255
 backloop$L	SUB	output$L,output$L,#1
 		LDRB	r0,[ptr$L],#-1
-		TEQ	r0,miscreg$L
+		TEQ	r0,r1
 		BEQ	found$L
 		CMP	ptr$L,splito$L
 		BHS	backloop$L
@@ -304,7 +309,7 @@ notend2$L	LDRB	r0,[ptr$L]
 afterllchks$L	AND	r0,miscreg$L,#255<<16
 		TEQ	column$L,r0,LSR #16
 		BICNE	colour$L,colour$L,#newlflag$L
-		AND	r0,miscreg$L,#charconstflag$L
+		AND	r0,miscreg$L,#charconstflag$L + bslashflag$L
 		ORR	colour$L,colour$L,r0
 		LDMFD	sp!,{r6,r12}
 		STMFD	sp!,{modeblk,wsblk}
@@ -331,8 +336,9 @@ checkstring$L	TEQ	colour$L,#commentcol$L
 		TEQ	colour$L,#stringcol$L
 		MOVNE	colour$L,#stringcol$L
 		BNE	storechar$L
-		TST	miscreg$L,#bslashflag$L
-		BNE	storechar$L
+		TST	miscreg$L,#cstringflag$L	; if 'C strings' is on, only switch out of
+		TSTNE	miscreg$L,#bslashflag$L         ; strings colour if preceeded by an even
+		BNE	storechar$L                     ; number of \s
 stringstore$L	CMP	output$L,#0
 		ANDGT	r1,colour$L,#15
 		STRGTB	r1,[output$L,width$L]
