@@ -1,5 +1,5 @@
 ; Contains mode entry points for word and similar modes.
-; $Id: Mode1+2,fff,v 1.1.2.2 1999/04/28 19:31:09 ds Exp $
+; $Id: Mode1+2,fff,v 1.1.2.3 1999/05/01 01:00:15 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -1163,20 +1163,22 @@ co30	PULL	"R14"
 	BL	reflect_caret
 	FNRTS
 
+	LOCAL
+
 ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
 mode1_char
 	FNJSR
-	TST	R4,#flags_HexEntry
-	FNRTS	EQ
-	FNLDR	R0,car_hexold
-	FNSTR	R0,car_hex
 	LDRB	R6,[R8,#w_format]
 	ADD	R6,R8,R6,LSL #2
 	LDR	R6,[R6,#w_mode0]
+	TST	R4,#flags_HexEntry
+	BEQ	nothex$l
+	FNLDR	R0,car_hexold
+	FNSTR	R0,car_hex
 in30	TST	R6,#mode1_BinaryNumberDump
 	BNE	in34			; binary
-	LDRB	R0,[R7]
+	LDRB	R0,[R7],#1
 	BL	hex_char
 	BCS	in31			; char no good
 	ADR	R14,k_char_w1
@@ -1290,7 +1292,6 @@ in36					; update caret
 	BL	reflect_caret
 	FNRTS	VS
 in31					; go on to next character
-	ADD	R7,R7,#1
 	SUBS	R5,R5,#1
 	BGT	in30			; do next char
 	BL	make_cursor_visible
@@ -1329,6 +1330,13 @@ in35					; rotate and add new bit
 	B	in33
 
 k_char_w1	DCD	0
+
+nothex$l
+	AND	R14,R6,#mode1_Type
+	TEQ	R14,#mode1_Type_Byte
+	FNRTS	NE
+	FNPULL
+	B	mode3_char
 
 	LOCAL
 
