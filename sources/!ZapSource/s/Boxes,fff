@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 2.14 2002/11/10 01:43:42 christian Exp $
+; $Id: Boxes,fff,v 2.15 2002/11/10 17:30:05 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -525,7 +525,7 @@ converttoarrowiftab
  SUB R0,R5,#&100
  TEQ R0,#&8A ; TAB
  TEQNE R0,#&9A ; sTAB
- MOVNES PC,R14	; !!! ARM32 FIXME
+ MOVNE PC,R14
  TEQ R0,#&8A
  MOVEQ R5,#&8E
  MOVNE R5,#&8F
@@ -679,11 +679,7 @@ reporterr$l
 ; SWI &107			; fires OK...
 ;
  MOV R0,R11
- ADDS R14,R14,#0		; CLC?
- FNPULL
- ORRS PC,R14,#Vbit		; doesn't call c_ret :-(	; !!! ARM32 FIXME
-; ADDS R14,PC,#&FF000000	; set V...
-; B c_ret
+ FNRTV
 
 lc_SaveSel_newexec
  MOV R8,#-1
@@ -1047,8 +1043,7 @@ soonto_c_ret
  MOV R2,#&00
  BL slab_icon_in_temporarily
  MOV R0,R11			; preserve error pointer...
- FNPULL
- ORRS PC,R14,#Vbit		; doesn't call c_ret :-(	; !!! ARM32 FIXME
+ FNRTV
 
  ;BL leaf_update
  ;BL lc_simulate_select_to_close ; Make sure replace dbox closes (TT).
@@ -2436,8 +2431,8 @@ tick$l
 ; X R2->ctrl chars list (byte pairs)
 
 ctrllist
- ADR R2,ctrllist
- MOVS PC,R14	; !!! ARM32 FIXME
+ ADR R2,ctrllist ; wtf?
+ MOV PC,R14
 
 startofsrccntoffs
  DCD 0
@@ -3212,7 +3207,7 @@ cw_Dzap_bigdisk
  FNJSR
  LDR R1,[R6,#84]		; no. of icons
  CMP R1,#33
- FNRTSS LT		; do nothing if no icon 33 (sector addr)
+ FNRTS LT		; do nothing if no icon 33 (sector addr)
  FNLDR R1,wimp_dzap
  LDR R1,[R1,#&28]
  TEQ R1,#2
@@ -4096,7 +4091,7 @@ TotalSel
 	BL	shade_no_sel		; ...?
 	BCS	WCError
 	BL	findtotal$l
-	FNRTSS	VS			; don't report an error, just stop ...
+	FNRTVC	VS			; don't report an error, just stop ...
 ;	MOV	R5,#&100		; the value...
 	MOV	R2,R7
 ;	MOV	R7,#16 ; don't close menu...?!?!?
@@ -4167,7 +4162,7 @@ nofullstops$l
 	ADD	R5,R5,R2		; hopefully...
 	B	start$l
 exit$l	BL	long_op_off		; hourglass off, disable escape
-	FNRTSS				; exit, resetting flags to entrance ...
+	FNRTS				; exit
 stop$l	BL	long_op_off
 	FNRTV				; exit, setting V
 
@@ -4301,9 +4296,10 @@ WCOutput
 	ADD	R3,R2,#WCString_End-WCString-16
 	MOV	R2,R1
 	CMP	R11,#1
-	BLLO	words$l
+	ADRLO	R14,back$l
+	BLO	words$l
 	BLEQ	matches$l
-	BL	lookup_token
+back$l	BL	lookup_token
 
 	; If Zap just wants a window handle, return.
 	; If not, close the menu now ...
@@ -4350,13 +4346,13 @@ words$l
 	TEQ	R5,#1
 	ADREQ	R1,wordone_text$l
 	ADRNE	R1,wordmany_text$l
-	MOVS	PC,R14	; !!! ARM32 FIXME
+	MOV	PC,R14
 
 matches$l
 	TEQ	R5,#1
 	ADREQ	R1,matchone_text$l
 	ADRNE	R1,matchmany_text$l
-	MOVS	PC,R14	; !!! ARM32 FIXME
+	MOV	PC,R14
 
 wordone_text$l		= "zap_wc_word",0
 wordmany_text$l		= "zap_wc_words",0
