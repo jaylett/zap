@@ -1,0 +1,543 @@
+; Contains mode entry points for BASTXT mode.
+; $Id: BAStxt,fff,v 1.1 1999/03/12 10:01:23 james Exp $
+
+ GET h.ZapBasHdr
+ GET h.ZapBasic
+ GET h.basic
+
+ EXPORT bastxt_table_start
+ EXPORT tokenise_program
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; S E C O N D	 B A S I C    M O D E			  ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+bastxt_table_start
+ DCD bastxt_table_start
+ DCD bastxt_title
+ DCD basic_author
+ DCD 0
+ DCD 6
+ DCD bastxt_init
+ DCD 0
+ DCD bastxt_table_end-bastxt_table_start
+
+ DCD bastxt_postload
+ DCD bastxt_presave
+ DCD bastxt_loading
+ DCD bastxt_start
+ DCD bastxt_end
+ DCD bastxt_width
+ DCD 0				;bastxt_linecol
+ DCD 0				;bastxt_lineoff
+ DCD 0				;bastxt_clnlog
+ DCD 0				;bastxt_clnphy
+ DCD 0				;bastxt_clnoff
+ DCD 0				;bastxt_nextline
+ DCD 0				;bastxt_minus
+ DCD 0				;bastxt_plus
+ DCD 0				;bastxt_sminus
+ DCD 0				;bastxt_splus
+ DCD 0				;bastxt_cminus
+ DCD 0				;bastxt_cplus
+ DCD 0				;bastxt_redrawline
+ DCD 0				;bastxt_redrawlnum
+ DCD 0				;bastxt_chars
+ DCD 0				;bastxt_delete
+ DCD 0				;bastxt_tab
+ DCD 0				;bastxt_return
+ DCD 0				;bastxt_renumber
+ DCD basic_saveandrun
+ DCD 0				;bastxt_linestart
+ DCD 0				;bastxt_lineend
+ DCD 0				;bastxt_linenext
+ DCD 0				;bastxt_lineprev
+ DCD 0				;bastxt_copy
+ DCD 0				;bastxt_joinline
+ DCD 0				;bastxt_splitline
+ DCD 0				;bastxt_aligncaret
+ DCD 0				;bastxt_command
+ DCD basic_compile
+ DCD 0				;format text
+ DCD basic_run
+ DCD basic_runandquit
+ DCD basic_basic
+ DCD 0				;bastxt_search
+ DCD 0				;bastxt_replace
+ DCD bastxt_selection
+ DCD 0				;mouse click
+ DCD 0
+ DCD bastxt_setwidth
+ DCD bastxt_listfns
+bastxt_table_end
+
+bastxt_title
+ FNS ("BASTXT")
+
+ LOCAL
+
+bastxt_init
+ TEQ R1,#1
+ BEQ starting$l
+ TEQ R1,#0
+ MOVEQ R0,#-1			; don't die yet
+ MOV PC,R14
+starting$l
+ FNSTR R0,mode_bastxt
+ MOV PC,R14
+
+ LOCAL
+
+bastxt_listfns
+ FNJSR
+ MOV R1,#2
+ FNcall Zap_ReadVar		; get opt_flags
+ MOV R6,R0			; save it
+ ORR R0,R0,#1<<12
+ FNcall Zap_WriteVar		; make search case sensitive
+ ADR R0,def$l			; "DEF" string
+ MOV R1,#1			; to buffer
+ MOV R3,#0			; at start
+ MOV R4,#1			; +ve direction
+ MOV R5,#1<<30			; string + case sensitive
+ FNcall Zap_Search
+ FNRTS VS
+ MOV R0,R6
+ MOV R1,#2
+ FNcall Zap_WriteVar
+ FNRTS
+def$l FNS ("DEF")
+
+bastxt_start
+ FNLDR R0,mode_bastxt
+ B restore_mode_word
+
+bastxt_setwidth
+ FNJSR "R10"
+ FNLDR R10,mode_bastxt
+ BL set_width
+ FNRTS
+
+bastxt_end
+ FNLDR R0,mode_bastxt
+ B save_mode_word
+
+bastxt_width
+ FNJSR "R1"
+ FNLDR R0,mode_bastxt
+ MOV R1,#&0A
+ BL calc_mode_width
+ FNRTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Fast unsplit line detokenisation			     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R3=start of line(+3) R4=end of data
+;X Line detokenised to buf_detoken R3 updated to after 0D
+;  R0=detok len inc 0D/-1 if a bad program/-2 if has a goto #
+;  and R3=posn error ocurred 0D->0A
+
+detokenise_unsplit_line
+ STMFD R13!,{R1-R2,R4-R7,R14}
+ MOV R2,#0			; tokenise flags
+ FNLDR R5,buf_detoken		; buffer pointer
+ ADD R7,R5,#&100		; buffer end
+de24
+ SUBS R0,R7,R5
+ CMP R0,#&10
+ BLT de29			; need to claim more!
+ CMP R3,R4
+ BCS de25			; out of data!
+ LDRB R0,[R3],#1
+ TST R2,#3
+ BNE de26			; don't detokenise
+ CMP R0,#&7F
+ BCS de27			; tokenised
+de26
+ TEQ R0,#&22
+ EOREQ R2,R2,#2			; toggle quite mode
+ STRB R0,[R5],#1
+ TEQ R0,#&0D
+ BNE de24			; not yet at end
+ MOV R0,#&0A
+ STRB R0,[R5,#-1]
+ FNLDR R0,buf_detoken
+ SUB R0,R5,R0			; detokenised len
+ TST R2,#1<<3
+ MVNNE R0,#1			; contains goto's!
+ LDMFD R13!,{R1-R2,R4-R7,PC}
+de27
+ BL detokenise_byte
+ BCC de28			; finished
+ LDRB R14,[R3],#1		; get next byte
+ ORR R0,R0,R14
+ B de27
+de28
+ LDRB R14,[R0],#1
+ TEQ R14,#0
+ STRNEB R14,[R5],#1
+ BNE de28			; copy string
+ B de24
+de29
+ FNLDR R0,buf_detoken
+ SUB R1,R7,R0			; old len
+ SUB R5,R5,R0			; current off
+ ADD R1,R1,#&80
+ FNcall Zap_Ensure		; enlarge
+ LDMVSFD R13!,{R1-R2,R4-R7,PC}
+ FNSTR R0,buf_detoken
+ ADD R7,R1,R0
+ ADD R5,R5,R0
+ B de24				; continue
+de25
+ MVN R0,#0			; bad program
+ LDMFD R13!,{R1-R2,R4-R7,PC}
+
+;E R3=start of line (+3) R5=dest of valid prog
+;X line detokenised & R3,R5 updated, R2 corrupted #
+
+direct_detoken_line
+ FNJSR
+ MOV R2,#0			; tokenise flags
+de44
+ LDRB R0,[R3],#1
+ TST R2,#3
+ BNE de46			; don't detokenise
+ CMP R0,#&7F
+ BCS de47			; tokenised
+de46
+ TEQ R0,#&22
+ EOREQ R2,R2,#2			; toggle quote mode
+ TEQ R0,#&0D
+ STRNEB R0,[R5],#1
+ BNE de44			; not yet at end
+ MOV R0,#&0A
+ STRB R0,[R5],#1
+ FNRTS
+de47
+ BL detokenise_byte
+ BCC de48			; finished
+ LDRB R14,[R3],#1		; get next byte
+ ORR R0,R0,R14
+ B de47
+de48
+ LDRB R14,[R0],#1
+ TEQ R14,#0
+ STRNEB R14,[R5],#1
+ BNE de48			; copy string
+ B de44
+
+;E R3=line start(+3) R4=file end
+;X R0=detok len inc 0D/-1 if a bad program/-2 if has a goto #
+;  and R3=start of next line ow
+
+direct_length_line
+ STMFD R13!,{R1-R2,R4-R5,R14}
+ MOV R2,R4			; end
+ MOV R4,#0			; detokenise flags
+ MOV R1,#0			; line len
+de54
+ CMP R3,R2
+ BCS de50			; out of data!
+ LDRB R5,[R3],#1
+ TST R4,#3
+ BNE de56			; don't detokenise
+ CMP R5,#&7F
+ BCS de57			; tokenised
+de56
+ TEQ R5,#&22
+ EOREQ R4,R4,#2			; toggle quote mode
+ TEQ R5,#&0D
+ ADD R1,R1,#1
+ BNE de54			; not yet at end
+ MOV R0,R1
+ TST R4,#1<<3
+ MVNNE R0,#1			; -2=gotos
+ LDMFD R13!,{R1-R2,R4-R5,PC}
+de57
+ BL detokenise_len
+ BCC de58			; finished
+ LDRB R14,[R3],#1		; get next byte
+ ORR R5,R5,R14
+ B de57
+de58
+ ADD R1,R1,R0			; include length
+ B de54
+de50
+ MVN R0,#0			; bad program
+ LDMFD R13!,{R1-R2,R4-R5,PC}
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Load/Saving text basic subs				     ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R2=program length R3=start
+;X R0=offset R1=reason code VS if bad or contains gotos #
+;  R1=0 => Not a basic program so load as text
+;  R1=1 => Contains line references so force BASIC mode.
+;  R1=2 => prog len <= R0 & detokeninising len <=R0
+
+find_detoken_length
+ STMFD R13!,{R2-R5,R14}
+ MOV R5,R3			; save prog start
+ LDRB R0,[R3],#1
+ TEQ R0,#&0D
+ BNE fi10			; no 0D at start
+ SUB R2,R2,#2
+ ADD R4,R3,R2			; program end
+ LDRB R0,[R4]
+ TEQ R0,#&FF
+ BNE fi10			; no FF at end
+ MOV R2,#0			; zero detokenised length
+le10
+ CMP R3,R4
+ BCS le11			; finished
+ SUB R1,R3,R5			; save line start offset
+ ADD R3,R3,#3			; start of line
+ BL direct_length_line		; find length
+ LDMVSFD R13!,{R2-R5,PC}
+ CMP R0,#0
+ ADDPL R2,R2,#3			; don't allow lines SHRINKING !
+ ADDPL R2,R2,R0			; add this line length
+ BPL le10
+ CMN R0,#1
+ BEQ le13			; bad prog
+ MOV R1,#1			; contains gotos
+ MOV R0,R2			; error line offset
+ LDMFD R13!,{R2-R5,PC}
+fi10
+ MOV R1,#0
+ LDMFD R13!,{R2-R5,PC}
+le11
+ MOV R1,#2
+ MOV R0,R2
+ LDMFD R13!,{R2-R5,PC}
+le13
+ BL err31
+ BL error_offset
+ LDMFD R13!,{R2-R5,PC}
+
+;E R3=source program (->&0D) R2=program len R5=dest
+;X Program detokenised with no checking R0=dest end #
+
+detokenise_program
+ STMFD R13!,{R1-R5,R14}
+ ADD R3,R3,#1
+ SUB R2,R2,#2
+ ADD R4,R3,R2
+le12
+ CMP R3,R4
+ MOVCS R0,R5
+ LDMCSFD R13!,{R1-R5,PC}
+ ADD R3,R3,#3
+ BL direct_detoken_line
+ LDMVSFD R13!,{R1-R5,PC}
+ B le12
+
+;E R4=source program R2=program length & 0A on end R5=dest
+;X program tokenised R0=-1 if ok / offset of too long line #
+;  R5=dest end
+
+tokenise_program
+ STMFD R13!,{R1-R4,R6,R14}
+ ADD R3,R4,R2			; program end
+ MOV R0,#&0D
+ STRB R0,[R5],#1		; add 0D at start
+ MOV R1,#1			; first line number (fits with log)
+ MVN R2,#0			; bad line offset
+ MOV R6,R4			; save program start
+to19
+ CMP R4,R3
+ BCS to20			; finished
+ BL direct_tokenise_line
+ LDMVSFD R13!,{R1-R4,R6,PC}
+ ADD R1,R1,#1			; increment line number
+ CMP R0,#0			; bad line?
+ BMI to19			; no
+ CMP R2,#0
+ SUBMI R2,R0,R6			; bad offset
+ B to19				; do next line
+to20
+ MOV R0,#&FF
+ STRB R0,[R5],#1		; add terminator
+ MOV R0,R2
+ LDMFD R13!,{R1-R4,R6,PC}
+
+ LOCAL
+
+;E R1 0=new file 1=after a save R8/R9
+;X Format converted
+
+bastxt_postload ; take geat care with stack depth :-(
+ FNJSR "R1-R5"
+ MOV R5,R1
+ LDR R2,[R9,#f_len]
+ MOV R0,R2
+ MOV R1,#0
+ FNcall Zap_SplitBuffer		; coagulate
+ LDRVC R3,[R9,#f_ptr]
+ BLVC find_detoken_length
+ FNRTS VS
+ TEQ R1,#0			; text so don't bother
+ FNRTS EQ
+ TEQ R1,#1
+ BEQ bad$l			; it's got line references
+ PUSH "R5"			; ...
+ ADD R1,R0,#4096		; give it new len + 4k
+ SUB R1,R1,R2			; amount to have free
+ MOV R0,#0
+ FNcall Zap_SplitBuffer		; split at start
+ LDRVC R5,[R9,#f_ptr]		; dest
+ LDRVC R3,[R9,#f_splite]
+ ADDVC R3,R3,R5			; source
+ BLVC detokenise_program
+ SUBVC R0,R0,R5			; detokenised len
+ STRVC R0,[R9,#f_len]
+ STRVC R0,[R9,#f_splito]
+ LDRVC R1,[R9,#f_bufl]
+ STRVC R1,[R9,#f_splite]
+ SUBVC R1,R1,R0
+ STRVC R1,[R9,#f_splits]
+ PULL "R5"			; ...
+ FNRTS VS
+ CMP R5,#1
+ BLEQ redrawupdate$l
+ FNRTS
+ ; take geat care with stack depth :-(
+bad$l
+ SWI &107			; beep to warn of mode switch (to BASIC mode)
+ FNPULL
+ TEQ R1,#0
+ BNE old$l
+ MOV R0,#5
+ STRB R0,[R8,#w_format]		; force BASIC mode
+ B basic_postload
+old$l				; not a new file
+ FNJSR
+ BL basic_postload		; convert it to basic format
+ FNRTS VS
+ MOV R0,#5
+ FNcall Zap_NewMode
+ FNRTS
+
+bastxt_presave
+ STMFD R13!,{R1-R5,R14}
+ LDR R2,[R9,#f_len]		; detokenised length
+ SUBS R0,R2,#1			; last char
+ BMI de30
+ BL cln_readc
+ TEQ R0,#&0A
+ BNE de30			; no 0A on end
+de31
+ LDR R0,[R8,#w_height]		; upper bound on number of lines
+ ADD R0,R0,R0,LSL#1		; 3 bytes extra each line
+ ADD R1,R0,#4096		; give it extra + 4k free
+ MOV R0,#0
+ FNcall Zap_SplitBuffer		; split at start
+ LDMVSFD R13!,{R1-R5,PC}
+ LDR R5,[R9,#f_ptr]		; dest
+ LDR R4,[R9,#f_splite]
+ ADD R4,R4,R5			; source
+ BL tokenise_program
+ LDMVSFD R13!,{R1-R5,PC}
+ MOV R4,R0			; save error status
+ LDR R0,[R9,#f_ptr]
+ SUB R0,R5,R0			; tokenised len
+ STR R0,[R9,#f_len]
+ STR R0,[R9,#f_splito]
+ LDR R1,[R9,#f_bufl]
+ STR R1,[R9,#f_splite]
+ SUB R1,R1,R0
+ STR R1,[R9,#f_splits]		; set up correct split buffer vals
+ CMP R4,#0
+ LDMMIFD R13!,{R1-R5,PC}	; finished
+ BL bastxt_postload		; re-detokenise the program
+; BVS redrawupdate$l
+ ; what! - does this return VS if no error...?!?!?!
+ LDMVSFD R13!,{R1-R5,PC}
+ BL err37
+ MOV R1,R4			; line too long at offset ...
+ BL error_offset
+ BLVC redrawupdate$l
+ LDMFD R13!,{R1-R5,PC}
+de30
+ MOV R0,#1			; insert
+ MOV R1,R2			; file offset
+ MOV R2,#1			; one byte
+ ADR R3,de_s0			; data
+ FNcall Zap_Command
+ LDMVSFD R13!,{R1-R5,PC}
+ LDR R2,[R9,#f_len]		; new len
+ B de31
+de_s0
+ DCD &0A
+
+redrawupdate$l
+ FNJSR
+ ADR R0,updwin$l
+ FNcall Zap_CommandString
+ FNRTS
+updwin$l FNS ("UPDATEWINDOW")
+
+bastxt_loading
+ STMFD R13!,{R1,R5,R14}
+ BL find_detoken_length
+ LDMVSFD R13!,{R1,R5,PC}
+ TEQ R1,#0			; text?
+ LDMEQFD R13!,{R1,R5,PC}
+ FNcall Zap_Claim		; claim buffer for detokenised txt
+ LDMVSFD R13!,{R1,R5,PC}
+ MOV R5,R0			; buffer
+ BL detokenise_program
+ LDMVSFD R13!,{R1,R5,PC}
+ SUB R2,R0,R5			; detokenised length
+ MOV R0,R3
+ FNcall Zap_Free		; free the old buffer
+ LDMVSFD R13!,{R1,R5,PC}
+ MOV R3,R5			; new buffer
+ LDMFD R13!,{R1,R5,PC}
+
+bastxt_selection
+ TEQ R0,#2			; saving?
+ MOVNE PC,R14			; no
+ STMFD R13!,{R1,R4-R5,R14}
+ SUBS R0,R2,#1			; last char offset
+ BMI de39			; null
+ LDRB R0,[R3,R0]
+ TEQ R0,#&0A
+ BNE de39
+de40
+ MOV R1,R2			; current len
+ MOV R0,#0			; count num of lines
+de41
+ LDRB R14,[R3,R0]
+ TEQ R14,#&0A
+ ADDEQ R1,R1,#3			; new length
+ ADD R0,R0,#1
+ CMP R0,R2
+ BCC de41
+ ADD R0,R1,#4			; new len (+ bit)
+ FNcall Zap_Claim		; get buffer
+ LDMVSFD R13!,{R1,R4-R5,PC}
+ MOV R5,R0			; dest
+ MOV R4,R3			; source
+ MOV R3,R5			; new buffer
+ BL tokenise_program
+ LDMVSFD R13!,{R1,R4-R5,PC}
+ SUB R2,R5,R3			; new length
+ MOV R0,R4
+ FNcall Zap_Free		; free old buffer
+ LDMFD R13!,{R1,R4-R5,PC}
+de39
+ MOV R0,R3
+ ADD R1,R2,#1
+ FNcall Zap_Ensure
+ LDMVSFD R13!,{R1,R4-R5,PC}
+ MOV R3,R0
+ MOV R0,#&0A
+ STRB R0,[R3,R2]
+ ADD R2,R2,#1
+ B de40
+
+ END

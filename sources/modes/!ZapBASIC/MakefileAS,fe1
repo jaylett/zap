@@ -1,0 +1,80 @@
+# Make file for ZapBASIC
+# using freeware tools make, AS, DRLink
+
+# For *non*-internationalisation (ie. Zap 1.40-compatible)
+#	make -r -f MakefileAS INTL=no
+# For internationalisation (ie. Zap 1.41-compatible)
+#	make -r -f MakefileAS
+# BTW, give 'make' lots of memory ;-)
+
+# Targets:
+#	ZapBASIC	Assemble .s files and link. This is the default
+#	ZapBASICHdrs	Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+
+# Where to get the tools:
+# 	AS:     <URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
+# 	Make:   <URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/unixtools/gnu/make.absolute>
+# 	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
+
+OBJECTS	= o.BASIC o.bastxt o.taskwindow o.ZapBASIC o.Buttons o.Brackets o.Toggle
+HEADERS	= t.basic t.bastxt t.taskwindow t.ZapBasic t.Buttons t.Brackets
+
+TARGET		= ZapBASIC
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic
+link		= drlink
+linkPartFlags	= -aof
+linkFlags	= -bin -b &00000000 -nounused
+ZapS		= <ZapSource$$Dir>
+ZapB		= <MakeZapBASIC$$Dir>
+
+__INTL		= "-DINTL=$(INTL)"
+
+
+ZapBASIC:	$(OBJECTS) ZapBASICHdrs
+		$(link) $(linkFlags) -o $(ZapB).ZapBASIC $(OBJECTS)
+		Settype $(ZapB).ZapBASIC Module
+		Run $(ZapS).data.MCopy $(ZapB).ZapBASIC <ZapBASIC$Dir>.ZapBASIC
+		@Echo Finished
+
+ZapHdrs:	$(HEADERS)
+		@Echo Made headers
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+s.% o.%:
+	$(as) $(asFlags) $(__BUILD) s.$*
+
+s.% t.%:
+	@Run data.StoH s.$* h.$*
+	Create t.$* 0
+
+
+t.basic:	s.basic
+t.bastxt:	s.bastxt
+t.Brackets:	s.Brackets
+t.Buttons:	s.Buttons
+t.taskwindow:	s.taskwindow
+t.Toggle:	s.Toggle
+t.ZapBasic:	s.ZapBasic
+
+o.BASIC: s.BASIC $(ZapS).h.Macros $(ZapS).h.System $(ZapS).h.ZapLibrary \
+		h.bastxt h.Buttons h.SWIs h.ZapBasHdr h.ZapBasic h.ZapBasVars
+o.bastxt: s.bastxt $(ZapS).h.Macros $(ZapS).h.System $(ZapS).h.ZapLibrary \
+		h.BASIC h.ZapBasHdr h.ZapBASIC h.ZapBasVars
+o.Brackets: s.Brackets $(ZapS).h.Macros $(ZapS).h.System \
+		$(ZapS).h.ZapLibrary h.basic h.bastxt h.Buttons h.SWIs \
+		h.ZapBasHdr h.ZapBASIC h.ZapBasVars
+o.Buttons: s.Buttons $(ZapS).h.Macros $(ZapS).h.System $(ZapS).h.ZapLibrary \
+		h.ButtonsHdr h.ZapBasHdr h.ZapBasVars
+o.taskwindow: s.taskwindow $(ZapS).h.Macros $(ZapS).h.System \
+		$(ZapS).h.ZapLibrary h.BASIC h.buttons h.ZapBasHdr \
+		h.ZapBASIC h.ZapBasVars
+o.Toggle: s.Toggle $(ZapS).h.Macros $(ZapS).h.System $(ZapS).h.ZapLibrary \
+		h.bastxt h.SWIs h.ZapBasHdr h.ZapBASIC h.ZapBasVars
+o.ZapBASIC: s.ZapBASIC $(ZapS).h.Macros $(ZapS).h.System \
+		$(ZapS).h.ZapLibrary h.BASIC h.bastxt h.taskwindow \
+		h.ZapBasHdr h.ZapBasVars

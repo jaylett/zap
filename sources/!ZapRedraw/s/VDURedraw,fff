@@ -180,15 +180,16 @@ losefonts$l
  LDRB R0,[R11,#a_spr2 + 1]	; bold font
  TEQ R0,#0
  SWINE XFont_LoseFont
-	FNRTS	VS
+ BVS rapidend$l
  LDRB R0,[R11,#a_spr2 + 2]	; bold font
  TEQ R0,#0
  SWINE XFont_LoseFont
-	FNRTS	VS
+ BVS rapidend$l
 completelylost$l
  LDRB R0,[R11,#a_spr2]		; font
  TEQ R0,#0
  SWINE XFont_LoseFont
+rapidend$l
  FNRTS
 
 negativekludge$l
@@ -530,14 +531,15 @@ vcc_1
  BNE vcc_1for
  TST R12,#1
  BNE vcc_1bac
-	ADD	R5,R5,#2	; throw away colour changes
+ LDRB R0,[R5],#1
+ LDRB R0,[R5],#1		; throw away colour changes
  B vcc_1end
 vcc_1bac
- 	ADD	R5,R5,#1	; throw away foreground!?!?
+ LDRB R0,[R5],#1		; throw away foreground!?!?
  LDRB R0,[R5],#1		; get background
  BL vdu_new_bac			; change if necessary
-	BVC	vcc_1end
-	FNRTS
+ FNRTS VS
+ B vcc_1end
 vcc_1for
  BL to_colour_setting_both	; hmm
  FNRTS VS
@@ -549,8 +551,9 @@ vcc_1end
  B vdu_control_char
 
 vcc_2
+ FNJSR
  MVN R0,#1			; -2
-	MOV	PC,R14
+ FNRTS
 
 vcc_3
  FNJSR
@@ -598,8 +601,8 @@ vcc_6
  LDRB R0,[R5],#1
  TST R12,#2
  BLNE vdu_new_for
-	BVC	vcc_1end
-	FNRTS
+ FNRTS VS
+ B vcc_1end
 
 vcc_7
  FNJSR
@@ -609,8 +612,8 @@ vcc_7
  ;BL vdu_new_bac
  BL to_colour_setting_bac	; hmm
  ;SWI &107
-	BVC	vcc_1end
-	FNRTS
+ FNRTS VS
+ B vcc_1end
 
 vcc_8 ; used for cursors and not selection...
  FNJSR "R1-R4,R6-R9"
@@ -698,8 +701,9 @@ vcc_10
  TST R12,#2
  BNE vcc_10for
  TST R12,#1
-	ADDEQ	R5,R5,#3	; throw away colour and font changes
-	BEQ	vcc_10end
+ BNE vcc_10bac
+ ADD R5,R5,#3			; throw away colour and font changes
+ B vcc_10end
 
 vcc_10bac
  FNJSR
@@ -1271,7 +1275,7 @@ vrc_up
 vrc_down
  MOV R1,#0
  RSB R2,R4,#1
-; B vrc_main
+ B vrc_main
 
 vrc_main
  FNJSR "R0"			; assumes one thing on stack below
@@ -1345,8 +1349,10 @@ vmc_1
  ORRS PC,R14,#Vbit
 
 to_colour_setting_bac
-	LDRB	R0,[R5],#1	; for col
-	B	vdu_new_bac
+ FNJSR
+ LDRB R0,[R5],#1		; for col
+ BL vdu_new_bac
+ FNRTS
 
 ;E R9 = fgcol/bgcol R10...
 to_colour_setting_both		; change fg and bg colours...
@@ -1877,6 +1883,24 @@ plot_docache
  ADR R0,vduvarnos
  ADR R1,vduvars
  SWI XOS_ReadVduVariables
+ LDR R0,depth
+ CMP R0,#2
+ MOVLO R0,#0
+ BLO gotdepth
+ CMP R0,#4
+ MOVLO R0,#1
+ BLO gotdepth
+ CMP R0,#16
+ MOVLO R0,#2
+ BLO gotdepth
+ CMP R0,#256
+ MOVLO R0,#3
+ BLO gotdepth
+ CMP R0,#65536
+ MOVLO R0,#4
+ MOVHS R0,#5
+gotdepth
+ STR R0,depth
  MOV R0,#&82
  SWI XOS_ReadDynamicArea
  ADR R3,screenstart
@@ -1885,7 +1909,7 @@ plot_docache
  LDMFD R13!,{PC}
 
 vduvarnos
- & 9
+ & 3
  & 6
  & 148
  & 128

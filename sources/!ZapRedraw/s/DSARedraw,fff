@@ -1,18 +1,18 @@
 ; Contains code for direct screen access redraw
 
  GET h.ZapRedHdr
-
+ 
  EXPORT redraw_area_dsa
  EXPORT redraw_raster
  EXPORT convert_bitmap
  EXPORT convert_bitmap_char
  EXPORT cached_char_size
-
+ 
  IMPORT div_mod
  IMPORT find_character
  IMPORT skip_control_char
  IMPORT move_bytes
-
+ 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of an area				    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -136,7 +136,7 @@ calculate_dsa
  STR R2,[R5,#a_x1]		; 1st character pixel offset
  ;MOV R14,#0
  ;STR R14,[R5,#a_x1]		; 1st character pixel offset
-
+ 
  CMP R2,#0
  ;RSBMI R2,R2,#0		; Hmm. Just SUBNE's prob best.
  ;RSBNE R2,R2,#0	; ?	; number left in first char ;OK!
@@ -238,9 +238,10 @@ redraw_raster
  BIC R5,R5,#3			; get address of first word
  AND R6,R0,#&1F			; bit offset within the word
  LDR R7,[R5]			; fill the output buffer
-	RSB	R0,R6,#32
-	MOV	R7,R7,LSL R0	; blank from first new bit
-	MOV	R7,R7,LSR R0
+ MOV R0,#1
+ MOV R0,R0,LSL R6
+ SUB R0,R0,#1
+ AND R7,R7,R0			; blank from first new bit
  CMP R12,#6			; 0-5 bpp supported
  MOVCS R12,#-1			; set bpp to -1 if not known
  LDR R8,[R1,#r_charw]
@@ -280,9 +281,12 @@ lastchar$l
 end$l
  TEQ R6,#0
  FNRTS EQ			; finished at the start of a word
+ MOV R0,#1
+ MOV R0,R0,LSL R6
+ SUB R0,R0,#1			; get mask
  LDR R2,[R5]
- MOV R2,R2,LSR R6		; clear bottom R6 bits (mask)
- ORR R7,R7,R2,LSL R6
+ BIC R2,R2,R0
+ ORR R7,R7,R2
  STR R7,[R5]			; write back last word
  FNRTS
 
@@ -304,7 +308,7 @@ startoflbug
  B aligned$l
 unplottmp
  = "    "
-
+ 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of part of a character raster		    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -450,10 +454,11 @@ redraw_raster_pixel_2
  ORR R0,R2,R0			; R0=end bitmap
  MOV R8,R8,LSL#2
  MOV R9,R9,LSL#2		; pixlels -> bits
-	RSB	R2,R8,#32
+ MOV R2,#1
+ MOV R2,R2,LSL R8
+ SUB R2,R2,#1			; mask of num of bits to write
  MOV R0,R0,LSR R9		; shift to first pixel
-	MOV	R0,R0,LSL R2
-	MOV	R0,R0,LSR R2	; do mask
+ AND R0,R0,R2			; bits to put in
  ORR R7,R7,R0,LSL R6		; mask in
  ADD R6,R6,R8
  CMP R6,#32
@@ -471,9 +476,10 @@ clear_raster_pixel_2
  TEQ R0,#0
  BLEQ redraw_control_code
  MOV R8,R8,LSL#2
-	RSB	R2,R8,#32
-	MOV	R0,R11,LSL R2
-	MOV	R0,R0,LSR R2	; bits to put in
+ MOV R2,#1
+ MOV R2,R2,LSL R8
+ SUB R2,R2,#1			; mask of num of bits to write
+ AND R0,R11,R2			; bits to put in
  ORR R7,R7,R0,LSL R6		; mask in
  ADD R6,R6,R8
  CMP R6,#32
@@ -516,9 +522,10 @@ redraw_raster_pixel_3
  MOVCS R7,R12,LSR R0
  SUBCS R8,R8,#32		; do the first word
  MOVCS R12,R14			; and shift down the data
-	RSB	R2,R8,#32
-	MOV	R0,R12,LSL R2
-	MOV	R0,R0,LSR R2	; bits to put in
+ MOV R2,#1
+ MOV R2,R2,LSL R8
+ SUB R2,R2,#1			; mask of num of bits to write
+ AND R0,R12,R2			; bits to put in
  ORR R7,R7,R0,LSL R6		; mask in
  ADD R6,R6,R8
  CMP R6,#32
@@ -542,9 +549,10 @@ clear_raster_pixel_3
  STRCS R7,[R5],#4
  MOVCS R7,R11,LSR R0
  SUBCS R8,R8,#32		; do the first word
- 	RSB	R2,R8,#32
- 	MOV	R0,R11,LSL R2
- 	MOV	R0,R0,LSR R2	; bits to put in
+ MOV R2,#1
+ MOV R2,R2,LSL R8
+ SUB R2,R2,#1			; mask of num of bits to write
+ AND R0,R11,R2			; bits to put in
  ORR R7,R7,R0,LSL R6		; mask in
  ADD R6,R6,R8
  CMP R6,#32
@@ -555,7 +563,7 @@ clear_raster_pixel_3
  MOV R7,R0,LSR R6
  RSB R6,R6,R8
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_pixel_any
@@ -588,8 +596,8 @@ clear_raster_pixel_any
  BLEQ redraw_control_code
  LDR R0,[R1,#r_bpp]
  MOV R9,R8,LSL R0		; number bits to clear
-	FNPULL
-	B	redraw_raster_any_clear
+ BL redraw_raster_any_clear
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of part of whole characters rasters	    ;
@@ -608,7 +616,9 @@ clear_raster_pixel_any
 
 call_redraw_raster_main
  CMP	R12, #6
- BHS	dispatch$l		; clear or something; if -ve, not 8 width
+ BGE	dispatch$l		; clear or something like that
+ CMP	R12, #0
+ BMI	dispatch$l		; not a draw of an 8 width character
  LDR	R0, [R1, #r_charh]
  TEQ	R0, #16
  ADDEQ	R12, R12, #13
@@ -636,8 +646,8 @@ dispatch$l
  B redraw_raster_main_16_3	; 256 cols
  B redraw_raster_main_16_4
  B redraw_raster_main_16_5
-
-
+ 
+ 
 ; LOCAL
 ;
 ;redraw_raster_main_0
@@ -676,7 +686,7 @@ dispatch$l
 ; MUL R0,R12,R0
 ; LDRB R0,[R4,R0]
 ; MOV PC,R14
-;
+; 
 ; LOCAL
 ;
 ;clear_raster_main_0
@@ -701,7 +711,7 @@ dispatch$l
 ; SUBS R8,R8,#1
 ; BGT loop$l
 ; FNRTS
-;
+; 
 ; LOCAL
 ;
 ;redraw_raster_main_1
@@ -748,7 +758,7 @@ dispatch$l
 ; ADD R0,R0,R9,LSL#8
 ; ADD R0,R0,R0,LSL#16		; duplicate so flags don't matter
 ; MOV PC,R14
-;
+; 
 ; LOCAL
 ;
 ;clear_raster_main_1
@@ -775,7 +785,7 @@ dispatch$l
 ; SUBS R8,R8,#1
 ; BGT loop$l
 ; FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_8_2
@@ -795,10 +805,10 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
-
-redraw_raster_main_16_2
+ 
+redraw_raster_main_16_2 
  FNJSR
  RSB R9,R6,#32
 loop$l
@@ -815,7 +825,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 clear_raster_main_2
@@ -831,7 +841,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_8_3
@@ -857,7 +867,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_16_3
@@ -883,7 +893,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 clear_raster_main_3
@@ -899,7 +909,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_8_4
@@ -937,7 +947,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_16_4
@@ -975,7 +985,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 clear_raster_main_4
@@ -993,7 +1003,7 @@ loop$l				; NB Background R11 will change
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_8_5		; NB R6,R7 irrelevant here!
@@ -1035,7 +1045,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_16_5		; NB R6,R7 irrelevant here!
@@ -1077,7 +1087,7 @@ loop$l
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 clear_raster_main_5		; R6,R7 always 0
@@ -1094,7 +1104,7 @@ loop$l				; NB Background R11 will change
  SUBS R8,R8,#1
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 redraw_raster_main_any
@@ -1114,7 +1124,7 @@ loop$l
  SUBS R8,R8,#1			; done another character
  BGT loop$l
  FNRTS
-
+ 
  LOCAL
 
 clear_raster_main_any
@@ -1192,7 +1202,7 @@ end$l
  MOV R7,R0,LSR R6
  RSB R6,R6,R9
  FNRTS
-
+ 
  LOCAL
 
 ;E R5-R7=output buffering
@@ -1361,8 +1371,9 @@ control_code_7
 control_code_8
  FNJSR "R2,R5-R9"
  BL get_merge_args
- CMN R6,#1			; EQ = merge aborted
- TEQNE R4,#0
+ CMN R6,#1
+ FNRTS EQ			; merge aborted
+ TEQ R4,#0
  FNRTS EQ			; in the middle of line spacing
  LDR R5,[R1,#r_workarea]	; place to store data
  STR R3,[R5,#a_stack1]		; save string to get back on
@@ -1472,7 +1483,7 @@ gma_1
 
 to_skip_control_char
  FNJSR "R4"
- BL skip_control_char
+ BL to_skip_control_char
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1495,10 +1506,11 @@ call_extension_plus
 
 call_extension
  STMFD R13!,{R12,R14}
+ STMFD R13!,{R14}		; blank address to call
  LDR R12,[R1,#r_workarea]
  LDR R14,[R12,#a_ext1]		; address of extension sub
  LDR R12,[R12,#a_ext2]		; extension sub private word
-	STMFD	R13!,{R14}	; save on stack
+ STR R14,[R13]			; save on stack
  MOV R14,PC			; return address
  LDMFD R13!,{PC}		; call the sub
  LDMFD R13!,{R12,PC}
