@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.10 1999/04/17 23:29:51 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.11 1999/04/20 17:51:12 ds Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -1451,7 +1451,7 @@ into_gain_input$l
  CMN R0,#1
  FNSTR R0,car_omode,NE		; show that carets gained
  FNLDR R0,opt_flags
- TST R0,#1<<25
+ TST R0,#flags_IgnoreInput
  LDMNEFD R13!,{R1-R5,R8-R9,PC}	; Ignore gain input calls
  FNLDR R0,car_input
  LDR R0,[R0,#c_wind]
@@ -2514,18 +2514,17 @@ get_selection
  ADDS R0,R0,#0			; clc
  FNRTS
 
-;E R10 (assumes R8 valid if non-0)
+;E R10
 ;X CC R1=file off of line start R2=len of line R8/R9 |
 ; Normally called if get_selection returns CS
 ; (uses e_linestart & e_linenext)
 
 get_line
-	TEQ	R10,#0
-	MOVEQS	PC,R14
+	CMP	R10,#0
+	MOVEQ	PC,R14
 	FNJSR	"R11"
-	TEQ	R8,#0
-	LDREQ	R0,[R10,#c_wind]
-	BLEQ	conv_wind_off
+	LDR	R0,[R10,#c_wind]
+	BL	conv_wind_off
 	LDR	R0,[R10,#c_off]
 	PUSH	"R0"
 	MOV	R11,#e_linestart
@@ -2639,7 +2638,7 @@ co9
  BL test_fblk
  FNRTS NE			; input not in this window
  LDR R14,[R9,#f_flags]
- TST R14,#1<<14
+ TST R14,#flags_UnlinkCursor
  BNE co17			; input caret not linked to input
  STR R2,[R10,#c_off]		; new offset
  BL update_caret		; update the caret position
@@ -2828,7 +2827,7 @@ ne11
  ;CMP R14,#0
  ;BLNE scrub_caret
  LDR R0,[R9,#f_flags]
- TST R0,#1<<14			; is input linked?
+ TST R0,#flags_UnlinkCursor	; is input linked?
  ;LDMNEFD R13!,{R10,PC}
  BLEQ make_cursor_visible
  LDMFD R13!,{R10,PC}
@@ -2958,7 +2957,7 @@ co1
 ;  MOVPL R3,#0			; clip at top
 ;  STR R3,[R8,#w_scrolly]
 ;  LDR R0,[R8,#w_flags]
-;  ORR R0,R0,#1<<30		; mark changed
+;  ORR R0,R0,#flags_ChangedDuringScrolling
 ;  STR R0,[R8,#w_flags]
 ; scrolled$l			; window at correct scroll offset
 ;  TEQ R2,#0
@@ -3102,7 +3101,7 @@ import_the_caret
 ; call_set_caret
 ;  FNJSR
 ;  ;LDR R11,[R8,#w_format]
-;  ;BIC R14,R11,#1<<29		; ignore next redraw.
+;  ;BIC R14,R11,#format_IgnoreRedraw
 ;  ;STR R14,[R8,#w_format]
 ;  BL store_old__caret_position
 ;  ;STR R11,[R8,#w_format]
@@ -3470,7 +3469,7 @@ update_if_in_this_wind
 add_and_delete_spaces
 	FNJSR	"R10,R11"
 	LDR	R11,[R9,#f_flags]
-	ORR	R14,R11,#1<<14		; input is linked?
+	ORR	R14,R11,#flags_UnlinkCursor
 	STR	R14,[R9,#f_flags]
 	LDR	R10,[R8,#w_flags]
 	BIC	R14,R10,#2		; insert mode...
@@ -3597,7 +3596,7 @@ pagemove_cursor
  FNLDR R10,car_cursor,VC
  BLVC plot_caret
  LDRVC R0,[R8,#w_flags]
- ORRVC R0,R0,#1<<30
+ ORRVC R0,R0,#flags_ChangedDuringScrolling
  STRVC R0,[R8,#w_flags]		; mark changed
  FNLDR R10,car_cursor,VC
  BLVC make_cursor_visible
@@ -3666,7 +3665,7 @@ make_cursor_visible
  BEQ ma1			; if so already left aligned
  STR R0,[R11,#w_scrollx]	; new x scroll
  LDR R0,[R8,#w_flags]
- ORR R0,R0,#1<<30		; altered
+ ORR R0,R0,#flags_ChangedDuringScrolling
  STR R0,[R8,#w_flags]
  B ma1				; do y
 ma4
@@ -3709,10 +3708,10 @@ ma1
  STR R4,[R11,#w_scrolly]	; new y scroll offset
 ma2
  LDR R0,[R8,#w_flags]
- TST R0,#1<<30			; Not -1 - don't redraw...
+ TST R0,#flags_ChangedDuringScrolling
  BEQ exitasnormal$l
  ;LDMEQFD R13!,{R1-R11,PC}	; return if not changed
- BIC R0,R0,#1<<30		; Hmm...?
+ BIC R0,R0,#flags_ChangedDuringScrolling
  STR R0,[R8,#w_flags]		; Hmm...?
 ; BL blat_window_wrap_cache ; needed - no - bug !?
  FNLDR R1,wimp_block		; not DATA or an UNDO bug...
@@ -3794,9 +3793,9 @@ update_w_bpl
 
 ;ma2
 ; LDR R0,[R8,#w_flags]
-; TST R0,#1<<30
+; TST R0,#flags_ChangedDuringScrolling
 ; LDMEQFD R13!,{R1-R11,PC}	; return if not changed
-; BIC R0,R0,#1<<30
+; BIC R0,R0,#flags_ChangedDuringScrolling
 ; STR R0,[R8,#w_flags]
 ; MOV R1,R8
 ; BL open_window			; update
@@ -3842,7 +3841,7 @@ update_w_bpl
 ;  CMP R4,#0			; is scroll offset <=0
 ;  BLE ma1			; if so already left aligned
 ;  LDR R14,[R8,#w_flags]
-;  ORR R14,R14,#1<<30		; altered
+;  ORR R14,R14,#flags_ChangedDuringScrolling
 ;  STR R14,[R8,#w_flags]
 ;  FNLDR R0,wimp_leftgap
 ;  RSB R0,R0,#0
@@ -3880,9 +3879,9 @@ update_w_bpl
 ;  STR R4,[R11,#w_scrolly]	; new y scroll offset
 ; ma2
 ;  LDR R0,[R8,#w_flags]
-;  TST R0,#1<<30
+;  TST R0,#flags_ChangedDuringScrolling
 ;  LDMEQFD R13!,{R1-R11,PC}	; return if not changed
-;  BIC R0,R0,#1<<30
+;  BIC R0,R0,#flags_ChangedDuringScrolling
 ;  STR R0,[R8,#w_flags]
 ;  ;
 ; BL blat_window_wrap_cache	; needed?
@@ -3935,7 +3934,7 @@ new_scroll
 	MUL	R0,R1,R2	; cursor end offset pixels)
 	SUBS	R0,R0,R7	; if >, window must be scrolled r/d
 	ADDGT	R4,R4,R0	; scroll it
-done$l	ORRGT	R3,R3,#1<<30
+done$l	ORRGT	R3,R3,#flags_ChangedDuringScrolling
 	STR	R3,[R8,#w_flags]
 	TST	R3,R3,LSL #2	; set/clear carry appropriately
 	MOV	PC,R14
@@ -3947,7 +3946,7 @@ neg$l	SUB	R7,R7,R3	; => window width less cursor width
 	TEQ	R0,R4
 	LDR	R1,[R8,#w_flags]
 	MOV	R4,R0		; new scroll offset
-	ORRNE	R1,R1,#1<<30
+	ORRNE	R1,R1,#flags_ChangedDuringScrolling
 	STRNE	R1,[R8,#w_flags]
 	TST	R1,R1,LSL #2	; set/clear carry appropriately
 	MOV	PC,R14
@@ -4320,13 +4319,14 @@ num$l
  FNLDR R7,red_blkbuf
 start$l				; R0=string pointer / -ve to outdent
  BL get_selection		; R8/R9 for selection
+ LDRCS R10,[R13,#36]
  BLCS get_line
  FNRTS CS
  LDR R4,[R8,#w_format]
  FNLDR R5,opt_flags
  PUSH "R4,R5"
- BIC R4,R4,#1<<15		; non-standard edit...
- BIC R5,R5,#1<<22		; no auto-clear selection
+ BIC R4,R4,#format_NonStandardEdit
+ BIC R5,R5,#flags_SelectionsVanish
  STR R4,[R8,#w_format]
  FNSTR R5,opt_flags
 
@@ -4355,6 +4355,7 @@ loop$l
  MOV R5,R0
 atstart$l			; R4=start of line to indent
  BL get_selection		; R8/R9 for selection
+ LDRCS R10,[R13,#44]
  BLCS get_line
  ADD R2,R1,R2			; sel end
  CMP R4,R2			; was in R5...
@@ -4378,34 +4379,14 @@ atstart$l			; R4=start of line to indent
  MOVGT R2,R0			; clip amount to delete
  MOV R11,#e_replace
  BL call_mode			; alter the line (may word wrap)
- BVS end$l
-; CMP R6,#0
-
-; ADDPL R5,R5,R4		;
-; ADDPL R4,R10,R4		; R10 = ?
-; SUBMI R5,R5,R2		; get new start and end of selection
-; SUBMI R4,R10,R2
-
- ;BL get_selection		; R8/R9 for selection
- ;ADD R5,R1,R2			; sel end
- MOV R4,R5			; stored SOL...
-
-; MOVVC R11,#e_linestart		; find line start
-; BLVC call_mode
-; BVS error$l ; end$l
-; CMP R0,R4			; ?
-
- B loop$l			; do next line
+ MOVVC R4,R5			; stored SOL...
+ BVC loop$l			; do next line
 end$l				; end/error
- MOVVC R11,#0
- MOVVS R11,R0
+ PULL "R1,R2"
+ STR R1,[R8,#w_format]
+ FNSTR R2,opt_flags
  BL stop_operation
- PULL "R0,R1"
- STR R0,[R8,#w_format]
- FNSTR R1,opt_flags
- MOVS R0,R11
- FNRTS EQ
- FNRTV
+ FNRTS
 
 ;E R2-R5=region R8
 ;X region corrected so that R2R3 <= R4R5 and clipped to margin
