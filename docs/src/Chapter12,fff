@@ -1,5 +1,5 @@
 \#
-\# $Id: Chapter12,fff,v 1.4 1999/06/03 10:08:54 james Exp $
+\# $Id: Chapter12,fff,v 1.5 1999/11/03 11:22:39 james Exp $
 \#
 \# Manual.Section12/src
 \# Customisation.
@@ -63,9 +63,11 @@ The way to do this is to create a \e{clone} of the mode. This is an exact copy o
 
 Clones are managed via \c{Options->Clone modes...} from the iconbar menu. This opens a small dialogue box which lists the current clones you have (as Zap is supplied, there are no clone modes). The top half of the window allows you to select the different clones you have, to see which mode they are based on, and to \c{Delete} and \c{Hide} the one currently being shown. Deleting a clone will also delete its options; only do this if you won't need them again! Hiding a clone removing it from currently available modes; since Zap can only cope with thirty two modes available at one time, this allows you to work with many more clones.
 
-To create a new clone, click on \c{New} in the dialogue box. This creates another small dialogue allowing you to enter the new clone's name, and to select which mode you would like the clone to act like. Currently only the base modes Text, Byte, Word, ASCII and Code can be cloned - and clones themselves can be cloned. Clicking on \c{Create} will create the clone, set up initially with the options of the base mode you selected.
+To create a new clone, click on \c{New} in the dialogue box. This creates another small dialogue allowing you to enter the new clone's name, and to select which mode you would like the clone to act like. Currently, in addition to the core modes Text, Byte, HalfWord, Word, DoubleWord, ASCII and Code, only Email mode can be cloned - and clones themselves can be cloned. Clicking on \c{Create} will create the clone, set up initially with the options of the base mode you selected.
 
-Cloned modes show up in blue instead of black in the mode menu. Also, they have their own \c{Load clone} submenu, instead of appearing on \c{Mode->Load mode} in the main window, or \c{Options->Mode->Load mode} in the iconbar menu.
+Cloned modes show up in blue instead of black in the mode menu. Non-core modes (such as Email) show up in grey.
+
+Clone don't appear on \c{Mode->Load mode} in the main window, or \c{Options->Mode->Load mode} in the iconbar menu; instead, they have their own \c{Load clone} submenu.
 
 As with all binary options, you must remember to save Zap's options (\c{Options->Save options} from the iconbar menu) once you have made alterations to your clones - otherwise you will lose them when you quit Zap.
 
@@ -105,6 +107,10 @@ Zap has a variety of miscellaneous options which you can set on or off. They are
 
 \b \c{No h-scroll bar} - Avoid having a horizontal scrollbar when it isn't needed - it will be turned off when window wrap mode is turned on, and also when the window is at its fullest extent. The latter will only happen under the 'nested wimp'.
 
+\b \c{Force startup command} - Forces the startup command to be executed even if files are being loaded on startup. See \k{settings} for more information.
+
+\b \c{Minibuffer autowidth} - Sets the width of the minibuffer to match the width of the window it's being used with. Otherwise it will use the width set for it in the Templates file (which isn't terribly useful).
+
 \S{autoload} Autoloading internal extensions
 
 Zap has a number of 'internal' extensions, introduced in \k{internal}, which it can load automatically when it thinks it needs them. None of these is essential, but they can make life easier in some cases. Whether they are automatically loaded or not is configured from \c{Options->Misc->Autoload} (Zap will use them if they weren't set to be autoloaded, but were loaded for some other reason - for instance by the user, or by another application).
@@ -115,7 +121,11 @@ Here we look at the different options that are part of the textual configuration
 
 Secondly, you reload the settings using \c{Options->Reload keys}. This will work for everything except the filetypes configuration, where you have to rebuild all the options first (this is because, in addition to the user\-specified filetype configuration, each mode can tell Zap which types of file it knows about) - do this through \c{Options->Create keys}, and then use \c{Options->Reload keys} to get the new options.
 
-Except for the \c{Menus} file, all the textual configuration files use the same format. Any non\-blank line defines a single \e{key variable}, and is of the form \c{comment &xxx value} where \c{comment} is any text without a \c{&} character in it. Any line without an \c{&} in it is discarded completely. The &xxx is known as the \e{key number}, and dictates what the value is actually used for. For instance, it might be a particular setting, or it might be a key binding.
+Except for the \c{Menus} file, all the textual configuration files use the same format. Any non\-blank line defines a single \e{key variable}, and is of the following form.
+
+\c <comment> &xxx <value>
+
+The comment is any text without an ampersand (\c{&}) character in it. Any line without an ampersand in it is discarded completely. The &xxx is known as the \e{key number}, and dictates what the value is actually used for. For instance, it might be a particular setting, or it might be a key binding.
 
 \S{settings} Miscellaneous settings
 
@@ -189,7 +199,7 @@ The second part of the Settings file is various miscellaneous options. They are 
 
 \b \c{&321} - Minimum time between backups, in seconds.
 
-\b \c{&322} - Command executed on startup.
+\b \c{&322} - Command executed on startup. This will only be executed if no files are being loaded on startup, unless the \c{Force startup command} option is enabled. This variable may be useful for \i{NCOS} users.
 
 \b \c{&323} - Default mode.
 
@@ -215,8 +225,17 @@ Remember that you must run \c{Options->Recreate keys} before reloading to get ch
 
 \S{keyboard config} Configuring Zap's keystrokes
 
-The \c{Keys} file defines all of Zap's \i{keymaps}. The key variables &000-&1FF define the keymap "Default" (number 0); the value is the command or commands (\c{:}\-separated, as usual) to be executed on that keycode - we'll go into this in more detail in a minute. Subsequent keymaps are defined by key variables &yy0xxx, where yy is the keymap number and xxx is the keycode. 
-The keymap used as the base map for any mode which doesn't choose its own is given by key variable &400. Alternate keymaps are defined using higher &4xx key variables, which have the format \c{<comment> &4xx <low> <high> <name>} - low and high and the lowest and highest inclusive keycodes used by that keymap (keycodes outside this range will do nothing in that keymap). The name is used on the \c{Misc->Keymap} menu, and by the \c{KEYMAPN} and \c{BASEMAPN} commands.
+The \c{Keys} file defines Zap's base \i{keymaps}: in addition, extensions can have their own \c{Keys} files in the extension directory so that keymaps that are useful only to individual extensions don't need to be supplied with the main Zap distribution.
+
+Each keymap is introduced by an &800 key variable, with the exception of the first keymap in the \c{Keys} file, which is the default. (Note that this only applies to Zap's core \c{Keys} file - per-extension files cannot contain default keymaps, and must have all their keymaps introduced by an &800 variable.) The value of an &800 variable is actually four values; it looks as follows.
+
+\c <comment> &800 <low> <high> <name> <base>
+
+<low> and <high> define the range of the keymap, in keycodes - for keypresses outside that range, the keymap will do nothing. <name> is the name of the new keymap; this name is used on the \c{Misc->Keymap} menu, and by the \c{KEYMAPN} and \c{BASEMAPN} commands. <base> is the name of the base for this keymap - any keycodes that are not defined in the keymap, but which fall within the range of the keymap, are inherited from this base keymap. 
+
+The key variables &000-&1FF define the keymap itself; the value is the command or commands (\c{:}\-separated, as usual) to be executed on that keycode - we'll go into this in more detail in a minute.
+
+The keymap used as the base map for any mode which doesn't choose its own is given by key variable &400. Base maps for modes can be set using the configuration variable \c{Basemap} - see \k{c-vars} for more information about configuration variables.
 
 Keycodes are based on those returned by \c{Wimp_Poll}; thus function keys return &180-&1FF, as documented in the PRMs. (Look at the \c{Keys} file if you don't have a copy of the PRMs - or get the WimpKeys manual for \i\e{StrongHelp}. Standard characters return their ASCII values &20-&FF as usual. &7F is unshifted \c{Delete}. Additionally, Zap augments these basic values to allow, for instance, to have \c{scD} and \c{cD} doing different things. These are documented in \c{Docs.Technical.E-Keycodes}.
 
@@ -226,7 +245,7 @@ To make life easier, you can define a range of keycodes in one line, simply by s
 
 There are a number of special substitutions which happen for keycode definitions, both in the base keymap and in subsequent ones. Firstly, if you use \c{n} instead of the numeric parameter to a command, it will be replaced by the keycode. For instance: \c{Ascii chars &020-7E CHAR n} in the default keymap makes sure that typing a character will insert that character.
 
-Secondly, instead of a command you can use \c{*<n>}. Here, the command will be taken from the keycode n. If you omit the \c{n} (ie: just use \c{*}), then the keycode used will be the keycode you are currently defining, in the base keymap (for instance, in the \i\e{Emacs} keymap - number 1 - we have \c{&1001E-1014E *} which defines most of the Emacs keymap to be the same as the Default keymap. If you use this substitution in a keycode range, it will work in the most sensible way: for instance, in the base keymap the keypad numbers are mapped to do the same as the number keys using \c{k0-k9 &1C0-1C9 *&30}.
+Secondly, instead of a command you can use \c{*<n>}. Here, the command will be taken from the keycode n. If you omit the \c{n} (ie: just use \c{*}), then the keycode used will be the keycode you are currently defining, in the base keymap (for instance, in the \i\e{Emacs} keymap - number 1 - we have \c{&01E-14E *} which defines most of the Emacs keymap to be the same as the Default keymap that it inherits from. If you use this substitution in a keycode range, it will work in the most sensible way: for instance, in the base keymap the keypad numbers are mapped to do the same as the number keys using \c{k0-k9 &1C0-1C9 *&30}.
 
 If you want to stop a keystroke from being passed on, bind \c{NULL} to it. Try to avoid binding anything to \c{F12}, because it will stop you easily accessing the command prompt.
 
@@ -240,41 +259,60 @@ Zap's \c{Menus} file defines all the menus that Zap uses. the format is fairly s
 
 Each menu definition contains a declaring line of the form:
 
-\c{<handle>     <name>  <width>}
+\c{<handle>     <name>}
 
-Width specifies the width, in characters, required - in general you should set this to a little more than the widest item, to get things looking neat. The name must be given in quotes. Handles start at zero, and the first twenty (0-19) are used as follows:
+The name must be given in quotes. In Zap's actual \c{Menus} file, handles are numbers that start at zero, with the first twenty (0-19) reserved for internal use (see below). However it is more convenient to work from a 'source' format, where the handles are names instead of numbers - symbolic handles start with a dot ('.'). Zap is supplied with a program called \c{MakeMenus} which generates the actual \c{Menus} file from the source file; it lives in \c{ZapCode:Tools.MakeMenus}, which also contains more detailed documentation. Source menus files live in \c{ZapUser:Config.Menus.Source}.
 
-\b \c{0} - Iconbar menu.
+In addition to allowing handles to be names instead of numbers, \c{MakeMenus} provides a preprocessor vaguely similar to that used by C compilers. This allows a source file to provide various options which can be turned either on or off when generating the real file. Zap is supplied with a program that gives a simple text interface to configuring these options, called \c{MenuConf} (which also lives in \c{ZapCode:Tools.MakeMenus}.
 
-\b \c{1} - Window menu.
+In order to work, \c{MenuConf} requires a block somewhere in the file describing the options supported by that file. The block is of the form:
 
-\b \c{2} - Filetype menu.
+\c | Start options
+\c |  [*]<option name>	<description>
+\c ...
+\c | End options
 
-\b \c{3} - Mode menu (obsolete).
+A star ('*') at the start of an option name indicates that the option is turned on in the default configuration. The delimiter lines (\c{| Start options} and \c{| End options} must be preserved exactly. See \c{ZapUser:Config.Menus.Source.UK} for an example will plenty of options.
 
-\b \c{4} - Main font menu.
+The \c{Options->Edit config->Menus} submenu from the iconbar contains three options which use this: \c{Menus source} opens the source file for the current country, \c{Run MenuConf} allows you to select which of its options are enabled and disabled, and generates the real file, and \c{Rebuild defaults} rebuilds the default menus for the current country.
 
-\b \c{5} - Selection menu.
+The following menu handles are reserved for internal use, and are listed here with the symbolic names that \c{MakeMenus} supports.
 
-\b \c{6-10} - Reserved.
+\b \c{0} - Iconbar menu. Symbolic name: \c{Zap.Iconbar}
 
-\b \c{11} - Byte mode menu.
+\b \c{1} - Window menu. Symbolic name: \c{Zap.Window}
 
-\b \c{12} - Word mode menu.
+\b \c{2} - Filetype menu. Symbolic name: \c{Zap.Filetypes}
+
+\b \c{3} - Reserved.
+
+\b \c{4} - Main font menu. Symbolic name: \c{Zap.Fonts}
+
+\b \c{5} - Selection menu. Symbolic name: \c{Zap.Selection}
+
+\b \c{6-9} - Reserved.
+
+\b \c{10} - Throwback mode menu. Symbolic name: \c{Mode.Throwback}
+
+\b \c{11} - Byte mode menu. Symbolic name: \c{Mode.Byte}
+
+\b \c{12} - Word mode menu. Symbolic name: \c{Mode.Word}
 
 \b \c{13} - Reserved.
 
-\b \c{14} - Code mode menu.
+\b \c{14} - Code mode menu. Symbolic name: \c{Mode.Code}
 
-\b \c{15-19} - Reserved.
+\b \c{15} - HalfWord mode menu. Symbolic name: \c{Mode.Halfword}
 
-The remaining menu handles can be used however you like. The default \c{Menus} file gives a fairly sensible way of doing things.
+\b \c{16} - DoubleWord mode menu. Symbolic name: \c{Mode.Doubleword}
 
-After the declaration for a menu is a series of lines giving the items in it. Each of these must be indented by a single tab character (ASCII 9), and is of the form:
+\b \c{17-19} - Reserved.
+
+After the declaration for a menu is a series of lines giving the items in it. Each of these must be indented by a single tab character (ASCII 9).
 
 \c      Text    [<command>]     [> <command> | <menu handle>]
 
-The text must be quoted; the first command is executed if the menu item is selected by the user. Anything after a \c{>} character defines a submenu - either give a command which can supply a submenu (any command that takes a string parameter can be used as a submenu; in addition, some commands specifically create submenus), or give a valid menu handle from the \c{Menus} file to use as the submenu.
+The text must be quoted; the first command is executed if the menu item is selected by the user. Anything after a \c{>} character defines a submenu - either give a command which can supply a submenu (any command that takes a string parameter can be used as a submenu; in addition, some commands specifically create submenus), or give a valid menu handle to use as the submenu.
 
 If you need to, you can specify Wimp help text for each menu and menu item. This is done using a line of the form:
 
@@ -286,7 +324,7 @@ If you want to use a command which isn't part of the core, you can do so; it won
 
 To get a separator line in a menu, use a line containing a tab character (ASCII 9) followed by a hyphen \c{-}.
 
-See the default \c{Menus} file for examples on how this all fits together; it's actually a lot easier to use than to describe.
+See the supplied \c{Menus} file, and the supplied source files, for examples on how this all fits together; it's actually a lot easier to use than to describe!
 
 Note that it is impossible to get Zap to reload its menus. In order to get edited menus in Zap, you'll have to quit and restart it.
 
@@ -294,7 +332,7 @@ Note that it is impossible to get Zap to reload its menus. In order to get edite
 
 Configuration variables (or c-vars for short) are Zap's way of allowing the same command or feature to function in different ways depending on the mode you're in. Each mode within Zap can have a \e{Textual Mode File}, or \i\e{TMF} for short, which defines the c-vars for that mode.
 
-For a mode <name>, its \i{TMF} is located by the system variable \c{Zap$TMF_<name>}. For core modes and clones this will typically be in \c{ZapUser:Config.TMFs}; other modes will usually have their TMFs within their application directory.
+For a mode <name>, its \i{TMF} is located by the system variable \c{Zap$TMF_<name>}. For core modes and clones this will typically be in \c{ZapUser:Config.TMFs}; other modes will usually have their default TMFs within their application directory: you should copy them into \c{ZapUser:Config.TMFs} and edit there to override their options.
 
 The format of a \i{TMF} is as a \i\e{MessageTrans} file (the same format as used for Zap's internationalised messages files - see \k{internationalisation} for internationalisation issues). This means that lines starting with a \c{#} character are treated as comments (ignored), and that all other lines must be of the form:
 
@@ -320,7 +358,7 @@ Sets the value of the c-var \c{SetNameStart} to \c{\</* >}.
 
 Any c-vars not listed for a given mode will be \e{inherited} from the mode's parent. For instance, if the variable \c{TestVariable} is defined in Text mode, but not in C mode, using it within C mode will actually use the value given for Text mode - because C mode is derived from Text mode. What this means is that if you want to set a c-var once for all modes, you should put it in the \i{TMF} for Text mode (since all modes are derived from Text mode).
 
-Note that c-vars for cloned modes inherit from the clone's base's parent, and \e{not} from the clone's base. So if, in the example above, we clone C mode as D, and then give \c{TestVariable} a value for C mode that is different to its value for Text mode, when we use \c{TestVariable} in D mode, the value from Text mode will be used and \e{not} the value from C mode.
+Note that c-vars for cloned modes inherit from the clone's base, and \e{not} from the clone's base's parent. So if, in the example above, we clone C mode as D, and then give \c{TestVariable} a value for C mode that is different to its value for Text mode, when we use \c{TestVariable} in D mode, the value from C mode will be used (which is more or less what you'd expect). C mode will still inherit variables from its parent, in this case Text.
 
 c-vars are case-sensitive. When developing your own features using c-vars, please remember that mixed-case c-vars (eg: \c{HelpSearchPath}, \c{SetNameStart}) are reserved for 'official' use - ie for features that have been finished. While developing new features, either prepend \c{_} (underscore) to your c-var name, or use all upper or all lower-case.
 
@@ -330,52 +368,27 @@ In the future, c-vars will be able to be set on a per-file basis. Currently this
 
 \H{internationalisation} Internationalisation
 
-As it is supplied, all Zap's communication with you will be in English. However there is support for complete and (apart from the fact that there's lots to do!) relatively painless translation to other languages. In order, Zap will use the system variable \c{Zap$Country}, the system variable \c{Sys$Country} or "UK" to determine which country it needs to run for.
+As it is supplied, all Zap's communication with you will be in English. However there is support for complete and relatively painless translation to other languages. In order, Zap will use the system variable \c{Zap$Country}, the system variable \c{Sys$Country} or "UK" to determine which country it needs to run for.
 
 To make life easier, Zap has a single file, \c{ZapUser:Config.Country}, where you can set the country to use. By default, the line to set this is commented out, so Zap will use your system setting - only change this if you want to force Zap to use a different country.
 
-If a particular part of Zap isn't available in the country you choose, Zap will use the English (UK) version instead.
+If a particular part of Zap isn't available in the country you choose, Zap will use the English (UK) version instead. Currently much of Zap's core distribution is supplied for France and Germany as well as the UK (see \k{credits}).
 
 \H{riscos version} Differences in different versions of \i{RISC OS}
 
-Due to different features supplied by different versions of RISC OS itself, Zap has a few issues which alter depending on which operating system you are using.
+Due to different features supplied by different versions of RISC OS itself, Zap has a few issues which alter depending on which operating system you are using. Note that as of v1.45, Zap not longer supports RISC OS 2.
 
 \S{dynamic areas} Dynamic areas
 
 Zap uses dynamic area storage for files and fonts from RISC OS 3.5; it uses the Wimp Slot in earlier versions of the operating system. (Note that there is a utility called \i\e{Dummy Dynamic Areas}, which supplies dynamic area support for earlier operating systems; Zap will use this if it is present.)
 
-\S{fontsro2} Fonts
+\S{templates} Templates
 
-If using anti\-aliased fonts on \i{RISC OS 2}, you will need the outline font manager version 2.42.
-
-\S{taskwindowsro2} Task windows
-
-If using task windows on RISC OS 2, Zap will expect the module \c{Task} in the \c{System:Modules} directory. This should be the Task module supplied with DDE. \c{cF12} will not bring up the taskwindow on RISC OS 2 (unless a Zap window has the focus).
-
-\S{loadingro2} Loading files
-
-Only left \c{Shift} double click will load a non\-text file under RISC OS 2; right \c{Shift} is deliberately not tested, since some people use it for other things. (Under RISC OS 3 \c{Shift} double click is handled by the operating system, and we have no control over it.)
-
-\S{helpro2} Help
-
-There is no interactive menu help in RISC OS 2; you will have to read the \c{HelpData} file(s) directly.
-
-\S{templatesro2} Templates
-
-Zap uses appropriate Template files for different versions of RISC OS. This means that two\-dimensional templates will be used under RISC OS 2.
-
-Note that there is a bug in the ROM fonts supplied with some versions of RISC OS 3.7 (notably for the A7000+), which means that the default template set doesn't work properly (it can spontaneously reset the desktop font to the system font). However since we have very few reports of this happening, and because the default templates are in our opinion the best set available, we haven't forced the set to one that doesn't cause this problem. to change the template set, open \c{!ZapUser.Config.!ZapRun} and edit the line at the bottom which reads:
-
-\c      Set Zap$Templates       ZapTemplates:Default
-so that it reads:
-
-\c      Set Zap$Templates       ZapTemplates:Tyler
-
-You'll have to make sure that the \c{Tyler} template set is installed for this to work (it is available in the core distribution, so it should be there).
+Note that there is a bug in the ROM fonts supplied with some versions of RISC OS 3.7 (notably for the A7000+), which means that the OldStyle template set doesn't work properly (it can spontaneously reset the desktop font to the system font). This problem does not affect the Default template set.
 
 \S{ncos} \i{NCOS}
 
-In theory, Zap should work on NCOS (Network Computer Operating System - as used in Acorn's NetStation). There are two issues: firstly, the iconbar under NCOS is hidden until someone puts an icon on it; Zap supports a \c{-noicon} option to prevent it from doing this, and a command \c{INSTALLICON} to place an icon on the iconbar if it hasn't already done so. However \c{-noicon} isn't used as standard under NCOS; you'll have to edit \c{!Zap.!Run} (\c{!Zap.!Run,feb}) to get this behaviour. Secondly, since NC's have no Filer, however, loading files is more tricky - particularly so if you don't have an iconbar icon either.
+In theory, Zap should work on NCOS (Network Computer Operating System - as used in Acorn's NetStation, and other similar products). There are two issues: firstly, the iconbar under NCOS is hidden until someone puts an icon on it; Zap supports a \c{-noicon} option to prevent it from doing this, and a command \c{INSTALLICON} to place an icon on the iconbar if it hasn't already done so. However \c{-noicon} isn't used as standard under NCOS; you'll have to edit \c{!Zap.!Run} (\c{!Zap.!Run,feb}) to get this behaviour. Secondly, since NC's have no Filer, loading files is more tricky - particularly so if you don't have an iconbar icon either. The settings variables &322, which allows you to specify a command to run at startup, can be set to NEWFILE (Text &FFF) to open a blank text file automatically in this case.
 
 The authors are uncertain about the utility of Zap under NCOS in any case; however if you have any difficulties with Zap on NCOS (or any information about its being useful :\-), please get in touch (see \k{contact}).
 
