@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.21 2004/01/03 18:54:04 christian Exp $
+; $Id: taskwindow,fff,v 1.22 2005/02/15 15:47:41 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -490,6 +490,8 @@ TaskWindowKill
 	LDR	R14,[R7,#52]		; flags
 	TEQ	R2,#15
 	BEQ	tickq5$l
+	TST	R14,#8			; do nothing if already dead
+	FNRTS	NE                      ;
 	PUSH	"R0-R2"
 	ORR	R14,R14,#8
 	STR	R14,[R7,#52]		; killed flag.
@@ -514,13 +516,14 @@ TaskWindowKill
 ; Kill TaskWindow ;
 ;;;;;;;;;;;;;;;;;;;
 
+; called when Zap deletes a file we own
 taskwindow_kill
 	FNJSR	"R0-R12"
-	MOV	R2,#0			; /could/ be important...!?
 	LDR	R7,[R9,#f_source]
 
 	LDR	R14,[R7,#52]		; flags
 	TST	R14,#4			; unlinked
+	MOVEQ	R2,#0			; command execute reason code
 	BLEQ	pre_TaskWindowKill
 
 	BL	deregister_filter	; ensure filter is dergistered
@@ -534,7 +537,7 @@ taskwindow_kill
 	MVN	R14,#0
 	STR	R14,[R9,#f_cmode]	; disown file
 	MOV	R0,R7
-	FNcall  Zap_Free,R10		; free the buffer
+	FNcall  Zap_Free,R10		; free f_source
 	FNRTS
 
 
@@ -555,18 +558,19 @@ main$l	CMP	R7,R10
 	LDR	R10,[R9,#f_len]
 	ADD	R10,R10,R5
 	CMP	R7,R10
+	ADDHS	R11,R11,#1
 	FNRTS	HS
 	LDR	R1,[R9,#f_splits]
 	ADD	R7,R7,R1
 	ADD	R5,R5,R1
 	ADD	R10,R10,R1
-sok$l	TEQ	R14,R12                 ; check if reached window edge
-	FNRTS	EQ
-
-	LDRB	R0,[R7],#1
+sok$l	LDRB	R0,[R7],#1
 
 	TEQ	R0,#10			; if LF, inc line number and done
 	ADDEQ	R11,R11,#1
+	FNRTS	EQ
+
+	TEQ	R14,R12                 ; check if reached window edge
 	FNRTS	EQ
 
 	MOV	R1,#c_bg		; store background colour
