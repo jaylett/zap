@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.1.2.9 1999/02/22 18:49:34 ds Exp $
+; $Id: Mode4,fff,v 1.1.2.10 1999/02/22 19:54:11 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -517,13 +517,13 @@ local_disassemblerflags
 	DCD	0
 
 ; mode word values
- ; 0
- ; 1
- ; 2
- ; 4
- ; 8
- ; 16
- ; 32		; SWI names...
+ ; 0						In a comment
+ ; 1						SWI
+ ; 2						Branch
+ ; 4						Push R14
+ ; 8						Pull PC
+ ; 16						this may be SWI names (see below)
+ ; 32		; SWI names...			nope - registers ... seems to work though
  ; 64		; &ampersand -> hex...
  ; 128		; # immediates
  ; 256		; logical...
@@ -670,8 +670,8 @@ dis$l					; disassemble the instruction
 
 	MOV	R2,#0			; standard foreground and flags
 
-	AND	R0,R4,#&F<<28
-	TEQ	R0,#&E<<28
+	AND	R0,R4,#&F<<28		; condition code region
+	TEQ	R0,#&E<<28		; AL
 	ORREQ	R2,R2,#1<<22		; No condition check needed...
 
 	AND	R0,R4,#7<<25
@@ -681,19 +681,19 @@ dis$l					; disassemble the instruction
 	TEQ	R0,#4<<25
 	BEQ	ldm$l			; STM or LDM
 
-	AND	R0,R4,#&C << 24
-	TEQ	R0,#4 << 24
+	AND	R0,R4,#&C << 24		; note that 'undefined instruction' will probably have
+	TEQ	R0,#4 << 24		; been weeded out already ...
 	BEQ	ldr$l			; STR or LDR
 
 	AND	R0,R4,#&F << 24
-	TEQ	R0,#&C << 24
-	TEQNE	R0,#&D << 24
-	TEQNE	R0,#&E << 24
+	TEQ	R0,#&C << 24		; data xfer (P clear)
+	TEQNE	R0,#&D << 24		; data xfer (P set)
+	TEQNE	R0,#&E << 24		; data op / register xfer
 	BEQ	foundcopro$l		; copro
 
 ;pregotcol$l
 	AND	R0,R4,#15<<24
-	TEQ	R0,#15<<24
+	TEQ	R0,#15<<24		; SWI signature
 	ORREQ	R2,R2,#2
 colouring_colour
  ; LDR R4,[R8,#w_txtw]		; offset to foreground mask
@@ -710,7 +710,7 @@ dis_loop_in_redraw
 	BEQ	tobfnumberreductionpossible
 	TST	R2,#1<<20		; undefined ins
 	BNE	dontcheckthese_minimal	; theundef
-	TST	R2,#3<<12
+	TST	R2,#3<<12		; asm condition (font/colouring)
 	BNE	maybe_bgcondcolour
 
 	LDR	R4,localmodeword	; flags...
@@ -732,7 +732,7 @@ notaconditionhere
 	TST	R2,#2048		; second column not reached...
 	BEQ	backfromfoundaregister	; secondcolnotreached2
 
-	TST	R2,#&C2			; &... or #... or SWI(?)
+	TST	R2,#&C2			; &... or #... or SWI(?) ... erm &2 is MUL, I think.
 	BNE	backfromfoundaregister
  ;TST R2,#1 << 20			; Undefined instruction
  ;BNE backfromfoundaregister
@@ -759,7 +759,7 @@ notaconditionhere
 	BEQ	foundaLSpossibly
 
 backfromfoundaregister
-	MOV	R11,#2
+	MOV	R11,#2			; foreground colour - ie start with the default
 	TEQ	R0,#';'			; comment?
 	BEQ	foundanasmcommenthere
 
@@ -774,7 +774,7 @@ backfromfoundaregister
 	TEQ	R0,#'#'			; hyphen
 	ORREQ	R2,R2,#128		; &ampersand -> hex...
 	TST	R2,#&80			; in constant expression
-	TSTEQ	R2,#32		; 2048	; in SWI name...?
+	TSTEQ	R2,#32		; 2048	; in SWI name...? (erm ... registers?)
 	TEQEQ	R0,#'&'			; otherwide &address/hex no...
 	ORREQ	R2,R2,#64		; &ampersand -> hex...
 	BICEQ	R2,R2,#30		; &ampersand -> hex...????
@@ -789,18 +789,18 @@ dontcheckthese_minimal
 	MOVNE	R11,#30
 	TST	R2,#1 << 19		; CP instr
 	MOVNE	R11,#31
-	TST	R2,#16			; SWI?
+	TST	R2,#16			; Pull PC
 	MOVNE	R11,#15
-	TST	R2,#8			; SWI?
+	TST	R2,#8			; Push R14
 	MOVNE	R11,#14
-	TST	R2,#4			; SWI?
+	TST	R2,#4			; Branch
 	MOVNE	R11,#13
-	TST	R2,#2			; SWI?
+	TST	R2,#2			; SWI
 	BNE	saswihere
 ;	MOV	R11,#12			; hope OK.
-	TST	R2,#32			;
+	TST	R2,#32			; registers
 	MOVNE	R11,#19
-	TST	R2,#64			; condition...? SWI?
+	TST	R2,#64			; & -> hex
 	MOVNE	R11,#20
 	TST	R2,#256
 	MOVNE	R11,#22			; logical...
@@ -808,12 +808,12 @@ dontcheckthese_minimal
 	MOVNE	R11,#22			; arithmetic...
 	TST	R2,#1 << 21;1024
 	MOVNE	R11,#22			; rolls...
-	CMP	R11,#12
+	CMP	R11,#12			; !!! wtf is this doing here?
 	TST	R2,#1 << 20		; undefined instructs
 	MOVNE	R11,#27
-	TST	R2,#1 << 14		; cp
+	TST	R2,#1 << 14		; cp regs
 	MOVNE	R11,#29
-	TST	R2,#1 << 15		; fp
+	TST	R2,#1 << 15		; fp regs
 	MOVNE	R11,#28
 	TST	R2,#128			; # immediates
 	MOVNE	R11,#21
@@ -851,7 +851,7 @@ bfnumberreductionpossible
 	ADD	R4,R4,R4
 	STRB	R0,[R6],#1		; letter
 	LDR	R0,[R8,#w_format]
-	TST	R0,#1<<25		; free mouse/as BG colour?
+	TST	R0,#1<<25		; free mouse/as BG colour? (flag is smart shift-cursor)
 	BNE	possiblyasbackground
 	MOV	R11,#1
 	SUB	R4,R4,#1
@@ -879,7 +879,7 @@ numberreductionpossible
 	LDR	R4,localmodeword
 	TST	R4,#1 << 30		; minimal
 	MOVNE	PC,R14
-	MOV	R11,#&14
+	MOV	R11,#&14		; 'numbers'
 	CMP	R0,#'-'
 	MOVEQ	R11,#&12
 	MOV	PC,R14
@@ -1012,7 +1012,7 @@ ldm$l
 	ORR	R2,R2,#1 << 16
 	TEQ	R0,#2<<23			; DB
 	BNE	colouring_colour
-	TST	R4,#1<<14
+	TST	R4,#1<<14		; push r14
 	ORRNE	R2,R2,#8
 	B	colouring_colour
 
@@ -1020,7 +1020,7 @@ load$l
 	ORR	R2,R2,#1 << 16
 	TEQ	R0,#1<<23
 	BNE	colouring_colour
-	TST	R4,#1<<15
+	TST	R4,#1<<15		; pull r14
 	ORRNE	R2,R2,#16
 	B	colouring_colour
 
@@ -1075,7 +1075,7 @@ notAPCSstylep
 	B	mode4_keepingitsimple
 
 APCSstylep
-	LDRB	R14,[R1,#-2]		; ???
+	LDRB	R14,[R1,#-2]		; ??? - because r1 has already been advanced ...
 	BIC	R14,R14,#&20
 	TEQ	R14,#'C'
 ;	TEQNE	R14,#'F'
