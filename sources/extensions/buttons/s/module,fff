@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: module,fff,v 1.5 2003/10/19 22:27:19 christian Exp $
+; $Id: module,fff,v 1.6 2003/10/20 00:02:10 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -515,9 +515,29 @@ Buttons_Move	FNJSR	"R1-R4,R11"
 ; ---------------------------------
 ; BUTTONS command
 
-		DCD	7+c_TickableMenuEntry
-Buttons		ADR	R0,param$l			; call "BUTTONS_FLAGSTOGGLE 0"
-		B	Buttons_FlagsToggle
+		DCD	7+c_TickableMenuEntry+c_CanCreateSubMenu
+Buttons		TEQ	R2,#16				; create submenu?
+		ADRNE	R0,param$l			; no - just call "BUTTONS_FLAGSTOGGLE 0"
+		BNE	Buttons_FlagsToggle
+
+		FNJSR	"R1-R2,R11"
+		BL      get_workspace
+		LDR	R0,[R11,#menu]
+		TEQ	R0,#0                           ; already loaded
+		FNRTS	NE
+
+		ADR	R0,menu$l			; load the menu from the file
+		FNcall	Zap_LoadMenu,R2
+		FNRTS	VS
+		LDR	R1,[R0,#4]
+		STR	R1,[R11,#menu]
+		FNcall	Zap_Free,R2			; free the block of handles
+
+gotmenu$l	MOV	R0,R1
+		FNRTS
+
+menu$l		=	"ZapButtons:Menus",0
+		ALIGN
 
 param$l		DCD	0
 
