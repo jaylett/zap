@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.7 1999/01/21 02:31:08 ds Exp $
+; $Id: StartCode,fff,v 1.1.2.8 1999/01/21 15:34:28 dj Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -987,7 +987,7 @@ icon$l				; iconbar Zap icon
  FNLDR R0,wimp_selecttype,EQ
  FNLDR R0,wimp_adjusttype,NE
 
- ORR R0,R0,#(1:SHL:31)		; don't learn
+ ORR R0,R0,#command_DontLearn
  BL command_string
 ; ; ought to have R1 = length for future, but
 ; ; Newfile doesn't actually use it.
@@ -998,6 +998,8 @@ icon$l				; iconbar Zap icon
 ; BL create_empty
 ; BLVC create_window_caret
  FNRTS
+
+; E R2,R2 x/y mouse positions
 menu$l				; create menu on R8/R9
  TEQ R8,#0
  BEQ normalmenu$l
@@ -1006,26 +1008,42 @@ menu$l				; create menu on R8/R9
  MOV R11,#e_interrogate
  BL call_mode
  CMP R0,#&100
- BGT gotmenuhandle$l		; ?
- SUB R13,R13,#32
+ BGT gotmenuhandle$l		; mode supplied menu handle
+ SUB R13,R13,#32		; stack space
  MOV R1,R13
  SWI XWimp_GetPointerInfo	; being lied to by (eg.) Pinboard?
  FNLDR R0,wimp_buffer,VC
- LDRVC R0,[R0,#12]
- LDR R1,[R1,#12]
- ADD R13,R13,#32
+ LDRVC R0,[R0,#12]		; window handle returned by Wimp_Poll
+ LDR R1,[R1,#12]		; window handle returned by Wimp_GetPointerInfo
+ 				; different only if someone's been passing us messages
+ 				; (eg: Pinboard passing ctrl+Menu over iconised window)
+ ADD R13,R13,#32		; stack back up
  TEQ R0,R1
- BNE normalmenu$l
- MOV R0,#&2			; alt
+ BNE normalmenu$l		; being lied to - don't use modifiers
+
+ MOV R0,#&2			; alt (modes, but alt+shift over selection -> sel menu)
  BL test_forkey
- MOVCSS R0,#3			; mode menu.
+ BCC not_alt$l
+
+ PUSH "r2,r3,r8,r9"
+ BL get_selection
+ PULL "r2,r3,r8,r9"
+ MOVCSS R0,#3
  BCS specialmenu$l
+
  MOV R0,#&0			; shift
  BL test_forkey
- BCS colourlist$l
- MOV R0,#&1			; ctrl
+ MOVCCS R0,#3			; alt but no shift - modes menu
+ MOVCSS R0,#5			; alt and shift - selection menu
+ B specialmenu$l		; Z will be clear, as required ...
+
+not_alt$l
+ MOV R0,#&0			; shift (colours, but ctrl+shift -> mode's menu)
  BL test_forkey
- MOVCSS R0,#4			; font menu.
+ BCS colourlist$l
+ MOV R0,#&1			; ctrl (fonts)
+ BL test_forkey
+ MOVCSS R0,#4
  BCS specialmenu$l
 normalmenu$l
  TEQ R8,#0
