@@ -1,5 +1,5 @@
 <?php
-  // $Id: faq.php,v 1.2 2002/01/25 19:53:15 ds Exp $
+  // $Id: faq.php,v 1.3 2002/04/24 23:16:36 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('documentation/faq');
   zap_header ("Zap FAQs", 'up:index');
@@ -88,7 +88,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
   addQa ($qa, 'where', 'Where do configuration files live these days?',
 	'<p>In the <code>ZapUser:Config</code> directory. All files which might need to be edited are now stored there. The idea is that you keep your copy of <code>!ZapUser</code>, and upgrade Zap simply by using in the new <code>!Zap</code> application instead of the old one (and probably upgrading <code>!ZapFonts</code> at the same time).</p>');
   addQa ($qa, 'fontgrey', 'Why are the font menus on the iconbar greyed out?',
-	'<p>Currently, it is not possible to configure the fonts that Zap uses from the iconbar menu. If you wish to configure the fonts, you should change the relevant variables in <code>ZapUser:Config.Settings</code>. For more information, please see the relevant section in <a href="documentation/manual/Contents">the manual</a>.</p>');
+	'<p>Currently, it is not possible to configure the fonts that Zap uses from the iconbar menu. If you wish to configure the fonts, you should change the relevant variables in <code>ZapUser:Config.Settings</code>. For more information, please see the relevant section in <a href="manual/Contents">the manual</a>.</p>');
   addQa ($qa, 'old', 'Can I use my old configuration with the new version?',
 	'<p>If you were previously using v1.40 of Zap, you can keep on using your <code>!ZapUser</code> configuration. Note, however, that you won\'t get all the benefit of the latest version unless you upgrade your configuration at the same time as Zap; see <a href="#config.from140">here</a></p>'.
 	'<p>If you are upgrading from version v1.35 or earlier, you will need to use the copy of <code>!ZapUser</code> supplied with the new version of Zap, and merge your old configuration with it. See <a href="#config.from135">here</a> for more information on how to do this. Note also that information about extensions does not need to be added by hand any more; and also, that extensions from v1.35 almost certainly won\'t work with v1.44. (However there are no extensions we know of that do not have recent versions that <em>will</em> work with v1.44.)</p>');
@@ -141,7 +141,7 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   addSection ($qa, 'changes', 'Changes to Zap');
   addQa ($qa, 'recent', 'What are the recent changes?',
-	'<p>The changes since the version 1.40 release are covered in the <a href="http://www.zap.tartarus.org/documentation/changes"><code>ZapResources:Docs.Changes</code></a> file.</p>'.
+	'<p>The changes since the version 1.40 release are covered in the <a href="changes"><code>ZapResources:Docs.Changes</code></a> file.</p>'.
 	'<p>Zap\'s history prior to version 1.35 will hopefully be made available on <a href="http://www.zap.tartarus.org/">the Zap web site</a> at some point.</p>');
   $buglist = '<p>James Aylett is maintaining a combined bug and wishlist. You can access it through the <a href="http://cvs.tartarus.org/zap/sja-notes/Buglist,fff">CVS gateway</a>. (Simply select the revision with the highest number, which will be at the top.)</p>';
   addQa ($qa, 'planned', 'What is planned for future versions?',
@@ -168,5 +168,5 @@ If you don't understand any answer we've given in this FAQ, please ask. If you t
 
   listQAs ($qa);
 
-  zap_body_end ('$Date: 2002/01/25 19:53:15 $');
+  zap_body_end ('$Date: 2002/04/24 23:16:36 $');
 ?>

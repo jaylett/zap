@@ -1,5 +1,5 @@
 <?php
-  // $Id: t2h.inc,v 1.2 2002/01/29 21:37:34 ds Exp $
+  // $Id: t2h.inc,v 1.3 2002/04/24 23:16:36 ds Exp $
 
   function Error ($errno, $errmsg, $filename, $linenum, $vars)
   {
@@ -47,6 +47,7 @@ in the server error log.<P>
   $orig = dirname ($orig) . '/' . $file;
 
   $root = substr ($GLOBALS['SCRIPT_NAME'], 0, -strlen ($root));
+  $docroot = ereg_replace ('[^/]*$', '', $orig);
 
   if (substr ($file, -1) == '/')
   {
@@ -136,7 +137,7 @@ in the server error log.<P>
 
     echo '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
 <HTML>
-<!-- $Id: t2h.inc,v 1.2 2002/01/29 21:37:34 ds Exp $ -->';
+<!-- $Id: t2h.inc,v 1.3 2002/04/24 23:16:36 ds Exp $ -->';
     do_zap_header ();
     $orig = parturlencode ($orig);
     echo '<hr><!-- Here be plain text --><pre>', $text, '</pre>

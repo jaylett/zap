@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.2 2002/01/29 11:32:43 james Exp $
+  // $Id: index.php,v 1.3 2002/04/24 23:16:36 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('cvs/index');
   zap_header ("Zap - CVS access", 'up:../', 'previous:../mirrors:mirrors');
@@ -8,7 +8,7 @@
 
 <h1>Zap CVS Tree</h1>
 
-<p>Zap's source tree is maintained under <a href="http://www.cyclic.com/">CVS</a>, a version/revision control system which lets multiple developers work on one source tree fairly easily. Access to the CVS tree is available through two methods: firstly, via a <a href="http://cvs.tartarus.org/zap/">web gateway</a> which lets you browse the tree, and secondly through CVS <a href="#pserver">pserver</a>. Write access is only available to main Zap developers at present; if you want to contribute material, send it to one of us (if you start sending lots of useful stuff you'll be a main developer by default, and we'll give you write access).</p>
+<p>Zap's source tree is maintained under <a href="http://www.cvshome.org/">CVS</a>, a version/revision control system which lets multiple developers work on one source tree fairly easily. Access to the CVS tree is available through two methods: firstly, via a <a href="http://cvs.tartarus.org/zap/">web gateway</a> which lets you browse the tree, and secondly through CVS <a href="#pserver">pserver</a>. Write access is only available to main Zap developers at present; if you want to contribute material, send it to one of us (if you start sending lots of useful stuff you'll be a main developer by default, and we'll give you write access).</p>
 
 <p>The files in the CVS tree are stored using Acorn's method for storing filetypes under NFS, namely as <samp>&lt;filename&gt;,&lt;filetype&gt;</samp> where the filetype is a three digit hex number with lower case letters. The <a href="http://www.cvs.riscos.org.uk/">RISC OS CVS port</a> will handle this translation automatically, as will RISC OS NFS clients (allowing the files to reside on a UNIX machine).</p>
 
@@ -91,7 +91,7 @@
 
 <h3><a name="build-free">Building using free RISC OS tools</a></h3>
 
-<p>Again, there are two ways of building Zap using the free RISC OS tools. You will need AS v1.30, drlink v0.30 and make v1.02 (earlier versions of AS almost certainly won't work; get the latest version from <a href="http://www.youmustbejoking.demon.co.uk/progs.apps#as">Darren's website</A>). The others are available from <a href="http://www.mirror.ac.uk/collections/hensa-micros/local/riscos/">UK Mirror's HENSA archive</a>.</p>
+<p>Again, there are two ways of building Zap using the free RISC OS tools. You will need AS v1.30, drlink v0.30 and make v1.02 (earlier versions of AS almost certainly won't work; get the latest version from <a href="http://www.youmustbejoking.demon.co.uk/progs.apps.html#as">Darren's website</A>). The others are available from <a href="http://www.mirror.ac.uk/collections/hensa-micros/local/riscos/">UK Mirror's HENSA archive</a>.</p>
 
 <ol>
  <li>Double click on !Zap.!MakeAS. This doesn't always work, and the second method is better anyway.</li>
@@ -117,5 +117,5 @@ bottom of the [System] section.)</p>
 <p>The command to run, from within the !Zap directory, is <kbd>make -f data/unix/Makefile</kbd>. This gives the default build name; you can use <kbd>make -f data/unix/Makefile BUILD=foo</kbd> and <kbd>make -f data/unix/Makefile BUILD=foo-42</kbd> as above.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/01/29 11:32:43 $');
+  zap_body_end ('$Date: 2002/04/24 23:16:36 $');
 ?>

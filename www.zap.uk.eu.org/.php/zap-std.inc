@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.6 2002/03/01 00:16:45 ds Exp $
+  // $Id: zap-std.inc,v 1.7 2002/04/24 23:16:36 ds Exp $
 
   $stable = 'zr-0.39';
   $ftproot = '/usr/data/ftp/zap/pub/';
@@ -12,6 +12,7 @@
   function setroot ($me)
   {
     global $root;
+    global $docroot;
     $root = ''.$GLOBALS['SCRIPT_NAME'];
     if (substr ($root, -4) == '.php')
       $root = substr ($root, 0, -4);
@@ -26,6 +27,7 @@
     $path = $GLOBALS['PATH_TRANSLATED'];
     if (substr ($root, -strlen ($path)) == $path)
       $root = substr ($root, 0, -strlen ($path));
+    $docroot = ereg_replace ('[^/]*$', '', $root.$me);
 
     $args = func_get_args ();
     array_shift ($args);
@@ -70,6 +72,7 @@
   function zap_header ($title)
   {
     global $root;
+    global $docroot;
     echo "<head>\n<title>", $title, "</title>\n";
     if (eregi ('^(www\.)?zap\.uk\.eu\.org', $GLOBALS['HTTP_HOST']))
       echo "<base href=\"http://zap.tartarus.org/\">\n";
@@ -97,8 +100,12 @@ EOF;
 	    if (count ($arg) > 1 && $arg[1] > '')
 	    {
 	      if (substr ($arg[1], 0, 1) == '/')
-		$arg[1] = substr ($arg[1], 1);
-	      echo '<link rel=', $arg[0], ' href="', $root, $arg[1];
+		$rel = $root.substr ($arg[1], 1);
+	      else
+		$rel = $docroot.$arg[1];
+	      while (strpos ($rel, '/../') != FALSE)
+	        $rel = ereg_replace ('/[^/]*/\.\./', '/', $rel);
+	      echo '<link rel=', $arg[0], ' href="', $rel;
 	      if (count ($arg) == 3)
 		echo '" title="', $arg[3];
 	      echo "\">\n";
@@ -248,14 +255,14 @@ EOF;
     {
       $date = ereg_replace ('^\$Date\: ', '', $date);
       $date = ereg_replace (' \$$', '', $date);
-      print '<a href="${root}copyright">&copy; Copyright Zap Developers 1992-2002. All rights reserved.</a><br>Updated: '.$date.'. ';
+      echo '<a href="', $root, 'copyright">&copy; Copyright Zap Developers 1992-2002. All rights reserved.</a><br>Updated: ', $date, '. ';
     }
     echo '<a href="mailto:webmaster@zap.tartarus.org">webmaster@zap.tartarus.org</a>
 </address>
 </td>
 ';
     if ($date > '')
-      echo '<td><a href="http://validator.w3.org/check/referer"><img border=0 src="${root}img/valid-html401.png" alt="Valid HTML 4.01!" height=31 width=89></a></td>
+      echo '<td><a href="http://validator.w3.org/check/referer"><img border=0 src="', $root, 'img/valid-html401.png" alt="Valid HTML 4.01!" height=31 width=89></a></td>
 </tr>
 </table>
 
