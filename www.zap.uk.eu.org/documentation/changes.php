@@ -1,5 +1,5 @@
 <?php
-  // $Id: changes.php,v 1.3 2002/06/30 17:33:11 ds Exp $
+  // $Id: changes.php,v 1.4 2002/11/07 04:07:27 christian Exp $
 
   include "../.php/zap-std.inc";
   setroot ('documentation/changes');
@@ -9,6 +9,50 @@
   zap_header ("Zap - Changes", 'up:index', 'first:tmt-changes', 'last:dw-changes');
   zap_body_start ();
 
+  // sort out all our variables
+  if (empty($HTTP_GET_VARS['since']))
+  {
+     // FIXME: we really want to determine what the latest version is, but this will do for now
+     $since = "140";
+  }
+  else
+  {
+     $since = $HTTP_GET_VARS['since'];
+  }
+
+  if (empty($HTTP_GET_VARS['release']))
+    $release = "";
+  else
+    $release = $HTTP_GET_VARS['release'];
+
+  if (empty($HTTP_GET_VARS['sortby']))
+    $sortby = 'module';
+  else
+    $sortby = $HTTP_GET_VARS['sortby'];
+
+  $me = $root . "changes.php";
+
+
+  // output a link to ourselves with a different search order
+  function output_sort_link($link, $description)
+  {
+    global $me, $since, $release;
+
+    echo "<th><a href=\"".$me."?since=".$since;
+    echo "&release=".$release;
+    echo "&sortby=".$link."\">".$description."</a></th>\n";
+  }
+
+  // output a link to ourselves with a different release name
+  function output_release_link($release)
+  {
+    global $me, $since, $sortby;
+
+    echo "<a href=\"".$me."?since=".$since;
+    echo "&release=".$release;
+    echo "&sortby=".$sortby."\">".$release."</a>\n";
+  }
+    
   // sort by author
   function cmp_by ($a, $b)
   {
@@ -33,50 +77,77 @@
     return ($a['change'] < $b['change']) ? -1 : 1;
   }
 
-  if (empty($HTTP_GET_VARS['since']))
+  
+  // function to count and name all the releases names in an info file
+  function count_releases($content, &$releases)
   {
-?>
+     reset($content);
 
-<h1>Changes</H1>
+     $count = 0;
 
-<p>The complete Zap changelog is not currently available. You can get the wish/bug/change list for post-v1.40 from the <a href="/cvs/">CVS repository</a>.
-</p>
+     while (list(,$info) = each($content))
+     {
+        if (!empty($info['release']))
+        {
+           for ($i = 0; $i < $count; $i++)
+           {
+              if (strcasecmp($info['release'], $releases[$i]) == 0)
+                break;
+           }
 
-<?php
-  zap_changelog_links ('');
+           if ($i == $count)
+             $releases[$count++] = $info['release'];
+        }
+     }
 
+     return $count;
   }
-  else
-  {
+
+
     // read the changelog from the content file
-    $changes = read_content("changes" . $HTTP_GET_VARS['since'], "en");
+    $changes = read_content("changes" . $since, "en");
     reset($changes);
+
+    // find the releases
+    $releases      = array();
+    $release_count = count_releases($changes, $releases);
+
+    // print the links to other releases
+    if ($release_count > 0)
+    {
+      echo "<p>See also changes since</p>\n  <ul>\n";
+      for ($i = 0; $i < $release_count; $i++)
+      {
+         echo "    <li>";
+         output_release_link($releases[$i]);
+         echo "</li>\n";
+      }
+    }
 
     // sort the changes
-    if (empty($HTTP_GET_VARS['sortby']))
-      $sortby = 'module';
-    else
-      $sortby = $HTTP_GET_VARS['sortby'];
-
     usort($changes, "cmp_" . $sortby);
 
-    reset($changes);
+    // now do the actual changes
+    echo "<center>\n";
 
-    printf("<h1>Changes since Zap v%1.2f</h1>\n", $HTTP_GET_VARS['since'] / 100);
+    printf("<h1>Changes since Zap v%1.2f %s</h1>\n", $since / 100, $release);
 
-    // output the table header. There are better ways of doing this...
-    $me = $root . "documentation/changes.php";
-
-    echo "<table cellspacing=\"1\" cellpadding=\"4\" bgcolor=\"#202080\" align=\"center\" width=\"80%\" border=\"1\">\n";
+    // output the table header.
+    echo "<table cellspacing=\"1\" cellpadding=\"4\" bgcolor=\"#202080\" width=\"80%\" border=\"1\">\n";
     echo "<tr valign=\"top\" bgcolor=\"#e0e0ff\">\n";
-    echo "<th><a href=\"".$me."?since=".$HTTP_GET_VARS['since']."&amp;sortby=module\">Module</a></th>\n";
-    echo "<th><a href=\"".$me."?since=".$HTTP_GET_VARS['since']."&amp;sortby=change\">Description</a></th>\n";
-    echo "<th><a href=\"".$me."?since=".$HTTP_GET_VARS['since']."&amp;sortby=by\">Change&nbsp;by</a></th>\n";
+    output_sort_link("module", "Module");
+    output_sort_link("change", "Description");
+    output_sort_link("by",     "By");
     echo "</tr>\n";
+
+
+    reset($changes);
 
     // output each change
     while (list(,$info) = each($changes))
     {
+      if ((empty($info['release']) && $release == "") || (!empty($info['release']) && !strcasecmp($info['release'], $release)))
+      {
 ?>
 <!-- begin change -->
 <tr valign="top" bgcolor="#e0e0ff">
@@ -86,12 +157,13 @@
 </tr>
 
 <?php
+      }
     }
 
     // close the table
     echo "</table>\n";
+    
+    echo "</center>\n";
 
-  }
-
-  zap_body_end ('$Date: 2002/06/30 17:33:11 $');
+  zap_body_end ('$Date: 2002/11/07 04:07:27 $');
 ?>
