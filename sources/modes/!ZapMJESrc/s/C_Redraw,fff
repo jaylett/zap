@@ -212,16 +212,22 @@ redrawline$C	FNJSR	"r6,windowblk,r11"
 		LOCAL
 
 
+win		DCD	0
+
 ;  Initialisation for syntax scan
 ;
 ;  Entry conditions:
 ;    r4           - Format word
+;    r8
 ;
 ;  Exit conditions:
 ;    r0, r4       - Corrupted
 ;    r5  crtab    - Set up for call to scanfile
 
 scaninit$C	FNJSR	"modeblk,wsblk"
+; cl: nasty hack because we lose R8
+		STR	R8,win
+; cl: nasty hack over. Go home.
 		BL	checkmode
 		FNRTS	NE
 		LDRB	crtab,w_cr			;  Combine w_cr & w_tabchar into crtab
@@ -386,9 +392,9 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 		STRMI	lwidth,[cache$L,#8]
 		STR	cache$L,[sp,#4]			;  Save cache on stack
 		MOV	output,#1<<31			;  Scan file to calculate state
-		MRS	R12,CPSR			; we need to preserve the flags here because
+		MRS	R11,CPSR			; we need to preserve the flags here because
 		BL	scanfile$C			; by the time we could repeat the compare
-		MSR	CPSR_f,R12			; we've corrupted the registers :-/
+		MSR	CPSR_f,R11			; we've corrupted the registers :-/
 		LDMIB	sp,{cache$L,toptr$L}		;  Restore cache and toptr from stack
 		STMHSIA	cache$L!,{ptr,state}		;  Update cache entry if on 1k boundary
 		ADD	rangeend,ptr,#128 ; 1024	;  Get next 1k boundary
@@ -420,16 +426,16 @@ scanloop$L	CMP	toptr$L,rangeend		;  Scan to first of next 1k or toptr
 ;    r9
 ;
 ;  Exit conditions:
-;    r0, r5, r7, r10, r11 - Corrupted
-;    r2, r4, r8, r9, r12, flags - Preserved
+;    r0, r5, r7, r10, flags - Corrupted
+;    r2, r4, r8, r9, r11 r12 - Preserved
 ;    r1  ptr      - Offset of current position
 ;    r3  state    - State of current position
 ;    r6  output   - End of buffer
 ;
 ;  NB. scaninit must be called before scanfile, and r5 preserved between calls
 
-scanfile$C	FNJSR	"r4"
-		LDR	splito,f_splito
+scanfile$C	FNJSR	"r4,r11"		; BEWARE: explicit pull on return
+		LDR	splito,f_splito		; due to nested FNJSRs
 		LDR	lr,f_splits
 		CMP	rangeend,splito
 		ADDGE	rangeend,rangeend,lr
@@ -765,34 +771,21 @@ notfinish$L	CMP	char,#-1
 		AND	lastchar,crtab,#255
 		TEQ	char,lastchar
 		BNE	nottab$L
-		ANDS	lastchar,crtab,#2_11<<12
-		BEQ	nottab$L
+
+		PUSH	"R1,R8,lr"
+		MOV	R1,rcolumn
+		LDR	R8,win
 		TEQ	output,#0
-		BEQ	nostoretab$L
-		CMP	lastchar,#2_10<<12
-		MOVLO	char,#' '
-		MOVEQ	char,#9
-		MOVHI	char,#'-'
-		CMP	lastchar,#2_11<<12
-tabloop$L	MOV	lastchar,#backgroundcol
-		STRB	lastchar,[output,width,LSL #1]
-		MOV	lastchar,#ctrlcol
-		STRB	lastchar,[output,width]
-		STRB	char,[output],#1
-		ADD	rcolumn,rcolumn,#1
-		MOVLO	char,#' '
-		TEQ	rcolumn,lwidth
-		TSTNE	rcolumn,#7
-		BNE	tabloop$L
-		MOVHS	char,#9
-		STRHSB	char,[output,#-1]
-		AND	char,crtab,#255
-		B	nooutput$L
-nostoretab$L	ADD	rcolumn,rcolumn,#15
-		BIC	rcolumn,rcolumn,#3
+		SUBNE	output,output,R1
+		CALL	Zap_RedrawTab
+		TEQ	output,#0
+		ADDNE	output,output,R1
+		MOV	rcolumn,R1
+		PULL	"R1,R8,lr"
 		CMP	rcolumn,lwidth
 		MOVHI	rcolumn,lwidth
 		B	nooutput$L
+
 intobuffer$L	BIC	lastchar,output,#1<<31
 		STR	state,[lastchar]
 		ADD	output,output,#4
@@ -865,7 +858,7 @@ finished$L	LDR	lr,f_ptr
 		CMP	ptr,splito
 		LDRHS	lr,f_splits
 		SUBHS	ptr,ptr,lr
-		LDMFD	sp!,{r4,pc}
+		LDMFD	sp!,{r4,R11,pc}
 
 
 ;  Character look ahead, CS if reached end
@@ -1048,6 +1041,7 @@ notres1$L	TST	lastchar,#dupkeyword
 		BEQ	matchedres$L
 		B	notreserved$L
 
+		LTORG
 ; LTORG
 
 longres1$L	TEQ	char,#0

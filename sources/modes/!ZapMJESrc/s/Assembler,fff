@@ -73,7 +73,7 @@ column$L	RN	r14
 ;       24-31: tabchar
 
 		EXPORT	redrawline$ASM
-redrawline$ASM	FNJSR	"r6,r12"
+redrawline$ASM	FNJSR	"r6,r12"			; warning: pull of R12 below (for tabs)
 		PUSH	"modeblk,wsblk"
 		BL	checkmode
 		LDREQ	colour$L,m_cstate$ASM
@@ -394,35 +394,20 @@ whitespace$L	TEQ	colour$L,#charconstcol$L
 		TEQ	colour$L,#labelcol$L
 		TEQNE	colour$L,#instructcol$L
 		ORREQ	colour$L,colour$L,#nextfieldflag$L
-		TEQ	format$L,#2_00<<12
-		TEQEQ	r0,miscreg$L,LSR #24
-		BEQ	storenocolour$L
+
 		TEQ	r0,#' '
 		BEQ	storenoqs$L
-		CMP	output$L,#0
-		BLT	nextchar$L
-		MOV	r0,#9
-		TEQ	format$L,#2_01<<12
-		MOVEQ	r0,#' '
-		TEQ	format$L,#2_11<<12
-		MOVEQ	r0,#'-'
-tabloop$L	MOV	r1,#ctrlcol$L
-		STRB	r1,[output$L,width$L]
-		MOV	r1,#backgroundcol$L
-		STRB	r1,[output$L,width$L,LSL #1]
-		STRB	r0,[output$L],#1
-		ADD	column$L,column$L,#1
-		TEQ	format$L,#2_10<<12
-		MOVEQ	r0,#' '
-		AND	r1,miscreg$L,#255<<16
-		TEQ	column$L,r1,LSR #16
-		TSTNE	column$L,#7
-		BNE	tabloop$L
-		TEQ	format$L,#2_11<<12
-		MOVEQ	r0,#9
-		STREQB	r0,[output$L,#-1]
-		MOV	r0,miscreg$L,LSR #24
-		B	nextchar$L
+
+		PUSH	"R12"
+		MOV	R0,R6				;
+		SUB	R6,R6,R14			; restore output buffer
+		LDR	R12,[R13,#8]			; get R12
+		MOV	R1,R14				; get column
+		CALL	Zap_RedrawTab			;
+		ADD	R6,R6,R1			; get new pointer
+		MOV	R14,R1
+		PULL	"R12"
+		B	nextchar$L			;
 
 
 		LOCAL
