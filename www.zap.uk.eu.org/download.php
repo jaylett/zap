@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.3 2002/01/26 09:52:42 james Exp $
+  // $Id: download.php,v 1.4 2002/01/26 17:15:19 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -178,7 +178,7 @@ Development release sites
 <?php
   zapfile ('1.40/zmods1_update.zip', 'Update from initial release to current extension modules group 1', '', '');
   zapfile ('1.40/zapconfig.zip', 'ZapConfig', 'sja', '');
-  zapfile ('1.40/ZapEmail023.zip', 'ZapEmail', 'ds', 'PGP');
+  zapfile ('1.40/ZapEmail.zip', 'ZapEmail', 'ds', 'PGP');
 ?>
 </ul>
 
@@ -186,7 +186,7 @@ Development release sites
 
 <ul>
 <?php
-  zapfile ('1.40/src/zapsrc.zip', 'Core', 'sja', '');
+  zapfile ('1.40/src/src-140-8.zip', 'Core (patch 8)', 'sja', '');
   zapfile ('1.40/src/zrdsrc.zip', 'ZapRedraw', 'ds', '');
   zapfile ('1.40/src/zbsrc.zip', 'ZapBASIC', 'tmt', '');
   zapfile ('1.40/src/tmtsrc.zip', 'Tim\'s modes', 'tmt', '');
@@ -229,10 +229,10 @@ Development release sites
 <?php
   zapfile ('1.35/zapconfig.zip', 'ZapConfig', '', '');
   zapfile ('1.35/zapds.zip', 'ZapDS', '', '');
-  zapfile ('1.35/zapemail.zip', 'zapemail.zip', '', '');
-  zapfile ('1.35/zapenh.zip', 'zapenh.zip', '', '');
-  zapfile ('1.35/zapextern.zip', 'zapextern.zip', '', '');
-  zapfile ('1.35/zapole.zip', 'zapole.zip', '', '');
+  zapfile ('1.35/zapemail.zip', 'ZapEmail', '', '');
+  zapfile ('1.35/zapenh.zip', 'ZapENH', '', '');
+  zapfile ('1.35/zapextern.arc', 'ZapExtern', '', '');
+  zapfile ('1.35/zapole.zip', 'ZapOLE', '', '');
 ?>
 </ul>
 
@@ -256,5 +256,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/01/26 09:52:42 $');
+  zap_body_end ('$Date: 2002/01/26 17:15:19 $');
 ?>
