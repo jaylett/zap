@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.3 2002/02/01 19:14:11 ds Exp $
+  // $Id: index.php,v 1.4 2002/02/03 17:17:39 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -87,6 +87,8 @@ site:
 </ul>
 
 <p>Note that the beta downloads are update archives; in order to install one, you must have the stable version already installed.</p>
+
+<p><strong>ZapRedraw 0.42 requires <a href="/ftp/pub/1.44/">Zap 1.44</a> test-8 or later. A patched Zap binary is included; this is required only for test-8.</strong></p>
 
 <p>New features in version 0.40 include a new Font Handle concept which
 allows ZapRedraw to manage bitmap font data block which makes it much simpler
@@ -199,5 +201,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/02/01 19:14:11 $');
+  zap_body_end ('$Date: 2002/02/03 17:17:39 $');
 ?>
