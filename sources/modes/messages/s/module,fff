@@ -34,7 +34,7 @@ D2	=	27,0," provides support for",27,2,"Zap editor.",13
 	ALIGN
 
 ModHelpString
-	=	"ZapMsg",9,9,"0.25 (00 Jan 0000) © "
+	=	"ZapMsg",9,9,"0.26 (00 Jan 0000) © "
 lp1	=	"Tim Tyler",0
 	ALIGN
 
@@ -67,42 +67,11 @@ ModuleInit
 	MOV	r0, #0x12
 	ADR	r1, Data3
 	SWI	XOS_Module
-;	MOVVC	r0, #0x0C
-;	SWIVC	XOS_Module
-;	LDMVSFD	sp!, {pc}
 	MOV	r12, r4
-;	LDR	r2, [r3, #20]
-;	ADD	r3, r3, r2
-;	LDRB	r0, [r3, #3]
-;	TEQ	r0, #'X'
-;	ADDEQ	r3, r3, #1
-;	LDRB	r0, [r3, #5]
-;	CMP	r0, #'9'
-;	RSBLSS	r0, r0, #'1'
-;	BHI	MakeError
-;	BNE	RefDataTab
-;	LDRB	r0, [r3, #7]
-;	CMP	r0, #'9'
-;	RSBLSS	r0, r0, #'0'
-;	BHI	MakeError
-;	BNE	RefDataTab
-;	LDRB	r0, [r3, #8]
-;	CMP	r0, #'9'
-;	RSBLSS	r0, r0, #'0'
-;	BHI	MakeError
 RefDataTab
 	ADR	r0, DataTable
 	FNcall	0
-	ADR	r0, CmdTable
-	FNcall	Zap_AddCommands
 	LDMFD	sp!, {pc}
-;MakeError
-;	ADR	r0, ErrorMess
-;	SWI	OS_GenerateError
-;ErrorMess
-;	DCD	0x00
-;	=	"ZapMsg requires Zap version 1.00 or greater.", 0, 0
-;	ALIGN
 
 MsgLabeled
 	=	"Messages"
@@ -120,8 +89,8 @@ DataTable
 	DCD	0	;  postload ; 0
 	DCD	0	;  REM beforesave ; e_presave  \ called before being saved
 	DCD	0
-	DCD	E_Start	;  REM e_start            \ window entering this mode
-	DCD	E_End	;  REM e_end                \ window leaving this mode
+	DCD	0;E_Start	;  REM e_start            \ window entering this mode
+	DCD	0;E_End	;  REM e_end                \ window leaving this mode
 	DCD	0x00	;  REM e-width              \ find work area width
 	DCD	0	; mode_calllinecol ; mode_linecol
 	DCD	0x00
@@ -165,14 +134,14 @@ DataTable
 	DCD	0x00	;  REM e_setwidth - changing window width
 	DCD	0x00
 	DCD	mode_prevline	;  redrawA ; REM e_prevline \ find start of update reg'n; Easy!
-	DCD	gotoopenwindow	;  REM ; e_openwindow
+	;DCD	0	; openwindow
 
 
 Initialisation
 	CMP	r1, #9
 	BEQ	spellcheck
-	CMP	r1, #7
-	BEQ	amenucreation
+	;CMP	r1, #7
+	;BEQ	amenucreation
 	CMP	r1, #1
 	MOVCC	pc, lr
 	STREQ	r0, [r11, #4]
@@ -238,22 +207,9 @@ noheapblkatall
 	BLVC	UnkPreColBit	;  REM to set up colours with zmcs
 justendtheresnoneed
 	LDMFD	sp!, {r1, r7, r8, pc}
-amenucreation
-	STMFD	sp!, {r0, lr}
-	BL	loadmenuifrequired
-	FNcall	Zap_ReadMenu
-	LDR	r1, [r0, #4]
-	LDMFD	sp!, {r0, pc}
 
+SDsasa	DCD     0x1207004D
 
-; command table
-CmdTable
-	DCD	CmdTable
-	DCD	0
-	=	"MESSAGES_FLAGSTOGGLE",0
-	ALIGN
-	DCD	Cmdhtmlflagstoggle
-	DCD	0
 
 startupformatwd
 	DCD	0x77800000
@@ -302,12 +258,6 @@ DefaultColours
 	ALIGN
 
 
-;Tk1frm12andret
-;	LDR	r0, [r11, #12]
-;	SUBS	r0, r0, #1
-;	STR	r0, [r11, #12]
-;	MVNNE	r0, #0
-;	MOVS	pc, lr
 
 ZapModeWord
 	STMFD	sp!, {r0-r2, lr}
@@ -329,95 +279,6 @@ WrtMdeWrd
 	MOV	lr, pc
 	MOV	pc, r2
 	LDMFD	sp!, {r0-r2, pc}
-
-
-localdefltmw
-	DCD	0
-initialiseheap
-	STMFD	sp!, {r1-r6, r8-r12, lr}
-	MOV	r0, #zizeofcfgwksp
-	LDR	lr, [r12, #0]
-	ADD	lr, lr, #4
-	STMFD	sp!, {lr}
-	MOV	lr, pc
-	LDMFD	sp!, {pc}
-	MOV	r7, r0
-	MOV	r0, #zizeofcfgwksp
-	STR	r0, [r7]
-	LDR	r0, localdefltmw
-	LDR	r0, [r0, #0xC]
-	STR	r0, [r7, #0xC]
-	MOV	r0, #0x0D
-	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
-	BL	OnToWrtMdeWrd
-	LDMFD	sp!, {r1-r6, r8-r12, pc}
-
-
-; ------------- e_start, e_end ---------------
-
-E_Start
-	STMFD	sp!, {r1, r7, lr}
-	STMFD	sp!, {r1-r12, lr}
-	LDRB	r1, [r11, #4]
-	ORR	r1, r1, #0x100
-	FNcall	Zap_ReadVar
-	STR	r0, localdefltmw
-	LDMFD	sp!, {r1-r12, lr}
-	BL	ZapModeWord
-	CMP	r7, #0
-	BLEQ	initialiseheap
-	TEQ	r8, #0
-	BEQ	BeforeAllare8
-	LDRVC	r1, [r7, #0]
-	TEQVC	r1, #zizeofcfgwksp
-	BEQ	BeforeAllare8
-	MOVVC	r1, #zizeofcfgwksp
-	MOVVC	r0, r7
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #8
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	MOVVC	r7, r0
-	STRVC	r1, [r7, #0]
-	BLVC	OnToWrtMdeWrd
-BeforeAll
-	LDR	r0, localdefltmw
-	LDR	r0, [r0, #0xC]
-	STR	r0, [r7, #0xC]
-	MOV	r0, #0x0D
-	STR	r0, [r7, #8]	;  REM AT THE START MAKE COLOUR OK?
-BeforeAllare8
-	LDRVC	r0, [r11, #4]
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #0x015C	;  REM  restore mode options on e_start
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	LDR	r1, [r7, #0x0C]
-	ADRL	r0, w_formmb
-	STR	r1, [r0, #8]
-	CMP	r8, #0
-	LDMEQFD	sp!, {r1, r7, pc}
-	BL	destroyanypanes
-	BL	gomakepanehappen
-	LDMFD	sp!, {r1, r7, pc}
-
-E_End
-	STMFD	sp!, {r7, lr}
-	CMP	r8, #0
-	BLNE	destroyanypanes
-	BL	ZapModeWord
-	LDRVC	r0, [r11, #4]
-	LDRVC	lr, [r12, #0]
-	ADDVC	lr, lr, #Zap_SaveModeWord	;  REM - save on e_end
-	STMVCFD	sp!, {lr}
-	MOVVC	lr, pc
-	LDMVCFD	sp!, {pc}
-	LDMFD	sp!, {r7, pc}
-SDsasa
-	DCD	0x1207004D
-
 
 
 ; ------------ e_redrawline --------------
@@ -994,464 +855,18 @@ TabLoop
 	B	BeginOfEnd
 
 
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-Data47
-	DCD	0x0
+Data47	DCD	0x0
 Branch208
 	LDR	r11, Data47
 	MOV	pc, lr
-;Branch210
-;	STMFD	sp!, {r0, r1, lr}
-;	LDR	r11, Data47
-;	LDR	r0, [r8, #40]
-;	AND	r0, r0, #0xFF
-;	MVN	lr, #0
-;	LDR	r1, [r11, #8]
-;	TEQ	r0, r1
-;	ADDEQ	lr, lr, #1
-;	LDRNE	r1, [r11, #4]
-;	TEQNE	r0, r1
-;	ADDEQ	lr, lr, #1
-;	LDRNE	r1, [r11, #0]
-;	TEQNE	r0, r1
-;	ADDEQ	lr, lr, #1
-;	LDMFD	sp!, {r0, r1, pc}
-;	STMFD	sp!, {r11, lr}
-;	LDR	r11, Data47
-;	TEQ	r1, #0
-;	BLEQ	Tk1frm12andret
-;	LDMFD	sp!, {r11, pc}
-
-
-; ------------------- Buttons code ----------------------
-
-callmiscentrypt
-	STMFD	sp!, {r0-r12, lr}
-	ADRL	lr, w_formmb
-	LDR	lr, [lr, #8]
-	ANDS	lr, lr, #1 << 20
-	LDMEQFD	sp!, {r0-r12, pc}
-	ADRL	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #1
-	LDMMIFD	sp!, {r0-r12, pc}
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMMIFD	sp!, {r0-r12, pc}
-	ADD	r3, r3, #0x2C
-	STR	r3, alocaljumper
-	LDMFD	sp, {r0-r12, lr}
-	MOV	lr, pc
-	LDR	pc, alocaljumper
-	MOV	r0, r0
-	LDMFD	sp!, {r0-r12, pc}
-gotoopenwindow
-	STMFD	sp!, {lr}
-	BL	openwindowroutine
-	CMP	r0, #0	;  REM If there was a pane then no problem
-	LDMNEFD	sp!, {pc}	;  REM just return...
-	BL	gomakepanehappen	;  REM ...otherwise try to make one...
-	BL	openwindowroutine	;  REM ...and redraw it...
-	LDMFD	sp!, {pc}
-openwindowroutine
-	STMFD	sp!, {r0-r12, lr}
-	ADRL	lr, w_formmb
-	LDR	lr, [lr, #8]
-	TST	lr, #(1 << 20)
-	TSTEQ	lr, #(1 << 31)
-	LDMEQFD	sp!, {r0-r12, pc}
-	BL	trytoloadmode
-	ADRL	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #1
-	BMI	_altered_0
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	BVS	_altered_0
-	ADD	r3, r3, #0x28
-	STR	r3, alocaljumper
-	LDMFD	sp!, {r0-r12, lr}
-	LDR	pc, alocaljumper
-nojuice2
-	LDMFD	sp, {r0-r12, lr}
-	ADRALL	r9, modenumberlocal
-	LDR	r9, [r9]
-	MOV	r11, #e_openwindow
-	FNcall	Zap_BaseMode
-	LDMFD	sp!, {r0-r12, pc}
-gomakepanehappen
-	STMFD	sp!, {r0-r12, lr}
-	STMFD	sp!, {r1-r11}
-	ADRL	r1, modenumberlocal
-	LDRB	r1, [r1]
-	FNcall	Zap_GetModeWord
-	LDMFD	sp!, {r1-r11}
-	LDR	r0, [r0, #0x0C]
-	STR	r0, alocaljumper
-	ANDS	r0, r0, #1 << 20
-	LDMEQFD	sp!, {r0-r12, pc}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice1
-backinthethickofit
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r0-r12, pc}
-	ADD	r10, r3, #0x24
-	LDR	r0, alocaljumper
-	MOV	r4, #0
-	ANDS	r1, r0, #1 << 28
-	ORRNE	r4, r4, #8
-	ANDS	r1, r0, #1 << 29
-	ORRNE	r4, r4, #4
-	ANDS	r1, r0, #1 << 30
-	ORRNE	r4, r4, #2
-	LDR	r0, adrofscri
-	CMP	r0, #0
-	BLEQ	getthethreeelements
-	MOV	r7, #0
-	MOV	r6, #0
-	LDR	r5, adrofmenu
-	LDR	r3, adrofscri
-	LDR	r2, adroftemp
-	LDR	r1, adrofspri
-	MOV	r0, #0
-	MOV	lr, pc
-	MOV	pc, r10
-	MOV	r0, r0
-	LDMFD	sp!, {r0-r12, pc}
-buttonsamed
-	=	"Zap"
-buttonsamed2
-	=	"Buttons",0
-	ALIGN
-
-alocaljumper
-	DCD	0
-nojuice1
-	BL	trytoloadmode
-	CMP	r0, #0
-	BPL	backinthethickofit
-	LDMFD	sp!, {r0-r12, pc}
-trytoloadmode
-	STMFD	sp!, {lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_ModeNumber
-	LDMFD	sp!, {pc}
-destroyanypanes
-	STMFD	sp!, {r1-r12, lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice4
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r1-r12, pc}
-	ADR	r0, buttndelhere
-	MOV	R1,#0
-	FNcall	Zap_CommandString
-nojuice4
-	LDMFD	sp!, {r1-r12, pc}
-closeanypanes
-	STMFD	sp!, {r1-r12, lr}
-	ADR	r0, buttonsamed2
-	FNcall	Zap_TestModeName
-	CMP	r0, #0
-	BMI	nojuice4
-	MOV	r0, #18
-	ADR	r1, buttonsamed
-	SWI	XOS_Module
-	LDMVSFD	sp!, {r1-r12, pc}
-	ADR	r0, buttnclohere
-	MOV	R1,#0
-	FNcall	Zap_CommandString
-	LDMFD	sp!, {r1-r12, pc}
-buttndelhere
-	=	"BUTTONS_DELETE",0
-	ALIGN
-buttnclohere
-	=	"BUTTONS_CLOSE",0
-	ALIGN
-_altered_0
-	LDMFD	sp, {r1-r12, lr}
-	ADRALL	r9, modenumberlocal
-	LDR	r9, [r9]
-	MOV	r11, #e_openwindow
-	FNcall	Zap_BaseMode
-	LDMFD	sp!, {r1-r12, pc}
-
-
-getthethreeelements
-	STMFD	sp!, {r1-r4, lr}
-	ADR	r1, markcmdpath
-	BL	loadandretptr
-	STRVC	r0, adrofscri
-	BLVC	changeLFto00
-	ADRVC	r1, marksprpath
-	BLVC	loadandretptr2
-	ADRVC	r1, marktempath
-	BLVC	loadandretptr
-	STRVC	r0, adroftemp
-	BLVC	loadmenuifrequired
-	LDMFD	sp!, {r1-r4, pc}
-loadmenuifrequired
-	STMFD	sp!, {lr}
-	LDR	r0, adrofmenu
-	CMP	r0, #0
-	LDMNEFD	sp!, {pc}
-	ADR	r1, markmenpath
-	BL	loadandretptr
-	STR	r0, adrofmenu
-	LDMFD	sp!, {pc}
-loadandretptr
-	FNJSR	"r1-r5"
-	MOV	r0, #5
-	SWI	OS_File
-	FNRTS	VS
-	STR	r4, tempS2
-	ADD	r0, r4, #7
-	BIC	r0, r0, #3
-	FNcall	Zap_Claim
-	STRVC	r0, tempS1
-	MOVVC	r3, #0
-	MOVVC	r2, r0
-	MOVVC	r0, #255
-	SWIVC	OS_File
-	FNRTS	VS
-	LDR	r0, tempS1
-	LDR	r1, tempS2
-	MOV	r2, #0
-	B	zerotest_sja
-zeroloop_sja
-	STRB	r2, [r0, r1]
-	ADD	r1, r1, #1
-zerotest_sja
-	TST	r1, #3
-	BNE	zeroloop_sja
-	STR	r2,[ r0, r1]
-	FNRTS
-loadandretptr2
-	STMFD	sp!, {r1-r5, lr}
-	MOV	r0, #5
-	SWI	XOS_File
-	LDMVSFD	sp!, {r1-r5, pc}
-	BIC	r0, r4, #3
-	ADD	r0, r0, #0x10
-	FNcall	Zap_Claim
-	STR	r0, adrofspri
-	ADD	r4, r4, #5
-	STR	r4, [r0]
-	MOV	r3, #0
-	ADD	r2, r0, #4
-	MOV	r0, #255
-	SWI	XOS_File
-	LDMFD	sp!, {r1-r5, pc}
-tempS1
-	DCD	0
-tempS2
-	DCD	0
-adrofmenu
-	DCD	0
-adroftemp
-	DCD	0
-adrofspri
-	DCD	0
-adrofscri
-	DCD	0
-markcmdpath
-	=	"<ZapMessages$Scripts>", 0
-	ALIGN
-marksprpath
-	=	"<ZapMessages$Sprites>", 0
-	ALIGN
-marktempath
-	=	"<ZapMessages$Templates>", 0
-	ALIGN
-markmenpath
-	=	"<ZapMessages$Menus>", 0
-	ALIGN
-
-changeLFto00
-	LDR	r1, [r0]
-	CMP	r1, #0
-	MOVEQ	pc, lr
-	AND	r2, r1, #0xFF
-	CMP	r2, #0x0A
-	BICEQ	r1, r1, #0xFF
-	AND	r2, r1, #0xFF00
-	CMP	r2, #0x0A00
-	BICEQ	r1, r1, #0xFF00
-	AND	r2, r1, #0xFF0000
-	CMP	r2, #0x0A0000
-	BICEQ	r1, r1, #0xFF0000
-	AND	r2, r1, #0xFF000000
-	CMP	r2, #0x0A000000
-	BICEQ	r1, r1, #0xFF000000
-	STR	r1, [r0], #4
-	B	changeLFto00
-
-
-; FLAGSTOGGLE command
-	DCD	0x8017
-Cmdhtmlflagstoggle
-	STMFD	sp!, {lr}
-	LDR	r10, [r0]
-	ADRL	r1, modenumberlocal
-	LDR	r1, [r1]
-	STMFD	sp!, {r1-r11}
-	FNcall	Zap_GetModeWord
-	LDMFD	sp!, {r1-r11}
-	MOV	r6, r0
-	LDR	r7, [r6, #0xC]
-	CMP	r2, #15
-	BEQ	tickquery
-	MOV	r5, #0
-	AND	r1, r10, #0xFF
-	BL	execute
-	MOV	r1, r10, LSR #8
-	AND	r1, r1, #0xFF
-	TST	r1, #0x80
-	BLNE	execute
-	MOV	r1, r10, LSR #16
-	AND	r1, r1, #0xFF
-	TST	r1, #0x80
-	BLNE	execute
-	MOV	r1, r10, LSR #24
-	AND	r1, r1, #0xFF
-	TST	r1, #0x80
-	BLNE	execute
-	STR	r7, [r6, #0xC]
-	ADRL	r0, w_formmb
-	STR	r7, [r0, #8]
-	CMP	r8, #0
-	LDMEQFD	sp!, {pc}
-	ANDS	r0, r5, #2
-	BLNE	sortbbout
-	ANDS	r0, r5, #0x10
-	BLNE	sortwwout3
-	ANDS	r0, r5, #8
-	BLNE	sortwwout2
-	ANDS	r0, r5, #4
-	BLNE	sortwwout
-	ANDS	r0, r5, #1
-	BLNE	sortbuttonsout
-	LDMFD	sp!, {pc}
-execute
-	AND	r2, r1, #0x1F
-	CMP	r2, #20
-	ORREQ	r5, r5, #1
-	CMP	r2, #28
-	CMPNE	r2, #29
-	CMPNE	r2, #30
-	ORREQ	r5, r5, #2	;  REM only 2 needed...?
-	CMP	r2, #31
-	CMPNE	r2, #26
-	ORREQ	r5, r5, #0x1C
-	CMP	r2, #27
-	CMPNE	r2, #24
-	ORREQ	r5, r5, #0x08
-	MOV	r3, #1
-	MOV	r3, r3, LSL r2
-	MOV	r2, #0
-	MOV	r4, #0
-	MOV	r1, r1, LSR #5
-	AND	r1, r1, #3
-	CMP	r1, #1
-	MOVEQ	r2, r3
-	CMP	r1, #2
-	MOVEQ	r4, r3
-	BIC	r7, r7, r2
-	ORR	r7, r7, r4
-	EOR	r7, r7, r3
-	MOV	pc, lr
-tickquery
-	AND	r2, r10, #0x1F
-	MOV	r3, #1
-	MOV	r3, r3, LSL r2
-	TST	r7, r3
-	MOVNE	r0, #1
-	MOVEQ	r0, #0
-	LDMFD	sp!, {pc}
-sortwwout
-	STMFD	sp!, {r5, lr}
-	BL	tmt_updatewindow
-	LDMFD	sp!, {r5, pc}
-sortwwout2
-	STMFD	sp!, {r5, lr}
-	FNcall	Zap_SaveWinStatus
-	FNcall	Zap_NewWinStatus	;
-	LDMFD	sp!, {r5, pc}
-sortwwout3
-	STMFD	sp!, {r5, lr}
-	MOV	r0, #7
-	BL	callmiscentrypt
-	LDMFD	sp!, {r5, pc}
-sortbbout
-	STMFD	sp!, {r5, lr}
-	ADR	r4, verylocalR8tmp
-	STR	r7, [r4, #4]
-	FNcall	Zap_GetWindOff
-	STR	r0, [r4]
-	MOV	r0, #2
-	ADR	r1, sortwindowsplease
-	BL	callmiscentrypt
-	LDMFD	sp!, {r5, pc}
-tmt_updatewindow
-	STMFD	sp!, {lr}
-	ADR	r0, tmtupdwstr
-	MOV	R1,#0
-	FNcall	Zap_CommandString
-	LDMFD	sp!, {pc}
-tmtupdwstr
-	=	"UPDATEWINDOW", 0
-	ALIGN
-
-sortbuttonsout
-	STMFD	sp!, {r5, lr}
-	ANDS	r0, r7, #(1 << 20)
-	BLEQ	closeanypanes	;  REM buttons have been toggled off
-	ANDS	r0, r7, #(1 << 20)
-	LDMEQFD	sp!, {r5, pc}
-	BL	gomakepanehappen	;  REM buttons have been toggled on
-	BL	gotoopenwindow	;  REM Redraws the BBs - has to be done
-	BL	gotoopenwindow	;  REM twice - due to the first such
-		;  REM call after an open is ignored.
-	LDMFD	sp!, {r5, pc}
-verylocalR8tmp
-	DCD	0
-	DCD	0
-sortwindowsplease
-	STMFD	sp!, {r0-r12, lr}
-	LDR	r0, [r11, #b_window]
-	LDR	r10, verylocalR8tmp
-	CMP	r10, r0
-	LDMNEFD	sp!, {r0-r12, pc}
-	LDR	r0, [r11, #b_flags]
-	LDR	r5, verylocalR8tmp + 4
-	BIC	r0, r0, #0xE
-	TST	r5, #1 << 30
-	ORRNE	r0, r0, #2
-	TST	r5, #1 << 29
-	ORRNE	r0, r0, #4
-	TST	r5, #1 << 28
-	ORRNE	r0, r0, #8
-	STR	r0, [r11, #b_flags]
-		;  REM BL      gotoopenwindow
-	LDMFD	sp!, {r0-r12, pc}
 
 
 ; ----------- e_prevline -------------
 
 mode_prevline
-	STMFD	sp!, {r11, lr}
 	SUBS	r0, r0, #32
 	MOVMI	r0, #0
-	LDMFD	sp!, {r11, pc}
+	MOV	PC,R14
 
 
 ; ------- e_init spelling op --------
