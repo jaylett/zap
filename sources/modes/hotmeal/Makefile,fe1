@@ -19,16 +19,21 @@ ZapS		= <ZapSource$Dir>
 __BUILD		= -PD "BUILD SETS \"$(BUILD)\""
 NEWBUILD	= "BUILD=$(BUILD)"
 
-OBJECTS	= o.module
+OBJECTS	= o.module o.data
+HEADERS = t.data
 
-$(TARGET):	$(OBJECTS) o
+$(TARGET):	$(OBJECTS) HoTMeaLHdrs o t
 		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
 		Settype $(TARGET) Module
 		Run $(ZapS).data.MCopy $(TARGET) ZapModules:!$(TARGETDIR).$(TARGET)
 		@Echo Finished $(TARGET)
 
+HoTMeaLHdrs:	$(HEADERS)
+		@Echo Made headers
+
 Clean:
 		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
 
 Rebuild:	Clean
 		chain:amu $(NEWBUILD)
@@ -36,14 +41,34 @@ Rebuild:	Clean
 Revision:	Clean
 		chain:amu $(NEWBUILD)
 
-o:
-		cdir o
+o t:
+		cdir $*
 
-.SUFFIXES: .o .s
+.SUFFIXES: .t .o .s .data
+
+.s.t:;		@Run $(ZapS).data.StoH s.$* h.$*
+		Create t.$* 0
 
 .s.o:;		$(as) $(asflags) $(__INTL) s.$*
 
+.data.s:	mkwords
+		mkwords data/$* >$*.s
+
+# Static dependencies:
+o.module:	s.module s.entities s.elements s.attributes s.values h.entities
+
+s.entities:	data.entities mkent
+		mkent data/entities >entities.s
+
+h.entities:	s.entities
+		sed -e "/^;/! d; s/^;//" s.entities >h.entities
+
 # Dynamic dependencies:
+o.data: s.data
+o.data: s.entities
+o.data: s.values
+o.data: s.attributes
+o.data: s.elements
 o.module: s.module
 o.module: h.HoTMeaL
 o.module: ZapSource:h.ZapHeader
@@ -54,3 +79,5 @@ o.module: ZapSource:h.Macros
 o.module: ZapSource:h.ZapConsts
 o.module: <ZapExtSource$Dir>.h.RegNames
 o.module: <ZapExtSource$Dir>.h.Macros
+o.module: h.data
+o.module: h.entities

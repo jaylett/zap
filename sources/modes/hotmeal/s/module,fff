@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.6 2003/05/14 19:21:59 ds Exp $
+; $Id: module,fff,v 1.7 2003/05/15 21:14:46 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -17,6 +17,8 @@ GIFMAGIC_LONG	SETL	{TRUE}
 
 
 	GET	h.HoTMeaL
+	GET	h.data
+	GET	h.entities
 
 	ENTRY
 
@@ -2347,8 +2349,8 @@ D1	=	"ZapHoTMeaL",0,0
 	DCD	D2
 	=	0
 
-D2	=	27,0," provides support for",27,2,"Zap editor.",13
-	=	"It provides a mode for HTML ",27,7,"s.",0
+D2	=	27,0," provides support for the Zap editor.",13
+	=	"It provides a mode for HTML modes.",0
 ModHelpString
 	=	"ZapHoTMeaL",9,"0.87 (00 Jan 0000) © "
 lp1	=	"Tim Tyler",0
@@ -2374,12 +2376,10 @@ shift_pressed
 	SWI	XOS_Module
 	BVS	totalfailure
 	STR	r2, localstorevalue
-	LDR	r0, prestoregap
-	STR	r0, [r2], #4
-	LDR	r0, prestoregap + 4
-	STR	r0, [r2], #4
-	LDR	r0, prestoregap + 8
-	STR	r0, [r2], #2
+	ADR	r0,prestoregap
+	LDMIA	r0,{r0,r1,lr}
+	STMIA	r2!,{r0,r1,lr}
+	SUB	r2,r2,#2
 	LDR	r1, [r9, #12]
 	BL	OneA
 	LDR	r0, localstorevalue
@@ -2428,7 +2428,7 @@ _altered_25
 		;  STR     0,caretofsif
 	MOV	r3, r0
 	MOV	r4, #1
-	MOV	r5, #((1 << 25) :OR: (1 << 24) :OR: (1 << 26))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, imagetagsrch
 	FNcall	Zap_Search
@@ -2439,7 +2439,7 @@ _altered_25
 	BCS	noimagetagfound
 	MOV	r3, r1
 	MOV	r4, #1
-	MOV	r5, #((1 << 25) :OR: (1 << 24) :OR: (1 << 26))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, altattrsrch
 	FNcall	Zap_Search
@@ -2453,7 +2453,7 @@ _altered_25
 	MOV	r0, r1
 	FNcall	Zap_PutCaret
 	MOV	r4, #1
-	MOV	r5, #((1 << 25) :OR: (1 << 24) :OR: (1 << 26))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, justaquotesstring
 	FNcall	Zap_Search
@@ -2464,7 +2464,7 @@ _altered_25
 	MOV	r0, r11
 	FNcall	Zap_PutCaret
 	MOV	r4, #1
-	MOV	r5, #((1 << 25) :OR: (1 << 24) :OR: (1 << 26))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, justagtstring
 	FNcall	Zap_Search
@@ -2564,12 +2564,12 @@ looprndselection
 	BEQ	anampersandfound
 	TEQ	r0, #'-'
 	BEQ	minusfound
-	SUBS	r1, r0, #140
+	SUBS	r1, r0, #128
 	BLE	looprndselection
 	ADRL	r2, indexentitylist
-	LDRB	r3, [r2, r1]
-	CMP	r3, #255
-	BEQ	looprndselection
+	EOR	r1,r1,#1
+	LDR	r3,[r2,r1,LSL #1]
+	MOV	r3,r3,LSR #16
 doconversiontoent
 	ADRL	r2, entitylist
 	CMP	r3, #0
@@ -2781,11 +2781,8 @@ hadenoughselcmd
 endofentcmd
 	LDMFD	sp!, {r0-r12, pc}
 
-startcmt
-	=	"<!--",0
-	ALIGN
-endcmt
-	=	"-->",0
+startcmt	=	"<!--",0
+endcmt		=	"-->",0
 	ALIGN
 
 	DCD	1
@@ -2800,10 +2797,9 @@ CmdAct3
 	BL	tmt_updatewindow
 	FNcall	Zap_StopOp
 	LDMFD	sp!, {pc}
-starttag
-	=	"<",0,0,0
-endtag
-	=	">",0,0,0
+
+starttag	=	"<",0
+endtag		=	">",0
 
 	DCD	1
 CmdAct4
@@ -2866,7 +2862,7 @@ _altered_32
 	STR	r2, lenofsela
 	SUB	r3, r1, #1
 	MOV	r4, #1
-	MOV	r5, #((1 << 24) :OR: (1 << 25) :OR: (1 << 26) :OR: (1 << 29))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass:OR:zsearch_NoMacros
 	MOV	r1, #2
 	LDR	r0, R0tmp
 	FNcall	Zap_Search
@@ -2878,7 +2874,7 @@ _altered_32
 	STR	r0, endcmtoffs
 	MOV	r3, r0
 	MOV	r4, #1
-	MOV	r5, #((1 << 24) :OR: (1 << 25) :OR: (1 << 26) :OR: (1 << 29))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass:OR:zsearch_NoMacros
 	MOV	r1, #2
 	LDR	r0, R1tmp
 	FNcall	Zap_Search
@@ -2904,6 +2900,8 @@ r13temphere1
 	DCD	1
 CmdAct5
 	STMFD	sp!, {lr}
+	FNcall	Zap_GetSel
+	LDMCSFD	sp!, {pc}
 	STR	sp, r13temphere1
 	MOV	r0, #newstksiz
 	FNcall	Zap_Claim
@@ -2917,10 +2915,10 @@ CmdAct5
 	ADRL	r0, andandstring
 	BL	zap_command_string
 	SWI	Hourglass_On
-	MOV	r10, #140
+	MOV	r10, #128
 _altered_33
 	BL	searchforr10
-	SUB	r0, r10, #140
+	SUB	r0, r10, #128
 	SUB	r0, r0, r0, LSR #3
 	MOV	r0, r0, LSR #1
 	SWI	Hourglass_Percentage
@@ -2952,12 +2950,12 @@ loop1
 	MOV	r10, #'>'
 	MOV	r3, #numgt
 	BL	insertnamedchar
-	MOV	r10, #' '
-	MOV	r3, #numensp
-	BL	insertnamedchar
-	MOV	r10, #' '
-	MOV	r3, #numemsp
-	BL	insertnamedchar
+;	MOV	r10, #' '
+;	MOV	r3, #numensp
+;	BL	insertnamedchar
+;	MOV	r10, #' '
+;	MOV	r3, #numemsp
+;	BL	insertnamedchar
 	ADRL	r0, fishstring
 	BL	zap_command_string
 	MOV	r10, #'"'
@@ -2975,11 +2973,12 @@ rapidlyshiftoutofhere
 	LDMFD	sp!, {pc}
 searchforr10
 	STMFD	sp!, {r10, lr}
-	SUB	r1, r10, #140
+	SUB	r1, r10, #128
 	ADRL	r2, indexentitylist
-	LDRB	r3, [r2, r1]
-	CMP	r3, #0xFF
-	BLNE	insertnamedchar
+	EOR	r1,r1,#1
+	LDR	r3,[r2,r1,LSL #1]
+	MOV	r3,r3,LSR #16
+	BL	insertnamedchar
 	LDMFD	sp!, {r10, pc}
 insertnamedchar
 	STMFD	sp!, {lr}
@@ -4272,7 +4271,7 @@ Cmdhtmlinsertif
 	ADR	r0, ltsearch
 	MOV	r1, #2
 	MVN	r4, #0
-	MOV	r5, #((1 << 25) :OR: (1 << 26) :OR: (1 << 24))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	FNcall	Zap_Search
 	MOV	r7, r0
 	CMP	r7, #0
@@ -4281,7 +4280,7 @@ Cmdhtmlinsertif
 	ADR	r0, gtsearch
 	MOV	r1, #2
 	MVN	r4, #0
-	MOV	r5, #((1 << 25) :OR: (1 << 26) :OR: (1 << 24))
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	FNcall	Zap_Search
 	CMP	r0, r7
 	BGT	insertfirststring
@@ -5402,7 +5401,7 @@ maybeinsertalttext
 	MOV	r1, #0
 	LDR	r3, [r10, #c_off]
 	MOV	r4, #-1
-	MOV	r5, #(1<<29)+(1<<24)
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_NoMacros
 	FNcall	Zap_Search
 	CMP	r0, #0
 	LDMMIFD	sp!, {pc}
@@ -5414,7 +5413,7 @@ maybeinsertalttext
 	MOV	r1, #0
 	LDR	r3, [r10, #c_off]
 	MOV	r4, #1
-	MOV	r5, #(1<<29)+(1<<24)
+	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_NoMacros
 	FNcall	Zap_Search
 	CMP	r0, #0
 	LDMMIFD	sp!, {pc}
@@ -6440,569 +6439,6 @@ Cmd_insert_sel
 lookup_error
 	MOV	r2,#0
 	FNjump	Zap_LookupError
-
-
-indexentitylist
-	=	115 	; 140 " "
-	=	100 	; 141 "  "
-	=	116 	; 142 Ž
-	=	117 	; 143 
-	=	057 	; 144 
-	=	090 	; 145 ‘
-	=	118 	; 146 ’
-	=	119 	; 147 “
-	=	056 	; 148 ”
-	=	088 	; 149 •
-	=	120 	; 150 –
-	=	121 	; 151 —
-	=	061 	; 152 ˜ &mdash	;
-	=	065 	; 153 ™ &ndash	;
-	=	122 	; 154 š
-	=	123 	; 155 ›
-	=	124 	; 156 œ
-	=	125 	; 157 
-	=	126 	; 158 ž
-	=	127 	; 159 Ÿ
-	=	064 	; 160   &nbsp	;
-	=	050 	; 161 ¡ &iexcl	;
-	=	018 	; 162 ¢ &cent	;
-	=	083 	; 163 £ &pound	;
-	=	022 	; 164 ¤ &curren	;
-	=	112 	; 165 ¥ &yen	;
-	=	016 	; 166 ¦ &brvbar	;
-	=	091 	; 167 § &sect	;
-	=	027 	; 168 ¨ &die	;
-	=	017 	; 169 © &copy	;
-	=	071 	; 170 ª &ordf	;
-	=	055 	; 171 « &laquo	;
-	=	066 	; 172 ¬ &not	;  ?
-	=	095 	; 173 ­ &shy	;
-	=	089 	; 174 ® &reg	;
-	=	059 	; 175 ¯ &macron	;
-	=	024 	; 176 ° &degree	;
-	=	085 	; 177 ± &plusmn	;
-	=	093 	; 178 ² &sup2	;
-	=	094 	; 179 ³ &sup3	;
-	=	015 	; 180 ´ &acute	;
-	=	062 	; 181 µ &micro	;
-	=	084 	; 182 ¶ &para	;
-	=	063 	; 183 · &middot	;
-	=	019 	; 184 ¸ &Cedilla	;
-	=	092 	; 185 ¹ &sup1	;
-	=	072 	; 186 º &ordm	;
-	=	087 	; 187 » &raquo	;
-	=	042 	; 188 ¼ &frac14	;
-	=	040 	; 189 ½ &frac12	;
-	=	043 	; 190 ¾ &frac34	;
-	=	045 	; 191 ¿ &iquest	;
-	=	008 	; 192 À &Agrave	;
-	=	002 	; 193 Á &Aacute	;
-	=	004 	; 194 Â &Acirc	;
-	=	012 	; 195 Ã &Atilde	;
-	=	014 	; 196 Ä &Auml	;
-	=	010 	; 197 Å &Aring	;
-	=	006 	; 198 Æ &AElig	;
-	=	021 	; 199 Ç &Ccedil	;
-	=	033 	; 200 È &Egrave	;
-	=	029 	; 201 É &Eacute	;
-	=	031 	; 202 Ê &Ecirc	;
-	=	038 	; 203 Ë &Euml	;
-	=	051 	; 204 Ì &Igrave	;
-	=	047 	; 205 Í &Iacute	;
-	=	049 	; 206 Î &Icirc	;
-	=	054 	; 207 Ï &Iuml	;
-	=	034 	; 208 Ð &ETH	;
-	=	067 	; 209 Ñ &Ntilde	;
-	=	077 	; 210 Ò &Ograve	;
-	=	074 	; 211 HIMEM &Oacute	;
-	=	076 	; 212 Ô &Ocirc	;
-	=	082 	; 213 Õ &Otilde	;
-	=	070 	; 214 Ö &Ouml	;
-	=	099 	; 215 × &times	;
-	=	079 	; 216 Ø &Oslash	;
-	=	106 	; 217 Ù &Ugrave	;
-	=	102 	; 218 Ú &Uacute	;
-	=	104 	; 219 Û &Ucirc	;
-	=	109 	; 220 Ü &Uuml	;
-	=	110 	; 221 Ý	;  &Yacute;
-	=	097 	; 222 Þ	;  &THORN;
-	=	096 	; 223 ß	;  &szlig;
-	=	007 	; 224 à	;  &agrave;
-	=	001 	; 225 á	;  &aacute;
-	=	003 	; 226 â	;  &acirc;
-	=	011 	; 227 ã	;  &atilde;
-	=	013 	; 228 ä	;  &auml;
-	=	009 	; 229 å	;  &aring;
-	=	005 	; 230 æ	;  &aelig;
-	=	020 	; 231 ç	;  &ccedil;
-	=	032 	; 232 è &egrave	;
-	=	028 	; 233 é &eacute	;
-	=	030 	; 234 ê &ecirc	;
-	=	039 	; 235 ë &euml	;
-	=	052 	; 236 ì &igrave	;
-	=	046 	; 237 í &iacute	;
-	=	048 	; 238 î &icirc	;
-	=	053 	; 239 ï &iuml	;
-	=	035 	; 240 ð &eth	;
-	=	068 	; 241 ñ &ntilde	;
-	=	078 	; 242 ò &ograve	;
-	=	073 	; 243 ó &oacute	;
-	=	075 	; 244 ô &ocirc	;
-	=	081 	; 245 õ &otilde	;
-	=	069 	; 246 ö &ouml	;
-	=	025 	; 247 ÷ &divide	;  / &div...?
-	=	078 	; 248 ø &oslash	;
-	=	105 	; 249 ù &ugrave	;
-	=	101 	; 250 ú &uacute	;
-	=	103 	; 251 û &ucirc	;
-	=	108 	; 252 ü &uuml	;
-	=	111 	; 253 ý &yacute	;
-	=	098 	; 254 þ &thorn	;
-	=	113 	; 255 ÿ &yuml	;
-	ALIGN
-
-AlphaIndex
-	=	".Greetings from The Mandala Centre..Please feel free place any additional commands in the space provided."
-	ALIGN
-
-AlphaIndex2
-	=	".Greetings from The Mandala Centre..Please feel free place any additional commands in the space provided."
-	ALIGN
-
-AlphaIndex3
-	=	".Greetings from The Mandala Centre..Please feel free place any additional commands in the space provided."
-	ALIGN
-
-AlphaIndexent
-	=	".Greetings from The Mandala Centre..Please feel free place any additional commands in the space provided."
-	ALIGN
-
-entitylist
-	=	"amp{"	;  000
-	=	"aacute{"	;  001
-	=	"Aacute{"	;  002
-	=	"acirc{"	;  003
-	=	"Acirc{"	;  004
-	=	"aelig{"	;  005
-	=	"AElig{"	;  006
-	=	"agrave{"	;  007
-	=	"Agrave{"	;  008
-	=	"aring{"	;  009
-	=	"Aring{"	;  010
-	=	"atilde{"	;  011
-	=	"Atilde{"	;  012
-	=	"auml{"	;  013
-	=	"Auml{"	;  014
-	=	"acute{"	;  015
-	=	"brvbar{"	;  016
-	=	"copy{"	;  017
-	=	"cent{"	;  018
-	=	"Cedilla{"	;  019
-	=	"ccedil{"	;  020
-	=	"Ccedil{"	;  021
-	=	"curren{"	;  022
-	=	"Cedillp{"	;  023 ; ????? not an entity...
-	=	"degree{"	;  024 ; REM not &deg;
-	=	"divide{"	;  025
-	=	"div{"	;  026
-	=	"die{"	;  027
-	=	"eacute{"	;  028
-	=	"Eacute{"	;  029
-	=	"ecirc{"	;  030
-	=	"Ecirc{"	;  031
-	=	"egrave{"	;  032
-	=	"Egrave{"	;  033
-	=	"ETH{"	;  034
-	=	"eth{"	;  035
-	=	"ensp{"	;  036
-	=	"emsp{"	;  037
-	=	"Euml{"	;  038
-	=	"euml{"	;  039
-	=	"frac12{"	;  040
-	=	"fish{"	;  041
-	=	"frac14{"	;  042
-	=	"frac34{"	;  043
-	=	"gt{"	;  044
-	=	"iquest{"	;  045
-	=	"iacute{"	;  046
-	=	"Iacute{"	;  047
-	=	"icirc{"	;  048
-	=	"Icirc{"	;  049
-	=	"iexcl{"	;  050
-	=	"Igrave{"	;  051
-	=	"igrave{"	;  052
-	=	"iuml{"	;  053
-	=	"Iuml{"	;  054
-	=	"laquo{"	;  055
-	=	"ldquo{"	;  056 was 117 :REM ”
-	=	"lsquo{"	;  057 was 113 :REM 
-	=	"lt{"	;  058 was 056
-	=	"macron{"	;  059 was 057
-	=	"macr{"	;  060 was 058
-	=	"mdash{"	;  061 was 059
-	=	"micro{"	;  062 was 060
-	=	"middot{"	;  063 was 061
-	=	"nbsp{"	;  064 was 062
-	=	"ndash{"	;  065 was 063
-	=	"not{"	;  066 was 064
-	=	"Ntilde{"	;  067 was 065
-	=	"ntilde{"	;  068 was 066
-	=	"ouml{"	;  069 was 067
-	=	"Ouml{"	;  070 was 068
-	=	"ordf{"	;  071 was 069
-	=	"ordm{"	;  072 was 070
-	=	"oacute{"	;  073 was 071
-	=	"Oacute{"	;  074 was 072
-	=	"ocirc{"	;  075 was 073
-	=	"Ocirc{"	;  076 was 074
-	=	"Ograve{"	;  077 was 075
-	=	"ograve{"	;  078 was 076
-	=	"Oslash{"	;  079 was 077
-	=	"oslash{"	;  080 was 078
-	=	"otilde{"	;  081 was 079
-	=	"Otilde{"	;  082 was 080
-	=	"pound{"	;  083 was 081
-	=	"para{"	;  084 was 082
-	=	"plusmn{"	;  085 was 083
-	=	"quot{"	;  086 was 084
-	=	"raquo{"	;  087 was 085
-	=	"rdquo{"	;  088 was 117:REM •
-	=	"reg{"	;  089 was 086
-	=	"rsquo{"	;  090 was 114:REM ‘
-	=	"sect{"	;  091 was 087
-	=	"sup1{"	;  092 was 088
-	=	"sup2{"	;  093 was 089
-	=	"sup3{"	;  094 was 090
-	=	"shy{"	;  095 was 091
-	=	"szlig{"	;  096 was 092
-	=	"thorn{"	;  097 was 093
-	=	"THORN{"	;  098 was 094
-	=	"times{"	;  099 was 095
-	=	"trade{"	;  100 was 096
-	=	"uacute{"	;  101 was 097
-	=	"Uacute{"	;  102 was 098
-	=	"ucirc{"	;  103 was 099
-	=	"Ucirc{"	;  104 was 100
-	=	"ugrave{"	;  105 was 101
-	=	"Ugrave{"	;  106 was 102
-	=	"uml{"	;  107 was 103
-	=	"uuml{"	;  108 was 103
-	=	"Uuml{"	;  109 was 104
-	=	"Yacute{"	;  110 was 105
-	=	"yacute{"	;  111 was 106
-	=	"yen{"	;  112 was 107
-	=	"yuml{"	;  113 was 108
-	=	"zeno{"	;  114 was 109
-	=	"&#140{"	;  115 was 110
-	=	"&#142{"	;  116 was 111
-	=	"&#143{"	;  117 was 112
-	=	"&#146{"	;  118 was 115
-	=	"&#147{"	;  119 was 116
-	=	"&#150{"	;  120 was 119
-	=	"&#151{"	;  121 was 120
-	=	"&#154{"	;  122 was 121
-	=	"&#155{"	;  123 was 122
-	=	"&#156{"	;  124 was 123
-	=	"&#157{"	;  125 was 124
-	=	"&#158{"	;  126 was 125
-	=	"&#159{"	;  127 was 126
-	=	"**"
-	ALIGN
-firsthashhash
-	=	10, "##", 10
-ThirdParam
-	=	"All {", "AbsMiddle {", "AbsBottom {", "Alternate {", "Aqua {"	;  REM colourname
-	=	"Auto {", "Above {", "All {", "Bottom {", "Border {", "Baseline {"	;  REM for rel tag
-	=	"Bookmark {"	;  REM for rel tag
-	=	"Black {"	;  REM colourname
-	=	"Block {", "Blue {"	;  REM colourname
-	=	"BleedLeft {", "BleedRight {", "Below {", "Box {", "Center {", "Checkbox {"	;  REM <input type=...>
-	=	"Circle {"	;  REM ...shape=... + LI
-	=	"Cols {", "Default {"	;  REM ...shape=...
-	=	"Decimal {", "Disc {", "False {"	;  REM <input type=...>
-	=	"File {", "FileOpen {", "Fuchsia {"	;  REM colourname
-	=	"Get {", "Glossary {"	;  REM for rel tag
-	=	"Gray {"	;  REM colourname
-	=	"Green {"	;  REM colourname
-	=	"Groups {", "Horizontal {", "Help {"	;  REM for rel tag
-	=	"Headings {", "Hidden {", "Hide {", "Hsides {", "Image {"	;  REM <input type=...>
-	=	"Index {"	;  REM for rel tag
-	=	"Inherit {", "Justify {", "Java {"	;  REM ???
-	=	"JavaScript {"	;  REM ???
-	=	"Left {", "Lime {"	;  REM colourname
-	=	"LHS {", "Middle {", "Made {", "Maroon {"	;  REM colourname
-	=	"MouseOver {", "Navy {"	;  REM colourname
-	=	"Next {"	;  REM for rel tag
-	=	"No {", "None {", "Off {", "Olive {"	;  REM colourname
-	=	"Password {"	;  REM <input type=...>
-	=	"Physical {", "Poly {"	;  REM ...shape=...
-	=	"Post {", "Previous {"	;  REM for rel tag
-	=	"Purple {"	;  REM colourname
-	=	"Right {", "Radio {"	;  REM <input type=...>
-	=	"Rect {"	;  REM ...shape=...
-	=	"Red {"	;  REM colourname
-	=	"Reset {"	;  REM <input type=...>
-	=	"RHS {", "Rows {", "Submit {"	;  REM <input type=...>
-	=	"Scroll {", "Slide {", "Silver {"	;  REM colourname
-	=	"Square {", "Show {", "StyleSheet {", "Top {", "Teal {"	;  REM colourname
-	=	"Text {"	;  REM <input type=...>
-	=	"TextBox {", "TextTop {", "True {"	;  REM <input type=...>
-	=	"Vertical {", "VBScript {"	;  REM ???
-	=	"VBASIC {"	;  REM ???
-	=	"Virtual {", "Void {", "VSides {", "White {"	;  REM colourname
-	=	"Yes {", "Yellow {"	;  REM colourname
-	=	"Zero {"
-		; EQUS    "_Blank {"
-		; EQUS    "_Parent {"
-		; EQUS    "_Self {"
-		; EQUS    "_Top {"
-	=	"**", 10
-	ALIGN
-	=	10, "##", 10
-SecondParam
-	=	"Align ¿"
-	=	"Action ~"
-	=	"Accept ~"
-	=	"ALink ¿"
-	=	"Alt ¿"
-	=	"AltSrc ¿"
-	=	"Above ¿"
-	=	"A ~"
-	=	"Asix ~"
-	=	"Axes ~"
-	=	"Add_Date ¿"
-	=	"Background ¿"
-	=	"Behavior ~"
-	=	"BorderColor ¿"
-	=	"BorderColorDark ¿"
-	=	"BorderColorLight ¿"
-	=	"Border ¿"
-	=	"BGColor ¿"
-	=	"BGProperties ¿"
-	=	"Below ¿"
-	=	"Color ¿"
-	=	"Cellpadding ¿"
-	=	"Cellspacing ¿"
-	=	"Checked ~"
-	=	"Class ~"
-	=	"Clear ¿"
-	=	"CodeBase ¿"
-	=	"Code ¿"
-	=	"ColSpan ¿"
-	=	"Cols ¿"
-	=	"Compact ~"
-	=	"Contents ~"
-	=	"Content ¿"
-	=	"Continue ~"
-	=	"Coords ¿"
-	=	"Clip ¿"
-	=	"Charoff ~"
-	=	"Direction ~"
-	=	"Dingbat ~"
-	=	"DynSrc ¿"
-	=	"DTD ~"
-	=	"EncType ¿"
-	=	"Frame ¿"
-	=	"FrameBorder ¿"
-	=	"FrameSpacing ¿"
-	=	"Face ¿"
-	=	"Gutter ¿"
-	=	"HRef¿"	;
-	=	"Height ¿"
-	=	"HAlign ¿"
-	=	"HSpace ¿"
-	=	"HTML ~"
-	=	"HTTP-Equiv ~"
-	=	"IsMap ~"
-	=	"ID ~"
-	=	"Image ~"
-	=	"Indent ~"
-	=	"Infinite ~"
-	=	"I ~"
-	=	"Inflow ¿"
-	=	"Language ¿"
-	=	"Lang ¿"
-	=	"LeftMargin ¿"
-	=	"Left ¿"
-	=	"Link ¿"
-	=	"Loop ~"
-	=	"LowSrc ¿"
-	=	"Last_Visit ¿"
-	=	"Last_Modified ¿"
-	=	"Method ¿"
-	=	"MarginHeight ¿"
-	=	"MarginWidth ¿"
-	=	"MaxLength ¿"
-	=	"Multiple ~"
-	=	"Name ¿"	;  REM Param~" ¤"
-	=	"NoHref ~"
-	=	"NoResize ~"
-	=	"NoShade ~"
-	=	"NoWrap ~"
-	=	"OnSubmit ¿"
-	=	"OnMouseOver ¿"
-	=	"OnFocus ¿"
-	=	"OnChange ¿"
-	=	"Param ~"
-	=	"Plain ~"
-	=	"Prompt ¿"
-	=	"PUBLIC ~"
-	=	"RowSpan ¿"
-	=	"Rows ¿"
-	=	"Rel ¿"	;  REM "¤"
-	=	"Rev ¿"
-	=	"Rules ¿"
-	=	"Src ¿"
-	=	"Scrolling ¿"
-	=	"ScrollAmount ¿"
-	=	"ScrollDelay ¿"
-	=	"Selected ~"
-	=	"SeqNum ~"
-	=	"Shape ¿"
-	=	"Size ¿"
-	=	"Skip ~"
-	=	"Start ¿"
-	=	"Target ~"
-	=	"Text ¿"
-	=	"Title ~"
-	=	"TopMargin ¿"
-	=	"Type ¿"
-	=	"Top ¿"
-	=	"URL ¤"
-	=	"Units ~"
-	=	"UseMap ¿"
-	=	"VAlign ¿"
-	=	"Value ¿"
-	=	"VLink ¿"
-	=	"VSpace ¿"
-	=	"Visibility ¿"
-	=	"Width ¿"
-	=	"Wrap ~"
-	=	"X-AltSrc ¿"
-	=	"Z-Index ~"
-	=	"**", 10
-
-		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	ALIGN
-	=	10, "##", 10
-TableHere
-	=	"ADDRESS º"
-	=	"A |"
-	=	"ABBREV |"
-	=	"ACRONYM |"
-	=	"APPLET |"
-	=	"AREA |"
-	=	"ATTLIST ˜"
-	=	"AUTHOR |"
-	=	"BLOCKQUOTE º"
-	=	"B º"
-	=	"BANNER |"
-	=	"BASEFONT |"
-	=	"BASE |"
-	=	"BGSOUND |"
-	=	"BIG º"
-	=	"BLINK º"
-	=	"BODY |"
-	=	"BR |"
-	=	"BF |"
-	=	"BQ |"
-	=	"CENTER º"
-	=	"CAPTION º"
-	=	"CDDATA |"
-	=	"CITE º"
-	=	"CODE º"
-	=	"DIRNAME |"
-	=	"DD |"
-	=	"DEF |"
-	=	"DEL |"
-	=	"DFN º"
-	=	"DIR |"
-	=	"DIV |"	;  ok
-	=	"DL º"
-	=	"DOCTYPE ˜"
-	=	"DT º"
-	=	"EMBED |"
-	=	"EMBEDED |"	;  ??? HTML4?
-	=	"ELEMENT ˜"
-	=	"EM º"
-	=	"ENTITY ˜"
-	=	"FORM |"
-	=	"FIG |"
-	=	"FONT |"
-	=	"FRAME |"
-	=	"FRAMESET |"
-	=	"FRONT |"
-	=	"HEAD º"
-	=	"H1 |"
-	=	"H2 |"
-	=	"H3 |"
-	=	"H4 |"
-	=	"H5 |"
-	=	"H6 |"
-	=	"HEADER º"
-	=	"HR |"
-	=	"HTML º"
-	=	"IMG |"
-	=	"I º"
-	=	"INPUT |"
-	=	"INS |"
-	=	"ISINDEX |"
-	=	"ILAYER |"
-	=	"KBD º"
-	=	"LISTING º"
-	=	"LEFT º"
-	=	"LHEAD |"
-	=	"LINK |"
-	=	"LI º"
-	=	"LOW |"
-	=	"LAYER |"
-	=	"META |"
-	=	"MAP |"
-	=	"MARQUEE |"
-	=	"MATH |"
-	=	"MENU |"
-	=	"MULTICOL |"
-	=	"NOFRAMES |"
-	=	"NEWLINE |"
-	=	"NOBR º"
-	=	"NAME |"
-	=	"OPTION |"
-	=	"OL |"
-	=	"PLAINTEXT º"
-	=	"P |"
-	=	"PARA |"
-	=	"PARAM |"
-	=	"PRE |"
-	=	"QUOTE º"
-	=	"RIGHT º"
-	=	"STRONG º"
-	=	"S º"
-	=	"SAMP |"
-	=	"SCRIPT º"
-	=	"SELECT |"
-	=	"SGML ˜"
-	=	"SMALL º"
-	=	"SPACER |"
-	=	"SPC |"	;  ?
-	=	"STRIKE º"
-	=	"STYLE º"
-	=	"SUB º"
-	=	"SUP º"
-	=	"TITLE º"
-	=	"TABLE |"
-	=	"TD |"
-	=	"TEXTAREA º"
-	=	"TH |"
-	=	"TR |"
-	=	"TT º"
-	=	"UL |"
-	=	"U º"
-	=	"VAR º"
-	=	"WBR º"
-	=	"XMP º"
-	=	"ZERO |"
-	=	"**", 10
-	ALIGN
 
 
 	END
