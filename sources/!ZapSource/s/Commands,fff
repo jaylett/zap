@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1 1999/01/06 16:59:24 dj Exp $
+; $Id: Commands,fff,v 1.2 1999/01/12 18:23:41 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Template
@@ -2107,7 +2107,8 @@ fi11
  STRB R4,[R3]			; restore name
  FNRTS
 fi12
- BL find_current_directory
+ MOV R0,#1
+ BL find_current_directory_dde
  FNRTVC VS			; cope with things like "disk not present"
  BL minibuffer_write 		; write name into buffer (default)
  MOVVC R0,#'.'
@@ -4823,17 +4824,17 @@ un16
  FNRTS
 un18
  SUB R0,R2,#&8000		; number of the key
- TEQ R0,#&7F
- FNRTS EQ			; pass on delete
- TEQ R0,#&1D
- FNRTS EQ			; pass on return
- CMP R0,#'0'
- ADDCC R0,R0,#&8000
- FNRTS CC			; perfrom < 0
- CMP R0,#'9'
- FNRTS LE			; pass on digits
- ADD R0,R0,#&8000
- FNRTS				; do the rest
+ TEQ R0,#&7F			; pass on delete,
+ TEQNE R0,#&1C			;  backspace,
+ TEQNE R0,#&1D			;  return,
+ SUB R14,R0,#&100
+ TEQNE R14,#&66			;  enter
+ FNRTS EQ
+ CMP R14,#10			; pass on keypad digits,
+ SUBHS R14,R0,#'0'
+ CMP R14,#10			;  main digits
+ ADDHS R0,R0,#&8000		; but do the rest
+ FNRTS
 un_s0 FNS ("Number of times to repeat: ")
 un_s1 FNS (:CHR:12:CC:"Now press key to be repeated")
 
