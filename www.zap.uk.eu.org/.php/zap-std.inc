@@ -1,6 +1,9 @@
 <?php
-  // $Id: zap-std.inc,v 1.7 2002/04/24 23:16:36 ds Exp $
+  // $Id: zap-std.inc,v 1.8 2002/06/30 17:33:10 ds Exp $
 
+  if ($GLOBALS['SERVER_NAME'] != 'zap.tartarus.org' ||
+      substr (gethostbyaddr($GLOBALS['REMOTE_ADDR']), -13) == '.tartarus.org')
+    error_reporting(E_ALL);
   $stable = 'zr-0.39';
   $ftproot = '/usr/data/ftp/zap/pub/';
 
@@ -16,7 +19,9 @@
     $root = ''.$GLOBALS['SCRIPT_NAME'];
     if (substr ($root, -4) == '.php')
       $root = substr ($root, 0, -4);
-    $path = strlen (ereg_replace ('[^/]+', '', $GLOBALS['PATH_INFO']));
+    $path = '';
+    if (isset ($GLOBALS['PATH_INFO']))
+      $path = strlen (ereg_replace ('[^/]+', '', $GLOBALS['PATH_INFO']));
     while ($path)
     {
       $root = ereg_replace ('/[^/]*$', '', $root);
@@ -33,7 +38,7 @@
     array_shift ($args);
     if (func_num_args () == 1)
       array_push ($args, '');
-    if (!in_array ($GLOBALS['PATH_INFO'], $args, FALSE))
+    if (isset ($GLOBALS['PATH_INFO']) && !in_array ($GLOBALS['PATH_INFO'], $args, FALSE))
     {
       include str_repeat ('../', strlen (ereg_replace ('[^/]+', '', $me))).'404.php';
       exit;

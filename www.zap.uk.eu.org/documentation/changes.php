@@ -1,6 +1,6 @@
 <?php
-  // $Id: changes.php,v 1.2 2002/06/29 11:28:23 christian Exp $
-  error_reporting(E_ALL);
+  // $Id: changes.php,v 1.3 2002/06/30 17:33:11 ds Exp $
+
   include "../.php/zap-std.inc";
   setroot ('documentation/changes');
   include "../.php/zap-changes.inc";
@@ -24,7 +24,7 @@
       return 0;
     return ($a['module'] < $b['module']) ? -1 : 1;
   }
- 
+
   // may as well have this for consistency
   function cmp_change ($a, $b)
   {
@@ -85,7 +85,7 @@
 <td> <?= $info['by']     ?> </td>
 </tr>
 
-<?php 
+<?php
     }
 
     // close the table
@@ -93,5 +93,5 @@
 
   }
 
-  zap_body_end ('$Date: 2002/06/29 11:28:23 $');
+  zap_body_end ('$Date: 2002/06/30 17:33:11 $');
 ?>
