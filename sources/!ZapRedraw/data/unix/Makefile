@@ -12,9 +12,10 @@
 #	ZapRedraw (default)	Build ZapRedraw
 #	clean			Wipe .o and .t files, and auto-gen headers
 
-OBJECTS		=  o/ZapRedraw o/DSARedraw o/VDURedraw
+OBJECTS		=  o/ZapRedraw o/DSARedraw o/VDURedraw o/Cache o/Commands \
+		   o/VFRedraw o/Messages
 
-asm		= as_ro
+asm		= as_ro -t ARM3
 link		= link_ro
 asmflags	= -nolocal -objasm -upper -pedantic -I$(ZapSource_Dir) -o $@
 linkflags	= -o o/tmplink -B 0 -bin
