@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.19 2003/01/19 21:11:53 christian Exp $
+; $Id: StartCode,fff,v 2.20 2003/01/19 23:03:43 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -52,8 +52,7 @@
  EXPORT last_drag_box_event
  EXPORT mouse_event
  EXPORT main_loop
- EXPORT main_quit
- EXPORT main_end
+ EXPORT main_exit
  EXPORT kill_wimp
  EXPORT clean_up
  EXPORT env_noicon_check
@@ -79,15 +78,14 @@ zap_log$l
 start_code
 	LDR	R12,[R12]		; R12=module workspace
 	SWI	XHourglass_On
-	SUBS	R0,R0,R0		; clv...
+	CLV
 	MOV	R0,#&8000
 	FNSTR	R0,env_start		; save environment start
 	BL	init_wimp_vsn		; read wimp version (before init_wimp)
 	BLVC	init_wimp		; log on as a wimp task (clears app memory)
 	BLVC	init_stack		; R13=stack now setup
+	BLVC	register_abort_handlers	; install our environment handlers
 	BLVC	init_envstring		; read & store environment string
-	MOVVS	R10,#0			; kill the module on error
-	BVS	main_end
 	BLVC	init_fixed		; claim fixed buffers
 	BLVC	init_heap		; set up heap and dynamic areas
 
@@ -145,7 +143,6 @@ start_code
 	BLVC	init_opts		; setup options mode (after new init_modes!)
 	BLVC	init_flash		; start up flash interrupt
 	BVS	fatal_wimp_error
-	BLVC	register_abort_handlers ; from Darren Salt...(TT)
 	BLVC	loadhidepointer
 	BLVC	loadflashcar
 	BVS	wimp_error
@@ -162,6 +159,7 @@ start_code
 	; <<< end gerph
 	BVS	wimp_error
 	SWI	XHourglass_Off
+
 main_loop
 	BL	call_wimp_poll
 	BVS	wimp_error
@@ -177,45 +175,34 @@ main_loop
 
 	LOCAL
 
-	FNAME	main_quit
-main_quit
-main_exit				; unnecessary...
+	FNAME	main_exit
+main_exit
 	SYSLOG  "Zap main_exit", LOG_STATUS
-	SWI	OS_Exit
-
-
-	FNAME	main_end
-main_end
-	SYSLOG  "Zap main_end", LOG_STATUS
 	SWI	OS_Exit
 
 
 	FNAME	clean_up
 clean_up
 	FNJSR
-	MOV	R0,#5
+	MOV	R0,#5			; read the curent task handle
 	SWI	XWimp_ReadSysInfo
-	SWIVC	XDDEUtils_ThrowbackUnRegister ; &62586
+	SWIVC	XDDEUtils_ThrowbackUnRegister
 	BL	free_font_handles
 	BL	kill_files
 	BL	init_kill_list
-	TEQ	R10,#0
-	BLEQ	kill_modes		; kill off other mode modules
-	TEQ	R10,#0
-	BLEQ	kill_commands		; kill off other command modules
-	TEQ	R10,#0
-	BLEQ	kill_if_on_kill_list
-	MOV	R0,#0
-	FNSTR	R0,file_num		; no files (so finalise won't complain)
-	BLVC	kill_lineeditor		; kill line editor buffers
-	BLVC	kill_heap
-	BLVC	kill_wimp
-	SUBS	R0,R14,R14		; clear V flag
+	BL	kill_modes		; mark the mode modules to be killed
+	BL	kill_commands		; mark the command modules to be killed
+	BL	kill_if_on_kill_list	; kill them
+	BL	kill_lineeditor		; kill line editor buffers
+	BL	kill_heap		; kill the Dynamic Area if we created it
+	BL	kill_wimp		; shut down our task
+	CLV
 	FNRTS
 
 
 	LOCAL
 
+; produce an error box with only a Cancel button, then exit
 	FNAME	fatal_wimp_error
 fatal_wimp_error
 	[ LOGGING = SYSLOG
@@ -226,26 +213,8 @@ fatal_wimp_error
 	MOV	R1,#2
 	ADR	R2,t$l
 	SWI	XWimp_ReportError
-	MOV	R10,#0			; kill module
-	B	main_end
+	B	main_exit
 
-	FNAME	near_fatal_wimp_error
-near_fatal_wimp_error
-	FNJSR	"R1,R2"
-	[ LOGGING = SYSLOG
-	ADD	R0,R0,#4
-	SYSLOGF "Near-fatal error '%0s'",LOG_ERROR
-	SUB	R0,R0,#4
-	]
-	MOV	R1,#2
-	ADR	R2,t$l
-	SWI	XWimp_ReportError
-	FNRTS
-
-t$l	FNS	|zap$|
-
-
-	LOCAL
 
 ;E R0=error block
 ;X Error reported and goes back to main loop
@@ -279,7 +248,7 @@ cancel$l
 	BIC	R14,R14,#1<<31		; get poll number
 	CMP	R14,#4
 	BCS	a$l			; error if it wasn't a redraw etc
-	ADDS	R0,R0,#0		; clear error
+	CLV
 	B	main_loop
 
 d$l	DCD	ENUM+12			; read only error - don't report
@@ -1387,7 +1356,7 @@ end$l	MOV	R0,#17			; reached end of list so pass it on
 act$l	FNLDR	R5,env_modstart		; start of the module
 	ADD	PC,R5,R4		; jump to the sub
 
-list$l	DCD	0,main_quit		; telling me to die (nodie???)
+list$l	DCD	0,main_exit		; telling me to die (nodie???)
 	DCD	1,data_save		; someone wants to save data to me
 	DCD	3,data_load		; (filer) wants me to load a file
 	DCD	5,data_open		; someone wants to edit a file
