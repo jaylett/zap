@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.9 2003/06/05 14:44:28 christian Exp $
+; $Id: Cache,fff,v 1.10 2003/06/09 23:09:38 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -679,6 +679,7 @@ syst$l		MOV	R10,R0
 		LDR	R2,[R11,#fb_charw]		; find out what cbpl and cbpc
 		LDR	R3,[R11,#fb_charh]		; would be were we to cache them
 		LDR	R0,[R12,#r_bpp]
+		ORR	R0,R0,#1<<31			; force this bpp
 		BL	cached_char_size
 		STR	R2,[R11,#fb_cbpl]
 		STR	R3,[R11,#fb_cbpc]
@@ -811,12 +812,15 @@ loop$l		;MOV	R0,R9
 ; convert font bitmaps from 1bpp to currentbpp
 ; E r0 -> 1bpp source  r1 -> font block  r6 = last char
 ; X r2 -> converted bitmaps  (may be the same block)
-convert_font	FNJSR	"R0,R1,R5-R8"
-		FNLDR	R5,r_bpp
-		TEQ	R5,#0
+convert_font	FNJSR
+		FNLDR	R14,r_bpp
+		TEQ	R14,#0
+		TEQNE	R14,#5				; can now plot directly from 1bpp
+		FNPULL					; bitmaps in 32bpp modes
 		MOVEQ	R2,R0
-		FNRTS	EQ
+		MOVEQ	PC,R14
 
+do_convert_font	FNJSR	"R0,R1,R5-R8"
 		MOV	R3,R6
 		ADD	R4,R1,#fb_charw			; create fake redraw block
 		LDMIA	R4,{R5-R8}
@@ -1254,6 +1258,8 @@ fromsystem$l	MOV	R1,R11
 		BL	check_font_range		; add vdu characters
 
 		LDR	R0,[R12,#r_bpp]			; update fb_cbpl and fb_cbpc
+		TEQ	R0,#5
+		MOVEQ	R0,#0
 		ADD	R1,R11,#fb_charw
 		LDMIA	R1,{R2,R3}
 		BL	cached_char_size
@@ -1305,7 +1311,9 @@ err$l		PUSH	"R0"
 
 
 ; install a DSA font
-; E r0 = handle  r2 -> font block
+; E r0 = handle (DSA mode)
+;   r0 b0 set for manybpp dsavdu font (DSAVDU mode)
+;   r2 -> font block
 ; X r0 -> cached data for this substyle
 install_font	FNJSR	"R1,R4-R6,R10,R11"
 		LDR	R1,[R2,#fb_flags]
@@ -1353,6 +1361,9 @@ loop$l		LDR	R3,[R1,R2,LSL #2]
 dsavdu$l	MOV	R11,R2
 		AND	R10,R0,#1			; keep 1bpp flag
 
+		LDR	R0,[R12,#r_bpp]			; setup fb_bpp
+		STR	R0,[R1,#fb_bpp]
+
 		LDR	R0,[R2,#fb_1bcache]
 		MOVS	R0,R0
 		BNE	have1bpp$l
@@ -1364,7 +1375,7 @@ dsavdu$l	MOV	R11,R2
 		MOVVC	R5,#0				; first and last chars already cached
 		MOVVC	R6,#255				;
 		BLVC	check_font_range		; add cursors
-		BLVC	convert_font			; convert to current bpp
+		BLVC	do_convert_font			; convert to current bpp
 		STRVC	R2,[R11,#fb_1bcache]
 		FNRTS	VS
 
@@ -1403,9 +1414,12 @@ recache_font	FNJSR	"R1,R11"
 
 		MOV	R1,R2
 		BL	free_font_data
-		BLVC	install_base_font
+  		BVS	done$l
 
-		STR	R11,[R12,#r_bpp]
+		LDR	R14,[R2,#fb_flags]
+		TST	R14,#ff_vdu
+		BLEQ	install_base_font
+done$l		STR	R11,[R12,#r_bpp]
 		FNRTS
 
 
@@ -1424,6 +1438,8 @@ dsavdu_convert	FNJSR	"R1-R11"
 
 		TEQ	R9,#1				; many bpp mode?
 		LDREQ	R0,[R12,#r_bpp]
+		ORREQ	R0,R0,#1<<31			; force this bpp
+;		STREQ	R0,[R12,#r_bpp]
 		MOVNE	R0,#0
 		LDR	R2,[R11,#fb_charw]
 		LDR	R3,[R11,#fb_charh]
@@ -1521,6 +1537,10 @@ dsavdu_restore	FNJSR	"R1"
 		BL	cache_free
 		ADD	R0,R12,#buffer
 		STR	R0,[R12,#r_workarea]
+
+		LDR	R0,[R12,#r_bpp]
+		BIC	R0,R0,#1<<31
+		STR	R0,[R12,#r_bpp]
 		FNRTS
 
 

@@ -1,11 +1,12 @@
 ; Contains code for direct screen access redraw
-; $Id: DSARedraw,fff,v 1.10 2003/05/09 12:59:17 christian Exp $
+; $Id: DSARedraw,fff,v 1.11 2003/06/09 23:09:38 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
  GET h.Cache
  GET h.VFRedraw
  GET h.SWIs
+ GET h.DSA32
 
  EXPORT redraw_area_dsa
  EXPORT redraw_raster_select
@@ -17,7 +18,10 @@
  EXPORT calculate_x_scroll
  EXPORT call_extension
  EXPORT to_skip_control_char
+ EXPORT redraw_control_code
 
+ EXPORT get_merge_args
+ EXPORT cc4_string
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Fast redraw of an area				    ;
@@ -309,6 +313,11 @@ redraw_raster_select
 	BNE	vf_redraw_raster
 					; fall through
 redraw_raster
+	FNJSR
+	BL	dsa_test_32bpp
+	FNPULL
+	BEQ	redraw_raster_32bpp
+
 	FNJSR	"R1-R12"
 	MOV	R11,R6,LSR#16		; background
 	BIC	R10,R6,R11,LSL#16	; foreground
@@ -1167,6 +1176,11 @@ control_code_3
 	FNRTS				; do this character
 
 control_code_4
+	FNJSR
+	BL	dsa_test_32bpp
+	FNPULL
+	BEQ	control_code_4_32bpp
+
 	FNJSR	"R2,R5-R9"
 	BL	get_merge_args
 	CMN	R6,#1
@@ -1237,6 +1251,11 @@ control_code_7
 	MOV	PC,R14			; do this char
 
 control_code_8
+	FNJSR
+	BL	dsa_test_32bpp
+	FNPULL
+	BEQ	control_code_8_32bpp
+
 	FNJSR	"R2,R5-R9"
 	BL	get_merge_args
 	CMN	R6,#1			; EQ = merge aborted
@@ -1417,12 +1436,16 @@ call_extension
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R0=bpp R2=charw R3=charh
+;  r0 b31 set to force this bpp, otherwise choose the lowest usable
 ;X R2=cbpl R3=cbpc with R2 rounded to 1,2,multiple of 4
 
 cached_char_size
 	FNJSR
 	BL	viewfinder_test_text
 	MOVNE	R0,#0			; with VF, we can normally use 1bpp fonts
+	TEQ	R0,#5
+	MOVEQ	R0,#0			; we can plot from 1bpp in 32bpp modes
+	AND	R0,R0,#&FF
 	MOV	R2,R2,LSL R0		; width in pixels
 	CMP	R2,#16
 	ADDLS	R2,R2,#7
@@ -1462,6 +1485,9 @@ convert_bitmap
 	LDR	R7,[R1,#r_bpp]		; bpp to convert to
 	BL	viewfinder_test_text
 	MOVNE	R7,#0			; if VF in use, just copy
+	TEQ	R7,#5
+	MOVEQ	R7,#0			; if 32 bpp, just copy
+	AND	R7,R7,#&FF
 	CMP	R7,#0
 	BLE	cb_copy			; just copy the bitmap
 	MOV	R0,#1

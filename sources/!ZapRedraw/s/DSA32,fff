@@ -1,0 +1,397 @@
+; Contains code for direct screen access redraw in 32bpp modes
+; $Id: DSA32,fff,v 1.1 2003/06/09 23:09:38 christian Exp $
+
+ GET h.ZapRedHdr
+ GET h.ZapRedraw
+ GET h.Cache
+ GET h.VFRedraw
+ GET h.DSARedraw
+ GET h.SWIs
+
+ EXPORT dsa_test_32bpp
+ EXPORT redraw_raster_32bpp
+ EXPORT control_code_4_32bpp
+ EXPORT control_code_8_32bpp
+
+; implementation notes:
+;
+; the merge character routines plot the characters themselves, rather than expand
+; the bitmaps and them plot as a normal character. This means the control code
+; handler needs extra information, namely the number of pixels to plot, and the
+; pixel offset to start at. These are passed in R8 and R9 respectively, in addition
+; to the normal parameters, to redraw_control_code which simply passes them on
+; to our handlers.
+;
+; secondly, we return an extra code in R0: -1 means that redraw_control_code has
+; plotted this character already. Because get_merge_args copies this into R7, this
+; also has the happy side-effect of cancelling nested merges correctly.
+
+
+; test if plotting from 1bpp bitmaps in 32bpp mode
+; E R1 -> redraw block
+; X EQ to use the code in this file
+dsa_test_32bpp
+	FNJSR	"R0"
+	LDR	R0,[R1,#r_bpp]
+	TEQ	R0,#5
+	FNRTS	NE
+
+	LDR	R0,[R1,#r_charw]
+	CMP	R0,#17			; calculate cbpl at 1bpp
+	ADDLO	R0,R0,#7
+	MOVLO	R0,R0,LSR #3
+	ADDHS	R0,R0,#31		; round up
+	MOVHS	R0,R0,LSR #5		; number of words
+	MOVHS	R0,R0,LSL #2		; number of bytes
+
+	LDR	R14,[R1,#r_cbpl]
+	TEQ	R0,R14
+	FNRTS
+
+
+;E R1=redraw block
+;  R3=address of text to use for this line (from first vis char)
+;  R4=character defn table offset so use top row of character
+;     or 0 to clear the raster to background colour
+;  R5=screen address of start of raster line
+;  R6=start col b0-b15=for b16-b23=bac b24-31=substyle
+;  r_workarea a_x1 to a_x4 and a_ext1,a_ext2 setup.
+;X Raster line redrawn |
+
+redraw_raster_32bpp
+	FNJSR	"R1-R12"
+	MOV	R11,R6,LSR #16		; background
+	BIC	R10,R6,R11,LSL #16	; foreground
+	AND	R10,R10,#&FF
+	AND	R11,R11,#&FF
+	MOV	R9,R6			; temporarily... ;-(
+	LDR	R0,[R1,#r_palette]
+	LDR	R10,[R0,R10,LSL #2]
+	LDR	R11,[R0,R11,LSL #2]	; get bit masks
+	LDR	R12,[R1,#r_bpp]
+	LDR	R7,[R1,#r_workarea]	; R7=workarea values
+	LDR	R0,[R1,#r_minx]
+	ADD	R5,R5,R0,LSL #2		; start screen address
+
+	CMP	R4,#0
+	LDRNE	R0,[R1,#r_caddr]	; are we using font handles?
+	CMPNE	R0,#&8000
+	BHS	ok$l
+	BL	handle_to_caddr		; have colour information
+
+	SUB	R8,R4,R0		; current char offset
+	LDR	R0,[R1,#r_caddr]
+	BIC	R0,R0,#&FF
+	ORR	R0,R0,R9,LSR #24	; patch in initial style mask
+	BL	handle_to_caddr_c	; we have colour information
+	STR	R0,[R7,#a_spr1]		; keep initial caddr for 0,9 and 0,10 routines
+	ADD	R4,R0,R8		; get initial char offset
+
+ok$l	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#0
+	MOVNE	R6,#0
+	MOVNE	R7,#0
+	BLNE	call_extension		; start of line call to extension
+
+	LDR	R7,[R1,#r_workarea]	; R7=workarea values
+	LDR	R9,[R1,#r_scrollx]
+	CMP	R9,#0
+	RSBMI	R9,R9,#0		; number of pixels to clear
+	BLMI	clear_pixels		; draw the left margin
+
+	LDR	R9,[R7,#a_x1]		; first character pixel offset
+	TEQ	R9,#0
+	BEQ	aligned$l		; first character aligned
+	LDR	R8,[R7,#a_x2]		; number of pixs in first char
+	CMP	R8,#0
+	BLE	end$l			; nothing left to do
+	BL	redraw_raster_pixel	; draw end of first character
+
+aligned$l
+	LDR	R8,[R7,#a_x3]		; number of whole chars to do
+	CMP	R8,#0
+	BLE	lastchar$l
+	BL	redraw_raster_main
+
+lastchar$l
+	LDR	R8,[R7,#a_x4]
+	CMP	R8,#0
+	BLE	end$l			; nothing left to do
+	MOV	R9,#0
+	BL	redraw_raster_pixel	; draw start of last character
+
+end$l	FNRTS
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Fast redraw of part of a character raster		    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;E R1=redraw block R3=address of text R4=char defn table
+;  R5=screen address R6=bit offset in buffer R7=buffer
+;  R8=number of pixels to write >0 (within a single character)
+;  R9=pixel offset within the char to start at
+;  R10=foreground mask R11=background mask
+;  R12=sub to call resolution+clear or not
+;X R0,R2,R8-R9,R12 corrupted
+;  R1,R4 preserved
+;  R3,R5-R7,R10-R11 updated
+redraw_raster_pixel
+	FNJSR
+	TEQ	R4,#0
+	BEQ	clear$l
+	LDRB	R0,[R3],#1
+	TEQ	R0,#0
+	BLEQ	redraw_control_code
+	CMP	R0,#-1
+	FNRTS	EQ			; already plotted
+	LDR	R2,[R1,#r_cbpc]
+	MLA	R2,R0,R2,R4		; address of bitmap
+	ADD	R2,R2,R9,LSR #3		; byte address of bitmap
+	ANDS	R0,R9,#7		; bit offset within byte
+	MOVS	R9,R8			; number of pixels to write
+	BLNE	redraw_pixels 		; write these
+	FNRTS
+
+clear$l	LDRB	R0,[R3],#1
+	TEQ	R0,#0
+	BLEQ	redraw_control_code
+	MOV	R9,R8
+	CMP	R0,#-1
+	FNPULL
+	MOVEQ	PC,R14			; already plotted
+	B	clear_pixels
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Fast redraw of part of whole characters rasters	    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+;E R1=redraw block R3=address of text R4=char defn table
+;  R5=screen address
+;  R8=number of characters to write >0
+;  R10=foreground mask R11=background mask
+;X R0,R2,R8-R9,R12 corrupted
+;  R1,R4 preserved
+;  R3,R5-R7,R10-R11 updated
+redraw_raster_main
+	FNJSR
+	MOV	R6,R8
+	TEQ	R4,#0
+	BEQ	clear$l
+	LDR	R8,[R1,#r_charw]
+loop$l	LDRB	R0,[R3],#1		; get char
+	TEQ	R0,#0
+	MOVEQ	R9,#0
+	BLEQ	redraw_control_code
+	MOV	R9,R8			; number of pixels to write
+	CMP	R0,#-1
+	LDRNE	R2,[R1,#r_cbpc]
+	MLANE	R2,R0,R2,R4		; address of bitmap
+	MOVNE	R0,#0
+	BLNE	redraw_pixels
+	SUBS	R6,R6,#1		; done another character
+	BGT	loop$l
+	FNRTS
+
+clear$l	LDR	R8,[R1,#r_charw]
+cloop$l	LDRB	R0,[R3],#1		; get char
+	TEQ	R0,#0
+	MOVEQ	R9,#0
+	BLEQ	redraw_control_code
+	MOV	R9,R8			; number of pixels to clear
+	CMP	R0,#-1
+	BLNE	clear_pixels
+	SUBS	R6,R6,#1		; done another character
+	BGT	cloop$l
+	FNRTS
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Redraw pixel subs					;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+;E R2      = bit address of bitmap line
+;  R5      = output address
+;  R9      = number of pixels to write > 0.
+;  R10-R11 = colour masks
+;X R0,R9 corrupted R5 updated, all else saved |
+
+redraw_pixels
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	MOV	R12,R12,LSL R0
+loop$l	LDRB	R0,[R2],#1
+loop2$l	TST	R0,R12
+	STREQ	R11,[R5],#4
+	STRNE	R10,[R5],#4
+	SUBS	R9,R9,#1
+	MOVLE	PC,R14
+	MOVS	R12,R12,LSL #1
+	BCC	loop2$l
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	B	loop$l
+
+	LOCAL
+
+;E R5  = output
+;  R9  = number of _pixels_ to clear > 0.
+;  R11 = background mask
+;X R9 corrupted R5-R7 updated, all else saved |
+;  Bits cleared to background colour.
+clear_pixels
+loop$l	STR	R11,[R5],#4
+	SUBS	R9,R9,#1		; do another pixel
+	BGT	loop$l
+	MOV	PC,R14
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Merge characters					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	LOCAL
+
+; merge characters
+control_code_4_32bpp
+	FNJSR	"R2,R4,R6-R11"
+	PUSH	"R8,R9"
+	BL	get_merge_args
+	CMN	R7,#1
+	PULL	"R8,R9",EQ
+	FNRTS	EQ			; merge aborted
+	TEQ	R4,#0
+	BEQ	clear$l
+
+	MOV	R2,R4			; char defn table for mask char
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#4
+	BLNE	call_extension
+
+	LDR	R0,[R1,#r_cbpc]
+	MLA	R6,R0,R6,R4
+	MLA	R7,R0,R7,R2		; character addresses
+	PULL	"R4,R14"		; number of pixels to do, pixel offset
+
+	ADD	R6,R6,R14,LSR #3
+	ADD	R7,R7,R14,LSR #3
+
+	AND	R14,R14,#7
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	MOV	R12,R12,LSL R14
+
+loop$l	LDRB	R0,[R6],#1
+	LDRB	R2,[R7],#1
+loop2$l	TST	R2,R12			; alt char bit set
+	BNE	alt$l
+	TST	R0,R12			; base char bit set?
+	STREQ	R11,[R5],#4
+	STRNE	R10,[R5],#4
+	B	next$l
+
+alt$l	TST	R0,R12			; base char bit set?
+	STREQ	R9,[R5],#4
+	STRNE	R8,[R5],#4
+
+next$l	SUBS	R4,R4,#1
+	BLE	done$l
+	MOVS	R12,R12,LSL #1
+	BCC	loop2$l
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	B	loop$l
+
+clear$l	PULL	"R9,R14"		; number of pixels to do
+	BL	clear_pixels
+
+done$l	MOV	R0,#-1
+	FNRTS
+
+
+	LOCAL
+
+; merge cursors
+control_code_8_32bpp
+	FNJSR	"R2,R4,R6-R11"
+	PUSH	"R8,R9"
+	BL	get_merge_args
+	CMN	R7,#1			; EQ = merge aborted
+	PULL	"R8,R9",EQ
+	FNRTS	EQ			; merge aborted
+
+	TEQ	R4,#0
+	BEQ	clear$l			; in the middle of line spacing
+
+	MOV	R2,R4			; char defn table for mask char
+	CMP	R7,#5			;
+	ADDLS	R7,R7,#&100
+	LDR	R0,[R1,#r_flags]
+	TST	R0,#rf_extroutine
+	MOVNE	R0,#8
+	BLNE	call_extension		; tell extension subs
+
+	MOV	R14,R7
+	LDR	R0,[R1,#r_cbpc]
+	MLA	R6,R0,R6,R4
+	MLA	R7,R0,R7,R2		; character addresses
+
+	CMP	R14,#&100
+	BCC	cc8_1			; just swap for/bac cols
+
+	PULL	"R4,R14"		; number of pixels to do, pixel offset
+
+	ADD	R6,R6,R14,LSR #3
+	ADD	R7,R7,R14,LSR #3
+	AND	R14,R14,#7
+
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	MOV	R12,R12,LSL R14
+
+loop$l	LDRB	R0,[R6],#1
+	LDRB	R2,[R7],#1
+loop2$l	TST	R2,R12			; alt char bit set
+	BNE	alt$l
+	TST	R0,R12			; base char bit set?
+	STREQ	R11,[R5],#4
+	STRNE	R10,[R5],#4
+	B	next$l
+
+alt$l	STR	R9,[R5],#4
+
+next$l	SUBS	R4,R4,#1
+	BLE	done$l
+	MOVS	R12,R12,LSL #1
+	BCC	loop2$l
+	MOV	R12,#1
+	ORR	R12,R12,#1<<24		; end of shift-register marker
+	B	loop$l
+
+cc8_1	MOV	R10,R8
+	MOV	R11,R9
+	PULL	"R9,R14"
+	ADD	R2,R6,R14,LSR #3
+	AND	R0,R14,#7
+	BL	redraw_pixels
+	B	done$l
+
+clear$l	PULL	"R9,R14"		; number of pixels to do
+	BL	clear_pixels
+
+done$l	MOV	R0,#-1
+	FNRTS
+
+
+ END
