@@ -1,6 +1,6 @@
 ; html.s
 ; converted from text2 by bas2asm.pl
-; $Id: module,fff,v 1.12 2003/09/21 21:05:12 ds Exp $
+; $Id: module,fff,v 1.13 2003/09/22 00:31:37 ds Exp $
 
 
 ;   Warning: severe hack bugfixing for v0.85 [sja]
@@ -243,7 +243,7 @@ backinactione
 	BEQ	nocfginit
 	LDR	r0, [r7, #0]
 	CMP	r0, #zizeofcfgwksp
-	FNRTS	EQ
+	BEQ	justendtheresnoneed
 		;  REM no !Config...
 nocfginit
 	MOV	r0, #num_colours
@@ -276,7 +276,7 @@ write_default_config
 	ADD	lr,lr,r1
 0	CMP	r1,#zizeofcfgwksp
 	LDRLO	r2,[lr],#4
-	STRLO	r2,[r7],#4
+	STRLO	r2,[r7,r1]
 	ADDLO	r1,r1,#4
 	BLO	%BT0
 	LDR	r0, SDsasa	;  REM Dater 5%/8% !! vc= no !config file ?
@@ -284,12 +284,20 @@ write_default_config
 	MOV	r2, #0
 	FNcall	Zap_ModeData
 justendtheresnoneed
+	LDR	r0,[r7,#12]
+	TST	r0,#new_btns_bit
+	LDREQ	lr,default_fmt_word_mask
+	BICEQ	r0,r0,lr
+	ORREQ	r0,r0,#new_btns_bit
+	STREQ	r0,[r7,#12]
 	FNRTS
+default_fmt_word_mask
+	&	&F000FFFF :OR: xml_bit
 default_config
 	&	zizeofcfgwksp
 	&	0
 	&	13
-	&	&779E0000	; format word
+	&	&079E0001	; format word
 	&	0
 	&	0
 default_config_end
@@ -1504,10 +1512,10 @@ lasdwA
 	CMP	r4, r11
 	BCC	beforesolhereargh
 	LDRB	r4, [r12, r9]
-	TST	r5, #mk_lower_bit
-	BLNE	maker4lower
 	TST	r5, #mk_upper_bit
 	BLNE	maker4upper
+	TST	r5, #mk_lower_bit :OR: xml_bit
+	BLNE	maker4lower
 	TST	r5, #0x08000000
 	STRNEB	r4, [r7, r9]
 lasdwA1
@@ -1816,10 +1824,10 @@ insrtstfhre
 	MOVNE	r5, #0
 _altered_14
 	LDRB	r1, [r7, r2]
-	TST	r5, #mk_lower_bit
-	BLNE	maker1lower
 	TST	r5, #mk_upper_bit
 	BLNE	maker1upper
+	TST	r5, #mk_lower_bit :OR: xml_bit
+	BLNE	maker1lower
 	STRB	r1, [r3, r2]
 	SUBS	r2, r2, #1
 	BPL	_altered_14
@@ -2416,7 +2424,7 @@ _altered_25
 	BCS	noimagetagfound
 	MOV	r3, r1
 	MOV	r4, #1
-	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	MOV	r5, #zsearch_NoMacros:OR:zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, altattrsrch
 	FNcall	Zap_Search
@@ -2430,7 +2438,7 @@ _altered_25
 	MOV	r0, r1
 	FNcall	Zap_PutCaret
 	MOV	r4, #1
-	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	MOV	r5, #zsearch_NoMacros:OR:zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, justaquotesstring
 	FNcall	Zap_Search
@@ -2441,7 +2449,7 @@ _altered_25
 	MOV	r0, r11
 	FNcall	Zap_PutCaret
 	MOV	r4, #1
-	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	MOV	r5, #zsearch_NoMacros:OR:zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	MOV	r1, #2
 	ADR	r0, justagtstring
 	FNcall	Zap_Search
@@ -3493,6 +3501,7 @@ localblkstore
 	DCD	0	;  REM memory ptr
 	DCD	0	;  REM flag for selection?
 
+	LOCAL
 	[ :LNOT: WITH_IMAGESIZE
 getmessage
 	MOV	PC,R14
@@ -3504,7 +3513,7 @@ getmessage
 	STMFD	sp!, {r0-r12, lr}
 	CMP	r3, #17
 	LDMNEFD	sp!, {r0-r12, pc}
-wimpmessagerecvd
+	MOV	r6,r0		; mode number in R6
 	LDR	r0, [r1, #16]
 	TEQ	r0, #1
 	TEQNE	r0, #3
@@ -3521,10 +3530,11 @@ wimpmessagerecvd
 	MOVS	r11,r0
 	LDMMIFD	sp!,{r0-r12,pc}
 	FNcall	Zap_ConvWindOff
-	BL	getmodenumber
-	LDRB	r5, [r8, #w_format]
-	TEQ	r1, r5
+	LDRB	r1, [r8, #w_format]
+	TEQ	r1, r6		; R6 == window's mode?
 	BNE	dontexecutecmd
+	MOV	r1, #0
+	STR	r1, localblkstore + 12
 	LDR	r1, localblkstore
 	LDR	r5, [r1, #40]
 	LDR	r3, urlfiletype
@@ -3549,17 +3559,10 @@ wimpmessagerecvd
 	BEQ	dothatgifbit
 	LDR	r3, htmlfiletype
 	CMP	r5, r3
+	LDRNE	r3, xmlfiletype
+	CMPNE	r5, r3
 	BEQ	dothathtmlbit
-		; LDR     3,giffiletype
-		; CMP     5,3
-		; LDR     3,jpegfiletype
-		; CMPNE   5,3
-		; LDR     3,spritefiletype
-		; CMPNE   5,3
-		; LDR     3,pngfiletype
-		; CMPNE   5,3
-	BNE	dothatgifbit
-	LDMFD	sp!, {r0-r12, pc}
+	B	dothatgifbit
 cutandstoresel
 	ADR	r0, storedcuthere
 	B	zap_command_string
@@ -3598,11 +3601,11 @@ straightup
 	FNcall	Zap_ReadVar
 	MOV	r10, r0
 	FNcall	Zap_StartOp
-	LDR	r3, htmlfiletype
-	CMP	r5, r3
+	LDR	r3,giforhtmlflag
+	TEQ	r3,#0
 	BEQ	maybenotimage
 	BL	testsel
-	MOVCS	lr, #-1
+	MOV	lr,lr,RRX
 	STR	lr, localblkstore + 12
 	BLCC	cutandstoresel
 maybenotimage
@@ -3611,7 +3614,9 @@ maybenotimage
 	STMFD	sp!, {r0-r12}
 	LDR	r3, htmlfiletype
 	CMP	r5, r3
-	BEQ	retfromtoreporterror
+	LDRNE	r3, xmlfiletype
+	CMPNE	r5, r3
+	BEQ	do_maybealttext
 	STMFD	sp!, {r1-r11}
 	BL	GetModeWord
 	LDMFD	sp!, {r1-r11}
@@ -3627,7 +3632,7 @@ maybenotimage
 		;                        R4 = Image Height
 	LDR	lr, giforhtmlflag
 	CMP	lr, #0
-	BEQ	retfromtoreporterror
+	BEQ	do_maybealttext;retfromtoreporterror
 	LDR	r1, localblkstore
 	ADD	r1, r1, #44
 	BL	image_dims
@@ -3635,26 +3640,55 @@ maybenotimage
 	TEQ	r3,#0
 	BEQ	retfromtoreporterror
 	ADR	r1, widthtogohere
-	BL	clear_overwrite
 	MOV	r0, r4
 	BL	convertcardforwh
 	ADR	r1, heighttogohere
 	MOV	r0, r3
 	BL	convertcardforwh
-	ADR	r0, storedweqhere
-	BL	zap_command_string
-	ADR	r0, storedheqhere
-	BL	zap_command_string
+	BL	unlink_cursor
+	ADR	r0,end_element$l
+	MOV	r1,#3
+	BL	search$l
+	MOVS	r7,r0
+	ADRMI	r0,end_element$l+2
+	MOVMI	r1,#1
+	BLMI	search$l
+	MOVS	r7,r0
+	BMI	no_insert$l
+	ADR	r3,storedwlabel
+	BL	insert$l
+	ADRVC	r3,storedhlabel
+	BLVC	insert$l
+no_insert$l
+	BL	restore_cursor
+	B	do_restorecursor
+end_element$l	=	" />",0
+storedwlabel	=	" width="
+widthtogohere	%	12
+storedhlabel	=	" height="
+heighttogohere	%	12
+	ALIGN
+search$l
+	LDR	r3,[r10,#c_off]
+	MOV	r4,#0
+	SUB	r3,r3,r1
+	MOV	r1,#2
+	MOV	r5,#zsearch_NoMacros:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	FNjump	Zap_Search,r6
+insert$l
+	MOV	r2,#0
+len$l	LDRB	r0,[r3,r2]
+	TEQ	r0,#0
+	ADDNE	r2,r2,#1
+	BNE	len$l
+	B	Cmd_insert_common
+do_restorecursor
+	BL	restore_cursor
+do_maybealttext
 	LDR	lr, localblkstore + 12
-	CMN	lr, #1
-	BNE	nojustsayright
-	ADRL	r0, justsayright
-	BL	zap_command_string
-	B	retfromtoreporterror
-nojustsayright
-	BL	maybeinsertalttext
-	BL	restore_overwrite
-
+	TEQ	lr,#0
+	BLPL	maybeinsertalttext
+;	BL	restore_overwrite
 	]
 
 retfromtoreporterror
@@ -3669,30 +3703,16 @@ dontexecutecmd
 	[ WITH_IMAGESIZE
 tempw_form1
 	DCD	0
-clear_overwrite
-	LDR	r0, [r8, #w_flags]
+unlink_cursor
+	LDR	r0, [r9, #f_flags]
 	STR	r0, tempw_form1
-	BIC	r0, r0, #2
-	STR	r0, [r8, #w_flags]
+	ORR	r0, r0, #flags_UnlinkCursor
+	STR	r0, [r9, #f_flags]
 	MOV	pc, lr
-restore_overwrite
+restore_cursor
 	LDR	r0, tempw_form1
-	STR	r0, [r8, #w_flags]
+	STR	r0, [r9, #f_flags]
 	MOV	pc, lr
-storedweqhere
-	=	"LEFT:LEFT:LEFT:INSERT ",34," "	;  ...
-storedwlabel
-	=	"WIDTH="
-widthtogohere
-	%	8
-storedheqhere
-	=	"INSERT ",34," "
-storedhlabel
-	=	"HEIGHT="
-heighttogohere
-	%	8
-rightx2	=	"RIGHT:RIGHT",0
-	ALIGN
 dothathtmlbit
 	LDR	r0, storedlinkhere
 	STR	r0, [r2], #4
@@ -3733,6 +3753,8 @@ toreporterror
 	B	retfromtoreporterror
 htmlfiletype
 	DCD	0xFAF
+xmlfiletype
+	DCD	0xF80
 urlfiletype
 	DCD	0xB28
 urifiletype
@@ -3740,12 +3762,19 @@ urifiletype
 		; .giffiletype  & &695
 		; .jpegfiletype & &C85
 convertcardforwh
+	FNJSR	"r7"
+	BL	ZapModeWord
+	LDR	r7,[r7,#12]
+	TST	r7,#xml_bit
+	MOVNE	lr,#'"'
+	STRNEB	lr,[r1],#1
 	SWI	OS_ConvertCardinal2
-	MOV	r0, #'"'
-	STRB	r0, [r1], #1
+	TST	r7,#xml_bit
+	MOVNE	r0, #'"'
+	STRNEB	r0, [r1], #1
 	MOV	r0, #0
 	STRB	r0, [r1], #1
-	MOV	pc, lr
+	FNRTS
 
 	]
 
@@ -3754,11 +3783,13 @@ changethecaseofit
 	STMFD	sp!, {lr}
 _altered_37
 	LDRB	r4, [r1]
-	TST	r5, #mk_upper_bit
-	BNE	nomakelowercase3
+	TST	r5, #mk_lower_bit :OR: xml_bit
+	BEQ	nomakelowercase3
 	FNlower	r4
 	B	nomakelowerorupper3
 nomakelowercase3
+	TST	r5, #mk_upper_bit
+	BEQ	nomakelowerorupper3
 	FNupper	r4
 nomakelowerorupper3
 	STRB	r4, [r1], #1
@@ -4244,7 +4275,7 @@ Cmdhtmlinsertif
 	ADR	r0, ltsearch
 	MOV	r1, #2
 	MVN	r4, #0
-	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	MOV	r5, #zsearch_NoMacros:OR:zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	FNcall	Zap_Search
 	MOV	r7, r0
 	CMP	r7, #0
@@ -4253,7 +4284,7 @@ Cmdhtmlinsertif
 	ADR	r0, gtsearch
 	MOV	r1, #2
 	MVN	r4, #0
-	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
+	MOV	r5, #zsearch_NoMacros:OR:zsearch_ReturnEndOfMatch:OR:zsearch_DontBeep:OR:zsearch_NoHourglass
 	FNcall	Zap_Search
 	CMP	r0, r7
 	BGT	insertfirststring
@@ -4419,15 +4450,12 @@ tickquery
 	AND	r2, r10, #0x1F
 	MOV	r3, #1
 	AND	r0,r3,r7,LSR r2
-;	MOV	r3, r3, LSL r2
-;	TST	r7, r3
-;	MOVNE	r0, #1
-;	MOVEQ	r0, #0
-;	TST	r7, #sw_bit
-;	FNRTS	NE
-;	TEQ	r3, #cur_logical_bit
-;	TEQNE	r3, #cur_confine_bit
-;	ORREQ	r0, r0, #2
+	MOV	r3, r3, LSL r2
+	TST	r7,#xml_bit
+	FNRTS	EQ
+	TEQ	r3,#mk_lower_bit
+	TEQNE	r3,#mk_upper_bit
+	ORREQ	r0, r0, #2
 	FNRTS
 ;sortwwout
 ;	STMFD	sp!, {r5, lr}
@@ -5372,7 +5400,7 @@ locdendpossibly
 		;  LDR R0,[R2,#f_len]  ; end of file
 		;  LDMFD R13!,{R2-R11,PC}
 maybeinsertalttext
-	STMFD	sp!, {lr}
+	FNJSR
 	ADR	r0, storedsrchalt
 	MOV	r1, #0
 	LDR	r3, [r10, #c_off]
@@ -5380,11 +5408,12 @@ maybeinsertalttext
 	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_NoMacros
 	FNcall	Zap_Search
 	CMP	r0, #0
-	LDMMIFD	sp!, {pc}
+	FNRTS	MI
 	MOV	r0, r1
 	FNcall	Zap_JumptoOffset
 	ADR	r0, storedmovesel
 	BL	zap_command_string
+	FNRTS	VS
 	ADR	r0, storedendoftag
 	MOV	r1, #0
 	LDR	r3, [r10, #c_off]
@@ -5392,27 +5421,16 @@ maybeinsertalttext
 	MOV	r5, #zsearch_ReturnEndOfMatch:OR:zsearch_NoMacros
 	FNcall	Zap_Search
 	CMP	r0, #0
-	LDMMIFD	sp!, {pc}
+	FNRTS	MI
 	MOV	r0, r1
 	FNcall	Zap_JumptoOffset
-	ADR	r0, justsayDELETE
-	BL	zap_command_string
-	ADR	r0, justsayCHAR62
-	BL	zap_command_string
-	LDMFD	sp!, {pc}
+	FNRTS
 storedsrchalt
 	=	"ALT=",34,0
 storedendoftag
-	=	"\\[0-9] />",0	;  secimal the '>',0
+	=	"\\[0-9]\\(", '"', " /\\|\\)>",0
 storedmovesel
 	=	"PASTE",0
-justsayright
-	=	"RIGHT:RIGHT:RIGHT",0 ; moving past " />", not just ">"
-justsayDELETE
-	=	"DELETE",0
-justsayCHAR62
-		;  '>'
-	=	"CHAR 62",0
 	ALIGN
 		;  E R8
 
@@ -6209,7 +6227,9 @@ CmdHTMLImage
 	ADRVC	r3,img$l
 	BLVC	Cmd_insert
 	BLVC	Cmd_insert_variable
-	ADRVC	r3,common_end_ql
+	BLVC	test_xml_bit
+	ADREQ	r3,common_end_qs
+	ADRNE	r3,common_end_ql
 	BLVC	Cmd_insert
 	FNcall	Zap_StopOp
 	FNRTS
@@ -6320,7 +6340,9 @@ find2$l	LDRB	r0,[r11,#1]!
 	ADRVC	r3,common_open
 	BLVC	Cmd_insert
 	BLVC	Cmd_insert_variable
-	ADRVC	r3,common_end_l
+	BLVC	test_xml_bit
+	ADREQ	r3,common_end_s
+	ADRNE	r3,common_end_l
 	BLVC	Cmd_insert
 	FNcall	Zap_StopOp
 	FNRTS
@@ -6390,5 +6412,12 @@ lookup_error
 	MOV	r2,#0
 	FNjump	Zap_LookupError
 
+;X Z == xml_bit
+test_xml_bit
+	FNJSR	"R7"
+	BL	ZapModeWord
+	LDR	r7,[r7,#12]
+	TST	r7,#xml_bit
+	FNRTS
 
 	END
