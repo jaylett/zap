@@ -1,0 +1,116 @@
+/*
+ * $Id: turkey,fff,v 1.1 1999/11/03 11:21:59 james Exp $
+ * -*- c -*-
+ * turkey
+ * Gobbles memory, configurable via Task Manager
+ *
+ * Copyright (c) James Aylett 1999. <dj@zap.uk.eu.org>
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Slightly cleaner than using system sprites, and has a silly name.
+ * Yes, I could have written this in ARM in half the space, but frankly I don't
+ * care. Writing WIMP code in C reminds me how stupid nested anonymous structures
+ * really are in this sort of situation ...
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "DeskLib:WimpSWIs.h"
+
+char *prog_name="turkey";
+task_handle task;
+
+void exit_handler(void)
+{
+  os_error *error;
+  if ((error = Wimp_CloseDown(task))!=NULL)
+    Wimp_ReportError(error, 5, prog_name);
+}
+
+int main(int argc, char **argv)
+{
+  os_error *error;
+  unsigned int version = 200;
+  int currentslot=16 * 1024;
+  int tempone, temptwo;
+
+  atexit(exit_handler);
+
+  if ((error = Wimp_Initialise(&version, prog_name, &task, NULL))!=NULL)
+  {
+    Wimp_ReportError(error, 5, prog_name);
+    return 1;
+  }
+  else
+  {
+    tempone = -1;
+    if ((error = Wimp_SlotSize(&currentslot, &tempone, &temptwo))!=NULL)
+    {
+      Wimp_ReportError(error, 5, prog_name);
+      return 3;
+    }
+    else
+    {
+      while (TRUE)
+      {
+        event_pollmask mask;
+        event_pollblock real_block;
+        event_pollblock *block = &real_block;
+        mask.value = 0x3973 /* mask everything possible */;
+        if ((error = Wimp_Poll(mask, block))!=NULL)
+        {
+          Wimp_ReportError(error, 5, prog_name);
+          return 2;
+        }
+        else
+        {
+          if (block->type == event_USERMESSAGE ||
+              block->type == event_USERMESSAGERECORDED)
+          {
+            if (block->data.message.header.action == message_QUIT)
+              return 0;
+            else if (block->data.message.header.action == message_SETSLOT)
+            {
+              if (task == block->data.message.data.words[1])
+              {
+                block->data.message.header.yourref = block->data.message.header.myref;
+                if ((error = Wimp_SendMessage(event_ACK, &block->data.message,
+                                              block->data.message.header.sender, NULL))!=NULL)
+                {
+                  Wimp_ReportError(error, 5, prog_name);
+                  return 4;
+                }
+                currentslot = block->data.message.data.words[0];
+                if (currentslot < 16*1024)
+                  currentslot = 16*1024;
+                tempone = -1;
+                if ((error = Wimp_SlotSize(&currentslot, &tempone, &temptwo))!=NULL)
+                {
+                  Wimp_ReportError(error, 5, prog_name);
+                  return 3;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return 1;
+}
