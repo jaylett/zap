@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 2.26 2004/04/21 18:39:25 christian Exp $
+; $Id: Boxes,fff,v 2.27 2004/05/22 14:12:36 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -4669,25 +4669,20 @@ create_ColourBox
 	FNRTS
 
 colpick$l
-	SUB	R13,R13,#64
-
 	BL	close_colour_picker
 	MOV	R0,#8
-	STR	R0,[R13]
+	STR	R0,[R13,#-64]!	; 64 bytes for picker descriptor
 	MOV	R0,#0
-	STR	R0,[R13,#4]
+	LDR	R1,[R11,#24]	; WARNING: assumes R11 -> wimp poll block
+	MOV	R2,#1<<31	; - not a documented entry condition!
+	MVN	R14,R2
+	STMIB	R13,{R0-R2,R14}	; (R13+4..R13+16)
+	LDR	R1,[R11,#28]
+	STR	R1,[R13,#20]
 	STR	R0,[R13,#24]
 	STR	R0,[R13,#28]
 	STR	R0,[R13,#36]
 	STR	R0,[R13,#40]
-	MOV	R0,#1<<31
-	STR	R0,[R13,#12]
-	MVN	R0,R0
-	STR	R0,[R13,#16]
-	LDR	R0,[R11,#24]		; WARNING: assumes R11 -> wimp poll block - not
-	STR	R0,[R13,#8]		;	   a documented entry condition!
-	LDR	R0,[R11,#28]
-	STR	R0,[R13,#20]
 
 	LDR	R2,[R7,#4]
 	MOV	R2,R2,ASR#16		; zap colour number (sign saved)
@@ -4716,7 +4711,7 @@ done$l	ADD	R13,R13,#64
 	FNRTS
 
 
-; ColourPicker_ColourChoice / ColourPicekr_ColourChanged message
+; ColourPicker_ColourChoice / ColourPicker_ColourChanged message
 	FNAME	ColourChoice
 ColourChoice
 	FNJSR	"R7"
@@ -4727,9 +4722,8 @@ ColourChoice
 
 	FNind	R7,t_ColourBox				; update the colour
 	LDR	R0,[R1,#28]				;
+	FNLDRB	R2,tem_colour				;
 	BIC	R0,R0,#255				; add in substyle bits
-	FNLDR	R2,tem_colour				;
-	AND	R2,R2,#255				;
 	ORR	R0,R0,R2				;
 	BL	colourbox_set_colour			;
 	FNRTS
@@ -4741,11 +4735,10 @@ ColourClose
 	FNLDR	R0,wimp_colourpicker			; check it's our picker
 	LDR	R1,[R1,#20]				;
 	TEQ	R0,R1					;
-	FNRTS	NE					;
 
-	MOV	R0,#0
-	FNSTR	R0,wimp_colourpicker
-	SWI	XColourPicker_CloseDialogue
+	MOVEQ	R0,#0
+	FNSTR	R0,wimp_colourpicker,EQ
+	SWIEQ	XColourPicker_CloseDialogue
 	FNRTS
 
 
