@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.8 1999/02/11 01:53:53 ds Exp $
+; $Id: Menus,fff,v 1.1.2.9 1999/02/12 00:48:44 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -44,6 +44,7 @@
  EXPORT load_menu
  EXPORT open_menu
  EXPORT create_menu_structure
+ EXPORT set_mode_menu_title
 
  EXPORT Bitmaplist
  EXPORT Basemaplist
@@ -890,19 +891,45 @@ loadmode$l
 	MOV	R0,#0
 	FNRTS
 opensub$l
-	FNJSR
+	FNJSR	"R0"
 	FNLDR	R14,menu_struct
 	ADD	R14,R14,R5,LSL #4
 	ADD	R14,R14,R5,LSL #3
 	LDR	R1,[R14,#40]		; read submenu pointer
-	LDR	R14,[R14,#48]		; ptr to text
-	LDR	R14,[R14,#-8]		; command data
-	FNSTR	R14,menu_mode
+	LDR	R0,[R14,#48]		; ptr to text
+	LDR	R0,[R0,#-8]		; command data
+	FNSTR	R0,menu_mode
+	BL	set_mode_menu_title
 	FNRTS
 
 lmode	=	"zap_m_lmode",0
 cmode	=	"zap_m_cmode",0
 	ALIGN
+
+	LOCAL
+
+;E R0=mode R1=menu structure
+;X Menu title updated (pointer/string)
+set_mode_menu_title
+	FNJSR	"R0-R4"
+	BL	read_mode
+	FNLDR	R0,wimp_version
+	LDR	R2,[R1,#e_title*2]	; mode name
+	LDR	R1,[R13,#4]
+	CMP	R0,#300
+	BLO	ro2$l
+	ADR	R3,null$l
+null$l	MOV	R4,#0			; low byte = 0
+	STMIA	R1,{R2-R4}
+	LDR	R2,[R1,#28]
+	ORR	R2,R2,#256		; mark title as indirected
+	STR	R2,[R1,#28]
+	FNRTS
+ro2$l	MOV	R3,#12
+	MOV	R4,#32
+	BL	strmove
+	FNRTS
+
 
  LOCAL
 
@@ -2425,12 +2452,15 @@ a$l	LDRB	R0,[R1],#1
 
  LOCAL
 
-;E R1=menu address R2=mouse x R3=mouse y R8/R9
+;E R1=menu address R2=mouse x R3=mouse y R4=mode (if R3b31 set) R8/R9
 ;X menu updated and opened & wimp_menuptr/wimp_menu updated #
 
 create_menu
  FNJSR "R1-R3"
- MOV R14,#-1
+ TST R3,#1<<31
+ BIC R3,R3,#1<<31
+ MOVEQ R14,#-1
+ MOVNE R14,R4
  FNSTR R14,menu_mode
  SUB R2,R2,#64
  TEQ R8,#0

@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.15 1999/02/11 01:53:56 ds Exp $
+; $Id: StartCode,fff,v 1.1.2.16 1999/02/12 00:48:45 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1003,6 +1003,8 @@ icon$l				; iconbar Zap icon
 
 ; E R2,R2 x/y mouse positions
 menu$l				; create menu on R8/R9
+ MOV R0,#-1
+ STR R0,localmodeptr$l
  TEQ R8,#0
  BEQ normalmenu$l
 ; SWI &107
@@ -1018,7 +1020,7 @@ menu$l				; create menu on R8/R9
  LDRVC R0,[R0,#12]		; window handle returned by Wimp_Poll
  LDR R1,[R1,#12]		; window handle returned by Wimp_GetPointerInfo
  				; different only if someone's been passing us messages
- 				; (eg: Pinboard passing ctrl+Menu over iconised window)
+ 				; (eg: Pinboard passing shift+Menu over iconised window)
  ADD R13,R13,#32		; stack back up
  TEQ R0,R1
  BNE normalmenu$l		; being lied to - don't use modifiers
@@ -1068,8 +1070,9 @@ specialmenu$l
  BL read_menu_handle
 gotmenuhandle$l
  TEQ R1,#0
- FNRTS EQ			; no menu there
- BL create_menu			; update the ticks and open
+ ORRNE R3,R3,#1<<31
+ LDRNE R4,localmodeptr$l
+ BLNE create_menu		; update the ticks and open
  FNRTS
 colourlist$l
  MOV R0,#&1			; ctrl
@@ -1094,6 +1097,8 @@ modemenu$l
  PULL "R1-R10"
  MOVS R1,R0
  BEQ normalmenu$l
+ LDR R0,localmodeptr$l
+ BL set_mode_menu_title
  B gotmenuhandle$l
 
 localmodeptr$l
