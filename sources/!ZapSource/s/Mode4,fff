@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 2.13 2003/09/03 00:09:14 christian Exp $
+; $Id: Mode4,fff,v 2.14 2003/09/03 13:21:05 christian Exp $
 ; -*- armasm -*-
 
 	GBLA	NEW_DISASM
@@ -46,7 +46,6 @@ NEW_DISASM	SETA	1
 	EXPORT	disassemble
  ]
 
-MODE4_COLNUMBS * &21
 
 mode_table_4
 	DCD	mode_table_4
@@ -226,22 +225,6 @@ disassemble
  ]
 
 
-save_mode_word
-	B	modes_end
-
-;E R0=mode number R8/R9=window /0 for options
-;X mode word restored #
-restore_mode_word
-	B	modes_start
-
-
-mode4_col_sup$l
-	DCD	(MODE4_COLNUMBS - 9)	; no of extra colours...
-	DCD	&03010000+40		; Code mode width
-	DCD	&97070077
-	DCD	&3219CFAB		; cols
-	DCD	&D23EE584		; cols
-	DCD	&123DC191		; cols
 
 ensure_colours_correct
 	FNJSR	"R1-R4,R8"
@@ -477,13 +460,14 @@ c_fpreg		#	1
 c_cpreg		#	1
 c_fpop		#	1
 c_cpop		#	1
+c_vfpreg	#	1
+c_vfpop		#	1
 
+MODE4_COLNUMBS 	*	@
 
 ; redraw flags in R2
 rf_umull	*	(1<<8)
 rf_swi		*	(1<<9)
-rf_fp		*	(1<<10)
-rf_cp		*	(1<<11)
 rf_ef		*	(1<<12)				; ef bits must be 0 in FIX
 rf_efgh		*	(1<<13)				; efgh bits must be 0 in WFS, RFS, WFC, RFC
 
@@ -504,7 +488,7 @@ mode4_redrawline
 	STR	R2,localmodeword
  ]
 	MOV	R1,#0			; important r1=0?
-	STR	R1,local_bgcol_please
+	;STR	R1,local_bgcol_please
 	MOV	R2,#7
 	MOV	R0,#9			; colour
 	BL	colour_chars_both	; colour the ascii column
@@ -696,8 +680,6 @@ sloop$l	LDR	R0,[R11],#4
 	TSTNE	R4,R0
 	BEQ	colok$l
 notfp$l	MOV	R11,#c_cpop
-	BIC	R2,R2,#rf_fp
-	ORR	R2,R2,#rf_cp
 
 colok$l	TEQ	R14,#0			; no condition to colour?
 	BEQ	donecond$l
@@ -791,7 +773,7 @@ mainloop$l
 	TEQNE	R0,#'V'			; v1-v7
 	BEQ	avreg$l
 
-	TEQ	R0,#'S'			; sl sp sb
+	TEQ	R0,#'S'			; sl sp sb S0-S7
 	BEQ	sreg$l
 
 	TEQ	R0,#'L'			; lr LSL LSR
@@ -805,6 +787,9 @@ mainloop$l
 
 	TEQ	R0,#'C'			; C0-C15 CP0-CP15
 	BEQ	c$l
+
+	TEQ	R0,#'D'			; D0-D15
+	BEQ	d$l
 
 	B	onecol$l		; unknown (c_fg)
 
@@ -830,15 +815,28 @@ avreg$l	MOV	R0,#1
 	BEQ	shift$l
 	B	onecol$l
 
-; sl sp sb SPSR_cxsf
+; sl sp sb SPSR_cxsf S0-S31
 sreg$l	MOV	R0,#1
 	BL	geto$l
-	BIC	R0,R0,#&20
-	TEQ	R0,#'L'
-	TEQNE	R0,#'P'
-	TEQNE	R0,#'B'
+	BIC	R1,R0,#&20
+	TEQ	R1,#'L'
+	TEQNE	R1,#'P'
+	TEQNE	R1,#'B'
 	MOVEQ	R11,#c_regs
 	BEQ	untilcomma$l
+
+; S0-S31
+	CMP	R0,#'0'			;
+	RSBHSS	R1,R0,#'9'		;
+	BLO	onecol$l
+
+	MOV	R11,#c_vfpreg
+	BL	storecol$l
+	MOV	R0,#1
+	BL	geto$l
+	CMP	R0,#'0'			;
+	RSBHSS	R1,R0,#'9'		;
+	BLHS	storecol$l
 	B	onecol$l
 
 ; lr LSL LSR
@@ -873,11 +871,25 @@ f$l	MOV	R0,#1
 	B	onecol$l
 
 ; F0-F7
-fpreg$l	TST	R2,#rf_fp		; only inside an FP op
-	BEQ	onecol$l
-	CMP	R0,#'0'			;
+fpreg$l	CMP	R0,#'0'			;
 	RSBHSS	R0,R0,#'7'		;
 	MOVHS	R11,#c_fpreg
+	BLHS	storecol$l
+	B	onecol$l
+
+; D0-D15
+d$l	MOV	R0,#1
+	BL	geto$l
+	CMP	R0,#'0'			;
+	RSBHSS	R1,R0,#'9'		;
+	BLO	onecol$l
+
+	MOV	R11,#c_vfpreg
+	BL	storecol$l
+	MOV	R0,#1
+	BL	geto$l
+	CMP	R0,#'0'			;
+	RSBHSS	R1,R0,#'5'		;
 	BLHS	storecol$l
 	B	onecol$l
 
@@ -888,9 +900,6 @@ c$l	MOV	R0,#2
 	TEQNE	R0,#'s'
 	MOVEQ	R11,#c_regs
 	BEQ	untilcomma$l
-
-	TST	R2,#rf_cp		; only inside a CP op
-	BEQ	onecol$l
 
 	MOV	R11,#c_cpreg
 untilcomma$l
@@ -1032,7 +1041,7 @@ $la	OPC	$mask, $value, $colour, $flags
 $la	DCD	$mask
 	DCD	$value
 	DCW	$flags			; essentially ($colour << 24) OR $flags
-	DCB	0,$colour               ; but AS doesn't like that
+	DCB	0,$colour		; but AS doesn't like that
 	MEND
 
 opctab$l	; mask	   value      colour	 flags
@@ -1041,22 +1050,45 @@ opctab$l	; mask	   value      colour	 flags
 	OPC	&0F000000, &0F000000, c_swi,	 rf_swi		; SWI
 	OPC	&0E108000, &08008000, c_pullpc,  0		; LDM ...PC
 	OPC	&0E104000, &08104000, c_pushr14, 0		; STM ...R14
-	OPC	&0E000000, &08000000, c_ldm,     0		; LDM STM
+	OPC	&0E000000, &08000000, c_ldm,	 0		; LDM STM
 	OPC	&0C000000, &04000000, c_ldr,	 0		; LDR STR
 	OPC	&0E400090, &00400090, c_ldr,	 0		; LDRH LDRSH LDRSB STRH STRSH STRSB
-	OPC	&0F080F90, &0E080180, c_cpop,    rf_cp		; FP op with undefined precision
-	OPC	&0FF08F10, &0ED00100, c_cpop,    rf_cp		; undefined FP op
-	OPC	&0FF08F10, &0EE00100, c_cpop,    rf_cp		; undefined FP op
-	OPC	&0FF08F10, &0EF00100, c_cpop,    rf_cp		; undefined FP op
-	OPC	&0F98FFF0, &0E90F110, c_fpop,    rf_fp		; FP compares
-	OPC	&0F800F10, &0E800110, c_cpop,    rf_cp		; undefined FP register txfer
-	OPC	&0FE00F10, &0E600110, c_cpop,    rf_cp		; undefined FP register txfer
-	OPC	&0FF00F10, &0E000110, c_fpop,    rf_fp		; FLT
-	OPC	&0FF00F10, &0E100110, c_fpop,    rf_fp+rf_ef	; FIX
-	OPC	&0F000F10, &0E000110, c_fpop,    rf_fp+rf_efgh	; WFS RFS WFC RFC
-	OPC	&0C000F00, &0C000100, c_fpop,	 rf_fp		; valid FP ops (CP1)
-	OPC	&0E000F00, &0C000200, c_fpop,	 rf_fp		; LFM / SFM (CP2)
-	OPC	&0C000000, &0C000000, c_cpop,	 rf_cp		; CP load / store
+
+	OPC	&0F080F90, &0E080180, c_cpop,	 0		; FP op with undefined precision
+	OPC	&0FF08F10, &0ED00100, c_cpop,	 0		; undefined FP op
+	OPC	&0FF08F10, &0EE00100, c_cpop,	 0		; undefined FP op
+	OPC	&0FF08F10, &0EF00100, c_cpop,	 0		; undefined FP op
+	OPC	&0F98FFF0, &0E90F110, c_fpop,	 0		; FP compares
+	OPC	&0F800F10, &0E800110, c_cpop,	 0		; undefined FP register txfer
+	OPC	&0FE00F10, &0E600110, c_cpop,	 0		; undefined FP register txfer
+	OPC	&0FF00F10, &0E000110, c_fpop,	 0		; FLT
+	OPC	&0FF00F10, &0E100110, c_fpop,	 rf_ef		; FIX
+	OPC	&0F000F10, &0E000110, c_fpop,	 rf_efgh	; WFS RFS WFC RFC
+	OPC	&0C000F00, &0C000100, c_fpop,	 0		; valid FP ops (CP1)
+	OPC	&0E000F00, &0C000200, c_fpop,	 0		; LFM / SFM (CP2)
+
+	OPC	&0E400F10, &0E400B00, c_cpop,	 0		; double-precision VFP op with D set
+	OPC	&0EB00E50, &0E800A00, c_vfpop,	 0		; FDIVS FDIVD
+		; pqrs = 1111 go here
+	OPC	&0E800E50, &0E800A00, c_cpop,	 0		; undefined VFP op
+	OPC	&0E000E10, &0E000A00, c_vfpop,	 0		; VFP data processing ops
+
+	OPC	&0E400F00, &0C400B00, c_cpop,	 0		; double-precision VFP op with D set
+	OPC	&0F800E00, &0C000A00, c_cpop,	 0		; undefined VFP load / store
+	OPC	&0FA00E00, &0DA00A00, c_cpop,	 0		; undefined VFP load / store
+	OPC	&0E000E00, &0C000A00, c_vfpop,	 0		; valid VFP load / store
+
+	OPC	&0F000F90, &0E000B90, c_cpop,	 0		; double-precision VFP op with D set
+	OPC	&0FE00F10, &0E200A10, c_cpop,	 0		; undefined VFP register txfer
+	OPC	&0FC00E10, &0E400A10, c_cpop,	 0		; undefined VFP register txfer
+	OPC	&0FC00E10, &0E800A10, c_cpop,	 0		; undefined VFP register txfer
+	OPC	&0FE00E10, &0EC00A10, c_cpop,	 0		; undefined VFP register txfer
+	OPC	&0FEE0F10, &0EE00A10, c_vfpop,	 0		; FMXR FMRX with valid sys reg
+	OPC	&0FEF0F10, &0EE80A10, c_vfpop,	 0		; FMXR FMRX with valid sys reg
+	OPC	&0FE00E10, &0EE00A10, c_cpop,	 0		; invalid FMXR FMRX
+	OPC	&0F000E10, &0E000A10, c_vfpop,	 0		; valid VFP register txfer
+
+	OPC	&0C000000, &0C000000, c_cpop,	 0		; CP load / store
 	OPC	&00000000, &00000000, c_fg,	 0		; default
 
 
@@ -1502,7 +1534,7 @@ mode4_start
 	TEQ	R8,#0
 	FNLDRB	R0,opt_format,EQ
 	LDRNEB	R0,[R8,#w_format]	; mode number
-	BL	restore_mode_word
+	BL	modes_start
 	BL	loaddisasmwithcare	; load it if needed/possible.
 	CMP	R8,#0
 	FNRTS	EQ
@@ -1517,7 +1549,7 @@ mode4_end
 	TEQ	R8,#0
 	FNLDRB	R0,opt_format,EQ
 	LDRNEB	R0,[R8,#w_format]	; mode number
-	B	save_mode_word
+	B	modes_end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Search through a line (detokenise)			;
@@ -1645,8 +1677,8 @@ a$l
 	FNRTS
 assemble$l FNS ("ASSEMBLE")
 
-local_bgcol_please
-	DCD	0
+;local_bgcol_please
+;	DCD	0
 
 
 ;X R1=pointer to the menu
