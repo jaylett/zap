@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.1.2.15 1999/10/25 22:09:47 ds Exp $
+; $Id: Mode11,fff,v 1.1.2.16 1999/10/30 01:02:56 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -132,10 +132,9 @@ mode11_title FNS ("Throwback")
 mode11_redrawline
 	FNJSR	"R4,R12"
 	STR	R4,mode11_locstsp5
-	LDR	R0,mode11_locstsp1
-	CMP	R0,R7
-	BNE	linestart$l
 	LDR	R2,mode11_locstsp2
+	CMP	R2,#0
+	BEQ	linestart$l
 reentry$l
 	LDR	R4,[R8,#w_txtw]
 	MOV	R3,#0
@@ -168,15 +167,14 @@ redrawnext$l
 	CMP	R0,#10
 	BEQ	avoidlf$l
 return$l
-	STR	R7,mode11_locstsp1
 	STR	R2,mode11_locstsp2
 	ADD	R11,R11,#1		; logical line counter
 	FNRTSS				; ret without error
 
 avoidlf$l
 	ADD	R7,R7,#1
-eol$l	MVN	R0,#0
-	STR	R0,mode11_locstsp1
+eol$l	MOV	R0,#0
+	STR	R0,mode11_locstsp2
 	ADD	R11,R11,#1	; logical line counter
 	FNRTSS			; ret without error
 
@@ -432,8 +430,16 @@ mode11_init
  FNRTS
 
 mode11_redrawstart
-	STR	R1,mode11_locstsp1
-	MOV	PC,R14
+	FNJSR	"R0-R3"
+	MOV	R0,R2
+	BL	cln_phy
+	MOV	R3,R0
+	MOV	R0,R1
+	BL	cln_log
+	SUBS	R1,R0,R3
+	MOVNE	R1,#2
+	STR	R1,mode11_locstsp2
+	FNRTS
 
 mode11_menu
 	FNJSR	"R0"

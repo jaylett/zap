@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.1.2.9 1999/10/24 22:15:18 ds Exp $
+; $Id: Redraw,fff,v 1.1.2.10 1999/10/30 01:02:59 ds Exp $
 
  GET h.ZapHeader
 
@@ -1850,12 +1850,16 @@ red_cache_lines
  LDMEQFD R13!,{R2-R5,PC}	; return if no lines to draw
  ADD R4,R7,R10			; phy ln of final line
  MOV R10,R7			; phy ln of first line
+ STMFD R13!,{R3,R5}		; save off/log of first line
+ MOV R1,#13
+ MOV R2,R7
+ MOV R3,R4
+ BL calle_init			; e_init 13 (as described in the docs)
  MOV R11,R5			; log ln of first line
  MOV R7,R0			; offset in file of first line
  LDR R2,[R8,#w_txtlen]		; byte width of cache lines
  LDR R0,[R8,#w_txt]
  MLA R6,R2,R6,R0		; address of line in cache
- STMFD R13!,{R3,R5}		; save off/log of first line
  MOV R3,#0
  STR R3,local_ss_info_word
  MVN R5,#0			; region lines
@@ -1895,6 +1899,8 @@ red_cl_12
 ; LDMFD R13!,{R3,R5}		; pull back off/log
 ; MOV R0,R3			; file offset of first line drawn
 ; MOV R1,R5			; log ln of this line
+ MOV R1,#14
+ BL calle_init			; e_init 14 (as described in docs)
  LDR R0,local_ss_info_word
 ; TEQ R0,#0
  BL setup_fontmc_with_extras	; slow and maybe not even needed :-)
@@ -1903,6 +1909,8 @@ red_cl_12
  LDMFD R13!,{R0-R5,PC}
 red_cl_11
  STR R0,[R13,#4]!
+ MOV R1,#14
+ BL calle_init			; e_init 14 (as described in docs)
  LDR R0,local_ss_info_word
  BL setup_fontmc_with_extras
 ; BLVC setup_multiple_fonts
@@ -2067,8 +2075,8 @@ redraw_cache_line
  LDR R0,[R8,#w_height]		; height of work area
  CMP R10,R0			; is this line off end of file
  FNRTS CS			; return if so
- MOV R1,#13
- BL calle_init$l
+; MOV R1,#13
+; BL calle_init			; [old broken call to e_init 13]
  LDR R5,[R8,#w_format]		; line format
  TST R5,#format_ShowLineNumbers
  BEQ re1			; if not then re1
@@ -2100,8 +2108,8 @@ re1
  MOVS R14,PC
  LDR PC,[R0,#2*e_redrawline]	; call the redraw line sub
  SUB R7,R7,R5			; file offset
- MOV R1,#14
- BL calle_init$l
+; MOV R1,#14
+; BL calle_init			; [old broken call to e_init 14]
  LDMFD R13!,{R2-R6,R10,PC}	; return
 
 sw_redrawline
@@ -2112,17 +2120,17 @@ sw_redrawline
  BL modesw_redrawline
  SUBVC R7,R7,R5			; file offset
 
- MOVVC R1,#14
- BLVC calle_init$l
+; MOVVC R1,#14
+; BLVC calle_init		; [old broken call to e_init 14]
  LDMFD R13!,{R2-R6,R10,PC}	; return
 
 ;errorend$l
 ; MOV R1,#14
-; BL calle_init$l
+; BL calle_init
 ; FNRTV
 
-calle_init$l
- FNJSR "R11"
+calle_init
+ FNJSR
  MOV R11,#e_init
  BL call_mode
  FNRTS
