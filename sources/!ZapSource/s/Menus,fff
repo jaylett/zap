@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.0 2000/02/22 15:51:50 james Exp $
+; $Id: Menus,fff,v 2.1 2000/03/14 00:44:40 ds Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -3595,9 +3595,35 @@ a$l				; it is a command
  TST R7,#1
  BNE b$l			; hmm, we still have a name pointer...
 c$l
- MOV R10,#0			; no cursor
+ PUSH "R0"
+ BL find_input
+ MOV R10,R0
+ PULL "R0"
+ ADD R14,R9,#w_pwind
+ TEQ R10,R14
+ BEQ fake$l
+; MOV R10,#0			; no cursor
  BL process_key_command
  FNRTS
+fake$l
+	SUB	R13,R13,#cusr_blk
+	MOV	R14,R13
+	PUSH	"R0-R5,R10"
+	LDMIA	R10,{R0-R5}	; read w_pwind...w_pwidth
+	STMIA   R14!,{R0-R5}	; store them in fake block
+	MOV	R10,#0
+	STMIA   R14!,{R0-R2,R5,R10} ; fill out the rest of the block
+	PULL	"R0-R5"
+	ADD	R10,R13,#4	; point R10 at the fake block
+	BL	process_key_command
+	PULL	"R10"		; restore R10
+	MOV	R14,R13
+	PUSH	"R0-R5"
+	LDMIA	R14,{R0-R5}	; copy c_wind...c_width from fake block
+	STMIA	R10,{R0-R5}	; to R9+w_pwind...w_pwidth
+	PULL	"R0-R5"
+	ADD	R13,R13,#cusr_blk
+	FNRTS
 b$l
 	STMFD	R13!,{R0}
 	BL	validate_command
