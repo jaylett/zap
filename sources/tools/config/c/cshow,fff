@@ -1,5 +1,5 @@
 /*
- * $Id: cshow,fff,v 1.3 1999/06/25 10:46:17 james Exp $
+ * $Id: cshow,fff,v 1.4 1999/06/30 17:11:36 james Exp $
  * cshow.c
  * (c) Zap Developers 1999
  *
@@ -38,7 +38,25 @@ int
 main(int argc, char const * const * argv)
 {
   FILE *in=NULL, *out=NULL;
+  FILE *display=stdout;
   int type;
+
+#define base_sys_colours 9
+#define max_top_sys_colours 0
+
+  char *base_sys_colour[base_sys_colours] = {
+    "\"Background 1 (unused)\"",
+    "\"Background 2 (used)\"  ",
+    "\"Foreground\"           ",
+    "\"Selection background\" ",
+    "\"Selection foreground\" ",
+    "\"Cursor background\"    ",
+    "\"Cursor foreground\"    ",
+    "\"Line numbers\"         ",
+    "\"Control characters\"   "
+  };
+  char *top_sys_colour[max_top_sys_colours] = { 
+  };
 
   static const struct coopt_option option[] = {
     { 'i', COOPT_REQUIRED_PARAM, "input" },
@@ -50,7 +68,8 @@ main(int argc, char const * const * argv)
     { 't', COOPT_NO_PARAM, "terse" },
     { 'p', COOPT_NO_PARAM, "pruneunknown" },
     { 'h', COOPT_NO_PARAM, "help" },
-    { 'V', COOPT_NO_PARAM, "version" }
+    { 'V', COOPT_NO_PARAM, "version" },
+    { 'O', COOPT_NO_PARAM, "stderr-output" }
   };
 
   struct coopt_state state;
@@ -72,8 +91,9 @@ main(int argc, char const * const * argv)
   char const ** deletemodelist = NULL;
 
   program_name = argv[0];
-  coopt_init(&state, option, 10, argc-1, argv+1);
-
+  coopt_init(&state, option, sizeof(option) / sizeof(struct coopt_option),
+	     argc-1, argv+1);
+  
   do
   {
     ret = coopt(&state);
@@ -119,6 +139,9 @@ main(int argc, char const * const * argv)
           case 'V':
             printf ("%s %s\n", program_name, VERSION_STRING);
             exit(0);
+	  case 'O':
+	    display=stderr;
+	    break;
           case 'h':
             help();
             break;
@@ -148,11 +171,11 @@ main(int argc, char const * const * argv)
     if (strcmp(outfile, "-")==0)
     {
       out=stdout;
-      if (usagemode != usage_default)
+      if (usagemode != usage_default && display==stdout)
       {
-        fprintf (stderr, "%s: warning: output file is stdout, cannot %s\n",
+        fprintf (stderr, "%s: warning: output file is stdout, cannot %s to stdout; try with -O\n",
                  program_name, use_dumpfile ? "dump" : "list");
-        usagemode = usage_default;
+	exit(1);
       }
     }
     else
@@ -201,7 +224,7 @@ main(int argc, char const * const * argv)
         if (writing==1)
           fwrite(&type, 4, 1, out);
         if (use_dumpfile)
-          puts ("\nEnd of options");
+          fprintf (display, "\nEnd of options\n");
         break;
 
       case 1: /* global */
@@ -213,9 +236,9 @@ main(int argc, char const * const * argv)
         if (use_dumpfile)
         {
           if (shownmode)
-            puts ("");
+            fprintf (display, "\n");
           shownmode = 1;
-          puts ("Global options block");
+          fprintf (display, "Global options block\n");
         }
         which=0;
         while (block_len>8)
@@ -228,86 +251,85 @@ main(int argc, char const * const * argv)
           {
             case 0:case 1:case 2:case 3:
               if (type!=0 && terseflag==0)
-                printf ("    Warning: global options reserved word at 0x%x was non-zero (was 0x%8.8x)\n",
+                fprintf (display, "    Warning: global options reserved word at 0x%x was non-zero (was 0x%8.8x)\n",
                        4*which, (unsigned int)type);
               break;
             case 4:
               if (use_dumpfile)
-                printf ("    opt_info         = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    opt_info         = 0x%8.8x\n", (unsigned int)type);
               break;
             case 5: /* char set? 0x14 */
               if (type!=0 && use_dumpfile)
-                printf ("    Char set         = %i\n  [pre-1.30]", type);
+                fprintf (display, "    Char set         = %i\n  [pre-1.30]", type);
               break;
             case 6:
               if (use_dumpfile)
-                printf ("    Column tab width = %i\n", type);
+                fprintf (display, "    Column tab width = %i\n", type);
               break;
             case 7:
               if (use_dumpfile)
-                printf ("    opt_flags        = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    opt_flags        = 0x%8.8x\n", (unsigned int)type);
               break;
             case 8:
               if (use_dumpfile)
-                printf ("    opt_format       = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    opt_format       = 0x%8.8x\n", (unsigned int)type);
               break;
             case 9:
               if (use_dumpfile)
-                printf ("    Start address    = %i (0x%x)\n", type, type);
+                fprintf (display, "    Start address    = %i (0x%x)\n", type, type);
               break;
             case 10:
               if (use_dumpfile)
-                printf ("    Start line       = %i\n", type);
+                fprintf (display, "    Start line       = %i\n", type);
               break;
             case 11:
               if (use_dumpfile)
-                printf ("    Line spacing     = %i\n", type);
+                fprintf (display, "    Line spacing     = %i\n", type);
               break;
             case 12:
               if (use_dumpfile)
-                printf ("    Margin width     = %i\n", type);
+                fprintf (display, "    Margin width     = %i\n", type);
               break;
             case 13:
               if (use_dumpfile)
-                printf ("    Cursor types     = %i, %i, %i, %i\n",
+                fprintf (display, "    Cursor types     = %i, %i, %i, %i\n",
                         type & 0xff, (type >> 8) & 0xff, (type >> 16) & 0xff,
                         (type >> 24) & 0xff);
               break;
             case 14:
               if (use_dumpfile)
-                printf ("    EOL mask         = %i\n", type & 0xff);
+                fprintf (display, "    EOL mask         = %i\n", type & 0xff);
               break;
             case 15:
               if (use_dumpfile)
-                printf ("    Tab mask         = %i\n", type & 0xff);
+                fprintf (display, "    Tab mask         = %i\n", type & 0xff);
               break;
             case 16:
               if (use_dumpfile)
-                printf ("    Wordwrap width   = %i\n", type);
+                fprintf (display, "    Wordwrap width   = %i\n", type);
               break;
             case 17:
               if (type!=0 && use_dumpfile)
-                printf ("    Minibuf colours  = 0x%8.8x  [pre-1.20]\n", (unsigned int)type);
+                fprintf (display, "    Minibuf colours  = 0x%8.8x  [pre-1.20]\n", (unsigned int)type);
               break;
             case 18:
               if (use_dumpfile)
-                printf ("    Switches         = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    Switches         = 0x%8.8x\n", (unsigned int)type);
               break;
             case 19:
               if (use_dumpfile)
-                printf ("    Minibuffer bgnd  = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    Minibuffer bgnd  = 0x%8.8x\n", (unsigned int)type);
               break;
             case 20:
               if (use_dumpfile)
-                printf ("    Minibuffer fgnd  = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    Minibuffer fgnd  = 0x%8.8x\n", (unsigned int)type);
               break;
             default:
               if (use_dumpfile)
-                printf ("    (unknown)        = 0x%8.8x\n", (unsigned int)type);
+                fprintf (display, "    (unknown)        = 0x%8.8x\n", (unsigned int)type);
               if (pruneflag==1)
               {
-                fputs ("    [stripping unknown global options word]\n",
-                       stderr);
+                fprintf (stderr, "    [stripping unknown global options word]\n");
                 do_write=0;
               }
               break;
@@ -327,9 +349,9 @@ main(int argc, char const * const * argv)
         if (use_dumpfile)
         {
           if (shownmode)
-            puts ("");
+            fprintf (display, "\n");
           shownmode = 1;
-          printf ("Mode block, %s style%s\n",
+          fprintf (display, "Mode block, %s style%s\n",
                   (type == 2) ? "old" : "new",
                   (type == 2) ? " [pre-1.41]" : "");
         }
@@ -339,9 +361,9 @@ main(int argc, char const * const * argv)
           int deleting = 0;
 
           if (use_dumpfile)
-            printf ("    Mode name         = %s\n", modename);
+            fprintf (display, "    Mode name         = %s\n", modename);
           else if (use_listmodes)
-            puts (modename);
+            fprintf (display, "%s\n", modename);
 
           if (use_deletemode && deletemodelist)
           {
@@ -373,9 +395,9 @@ main(int argc, char const * const * argv)
             if (strcmp (modename, base))
             {
               if (use_dumpfile)
-                printf ("    Clone base name   = %s\n", base);
+                fprintf (display, "    Clone base name   = %s\n", base);
               else if (use_listmodes)
-                printf ("    cloned from %s\n", base);
+                fprintf (display, "    cloned from %s\n", base);
             }
 
             if (writing == 1)
@@ -385,39 +407,57 @@ main(int argc, char const * const * argv)
           }
 
           while (modelen & 3)
-            modelen += fill_byte(&type, in);
+            modelen += fill_byte(&block_len, in);
 
 	  free (modename);
         }
 
         fill_word(&block_len, in);
         if ((verboseflag || terseflag) && use_dumpfile)
-          printf ("    Zap-handled data  = %i bytes\n", block_len);
+          fprintf (display, "    Zap-handled data  = %i bytes\n", block_len);
         if (block_len==12)
         {
           if (use_dumpfile && terseflag==0)
-            puts ("    Data is pre-v1.20 style");
+            fprintf (display, "    Data is pre-v1.20 style\n");
           fill_word(&type, in);
           if (use_dumpfile && terseflag==0)
-            printf ("    Mode data #0      = 0x%8.8x\n", (unsigned int)type);
+            fprintf (display, "    Mode data #0      = 0x%8.8x\n", (unsigned int)type);
           fill_word(&type, in);
           if (use_dumpfile && terseflag==0)
           {
-            printf ("    Palette           = 0x%8.8x, ", (unsigned int)type);
+            fprintf (display, "    Palette           = 0x%8.8x, ", (unsigned int)type);
             fill_word(&type, in);
-            printf ("0x%8.8x\n", (unsigned int)type);
+            fprintf (display, "0x%8.8x\n", (unsigned int)type);
           }
           else
             fill_word(&type, in);
         }
         else
         {
+	  int non_sys_colours=-1; /* >=0 if loaded from file */
+	  unsigned int top_sys_colours=0; /* this will be in the file */
+	  unsigned int sys_colours;
+	  unsigned int within_group=0;
+	  if (type==2)
+	  {
+	    non_sys_colours=-2; /* definitely will not contain num colours */
+	  }
+	  if (top_sys_colours > max_top_sys_colours)
+	  {
+	    fprintf(stderr, "    [sys colours is wrong!]\n");
+	    top_sys_colours = max_top_sys_colours;
+	  }
+	  sys_colours=base_sys_colours+top_sys_colours;
           which=0;
           do
           {
             fill_word(&type, in);
             if (type!=-1 && use_dumpfile && terseflag==0)
-              printf ("    Mode data #%-3i    = 0x%8.8x\n", which, (unsigned int)type);
+	    {
+	      if (which==2 && non_sys_colours==-1)
+		non_sys_colours = ((unsigned int)type) >> 24;
+              fprintf (display, "    Mode data #%-3i    = 0x%8.8x\n", which, (unsigned int)type);
+	    }
             which++;
             block_len-=4;
           } while (type!=-1);
@@ -426,26 +466,45 @@ main(int argc, char const * const * argv)
           {
             fill_word(&type, in);
             if (use_dumpfile && terseflag==0)
-              printf ("    Colour #%-3i       = 0x%8.8x\n", which, (unsigned int)type);
+	    {
+	      if (which % (sys_colours + non_sys_colours)==0 && non_sys_colours>=0)
+	      {
+		within_group=0;
+		fprintf(display, "    -- Colour group #%i --\n", which / (sys_colours+non_sys_colours));
+	      }
+	      if (within_group<base_sys_colours)
+		fprintf(display, "    Colour %s = 0x%8.8x\n", base_sys_colour[within_group], (unsigned int)type);
+	      /* Logic for following step isn't quite right - copes poorly
+	       * with no user colours
+	       */
+	      else if (within_group>(base_sys_colours+non_sys_colours) && non_sys_colours>=0)
+		fprintf(display, "    Colour %s = 0x%8.8x\n", top_sys_colour[within_group],  (unsigned int)type);
+	      else
+		fprintf(display, "    Colour #%-3i                    = 0x%8.8x\n", which, (unsigned int)type);
+	    }
             which++;
+	    within_group++;
             block_len-=4;
           }
+	  if (which % (sys_colours + non_sys_colours)!=0 && non_sys_colours>=-1)
+	  {
+	    fprintf(stderr, "    [num colours is wrong or not set! (%i; should be %i?)]\n", non_sys_colours, which-sys_colours);
+	  }
         }
-
-        fill_word(&block_len, in);
-        if (use_dumpfile)
+	fill_word(&block_len, in);
+	if (use_dumpfile)
         {
-          printf ("    Mode-handled data = %i bytes\n%s", block_len,
+          fprintf (display, "    Mode-handled data = %i bytes\n%s", block_len,
                   verboseflag ? "        " : "");
         }
         while (block_len--)
         {
           fill_byte(&type, in);
           if (verboseflag && use_dumpfile)
-            printf ("[%2.2x]", type & 0xff);
+            fprintf (display, "[%2.2x]", type & 0xff);
         }
         if (verboseflag && use_dumpfile)
-          puts ("");
+          fprintf (display, "\n");
 
         done_data=1;
         break;
@@ -459,21 +518,21 @@ main(int argc, char const * const * argv)
         if (use_dumpfile)
         {
           if (shownmode)
-            puts ("");
+            fprintf (display, "\n");
           shownmode = 1;
-          puts ("Version block");
+          fprintf (display, "Version block\n");
         }
         if (block_len!=20 && use_dumpfile)
-          puts ("    Warning: block length is wrong");
+          fprintf (display, "    Warning: block length is wrong\n");
         fill_word(&type, in);
         if (use_dumpfile)
-          printf ("    Saved by Zap v%i.", type);
+          fprintf (display, "    Saved by Zap v%i.", type);
         fill_word(&type, in);
         if (use_dumpfile)
-          printf ("%i; ", type);
+          fprintf (display, "%i; ", type);
         fill_word(&type, in);
         if (use_dumpfile)
-          printf ("Config format rev %i\n", type);
+          fprintf (display, "Config format rev %i\n", type);
         done_data=1;
         break;
 
@@ -481,10 +540,10 @@ main(int argc, char const * const * argv)
         if (use_dumpfile)
         {
           if (shownmode)
-            puts ("");
+            fprintf (display, "");
           shownmode = 1;
         }
-        printf ("Warning: illegal options block, type %i length %i\n", type, block_len);
+        fprintf (display, "Warning: illegal options block, type %i length %i\n", type, block_len);
         if (writing==1)
         {
           if (pruneflag==0)
@@ -495,7 +554,7 @@ main(int argc, char const * const * argv)
           else
           {
             writing--;
-            fputs ("    [stripping unknown options block]\n", stderr);
+            fprintf (stderr, "    [stripping unknown options block]\n");
           }
         }
         break;
@@ -504,15 +563,15 @@ main(int argc, char const * const * argv)
     if (done_data==0 && block_len>8)
     {
       if (verboseflag && use_dumpfile)
-        printf ("        ");
+        fprintf (display, "        ");
       while (block_len-->8)
       {
         fill_byte(&type, in);
         if (verboseflag && use_dumpfile)
-          printf ("[%2.2x]", ((char *)&type)[0]);
+          fprintf (display, "[%2.2x]", ((char *)&type)[0]);
       }
       if (verboseflag && use_dumpfile)
-        puts ("");
+        fprintf (display, "\n");
     }
 
     if (writing==0)
@@ -520,7 +579,7 @@ main(int argc, char const * const * argv)
   }
 
   if (use_listmodes && terseflag==1)
-    puts ("");
+    fprintf (display, "\n");
 
   if (in!=stdin)
     fclose(in);
@@ -646,6 +705,7 @@ help(void)
 "  -v, --verbose          increase verbosity of output\n"
 "  -t, --terse            decrease verbosity of output\n"
 "                         (both -v and -t gives somewhere between the two)\n"
+"  -O, --stderr-display   -l and -d use stderr not stdout (so -o - works)\n"
 "\n"
 "  -h, --help             display this help message and quit\n"
 "  -V, --version          display version string and quit\n"
