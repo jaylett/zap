@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.15 1999/08/19 23:56:39 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.16 1999/10/23 23:49:07 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -70,9 +70,9 @@ MENUSHORTS	* LONG
 convert_key
  TEQ R0,#&7F
  BEQ ck_delete			; delete key
- CMP R0,#(ck_end-ck_start)/4
- MOVCS PC,R14			; standard character or fn key
  STMFD R13!,{R1,R14}
+ CMP R0,#(ck_end-ck_start)/4
+ BCS ck_std_or_fn		; standard character or fn key
  BL special_test_shiftctrl	; read sc status in R1
  ADD PC,PC,R0,LSL#2		; branch
  DCD 0
@@ -395,6 +395,33 @@ ck_knum_table
  =  42,&38
  =  43,&39
  ALIGN
+
+ck_std_or_fn
+	BIC	R1,R0,#&31
+	TEQ	R1,#&1C0	; Logo key
+	BEQ	ck_logo_menu
+	; elimination tests (the value in R1 should be sufficient)
+	LDMFD	R13!,{R1,PC}
+
+ck_logo_menu
+	ANDS	R1,R0,#1
+	BNE	ck_menu
+	STMFD	R13!,{R0}
+	MOV	R1,#-1
+	MOV	R0,#125		; left Logo inkey
+	ORR	R0,R0,#104<<8	; scan code
+	BL	special_test_forkey
+	MOVCS	R1,#0
+	MOVCC	R1,#2
+	LDMFD	R13!,{R0}
+ck_menu
+	ADD	R1,R1,#&168
+	TST	R0,#16
+	ADDNE	R1,R1,#4
+	TST	R0,#32
+	ADDNE	R1,R1,#16
+	MOV	R0,R1
+	LDMFD	R13!,{R1,PC}
 
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
 

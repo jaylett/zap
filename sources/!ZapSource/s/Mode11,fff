@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.1.2.12 1999/10/21 17:44:48 james Exp $
+; $Id: Mode11,fff,v 1.1.2.13 1999/10/23 23:49:08 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -248,7 +248,7 @@ test_set_fgnd$l
 	B	normal$l
 
 ; pointer into the (loaded) messages file, colour list
-; token name (12 chrs). Total entry length is 20 bytes.
+; token name (NUL term, padded). Total entry length is variable.
 tokens_num$l
 	& 0,14 :OR: 4<<28
 	= "zap_tb_warn",0
@@ -297,6 +297,22 @@ linestart$l
 	ADR	R1,tokens_sol$l
 	BL	lookup$l
 	BEQ	reentry$l
+	LDR	R1,[R9,#f_cmode]
+	TEQ	R1,#11
+ STR R1,[R12,#test_0]
+	BNE	maybelinenum$l
+ MOV R1,#0
+ STR R1,[R12,#test_1]
+	LDR	R1,[R9,#f_source]
+	CMP	R1,#0
+	LDRGT	R1,[R1,#4]
+	CMPGT	R1,#0
+	BLE	maybelinenum$l
+ STR R1,[R12,#test_1]
+	MOV	R2,#2
+	BL	lookup$l
+	BEQ	reentry$l
+maybelinenum$l
 	PUSH	"R6,R7,R10"
 	MOV	R6,#0
 skipspcs$l
@@ -326,7 +342,7 @@ notnum$l
 	B	reentry$l
 
 ; pointer into the (loaded) messages file, colour list
-; token name (12 chrs). Total entry length is 20 bytes.
+; token name (NUL term, padded). Total entry length is variable.
 ; (Needs work to cope with ZapSpell - internationalise that first, though)
 tokens_sol$l
 	& 0,11 :OR: 6<<28
@@ -365,7 +381,14 @@ lookup_cmp$l
 	BEQ	lookup_cmp$l
 nomatch$l			; match failed
 	LDMIA	R13,{R1,R6,R7,R10}
-	ADD	R1,R1,#20
+	ADD	R1,R1,#8
+skiptoken$l
+	LDR	R0,[R1],#4
+	TST	R0,#&FF
+	TSTNE	R0,#&FF00
+	TSTNE	R0,#&FF0000
+	TSTNE	R0,#&FF000000
+	BNE	skiptoken$l
 	STR	R1,[R13]
 	LDR	R0,[R1,#4]
 	TEQ	R0,#0		; more to do?
@@ -403,6 +426,7 @@ mode11_init
  TEQ R1,#einit_ModeStarted
  BEQ init_throwback
  TEQ R1,#einit_DeleteModifiedFile
+ BEQ mode11_killingfile
  MVNEQ R1,#0			; kill the file
  MOVEQ PC,R14
  TEQ R1,#einit_ZapDying
@@ -416,6 +440,18 @@ mode11_menu
 	FNJSR	"R0"
 	MOV	R0,#10
 	BL	read_menu_handle	; create the mode menu
+	FNRTS
+
+mode11_killingfile
+	LDR	R1,[R9,#f_cmode]
+	TEQ	R1,#11
+	MVNNE	R1,#0
+	MOVNE	PC,R14
+	FNJSR	"R0"
+	LDR	R0,[R9,#f_source]
+	CMP	R0,#0
+	BLGT	heap_free
+	MVN	R1,#0
 	FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1153,7 +1189,8 @@ process_entry
  FNSTR R0,throw_file		; save throwback window
  MOV R0,#11
  STR R0,[R9,#f_cmode]		; throwback window
- STR R1,[R9,#f_source]		; this was the source
+ LDR R14,[R9,#f_source]
+ STR R1,[R14]			; store task handle
 exists$l
  MOV R0,R10			; restore data word
  FNLDR R1,throw_name		; file name
@@ -1176,8 +1213,12 @@ find_throwback_file_sub
  FNJSR
  LDR R14,[R9,#f_cmode]
  TEQ R14,#11
- LDREQ R14,[R9,#f_source]
- TEQEQ R14,R0
+ FNRTS NE
+ LDR R14,[R9,#f_source]
+ CMP R14,#0
+ LDRGT R14,[R14]
+ MOVLE R14,#-1
+ TEQ R14,R0
  FNRTS NE
  BL get_wind_off
 ; FNcall Zap_GetWindOff
@@ -1193,6 +1234,7 @@ find_throwback_file_sub
 ;E R0=suggested width of window / 0 to use default width
 ;  b31 => R1 is throwback filename, b30 => R1 is task handle, look
 ;  it up to get filename, b29 => R1 is a token, look it up (if b31 set)
+;  b28 = R2 points to a MessageTrans token name (for colouring purposes)
 ;X R0=window offset of window R8/R9=newly created throwback window
 ;  R1 preserved
 ;  (not cmode 11 that's reserved for throwback protocol files)
@@ -1205,11 +1247,10 @@ titledata$l
 create_throwback
  FNJSR "R1-R4,R10-R11"
 ; ADDS R10,R0,#0
- AND R11,R0,#(throwback_Filename :OR: throwback_TaskHandle :OR: throwback_FilenameIsToken)
+ AND R11,R0,#throwback_FlagBits
  STR R11,flags$l		; save flags
  STR R1,titledata$l
- BICS R10,R0,#(throwback_Filename :OR: throwback_TaskHandle :OR: throwback_FilenameIsToken)
-	 			; save suggested width of window
+ BICS R10,R0,R11		; save suggested width of window
  BEQ width$l
  MOV R8,#0			; config setting
  MOV R0,#-1			; read
@@ -1234,14 +1275,13 @@ width$l				; width done (in R10)
  BLVC get_wind_off
  MOV R10,R0			; preserve
  LDR R11,flags$l
- TST R11,#throwback_Filename
- BEQ not_filename$l
+ AND R11,R11,#throwback_TaskNameMask
+ TEQ R11,#throwback_Filename
+ BNE not_filename$l
  LDR R0,titledata$l
- TST R11,#throwback_FilenameIsToken
- BEQ done_lookup$l
- BL lookup_token_R0
+ CMP R11,#throwback_FilenameIsToken
+ BLEQ lookup_token_R0
  BVS return$l
-done_lookup$l
  BL new_file_name
  BLVC new_file_title
  ; Setting the title may fail, but we still have a valid throwback window
@@ -1249,8 +1289,8 @@ return$l
  MOV R0,R10			; restore
  FNRTSS
 not_filename$l
- TST R11,#throwback_TaskHandle
- FNRTS EQ
+ TEQ R11,#throwback_TaskHandle
+ FNRTS NE
  PUSH "R1-R6"			; R0 already preserved in R10
  SUB R13,R13,#20		; space for message
  LDR R0,tasknamerq$l
@@ -1276,16 +1316,22 @@ tasknameis$l			; only called on reply
  BLVC new_file_title
  FNRTS
 restore$l
- TEQ R10,#0			; default used?
- MOVEQ PC,R14
  FNJSR "R8-R9"
+ MOV R0,#8
+ BL heap_claim
+ FNRTS VS
+ STR R0,[R9,#f_source]
+ LDR R8,flags$l
+ TST R8,#throwback_HasTokenList
  MOV R8,#0
+ LDRNE R14,[R13,#16]	 	; token name (stacked R2)
+ MOVEQ R14,#0
+ STMIA R0,{R8,R14}		; store null handle & token pointer
  MOV R0,R11
  MOV R1,#11
  STR R1,[R9,#f_cmode]		; may be in wrong place...
- MOV R2,#0
- STR R2,[R9,#f_source]
- BL mode_data
+ TEQ R10,#0			; default used?
+ BLNE mode_data
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
