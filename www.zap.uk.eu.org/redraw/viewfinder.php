@@ -1,5 +1,5 @@
 <?php
-  // $Id: viewfinder.php,v 1.2 2002/03/13 22:27:54 ds Exp $
+  // $Id: viewfinder.php,v 1.3 2003/03/13 17:30:21 christian Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/viewfinder');
   zap_header ("ZapRedraw - ViewFinder", "ZR", 'up:index');
@@ -13,7 +13,7 @@ ZapRedraw to one which supports the ViewFinder.</p>
 To install ZapRedraw, you will need the following:
 </p>
 <ul>
- <li>An existing copy of !ZapFonts, available from <a href="/ftp/pub/stable/zfonts.zip">Zap's FTP site</a>.</li>
+ <li>An existing copy of !ZapFonts, available from <a href="/ftp/pub/stable/latest/zfonts.zip">Zap's FTP site</a>.</li>
  <li>ViewFinder firmware revision 1.29 or later. This is available as a free download from the <a href="http://web.inter.nl.net/users/J.Kortink/windfall/support.htm">ViewFinder support pages</a>.</li>
 </ul>
 
@@ -50,5 +50,5 @@ Force option <b>on</b>. If you <i>still</i> have problems, <a
 href="../contact">get in touch</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/03/13 22:27:54 $');
+  zap_body_end ('$Date: 2003/03/13 17:30:21 $');
 ?>
