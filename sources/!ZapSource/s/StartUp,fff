@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.10 1999/02/02 19:32:05 ds Exp $
+; $Id: StartUp,fff,v 1.1.2.11 1999/02/03 19:16:35 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -11,6 +11,7 @@
  GET h.CreateFile
  GET h.Strings
  GET h.Version
+ GET h.CreateWind
 
 ; IMPORT env_noicon_check
  IMPORT command_string
@@ -1322,6 +1323,7 @@ skip$l	LDRB	R2,[R0],#1
 	LOCAL
 
 ;E R1 -> mode name
+;  R2 = 0 to delete, non-0 to hide
 ;X if found in the clones list:
 ;    mode removed from clones list, config block deleted if not already read
 ;    if instantiated then mode is marked as deleted (but remains available)
@@ -1332,23 +1334,57 @@ remove_clone_mode_entry
 	BL	find_clone_mode_entry
 	TEQ	R0,#0
 	BEQ	nodel$l
-	FNLDR	R3,ext_clones
+	LDR	R0,[R13]
+	BL	test_mode_name
+	MOVS	R5,R0			; mode instantiated?
+	BMI	notinstantiated$l
+	BL	read_mode
+	LDRB	R0,[R1,#2*e_basemode+4]
+	TEQ	R0,R5			; yes - is it a clone?
+	BEQ	nodel$l			; ...no
+	FNLDRB	R0,opt_format		; is it the default mode?
+	TEQ	R0,R5
+	BEQ	inuse$l			; ...yes
+	MOV	R1,#0
+	ADR	R10,checkuse$l
+	BL	do_allwindow		; is it in use?
+	TEQ	R1,#0
+	BNE	inuse$l			; ...yes
+	LDR	R2,[R13,#4]
+	TEQ	R2,#0
+	BEQ	noconf$l
+	FNLDR	R6,wimp_config		; if we're hiding the mode,
+	FNLDR	R7,wimp_conlen		; preserve its config block
+	MOV	R0,R5
+	BL	write_config_block
+	FNRTS	VS
+noconf$l
+	FNADD	R4,R12,mode_store	; otherwise, free up its mode number
+	ADD	R4,R4,R5,LSL #3
+	LDMIA	R4,{R0,R3}
+	MOV	R1,#0
+	STR	R1,[R4]
+	STR	R1,[R4,#4]
+	BL	heap_free
+	LDR	R0,[R3,#2*e_mode+4]
+	BL	heap_free
+	MOV	R0,R3
+	BL	heap_free
+	LDR	R2,[R13,#4]
+	TEQ	R2,#0
+	FNRTS	NE			; if hiding, return now
+forget$l
+	LDR	R1,[R13]
+	BL	find_clone_mode_entry
+	FNLDR	R3,ext_clones		; completely forget about this mode
 	MOV	R4,R3
 loop$l	LDR	R2,[R3],#4
 	TEQ	R2,R1
 	STRNE	R2,[R4],#4
 	TEQ	R2,#0
 	BNE	loop$l
-	LDR	R0,[R13]
-	BL	test_mode_name
-	MOVS	R5,R0
-	BMI	notinstantiated$l
-	BL	read_mode
-	LDRB	R0,[R1,#2*e_basemode+4]!
-	TEQ	R0,R5
-	BEQ	nodel$l
-	MOV	R0,#128
-	STRB	R0,[R1,#3]
+	MOV	R0,R1
+	BL	heap_free
 	FNRTS
 notinstantiated$l
 	FNLDR	R1,wimp_kbdbuf
@@ -1366,7 +1402,10 @@ s1$l	LDRB	R0,[R2],#1
 	BNE	s1$l
 	BL	strcmp			; do the names match?
 	BEQ	nodel$l			; if so, then not a clone -> error
-	FNLDR	R6,wimp_config
+	LDR	R1,[R13,#4]
+	TEQ	R1,#0
+	FNRTS	NE			; if hiding, then nothing to do
+	FNLDR	R6,wimp_config		; else delete the mode's config block
 	FNLDR	R7,wimp_conlen
 	LDR	R4,[R5,#4]
 	ADD	R4,R5,R4		; next block
@@ -1378,12 +1417,23 @@ s1$l	LDRB	R0,[R2],#1
 	SUB	R0,R4,R5		; amount deleted
 	SUB	R7,R7,R0
 	FNSTR	R7,wimp_conlen
-	FNRTS
+	B	forget$l		; and completely forget about it
 nodel$l	ADR	R0,nodelmsg$l
 	LDR	R4,[R13]
 	BL	lookup_error
 	FNRTS
 nodelmsg$l &	0
 	FNS	("zap_e_delclone")
+inuse$l	ADR	R0,inusemsg$l
+	LDR	R4,[R13]
+	BL	lookup_error
+	FNRTS
+inusemsg$l &	0
+	FNS	("zap_e_cloneinuse")
+checkuse$l
+	LDRB	R0,[R8,#w_format]	; clone mode in use?
+	TEQ	R0,R5
+	MOVEQ	R1,#1
+	MOVS	PC,R14
 
  END

@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.1.2.5 1999/01/25 17:37:40 dj Exp $
+; $Id: Menus,fff,v 1.1.2.6 1999/02/03 19:16:29 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -52,7 +52,7 @@
  EXPORT Fontlist
  EXPORT Newviewlist
  EXPORT Removelist
- EXPORT Loadlist
+ EXPORT Modelist
  EXPORT Typelist
  EXPORT Getmodule
  EXPORT Getworkspace
@@ -811,6 +811,89 @@ execsub$l
  BLVC create_window_caret
  FNRTS
 
+	LOCAL
+
+; List of modes which are already loaded
+
+	&	7+(1<<16)
+Modelist
+	TEQ	R2,#16
+	MOVNE	PC,R14
+	FNJSR
+	ADR	R0,name$l
+	ADR	R1,buildsub$l+1
+	MOV	R2,#0
+	MOV	R3,#0
+	MOV	R4,#16
+	MOV	R8,#-2			; mode number
+	BL	build_menu
+	FNRTS
+name$l	FNS	("zap_m_mode")
+buildsub$l
+	FNJSR	"R1-R2,R5"
+	ADD	R7,R7,#4		; modify R7 :-)
+	TEQ	R8,#0
+	BMI	loadmode$l
+	ADRL	R3,Mode
+	ORR	R3,R3,#2<<27:OR:1<<31	; command, int parameter
+find$l	MOV	R0,R8
+	BL	read_mode
+	TEQ	R0,#0
+	BNE	got$l
+	ADD	R8,R8,#1
+	TEQ	R8,#max_mode
+	BNE	find$l
+	MOV	R0,#-1
+	FNRTS
+got$l	LDRB	R0,[R1,#e_basemode*2+4]	; get the clone base mode
+	TEQ	R0,R8
+	BEQ	notclone$l
+	LDR	R2,[R6,#8]
+	EOR	R2,R2,#15<<24		; if is a clone, set text to blue
+	STR	R2,[R6,#8]
+	LDR	R2,[R6]
+	ORR	R2,R2,#16		; allow submenu even if grey
+	STR	R2,[R6]
+notclone$l
+	LDR	R0,[R1,#e_menu*2]	; mode menu
+	CMP	R0,#0
+	STRGT	R0,[R6,#4]		; if we have a submenu...
+	LDRGT	R0,[R6]
+	ORRGT	R0,R0,#8		; submenu warn
+	STRGT	R0,[R6]
+	MOV	R0,#0
+	STR	R0,[R7,#-12]		; submenu handler
+	LDR	R2,[R1,#e_title*2]	; mode name
+	MOV	R1,R7			; buffer for string
+	BL	strcopy			; copy it in
+	MOV	R0,R8
+	ADD	R8,R8,#1
+	FNRTS
+loadmode$l
+	ADDS	R8,R8,#1
+	ADRNE	R0,Loadlist
+	ADREQ	R0,Clonelist
+	ORR	R0,R0,#1<<31
+	STR	R0,[R7,#-12]
+	ADRNE	R0,lmode
+	ADREQ	R0,cmode
+	BL	lookup_token_R0
+	MOV	R2,R0
+	MOV	R1,R7
+	BL	strcopy
+	LDR	R0,[R6]
+	TEQ	R8,#0
+	ORREQ	R0,R0,#2		; dotted line (if after clone list)
+	ORR	R0,R0,#8		; submenu warn
+	MOV	R1,#1
+	STMIA	R6,{R0,R1}
+	MOV	R0,#0
+	FNRTS
+
+lmode	=	"zap_m_lmode",0
+cmode	=	"zap_m_cmode",0
+	ALIGN
+
  LOCAL
 
 ; List of modes that can be loaded
@@ -820,18 +903,20 @@ Loadlist
  FNJSR
  TEQ R2,#16
  FNRTS NE
- ADR R0,name$l
+ ADR R0,lmode
  ADR R1,buildsub$l+1
  MOV R2,#0
- ADR R3,execsub$l
+ ADRL R3,Moden
+ ORR R3,R3,#3<<27:OR:1<<31	; command, string parameter
  MOV R4,#14
  FNLDR R8,ext_modes		; list of external modes
+ BL swapmenu
  BL build_menu
  MOVVC R1,R0
  BLVC sort_menu
  MOVVC R0,R1			; menu pointer
+ BL swapmenu
  FNRTS
-name$l FNS ("zap_m_lmode")
 buildsub$l
  FNJSR "R1-R2,R5" ; "R1-R7" ;
  ;LDR R14,[R6,#8]		; possibly a flags problem...?
@@ -871,14 +956,44 @@ getthenextmodeformenu$l
  MOV R0,R5
  B nearstartofbuildsub
 
-execsub$l
- FNJSR
- MOV R0,R1			; module name
- BL find_mode_number
- FNRTS VS
- CMP R0,#0
- BLGT new_mode			; if mode found
- FNRTS
+	LOCAL
+
+; List of uninitialised clone modes
+
+	DCD	7+(1<<16)
+Clonelist
+	TEQ	R2,#16
+	FNRTS	NE
+	FNJSR
+	ADR	R0,cmode
+	ADR	R1,buildsub$l+1
+	MOV	R2,#0
+	ADRL	R3,Moden
+	ORR	R3,R3,#3<<27:OR:1<<31	; command, string parameter
+	MOV	R4,#14
+	FNLDR	R8,ext_clones		; list of clone modes
+	BL	swapmenu
+	BL	build_menu
+	MOVVC	R1,R0
+	BLVC	sort_menu
+	MOVVC	R0,R1			; menu pointer
+	BL	swapmenu
+	FNRTS
+buildsub$l
+	FNJSR	"R1-R2,R5"
+	MOV	R5,R0
+find$l	LDR	R2,[R8],#4
+	TEQ	R2,#0
+	MOVEQ	R0,#-1
+	FNRTS	EQ			; reached the end of the list
+	MOV	R0,R2
+	BL	test_mode_name
+	TEQ	R0,#0
+	BPL	find$l
+	MOV	R1,R5			; buffer for string
+	BL	strcopy			; copy it in
+	LDR	R0,[R8,#-4]		; index -> mode name
+	FNRTS
 
  LOCAL
 
@@ -2666,10 +2781,9 @@ build_menu
  STR R0,[R6],#4			; save count
  STR R2,[R6],#4			; save creation address
  TST R1,#1			; menu name is a token?
- MOVEQ R2,R5
- MOVNE R0,R5
+ MOV R0,R5
  BLNE lookup_token_R0
- MOVNE R2,R0
+ MOV R2,R0
  MOV R0,#12
  MOV R1,R6
  BL strbuf			; copy title
@@ -2689,11 +2803,10 @@ entry$l				; entry loop
  MVN R5,#0
  LDR R14,icon$l
  STMIA R6,{R0,R5,R14}		; flags, submenu, icon flags
- ADD R7,R7,#8			; start of buffer
  FNLDR R5,menu_entries
  MOV R0,#0
  STR R0,[R6,#16]		; no validation by default.
- STR R0,[R7]			; null string in case at end
+ STR R0,[R7,#8]!		; null string in case at end
  MOV R0,R7			; buffer
  MOVS R14,PC
  MOV PC,R1			; call the sub to create menu text
@@ -3003,11 +3116,11 @@ local_f_ss_vals
 
 build_second_font_menu
  FNJSR "R6-R7"
- BL swap$l
+ BL swapmenu
  BL build_menu
- BL swap$l
+ BL swapmenu
  FNRTS
-swap$l				; swap over without changing flags
+swapmenu			; swap over without changing flags
  ;ADR R6,local_f_ss_vals
  FNLDR R6,font_ssentries
  FNLDR R7,menu_entries
