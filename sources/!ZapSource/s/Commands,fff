@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.20 2002/11/13 16:12:05 christian Exp $
+; $Id: Commands,fff,v 2.21 2002/11/13 19:29:25 christian Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -4869,13 +4869,19 @@ return_set$l
 ; Darren's conditional-related commands start here...
 
 ; following stored in if_bits + (if_count * 8)
-if_TypeShift	*	28		;
+if_TypeShift	*	28		; shift right by this to get the type
 if_type_If	*	0               ; looping types stores in top bits
 if_type_Repeat	*	1               ;
 if_type_While	*	2               ;
 if_type_Case	*	3               ;
 
-if_WhenMatched	*	1<<27
+if_WhenMatched	*	1<<27		; indicates that DEFAULT should do nothing
+;if_IsString	*	1<<26		; indicates CASE argument is a string
+
+if_True		*	1<<0		; this IF/whatever was true
+if_DontLearn	*	1<<1		; don't learn this command
+
+if_FlagsMask	*	&F8000003
 
 	LOCAL
 
@@ -4889,10 +4895,10 @@ learn$l	TEQ	R2,R3
 	FNRTS	EQ
 	ADD	R2,R2,#1
 	MOV	R0,R14,LSR #if_TypeShift
-	TEQ	R0,#1
-	TEQNE	R0,#2
+	TEQ	R0,#if_type_Repeat
+	TEQNE	R0,#if_type_While
 	BNE	learn$l
-	TST	R14,#2
+	TST	R14,#if_DontLearn
 	BEQ	learn$l
 	FNRTS
 
@@ -4908,8 +4914,8 @@ loop$l	SUB	R2,R2,#1
 	LDRNE	R0,[R1,R2,LSL #3]
 	FNRTS	EQ
 	MOV	R0,R0,LSR #if_TypeShift
-	CMP	R0,#1
-	RSBHSS	R14,R0,#3
+	CMP	R0,#if_type_Repeat
+	RSBHSS	R14,R0,#if_type_Case
 	BLO	loop$l
 	TEQ	R0,#0
 	FNRTS
@@ -4921,13 +4927,13 @@ checktrue		; is the most recent IF/WHILE/WHEN/DEFAULT true?
 	FNLDR	R2,if_count
 if$l	SUBS	R2,R2,#1
 	LDRPL	R14,[R1,R2,LSL #3]
-	MOVMI	R14,#1
+	MOVMI	R14,#if_True
 	MOV	R3,R14,LSR #if_TypeShift
 	TEQ	R3,#if_type_If
 	TEQNE	R3,#if_type_While
 	TEQNE	R3,#if_type_Case
 	BNE	if$l
-	TST	R14,#1
+	TST	R14,#if_True
 	FNRTS
 
 
@@ -4941,13 +4947,13 @@ If
 	BEQ	If_fn$l
 	BL	checktrue
 	BEQ	skip$l
-noskip$l
+
 	MOV	R1,#0			; 'return an int'
 	BL	evaluate_string
 	FNRTS	VS
 	MOVS	R0,R1
+	MOVNE	R0,#if_True		; either True or not
 	FNLDR	R2,if_count		; current nesting level
-	MOVNE	R0,#1			; either 0 or 1
 	CMP	R2,#if_limit
 	FNLDR	R1,if_bits,LO
 	STRLO	R0,[R1,R2,LSL #3]	; keep truth
@@ -5038,14 +5044,14 @@ While
 	FNJSR
 	BL	checktrue
 	BEQ	skip$l
-noskip$l
+
 	MOV	R3,R0			; point at argument
 	MOV	R1,#0
 	BL	evaluate_string
 	FNRTS	VS
 	TEQ	R1,#0
+	ORRNE	R3,R3,#if_True
 	FNLDR	R2,if_count
-	ORRNE	R3,R3,#1
 	CMP	R2,#if_limit
 	FNLDR	R1,if_bits,LO
 	ORRLO	R3,R3,#if_type_While << if_TypeShift
@@ -5080,12 +5086,13 @@ noskip$l
 	FNRTV	HS
 	MOV	R1,#256			; max string length
 	BL	evaluate_string
-	FNLDR	R3,if_bits,VC
-	ORRVC	R0,R0,#if_type_Case << if_TypeShift
-	ADDVC	R3,R3,R2,LSL #3
-	STMVCIA	R3,{R0,R1}		; store string + flags and length
-	ADDVC	R2,R2,#1
-	FNSTR	R2,if_count,VC
+	FNRTS	VS
+	FNLDR	R3,if_bits
+	ORR	R0,R0,#if_type_Case << if_TypeShift
+	ADD	R3,R3,R2,LSL #3
+	STMIA	R3,{R0,R1}		; store string + flags and length
+	ADD	R2,R2,#1
+	FNSTR	R2,if_count
 	FNRTS
 skip$l	FNLDR	R0,if_skip
 	ADD	R0,R0,#1
@@ -5101,14 +5108,14 @@ Else
 	FNLDR	R0,if_skip
 	TEQ	R0,#0
 	FNRTS	NE
-	MOV	R1,#0
+	MOV	R1,#if_type_If
 	BL	typecheck
 	FNRTS	VS
 	FNLDR	R0,if_count
 	FNLDR	R1,if_bits
 	SUB	R0,R0,#1
 	LDR	R0,[R1,R0,LSL #3]!
-	EOR	R0,R0,#1
+	EOR	R0,R0,#if_True
 	STR	R0,[R1]
 	FNRTS
 
@@ -5120,7 +5127,7 @@ Endif
 	SUBS	R0,R0,#1
 	FNSTR	R0,if_skip,PL
 	FNRTS	PL
-	MOV	R1,#0
+	MOV	R1,#if_type_If
 	BL	typecheck
 	FNLDR	R0,if_count,VC
 	SUBVC	R0,R0,#1
@@ -5134,7 +5141,7 @@ Endif
 	; X: R0 = address of next command / 0 / error
 Until
 	FNJSR
-	MOV	R1,#1
+	MOV	R1,#if_type_Repeat
 	BL	typecheck
 	MOVVC	R1,#0
 	BLVC	evaluate_string
@@ -5151,7 +5158,7 @@ false$l	FNLDR	R2,if_count
 	FNLDR	R1,if_bits
 	SUB	R2,R2,#1
 	LDR	R0,[R1,R2,LSL #3]!
-	ORR	R2,R0,#2		; prevent learning :-)
+	ORR	R2,R0,#if_DontLearn	; prevent learning :-)
 	STR	R2,[R1]
 	FNRTS
 true$l	FNLDR	R2,if_count
@@ -5223,7 +5230,7 @@ Endwhile
 	FNSTR	R1,if_skip,PL
 	MOVPL	PC,R14
 	FNJSR
-	MOV	R1,#2
+	MOV	R1,#if_type_While
 	BL	typecheck
 	FNRTS	VS
 	FNLDR	R1,if_count
@@ -5231,7 +5238,7 @@ Endwhile
 	SUB	R1,R1,#1
 	LDR	R0,[R4,R1,LSL #3]!
 	MOV	R1,#0
-	BIC	R0,R0,#&FC000003
+	BIC	R0,R0,#if_FlagsMask
 	BL	evaluate_string
 	FNRTS	VS
 	TEQ	R1,#0
@@ -5244,7 +5251,7 @@ Endwhile
 	BEQ	false$l
 	FNLDR	R4,if_bits		; restore!
 true$l	LDR	R0,[R4]
-	ORR	R0,R0,#2		; prevent learning :-)
+	ORR	R0,R0,#if_DontLearn	; prevent learning :-)
 	STR	R0,[R4]
 	LDR	R0,[R4,#4]
 	FNRTS
@@ -5263,7 +5270,7 @@ CWhen
 	FNLDR	R1,if_skip
 	TEQ	R1,#0
 	FNRTS	NE
-	MOV	R1,#3
+	MOV	R1,#if_type_Case
 	BL	typecheck
 	FNRTS	VS
 	BL	checktrue
@@ -5277,21 +5284,21 @@ When
 	FNLDR	R1,if_skip
 	TEQ	R1,#0
 	FNRTS	NE
-	MOV	R1,#3
+	MOV	R1,#if_type_Case
 	BL	typecheck
 	FNRTS	VS
 When_internal
 	FNLDR	R1,if_bits
 	FNLDR	R2,if_count
 	ADD	R1,R1,R2,LSL #3
-	LDMDB	R1,{R5,R6}	; string,len OR 0,int
+	LDMDB	R1,{R5,R6}	; len,string OR 0,int
 	MOV	R10,R0
-	BIC	R5,R5,#&FC000003
+	BIC	R5,R5,#if_FlagsMask
 	BL	compare_in
 	FNRTS	VS
 	LDR	R2,[R1,#-8]		; get flags
-	BIC	R2,R2,#1		; clear truth bit
-	ORREQ	R2,R2,#if_WhenMatched + 1 ; set truth flag if matched
+	BIC	R2,R2,#if_True		; clear truth bit
+	ORREQ	R2,R2,#if_WhenMatched + if_True ; set truth flag if matched
 	STR	R2,[R1,#-8]
 	FNRTS
 
@@ -5302,7 +5309,7 @@ Default
 	FNLDR	R0,if_skip
 	TEQ	R0,#0
 	FNRTS	NE
-	MOV	R1,#3
+	MOV	R1,#if_type_Case
 	BL	typecheck
 	FNRTS	VS
 	FNLDR	R1,if_bits
@@ -5310,8 +5317,8 @@ Default
 	ADD	R1,R1,R2,LSL #3
 	LDR	R2,[R1,#-8]
 	TST	R2,#if_WhenMatched	; see if any previous Whens matched
-	BIC	R2,R2,#1
-	ORREQ	R2,R2,#1
+	BIC	R2,R2,#if_True
+	ORREQ	R2,R2,#if_True
 	STR	R2,[R1,#-8]
 	FNRTS
 
@@ -5323,7 +5330,7 @@ Endcase
 	SUBS	R0,R0,#1
 	FNSTR	R0,if_skip,PL
 	FNRTS	PL
-	MOV	R1,#3
+	MOV	R1,#if_type_Case
 	BL	typecheck
 	FNRTS	VS
 	FNLDR	R2,if_count
@@ -5331,7 +5338,7 @@ Endcase
 	SUB	R2,R2,#1
 	FNSTR	R2,if_count
 	LDR	R0,[R1,R2,LSL #3]
-	BICS	R0,R0,#&FC000003
+	BICS	R0,R0,#if_FlagsMask
 	BLNE	heap_free
 	FNRTS
 
@@ -5342,11 +5349,11 @@ Endcase
 find_command_in_block
 	FNJSR	"R1-R5"
 	MOV	R5,#0
-	TEQ	R0,#1
+	TEQ	R0,#if_type_Repeat
 	ADREQ	R5,Until
-	TEQ	R0,#2
+	TEQ	R0,#if_type_While
 	ADREQ	R5,Endwhile
-	TEQ	R0,#3
+	TEQ	R0,#if_type_Case
 	ADREQ	R5,Endcase
 	MOV	R0,#0
 loop$l	LDR	R1,[R0,R4]!
@@ -5380,8 +5387,8 @@ pop$l
 	MOV	R14,R0,LSR #if_TypeShift
 	TEQ	R14,R3
 	FNRTS	EQ
-	TEQ	R14,#3
-	BICEQ	R0,R0,#&FC000003
+	TEQ	R14,#if_type_Case
+	BICEQ	R0,R0,#if_FlagsMask
 	BLEQ	heap_free
 	B	pop$l
 
@@ -5402,7 +5409,7 @@ popblock
 	LDR	R0,[R4,R5,LSL #3]
 	MOV	R14,R0,LSR #if_TypeShift
 	TEQ	R14,#if_type_Case
-	BICEQ	R0,R0,#&FC000003	; free string
+	BICEQ	R0,R0,#if_FlagsMask	; free string
 	BLEQ	heap_free
 	FNRTS
 
@@ -6186,7 +6193,7 @@ gotdata$l			; R0=command data
  ORREQ R2,R2,#1<<30		; looping cmd call
  BL process_command		; do the command
  BVS end$l			; error
- BICS R0,R0,#&FC000003
+ BICS R0,R0,#if_FlagsMask
  TSTNE R2,#1<<30
  MOVNE R6,R0
  MOV R4,R9			; keep file
@@ -6249,7 +6256,7 @@ freecase$l
  LDR R0,[R4,R5,LSL #3]
  MOV R14,R0,LSR #if_TypeShift
  TEQ R14,#if_type_Case
- BICEQ R0,R0,#&FC000003		; free string
+ BICEQ R0,R0,#if_FlagsMask		; free string
  BLEQ heap_free
  B freecase$l
 freedcase$l
