@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.23 1999/03/18 09:36:16 james Exp $
+; $Id: Commands,fff,v 1.1.2.24 1999/03/19 10:25:34 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -405,6 +405,7 @@ key_command_table
 	FNcom	"WORD_FLAGSTOGGLE",CmdWORDflagstoggle
 	FNcom	"WORD_GROUPSIZE",CmdWORDgroupsize
 	FNcom	"WRAPWIDTH",Wrapwidth
+	FNcom	"WRITEBUFFER",Writebuffer
 	FNcom	"WRITEFILE",Writefile
 	FNcom	"YANK",Yank
 
@@ -5461,6 +5462,40 @@ a$l
  ADDNE R0,R8,#w_wrapwidth
  FNRTS
 s$l FNS ("zap_m_wrapwidth")
+
+ LOCAL
+
+ DCD (3:SHL:3):OR:(1:SHL:6):OR:(1:SHL:9)
+Writebuffer
+ CMP R9,#0
+ MOVEQ PC,R14
+ TEQ R2,#6
+ BEQ prompt$l
+
+ FNJSR
+ MOV R4,R0			; save filename
+ LDR R0,[R9,#f_len]
+ MOV R1,#0
+ BL split_buffer		; coagulate buffer
+ LDR R0,[R9,#f_load]
+ BL calc_ftype
+ MOVCC R2,R0
+ MOVCC R0,#0
+ LDRCC R3,[R9,#f_exec]
+ MOVCS R2,R0
+ MOVCS R0,#10
+ MOV R1,R4			; target filename
+ LDR R4,[R9,#f_ptr]
+ LDR R5,[R9,#f_len]
+ ADD R5,R4,R5
+ SWI XOS_File
+ FNRTS
+
+prompt$l
+ ADR R0,p$l
+ B minibuffer_prompt_token
+p$l
+ FNS ("zap_p_writebuffer")
 
  DCD (3<<3)+(1<<6)+(1<<9)
 Writefile
