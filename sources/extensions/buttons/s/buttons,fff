@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: buttons,fff,v 1.1 2003/01/29 23:38:29 christian Exp $
+; $Id: buttons,fff,v 1.2 2003/02/05 16:20:00 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -30,7 +30,7 @@ mod_header	DCD	0				; start offset
 
 mod_title	=	"ZapButtons",0
 
-mod_help	=	"ZapButtons",9,"2.00 (00 Jan 0000) © Zap Developers",0
+mod_help	=	"ZapButtons",9,"2.01 (00 Jan 0000) © Zap Developers",0
 		ALIGN
 
 module_flags	DCD	1				; 32 bit compatible
@@ -80,6 +80,11 @@ mod_init	FNJSR	"R11"
 		MOV	R3,#-1
 		MOV	R4,#e_openwindow
 		FNcall	Zap_AddFilter,R5
+
+		MOV	R0,#&200			; add our extension call routine
+		ADR	R1,ext_call
+		MOV	R2,R11
+		FNcall	Zap_AddCallTable,R3
 		FNRTS					; done for now
 
 zap		= "Zap",0
@@ -108,15 +113,8 @@ command_table	DCD	command_table
 
 ; e_start post filter: create a button bar for this mode
 		FNAME	filter_e_start
-filter_e_start	FNJSR	"R8-R10"
-		TEQ	R8,#0
-		LDRNE	R0,[R8,#w_info]
-		TSTNE	R0,#winfo_buttons_on
-		FNRTS	EQ
-
-		MOV	R0,#0				; create button bar 0
-		BL	create_buttons
-		FNRTS
+filter_e_start	MOV	R0,#0				; create button bar 0
+		B	create_buttons
 
 
 		LOCAL
@@ -127,7 +125,6 @@ filter_e_end	B	delete_buttons
 
 
 		LOCAL
-
 
 ; e_openwindow post filter: move the button bar
 		FNAME	filter_e_openwindow
@@ -187,36 +184,12 @@ discard$l	BL	delete_buttons
 		FNRTS
 
 ; a window has lost the input focus
-lost$l		BL	get_button_hand			; focus lost - close but don't
-		TEQ	R0,#0				; delete the buttons
-		STRNE	R0,[R13,#-4]
-		SUBNE	R1,R13,#4
-		SWINE	XWimp_CloseWindow
+lost$l		BL	close_buttons
 		FNRTS
 
 ; a window has gained the input focus
-gained$l	LDR	R0,[R8,#w_info]			; check if this window has buttons
-		TST	R0,#winfo_buttons_on		;
-		FNRTS	EQ				;
-
-		MOV	R1,R8
-		SWI	XWimp_GetWindowState
-
-		BL	get_button_hand
-		TEQ	R0,#0
-		BEQ	new$l
-
-		STR	R0,[R13,#-64]!			; get current pane position
-		MOV	R1,R13
-		SWI	XWimp_GetWindowState
-
-		BL	reopen_buttons			; reopen the pane
-		ADD	R13,R13,#64
+gained$l	BL	open_buttons
 		FNRTS
-
-new$l		BL	create_buttons			; create buttons
-		FNRTS
-
 
 		LOCAL
 
@@ -368,13 +341,45 @@ send$l		SUB	R0,R0,R6			; store the length
 		FNcall	Zap_Reply,R2
 		FNRTS
 
-default$l	=	"buttons_help:This is a buttons bar",0
+default$l	=	"buttons_help:This is a buttons bar.",0
 		ALIGN
 
 		LTORG
 
 
 		LOCAL
+
+; ---------------------------------
+; extension call handler
+; ---------------------------------
+
+; &200 Buttons_Create
+; &201 Buttons_Delete
+; &202 Buttons_Open
+; &203 Buttons_Close
+; &204 Buttons_GetPaneHandle
+; &205 Buttons_GetPaneWindow
+
+		FNAME	ext_call
+ext_call	CMP	R7,#(table_end$l - table$l) / 4
+		ADDLO	PC,PC,R7,LSL #2
+		MOV	PC,R14
+table$l		B	create_buttons
+		B	delete_buttons
+		B	open_buttons
+		B	close_buttons
+		B	gethand$l
+		B	getwind$l
+table_end$l
+
+gethand$l	FNJSR	"R9"
+		BL	get_button_hand
+		FNRTS
+
+getwind$l	FNJSR	"R9"
+		BL	get_button_wind
+		FNRTS
+
 
 ; ---------------------------------
 ; BUTTONS_START command
@@ -410,7 +415,7 @@ Buttons_Change	FNJSR	"R1-R5,R11"
 		FNRTS	EQ
 
 		LDR	R5,[R0]
-		CMP	R0,#3                           ; range check
+		CMP	R0,#3				; range check
 		FNRTS	HS
 		BL	delete_buttons			; remove current buttons
 		MOV	R0,R5
@@ -632,21 +637,32 @@ get_menu	LDR	R1,[R10,#mr_menu]		; return if we've already loaded it
 		TEQ	R1,#0
 		MOVNE	PC,R14
 
-		FNJSR	"R9"
+		FNJSR	"R9,R10"
+		MOV	R10,#1
 		SUB	R13,R13,#256			; get the path
-		MOV	R0,R13
+loop$l		MOV	R0,R13
 		BL	get_mode_path
 		ADR	R1,menus$l			; add on the leafname
 		MOV	R0,R13
 		BL	strcat
+		TEQ	R10,#1
+		BNE	nosfix$l
+		MOV	R0,#2				; add the mode suffix
+		SWI	XWimp_ReadSysInfo
+		MOV	R1,R0
+		MOV	R0,R13
+		BL	strcat
 
-		MOV	R0,#17				; See if a Buttons Menus file exists
+nosfix$l	MOV	R0,#17				; See if a Buttons Menus file exists
 		MOV	R1,R13
 		SWI	XOS_File
 		TEQ	R0,#1
-		BNE	usemode$l
+		BEQ	ok$l
+		SUBS	R10,R10,#1			; did we add a mode suffix?
+		BPL	loop$l
+		B	usemode$l
 
-		MOV	R0,R13				; load it
+ok$l		MOV	R0,R13				; load it
 		FNcall	Zap_LoadMenu,R1
 		BVS	err$l
 
@@ -658,6 +674,8 @@ get_menu	LDR	R1,[R10,#mr_menu]		; return if we've already loaded it
 usemode$l	LDR	R0,[R10,#mr_mode]
 		FNcall	Zap_ReadMode,R1
 		BVS	err$l
+		TEQ	R0,#0				; does it have one?
+		MOVEQ	R0,#-1
 		LDR	R1,[R1,#e_menu * 2]
 		STR	R1,[R10,#mr_menu]
 		B	done$l
@@ -1030,11 +1048,16 @@ loop$l		TEQ	R1,#0				; not found?
 		LOCAL
 
 ; open a button bar for the first time
-; E r0 = tamplate number to open  r8
+; E r0 = template number to open  r8
 ; X
 		FNAME	create_buttons
-create_buttons	FNJSR	"R1-R5,R7,R10"
+create_buttons	FNJSR	"R1-R5,R7,R9,R10"
 		MOV	R7,R0
+
+		TEQ	R8,#0				; nothing to do
+		LDRNE	R0,[R8,#w_info]
+		TSTNE	R0,#winfo_buttons_on
+		FNRTS	EQ
 
 		BL	get_button_hand			; check if this window already has a bar
 		TEQ	R0,#0
@@ -1091,7 +1114,7 @@ open$l		SUBVC	R1,R13,#64
 ; E r8
 ; X
 		FNAME	delete_buttons
-delete_buttons	FNJSR
+delete_buttons	FNJSR	"R9-R10"
 		BL	remove_buttons			; remove from the list of active buttons
 		TEQ	R0,#0				; check returned window handle
 		STRNE	R0,[R13,#-4]
@@ -1099,6 +1122,49 @@ delete_buttons	FNJSR
 		SWINE	XWimp_DeleteWindow
 		FNRTS
 
+
+; close a button bar
+; E R8
+; X
+		FNAME	close_buttons
+close_buttons	FNJSR	"R9-R10"
+		BL	get_button_hand			; focus lost - close but don't
+		TEQ	R0,#0				; delete the buttons
+		STRNE	R0,[R13,#-4]
+		SUBNE	R1,R13,#4
+		SWINE	XWimp_CloseWindow
+		FNRTS
+
+
+; reopen an active but closed buttons bar, creating a new one if not present
+; E R8
+; X
+		FNAME	open_buttons
+open_buttons	FNJSR	"R9-R10"
+		LDR	R0,[R8,#w_info]			; check if this window has buttons
+		TST	R0,#winfo_buttons_on		;
+		FNRTS	EQ				;
+
+		MOV	R1,R8
+		SWI	XWimp_GetWindowState
+
+		BL	get_button_hand
+		TEQ	R0,#0
+		BEQ	new$l
+
+		STR	R0,[R13,#-64]!			; get current pane position
+		MOV	R1,R13
+		SWI	XWimp_GetWindowState
+
+		BL	reopen_buttons			; reopen the pane
+		ADD	R13,R13,#64
+		FNRTS
+
+new$l		BL	create_buttons			; create buttons
+		FNRTS
+
+
+		LOCAL
 
 ; ----------------------------------
 ; code to decode and process Scripts
@@ -1137,7 +1203,7 @@ nofocus$l	LDRB	R1,[R6]				; check for don't learn flag
 
 		; warn about not having scripts
 noscript$l	ADR	R0,wmsg$l
-		MOV	R1,#1<<29
+		MOV	R1,#1<<29			; it's a token
 		FNcall	Zap_Warning,R2
 		MOV	R0,#-1
 		FNRTS
@@ -1241,7 +1307,7 @@ scripts_findbuttons
 loop$l		CMP	R0,R3
 		MOVHS	R0,#0
 		FNRTS	HS
-		LDRB	R1,[R0],#1
+		LDRB	R1,[R0]
 		TEQ	R1,#'<'
 		TEQNE	R1,#'('
 		BEQ	brac$l
@@ -1273,7 +1339,7 @@ strcpy		LDRB	R2,[R1],#1			; copy the string
 		MOV	PC,R14
 
 ; concat a string  r1 -> r0
-		FNAME	strcpy
+		FNAME	strcat
 strcat		LDRB	R2,[R0],#1			; find the end
 		TEQ	R2,#0
 		BNE	strcat
