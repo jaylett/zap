@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.1 2000/03/09 01:54:22 ds Exp $
+; $Id: Commands,fff,v 2.2 2000/04/22 14:08:05 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -2295,20 +2295,33 @@ Findfilereadonly
 
  LOCAL
 
- DCD 0 ; +c_Param_String+c_PreMinibuffer+c_MinibufferKill
+ DCD c_CommandAndFunction
 Findfunction
- FNJSR
- LDR R0,[R10,#c_off]
+ FNJSR "R2"
+ TEQ R2,#23
+ LDRNE R0,[R10,#c_off]
  MOV R1,#12
  MOV R11,#e_init
  BL call_mode
+ LDR R2,[R13]
  CMP R1,#12
  CMPNE R1,#0
  CMPNE R1,#2
- FNRTS EQ ; OK.
- ADR R0,err_notfunfound
- MOV R1,#warn_UseMessageTrans
- BL warn_user
+ BEQ foundfunction
+ TEQ R2,#23
+ ADRNE R0,err_notfunfound
+ MOVNE R1,#warn_UseMessageTrans
+ BLNE warn_user
+ MOV R0,#0
+ FNRTS
+foundfunction
+ FNSTR R1,test_0
+ TEQ R1,#0
+ TEQNE R1,#2
+ MOVEQ R0,#-1
+ MOVEQ R1,#3 ; return an alleged string if fn definition found
+ MOVNE R0,#0
+ MOVNE R1,#0 ; else return nothing
  FNRTS
 err_notfunfound
  FNS ("zap_FnNotFound")
