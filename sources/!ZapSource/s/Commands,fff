@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1.2.36 1999/06/11 23:49:11 ds Exp $
+; $Id: Commands,fff,v 1.1.2.37 1999/06/26 00:34:18 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -3585,21 +3585,18 @@ Mode
 Mode_entry
  TEQ R2,#19
  BEQ c$l
- TEQ R2,#0
- BEQ m$l			; set main/options mode
  TEQ R8,#0
  FNLDRB R1,opt_format,EQ
  LDRNEB R1,[R8,#w_format]	; mode number
+ TEQ R2,#15
+ BEQ m$l
+ TEQ R0,R1
+ BLNE new_mode			; only change if to a different mode
+ FNRTS
+m$l
  TEQ R0,R1
  MOVEQ R0,#1
  MOVNE R0,#0
- FNRTS
-m$l
- TEQ R8,#0
- FNLDRB R1,opt_format,EQ
- LDRNEB R1,[R8,#w_format]	; mode number
- TEQ R0,R1
- BLNE new_mode			; only change if to a different mode
  FNRTS
 a$l				; find replacement text (mode name)
  BL read_mode
@@ -5273,7 +5270,10 @@ byte$l
  BEQ Byte_inbinary$l
 
  FNLDR R1,wimp_block		; buffer to copy detokenised line
- ADR R2,dcd$l
+ LDR R14,local_store4
+ TEQ R14,#1
+ ADREQ R2,dcb$l
+ ADRNE R2,dcw$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
@@ -5292,7 +5292,11 @@ Byte_hex$l
  FNRTS
 Byte_inbinary$l
  FNLDR R1,wimp_block		; buffer to copy detokenised line
- ADR R2,binarydcd$l
+ LDR R14,local_store4
+ TEQ R14,#1
+ ADREQ R2,binarydcb$l
+ ADRNE R2,binarydcw$l
+ ADR R2,binarydcw$l
  MOV R3,R1			; save start of line address
  BL strcpy
  MOV R0,R7
@@ -5398,6 +5402,10 @@ inbinary$l
  FNRTS
 dcd$l FNS ("DCD &")
 binarydcd$l FNS ("DCD %")
+dcw$l FNS ("DCW &")
+binarydcw$l FNS ("DCW %")
+dcb$l FNS ("DCB &")
+binarydcb$l FNS ("DCB %")
 assmbl$l FNS ("ASSEMBLE")
 
  LOCAL
