@@ -1,0 +1,76 @@
+# Make file for ZapDiff
+# using freeware tools make, AS, DRLink
+
+# For the standard build name:
+#	amu
+# For alternative build names:
+#	amu BUILD=foo
+#	amu BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+# BTW, give 'make' lots of memory ;-)
+
+# For *non*-internationalisation (ie. Zap 1.40-compatible)
+#	amu INTL=no
+# For internationalisation (ie. Zap 1.41-compatible)
+#	amu
+
+# Targets:
+#	ZapDiff		Assemble .s files and link. This is the default
+#	ZapDiffHdrs	Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+
+OBJECTS	= o.module
+HEADERS	= h.Diff h.Version
+
+TARGET		= ZapDiff
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic
+link		= drlink
+linkPartFlags	= -aof
+linkFlags	= -bin -b &00000000 -nounused
+ZapS		= <ZapSource$Dir>
+ZapD		= <ZapDiff$Dir>
+
+__INTL		= "-DINTL=$(INTL)"
+NEWINTL		= INTL=$(INTL)
+
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
+
+ZapDiff:	$(OBJECTS) o ZapDiffHdrs
+		$(link) $(linkFlags) -o ZapDiff $(OBJECTS)
+		Settype ZapDiff Module
+		Run $(ZapS).data.MCopy ZapDiff $(ZapD).ZapDiff
+		@Echo Finished ZapDiff
+
+ZapDiffHdrs:	$(HEADERS)
+		@Echo Made headers
+
+o:
+		cdir o
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+Rebuild:
+		Remove o.module
+		chain:amu $(NEWBUILD)
+
+Revision:
+		Stamp h.Version
+		chain:amu $(NEWBUILD)
+
+# The .t file date gives the last time the header was created from the file.
+# This is usually not the .h date as the .h file is not stamped if the file
+# contents doesn't change.
+
+.SUFFIXES: .t .s
+
+.s.t:;		@Run $(ZapS).data.StoH s.$* h.$*
+		Create t.$* 0
+
+.s.o:;		$(as) $(asflags) $(__BUILD) $(__INTL) $(__HIST) s.$*
+
+# Dynamic dependencies:
+o.module: s.module h.Diff ZapSource:h.ZapHeader ZapSource:h.System ZapSource:h.ZapLibrary ZapSource:h.ZapVars ZapSource:h.Macros ZapSource:h.ZapConsts <ZapExtSource$Dir>.h.RegNames <ZapExtSource$Dir>.h.Macros h.Version
