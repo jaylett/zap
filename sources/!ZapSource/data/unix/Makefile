@@ -49,7 +49,7 @@ OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -o $@
+asmflags	= -objasm -nolocal -upper -o $@
 linkflags	= -o o/tmplink -B 0 -bin
 
 # We need rm, but it's almost always the same. You may need to change
