@@ -1,5 +1,5 @@
 ; Contains mode entry points for Taskwindow mode.
-; $Id: taskwindow,fff,v 1.15 2003/08/24 18:29:49 christian Exp $
+; $Id: taskwindow,fff,v 1.16 2003/08/24 22:50:24 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -537,154 +537,73 @@ taskwindow_kill
 
 twmode_redrawline
 	FNJSR	"R4,R12"
-	STR	R4,twmode_locstsp5
-	LDR	R0,twmode_locstsp1
-	CMP	R0,R7
-	LDREQ	R0,twmode_locstsp8
-	CMPEQ	R0,R8
-	LDREQ	R2,twmode_locstsp2
-	BNE	twmode_getr2atstartofline
-twmode_redraw_reentry
-	LDR	R4,[R8,#w_txtw]
-	MOV	R3,#0
-twmode_redrawloop1
+
+	SUB	R0,R7,R5		; file offset
+	BL	get_line_type		; get colour
+
+	LDR	R3,[R8,#w_txtw]		; width of cache
+	LDR	R12,[R8,#w_bpl]
+	MOV	R14,#0			; column
+
+main$l	CMP	R7,R10
+	BLO	sok$l
+	LDR	R10,[R9,#f_len]
+	ADD	R10,R10,R5
 	CMP	R7,R10
-	BLCS	red_overflow
-	BVS	twmode_redraw_overflow
-	LDRB	R0,[R7],#1
-	CMP	R0,#10
-	BEQ	twmode_redraw_endoftheline
-	CMP	R0,#09
-	BEQ	twmode_redraw_tabchar
+	FNRTS	HS
+	LDR	R1,[R9,#f_splits]
+	ADD	R7,R7,R1
+	ADD	R5,R5,R1
+	ADD	R10,R10,R1
+sok$l	LDRB	R0,[R7],#1
 
-twmode_redraw_aftertabchar
-	STRB	R2,[R6,R4]		; put fg colour
-	ADD	R1,R4,R4
-	MOV	R14,#1
-	STRB	R14,[R6,R1]		; put bg colour
-	STRB	R0,[R6],#1		; put character
-twmode_redraw_AfterColour
-	ADD	R3,R3,#1		; counter
-twmode_redraw_BeginOfEnd
-	LDR	R1,[R8,#w_bpl]
-	CMP	R3,R1
-	BLT	twmode_redrawloop1	; loop
-; new code to fix Richard's bug as proposed by sja...
-	CMP	R7,R10
-	BLCS	red_overflow
-	BVS	twmode_redraw_overflow
-; end of new code...
-	LDRB	R0,[R7]
-	CMP	R0,#10
-	BEQ	twmode_redraw_addonetoavoidCR
-twmode_redraw_overflow
-twmode_redraw_juststoreandret
-	STR	R8,twmode_locstsp8
-	STR	R7,twmode_locstsp1
-	STR	R2,twmode_locstsp2
-	ADD	R11,R11,#1		; logical line counter
-	FNRTVC				; ret without error
+	TEQ	R0,#10			; if LF, inc line number and done
+	ADDEQ	R11,R11,#1
+	FNRTS	EQ
 
-twmode_redraw_addonetoavoidCR
-	ADD	R7,R7,#1
-twmode_redraw_endoftheline
-	MVN	R0,#0
-	STR	R0,twmode_locstsp1
-	ADD	R11,R11,#1		; logical line counter
-	FNRTVC				; ret without error
+	MOV	R1,#c_bg		; store background colour
+	STRB	R1,[R6,R3,LSL #1]
+	STRB	R2,[R6,R3]		; foreground colour
+	STRB	R0,[R6],#1		; char
 
-twmode_locstsp1
-	&	0
-twmode_locstsp2
-	&	0
-twmode_locstsp3
-	&	0
-twmode_locstsp4
-	&	0
-twmode_locstsp5
-	&	0
-twmode_locstsp8
-	&	0
+	ADD	R14,R14,#1		; next column
+	TEQ	R14,R12                 ; check if reached window edge
+	BNE	main$l
+	FNRTS
 
-; /E R5, R7 setup
-; /X R2 for the start of the current line.
 
-twmode_getr2atstartofline
-	STR	R6,twmode_locstsp3
-	STR	R7,twmode_locstsp4
-	SUB	R7,R7,R5		; get file offset of line start
-	MOVS	R0,R7
-	BMI	twmode_rtatstartofline
-	BEQ	twmode_rtatstartofline  ; really?
-	LDR	R1,[R9,#f_len]
-	CMP	R0,R1
-	BLCC	cln_readc
-	MOV	R3,#0
-twmode_redr_startoflineloop
-	MOV	R2,R7
-	SUB	R7,R7,#1
-	ADD	R3,R3,#1
-	MOVS	R0,R7
-	BMI	twmode_rtatstartofline
-	LDR	R1,[R9,#f_len]
-	CMP	R0,R1
-	BLCC	cln_readc
-	CMP	R0,#10
-	BNE	twmode_redr_startoflineloop
-	MOV	R7,R2
-	MOV	R2,#2
-	CMP	R3,#2
-	BCS	twmode_rtatstartofline2
-					; ...
-twmode_rtatstartofline
-	MOV	R2,#2
-twmode_rtatstartofline2
-	MOVS	R0,R7
-	MOVMI	R0,#0			; needed?
-	LDR	R1,[R9,#f_len]
-	CMP	R0,R1
-	BLCC	cln_readc
-	CMP	R0,#'>'
-	MOVEQ	R2,#&0A
-	CMP	R0,#'*'
-	MOVEQ	R2,#&09
-	LDR	R6,twmode_locstsp3
-	LDR	R7,twmode_locstsp4
-	B	twmode_redraw_reentry
+	LOCAL
 
-; TabbingSub
-twmode_redraw_tabchar
-	LDR	R1,twmode_locstsp5
-	AND	R1,R1,#&3000
-	TEQ	R1,#0
-	BEQ	twmode_redraw_aftertabchar
-	CMP	R6,#0
-	BLT	twmode_redraw_BeginOfEnd
+; check the character at the SOL and return a colour number for the line
+; E r0 = file offset in line
+; X r2 = colour
+; TODO: this could use the current text window
+get_line_type
+	FNJSR	"R0,R10,R11"
+	MOV	R10,#0			; find the line start by calling Text mode
+	MOV	R11,#e_linestart
+	FNcall	Zap_CallGivenMode
 
-	MOV	R0,#9			; REM tab!
-	TEQ	R1,#&1000
-	MOVEQ	R0,#' '			; REM " "!!!!
-	TEQ	R1,#&3000
-	MOVEQ	R0,#'-'			; REM "-"!!!!
-twmode_redraw_TabLoop
-	MOV	R1,#8			; REM = COL control Character...
-	STRB	R1,[R6,R4]		; @@@@
-	MOV	R1,#1
-	STRB	R1,[R6,R4,LSL #1]	; REM wrong?
-	STRB	R0,[R6],#1		; REM @@@@@@
-	ADD	R3,R3,#1
-	LDR	R1,twmode_locstsp5
-	AND	R1,R1,#&3000
-	TEQ	R1,#&2000
-	MOVEQ	R0,#' '
-	CMP	R1,#0
-	TSTNE	R3,#7
-	BNE	twmode_redraw_TabLoop
-	MOV	R0,#' '
-	TEQ	R1,#&3000
-	MOVEQ	R0,#9			; Tab
-	STREQB  R0,[R6,#-1]		; Colour
-	B	twmode_redraw_BeginOfEnd
+	LDR	R10,[R9,#f_splito]	; hop over the split
+	CMP	R0,R10
+	LDRHS	R10,[R9,#f_splits]
+	ADDHS	R0,R0,R10
+
+	LDR	R10,[R9,#f_ptr]
+	LDRB	R0,[R10,R0]		; load the char of the SOL
+
+	MOV	R2,#c_fg		; set the colour
+	TEQ	R0,#'*'
+	MOVEQ	R2,#c_star
+	TEQ	R0,#'>'
+	MOVEQ	R2,#c_gt
+	FNRTS
+
+
+	LOCAL
+
+
+; -------------- e_setwidth ---------------
 
 twmode_setwidth
 	FNJSR	"R1,R10"
