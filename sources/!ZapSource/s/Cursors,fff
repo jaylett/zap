@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 2.5 2003/01/21 15:58:10 christian Exp $
+; $Id: Cursors,fff,v 2.6 2003/01/25 18:30:59 christian Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -96,7 +96,6 @@
  EXPORT create_window_caret
  EXPORT test_input
  EXPORT update_selection
- EXPORT update_w_bpl
  EXPORT scrub_all_on_this_file
  EXPORT scrub_input_carets
  EXPORT ensure_mark
@@ -315,7 +314,7 @@ cl99	FNLDR	R0,clk_time		; time of last click
 ;X click on edit window dealt with #
 mouse_click
 	FNJSR	"R0-R2,R11"
-	MOV	R11,#-1			; count this as a command - consider
+	MOV	R11,#-1			;
 	FNSTR	R11,car_column		; trash column preferred by cursor
 	MOV	R11,#0			; count this as a command - consider
 	FNSTR	R11,key_lastcom		; multiple ctrl K's
@@ -349,8 +348,10 @@ normal$l
 	PULL	"R0-R2"
 	BL	call_mode		; call click action for this mode
 ; R0-R2 no longer stacked (preserved) here - is this a problem?
-	PULL	"R11,PC"		; !!! Unmatched return LDM
+	PULL	"R11,PC"
 
+
+; ClickSend code
 word_clicksend				; hijack Alt+doubleclick
 	MOV	R0,#0
 	FNSTR	R0,clk_depth
@@ -592,7 +593,7 @@ default_click
 	BEQ	mc_place_cursor
 	TEQ	R1,#0
 	MOVNE	PC,R14
-
+	; fall through
 
 ;E as for mouse click
 ;X drag started #
@@ -601,7 +602,7 @@ mc_start_drag
 	TST	R4,#1			; is adjust pressed
 	BNE	mc_drag_adjust		; continue drag
 	FNJSR
-	BL	to_update_caret		; goto_offset
+	BL	update_caret
 	FNLDR	R0,car_mode
 	CMP	R0,#2			; was 3...
 	FNRTS	GE			; already started a drag
@@ -618,38 +619,37 @@ notinsideselection
 	BL	set_caret_mode		; start new drag selection
 	BLVC	get_wind_off		; from current cursor posn
 	FNSTR	R0,wimp_drag,VC		; set drag window
-	BLVC	drag_point2
+	BLVC	drag_point
 	FNRTS
 
 specialshiftselectdrag
-	PUSH	"R1-R9"
-	BL	find_offset
-	BLVC	testifinsideselection
-	PULL	"R1-R9"
-	FNRTS	VS
+	BL	testifinsideselection
 	BNE	notinsideselection
-	BLVC	gain_input		; enter_window	; was BLVC gain_input ???
-	BLVC	actuallysaveitsel
-	FNRTS
 
-actuallysaveitsel
 	FNJSR
-	MOV	R0,#1			; adjust...?
-	FNSTR	R0,wimp_menub
+	;MOV	R0,#1			; adjust...?
+	;FNSTR	R0,wimp_menub
 	LDR	R0,[R9,#f_load]
 	BL	calc_ftype		; CS and R0=filetype/CC and load
 	MOVCC	R0,#-1
 	LDRCC	R2,[R9,#f_load]
 	LDRCC	R3,[R9,#f_exec]
 	ADR	R1,spritenameinfo
-typed$l	BL	get_file_sprite		; and set sprite name
-getonwithdragging
+	BL	get_file_sprite		; and set sprite name
 	MOV	R6,R1
 	BL	initiate_sprite_drag
 	FNRTS
 
+spritenameinfo
+	=	"file_fff",0
+	ALIGN
+
+
+; E r2/r3 xycol  r8/r9
+; X EQ if inside selection
 testifinsideselection
 	FNJSR	"R1-R10"
+	BL	find_offset
 	MOV	R6,R0
 	MOV	R7,R8
 	BL	get_selection
@@ -664,18 +664,10 @@ testifinsideselection
 	MOVLES  R14,#0
 	FNRTS
 
-spritenameinfo
-	=	"file_fff",0
-	ALIGN
-
-to_update_caret
-	FNJSR	"R1-R12"
-	BL	update_caret		; goto_offset
-	FNRTS
 
 mc_drag_adjust
 	FNJSR	"R1-R4,R10"
-	BL	to_update_caret		; goto_offset
+	BL	update_caret
 	FNLDR	R10,car_selection
 	BL	test_cblk
 	FNRTS	NE			; no selection to update from
@@ -683,7 +675,6 @@ mc_drag_adjust
 	LDR	R0,[R10,#c_owidth]
 	CMP	R0,R14
 	FNRTS	EQ			; no selection to update from
-					; BL to_update_caret;
 	FNLDR	R0,car_mode
 	CMP	R0,#3			; already in a drag?
 	FNRTS	GE
@@ -736,10 +727,13 @@ mc_place_cursor
 	BNE	mc_place_adjust
 	FNJSR	"R1-R11"
 	MOV	R11,R2
-	TST	R4,#1<<30
-	BNE	specialshiftselect
-notinsideselforclick
 
+	TST	R4,#1<<30		; don't position the cursor for shift-drags
+	BEQ	noshift$l		; of the selection
+	BL	testifinsideselection
+	FNRTS	EQ
+
+noshift$l
 	BL	quitkeyboardselections
 	BL	find_offset
 	TST	R4,#1<<31		; ctrl key?
@@ -765,14 +759,6 @@ dontcheck$l
 	BLVC	get_wind_off
 	FNSTR	R0,wimp_drag,VC		; set drag window
 	BLVC	drag_point
-	FNRTS
-
-specialshiftselect
-	PUSH	"R1-R9"
-	BL	find_offset
-	BLVC	testifinsideselection
-	PULL	"R1-R9"
-	BNE	notinsideselforclick
 	FNRTS
 
 eeektwsortout$l				; is the cursor in this window?
@@ -801,7 +787,6 @@ quitkeyboardselections
 
 wiggleabit
 	FNJSR	"R0-R12"
-					; SWI &107
 	LDR	R14,[R8,#w_format]
 	TST	R14,#bit_softwrap
 	FNRTS	EQ
@@ -818,11 +803,11 @@ wiggleabit
 	CMP	R0,R14			; ret
 	FNRTS	EQ
 
-	MOV	R1,#1
-	MVN	R2,#0
+	MOV	R1,#1			; cursor left
+	MOV	R2,#-1
 	MOV	R3,#0
 	BL	move_cursor
-	MOV	R1,#1
+	MOV	R1,#1			; then right
 	MOV	R2,#1
 	MOV	R3,#0
 	BL	move_cursor
@@ -847,7 +832,7 @@ wiggleabit2
 	CMP	R0,R14			; ret
 	FNRTS	EQ
 	MOV	R1,#1
-	MVN	R2,#0
+	MOV	R2,#-1
 	MOV	R3,#0
 	BL	move_cursor
 
@@ -976,10 +961,6 @@ nocaret$l				; no caret so place cursor at point
 ;E R8/R9
 ;X Wimp put into drag a point mode starting with infinite
 ;  bounding box WB process_drag set up to handle it #
-drag_point2
-	MVN	R0,#&0
-	STR	R0,escapedragflag
-
 drag_point
 	FNJSR	"R1-R3"
 	ADR	R2,process_drag
@@ -1001,9 +982,6 @@ drag_point
 	MOV	R0,#1			; call back
 	BL	drag_box
 	FNRTS
-
-escapedragflag
-	&	&0
 
 	LOCAL
 
@@ -1055,14 +1033,8 @@ a$l	FNLDR	R0,wimp_drag
 
 theexit$l
 	BL	default_caret		; drag finished
-	BL	remove_zero_size_selections
-	FNRTS
 
-
-	FNAME	remove_zero_size_selections
-remove_zero_size_selections
-	FNJSR
-	BL	get_selection
+	BL	get_selection		; remove selection if null
 	BLCS	clear_selection
 	FNRTS
 
@@ -1149,10 +1121,9 @@ update_caret
 	STREQ	R0,[R10,#c_charoff]
 	FNRTS
 
-;X Input focus gained/lost according to caret mode R8??? #
-	FNAME	gain_input_with_service
-gain_input_with_service
 
+;X Input focus gained/lost according to caret mode R8 #
+	FNAME	gain_input
 gain_input
 	FNJSR	"R1-R5,R8-R9"
 into_gain_input$l
@@ -1335,7 +1306,7 @@ adjustduetoselaslines
 	FNRTS	EQ
 	MOV	R7,R3
 
-; is selection even in this window?
+	; is selection even in this window?
 	MOV	R6,R8
 	BL	get_selection
 	CMP	R6,R8
@@ -1356,7 +1327,7 @@ adjustduetoselaslines
 	MOV	R3,R0			; R3=start of line with sel end
 	TEQ	R3,R5
 	BEQ	se5			; selection confined to 1 line
-	FNLDR	R1,wimp_buffer		; buf_detoken		; scrap... :/
+	FNLDR	R1,wimp_buffer
 	SWI	XWimp_GetPointerInfo
 	LDR	R1,[R1,#8]
 	TST	R1,#1
@@ -1385,7 +1356,7 @@ se3	LDR	R0,[R10,#c_owidth]	; old offset
 	FNRTS
 
 resetatselstart
-	FNLDR	R1,wimp_buffer		; scrap... :/
+	FNLDR	R1,wimp_buffer
 	SWI	XWimp_GetPointerInfo
 	LDR	R1,[R1,#8]
 	TST	R1,#1
@@ -1621,25 +1592,22 @@ cmode2	FNLDR	R1,car_cursor
 	SWI	XZapRedraw_MoveBytes	; copy caret position (but dont update
 	FNRTS				; or caret would vanish!)
 
-cmodeahalf
-	FNJSR
-	LDR	R14,[R10,#c_off]
-	FNSTR	R14,fnd_word		; save actual selected region start
-	FNRTS
-
 cmode3
 cmode4	BL	clear_selection		; remove any old selection
-	PULL	"R1-R11,PC",VS		; !!! Unmatched return LDM
+	FNRTS	VS
 	FNLDR	R10,car_cursor
 	LDR	R0,[R10,#c_wind]
 	CMP	R0,#0
 	BMI	cm15			; no caret
 	BL	conv_wind_off		; set up R8/R9
-	BL	cmodeahalf		; harmless?
+
+	LDR	R14,[R10,#c_off]
+	FNSTR	R14,fnd_word		; save actual selected region start
+
 	MOV	R0,#0			; start selection
 	MOV	R11,#e_selection
 	BL	call_mode		; alter R10 to new position
-	PULL	"R1-R11,PC",VS		; !!! Unmatched return LDM
+	FNRTS	VS
 
 cm15	FNLDR	R11,car_selection	; copy caret posn to selection
 	LDR	R0,[R10,#c_wind]
@@ -1657,7 +1625,7 @@ cm15	FNLDR	R11,car_selection	; copy caret posn to selection
 	LDR	R0,[R10,#c_loff]
 	STR	R0,[R11,#c_loff]
 	BL	clear_caret_always
-	PULL	"R1-R11,PC"		; remove cursor caret (as not sel)
+	FNRTS				; remove cursor caret (as not sel)
 
 cmode5	FNLDR	R1,car_cursor
 	FNLDR	R2,car_block
@@ -2134,7 +2102,7 @@ get_line
 	MOV	R11,#e_linenext
 	BL	call_mode
 	SUB	R2,R0,R1
-	ADDS	R0,R0,#0		; CLC
+	CLC
 	FNRTS
 
 
@@ -2170,7 +2138,7 @@ read_selection
 	MOV	R3,R1			; save sel offset
 	LDR	R0,[R9,#f_len]
 	MOV	R1,#0
-	BL	split_buffer		; coagulate buffer
+	BL	split_buffer		; coalesce buffer
 	FNRTS	VS
 	MOV	R0,R10			; selection length
 	BL	heap_claim
@@ -2538,7 +2506,7 @@ setnotplot$l
 fromanotherwind$l
 	TEQNE	R2,#0
 	BLNE	clear_point		; scrub out point if marked
-	BL	gain_input_with_service ; gain_input	; ??? ???
+	BL	gain_input
 	BLVC	plot_caret		; set_old_caret_pos ; call_set_caret
 	BLVC	make_cursor_visible
 	FNRTS
@@ -2611,7 +2579,7 @@ update_point
 	FNRTS	LE
 	ADD	R8,R8,#w_pline
 	ADD	R10,R10,#c_line
-	LDMIA	R10!,{R0,R9,R14}	; line col off	; !!! Unmatched return LDM
+	LDMIA	R10!,{R0,R9,R14}	; line col off
 	STMIA	R8!,{R0,R9,R14}
 	LDMIA	R10!,{R0,R9}		; loff width
 	STMIA	R8!,{R0,R9}
@@ -2930,36 +2898,20 @@ check_to_see_if_deep_change
 ;E R8,R9,R10
 	FNAME	update_if_in_compound
 update_if_in_compound
-	FNJSR
+	FNJSR	"R2,R3,R10,R11"
 	BL	check_to_see_if_deep_change ; are we 'outside' all start_op/stop_ops?
 	FNRTS	EQ
 	BLVC	test_cblk
 	FNRTS	VS
-	BLEQ	update_if_in_this_wind
-	FNRTS
-
-
-;E R8,R9,R10
-	FNAME	update_if_in_this_wind
-update_if_in_this_wind
-	FNJSR	"R2,R3"
-	BL	check_to_see_if_deep_change ; are we 'outside' all start_op/stop_ops?
-	FNRTS	EQ
+	FNRTS	NE
 
 	FNLDR	R14,car_mode
 	TEQ	R14,#1
 	TEQNE	R14,#2
-	LDREQ	R2,[R10,#c_off]
-	LDREQ	R3,[R10,#c_owidth]
-	BLEQ	add_and_delete_spaces
-	FNRTS
+	FNRTS	NE
 
-
-;E \R2=c_off
-;  \R3=c_owidth R8/R9
-	FNAME	add_and_delete_spaces
-add_and_delete_spaces
-	FNJSR	"R10,R11"
+	LDR	R2,[R10,#c_off]
+	LDR	R3,[R10,#c_owidth]
 	LDR	R11,[R9,#f_flags]
 	ORR	R14,R11,#flags_UnlinkCursor
 	STR	R14,[R9,#f_flags]
@@ -3252,11 +3204,6 @@ exitasnormal$l
 local_initialscrollys
 	DCD	0
 
-;E R0 = new w_bpl value, R8=window
-update_w_bpl
-	STR	R0,[R8,#w_bpl]
-	B	cw_Goto_update_update
-
 	LOCAL
 
 
@@ -3535,26 +3482,26 @@ local_dont_update
 
 
 ;E R3 = scrolly shift...
-	FNAME	shift_the_window
-shift_the_window
-	FNJSR	"R0-R12"
-
-	MOV	R1,R8
-	SWI	XWimp_GetWindowState
-
-	FNLDR	R4,scn_magy
-	LDR	R2,[R8,#w_rl]
-	CMP	R3,#0
-	RSBMI	R3,R3,#0
-	MUL	R3,R2,R3
-	MOV	R3,R3,LSL R4
-	RSBMI	R3,R3,#0
-
-	LDR	R0,[R1,#w_scrolly]
-	SUB	R0,R0,R3
-	STR	R0,[R1,#w_scrolly]	; new scroll offset
-	BL	reopen_window
-	FNRTS
+;	FNAME	shift_the_window
+;shift_the_window
+;	FNJSR	"R0-R12"
+;
+;	MOV	R1,R8
+;	SWI	XWimp_GetWindowState
+;
+;	FNLDR	R4,scn_magy
+;	LDR	R2,[R8,#w_rl]
+;	CMP	R3,#0
+;	RSBMI	R3,R3,#0
+;	MUL	R3,R2,R3
+;	MOV	R3,R3,LSL R4
+;	RSBMI	R3,R3,#0
+;
+;	LDR	R0,[R1,#w_scrolly]
+;	SUB	R0,R0,R3
+;	STR	R0,[R1,#w_scrolly]	; new scroll offset
+;	BL	reopen_window
+;	FNRTS
 
 
 	FNAME	shift_by
@@ -3689,12 +3636,8 @@ correct_region
 	BLT	in25
 	CMP	R4,R2
 	BGE	co16
-in25	MOV	R0,R3
-	MOV	R3,R5
-	MOV	R5,R0
-	MOV	R0,R2
-	MOV	R2,R4
-	MOV	R4,R0
+in25	SWAP	R3,R5
+	SWAP	R2,R4
 co16	LDR	R0,[R8,#w_margin]
 	CMP	R2,R0
 	MOVLE	R2,#0
