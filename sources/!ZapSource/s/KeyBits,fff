@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 1.1.2.8 1999/02/10 00:33:21 ds Exp $
+; $Id: KeyBits,fff,v 1.1.2.9 1999/02/13 01:23:28 ds Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -13,6 +13,7 @@
  GET h.Cursors
  GET h.Template
  GET h.TMTVars
+ GET h.Messages
 
  IMPORT err41
  IMPORT get_MacroBox
@@ -858,6 +859,9 @@ init_settings
 
 init_keys
  FNJSR "R1"
+ MOV R0,#0
+ FNSTR R0,key_basemapdef
+ FNSTR R0,key_currentdef
  ADR R0,read_keys
  ADR R1,str4$l ; ...
  BL str_readfile ; ...
@@ -948,6 +952,9 @@ cr11
  SUB R0,R3,#&600
  CMP R0,#&100
  BCC rk_clicksend
+ SUB R0,R3,#&800
+ CMP R0,#&100
+ BCC rk_keymapdef
  SUB R0,R3,#&1000		; file type
  CMP R0,#&1000
  BLS rk_mode			; &2000 is for untyped files
@@ -1062,10 +1069,80 @@ declare$l
 	BLVC	str_readnum
 	FNRTS	VS
 	ADD	R2,R0,#1	; max num+1
+	BL	rk_keymap_getname
+	FNRTS	VS
+	MOV	R0,R3		; table number
+	MOV	R3,R14		; ptr to name
+	BL	add_key_table
+	FNRTS
+
+	LOCAL
+
+rk_keymapdef
+	FNJSR	"R4,R5"
+	BL	str_readnum
+	MOVVC	R1,R0		; min num
+	BLVC	str_readnum
+	FNRTS	VS
+	ADD	R2,R0,#1	; max num+1
+	FNLDR	R4,key_maplist	; find first free keymap number
+	MOV	R5,#1
+find$l	MOV	R0,R5
+	BL	find_key_table
+	TEQ	R0,#0
+	ADDNE	R5,R5,#1
+	BNE	find$l
+	CMP	R5,#256
+	BLHS	toomany$l
+	BLVC	rk_keymap_getname
+	FNRTS	VS
+	MOV	R0,R5		; table number
+	FNSTR	R0,key_currentdef
+	MOVS	R3,R14		; ptr to name
+	BLEQ	noname$l
+	FNRTS	VS
+	BL	add_key_table
+	MOV	R4,R10
+	BL	str_skip
+	CMP	R0,#32		; is there a basemap name?
+	MOVLO	R0,#0
+	BLO	gotbase$l	; ...no
+	FNLDR	R1,wimp_kbdbuf
+	MOV	R2,R10
+	MOV	R3,#256
+	MOV	R4,#32
+	BL	strmove		; copy its name & terminate with NUL
+	FNLDR	R0,wimp_kbdbuf
+	BL	find_key_table_by_name ; ...yes - find its number
+	TEQ	R0,#0
+	BMI	nobase$l
+	FNRTS	VS
+gotbase$l
+	FNSTR	R0,key_basemapdef
+	FNRTS
+noname$l ERR	"zap_e_nokeyname"
+toomany$l ERR	"zap_e_toomanymaps"
+nobase$l
+	ADR	R0,nobasemsg$l
+	MOV	R4,R5
+	FNLDR	R5,wimp_kbdbuf
+	BL	lookup_error
+	FNRTS
+nobasemsg$l &	0
+	=	"zap_e_nokeybasename",0
+	ALIGN
+
+	LOCAL
+
+;E R10=string containing keymap (term <=32)
+;X Leading spaces skipped; R10 updated
+;  R14=heap block containing name
+rk_keymap_getname
+	FNJSR	"R4,R5"
 	BL	str_skip
 	CMP	R0,#32
 	MOVLO	R14,#0		; no name for keymap?
-	BLO	noname$l
+	FNRTS	LO
 	MOV	R4,R10
 len$l	LDRB	R0,[R10],#1	; keymap name len (stop at ctrl)
 	CMP	R0,#32
@@ -1081,10 +1158,6 @@ copy$l	LDRB	R5,[R4],#1	; ...put name in heap block
 	BNE	copy$l
 	MOV	R5,#0
 	STRB	R5,[R0]
-noname$l
-	MOV	R0,R3		; table number
-	MOV	R3,R14		; ptr to name
-	BL	add_key_table
 	FNRTS
 
  LOCAL
@@ -1099,9 +1172,13 @@ noname$l
 
 rk_key
  FNJSR
- MOV R5,R3,LSR#16		; get keymap number
- SUB R3,R3,R5,LSL#16		; range start
- SUB R4,R4,R5,LSL#16		; range end
+ FNLDR R5,key_currentdef
+ TEQ R5,#0
+ MOVEQ R5,R3,LSR#16		; get keymap number
+ MOV R3,R3,LSL #16		; range start
+ MOV R3,R3,LSR #16
+ MOV R4,R4,LSL #16		; range end
+ MOV R4,R4,LSR #16
  CMP R4,R3
  FNRTS LT			; wrong way around
  CMP R4,#&200
@@ -1136,8 +1213,11 @@ copy$l
  ADD R10,R10,#1			; character after the "*"
  BL str_readnum
  MOVVS R0,R3			; replace with range start if none
- MOV R6,R0,LSR#16		; source keymap number
- SUB R7,R0,R6,LSL#16		; source range start
+ FNLDR R6,key_basemapdef
+ TEQ R6,#0
+ MOVEQ R6,R0,LSR#16		; source keymap number
+ MOV R7,R0,LSL #16
+ MOV R7,R7,LSR #16		; source range start
  MOV R8,R3			; current keynum
 loop$l
  MOV R0,R6
