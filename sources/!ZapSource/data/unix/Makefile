@@ -10,7 +10,7 @@
 # -bin switches). Both are available from the Zap website, in the CVS
 # section:
 # <URL:http://www.zap.uk.eu.org/cvs/>
-# Some of the internal build scripts need Perl.
+# Some of the internal build scripts need Perl and sed.
 #
 # Targets supported are: Zap (the default target), which builds the core
 # module as ./Zap,ffa (so it's filetyped 'Module' for NFS), and clean,
