@@ -1,5 +1,5 @@
 ; Contains code to handle font enumeration / menus
-; $Id: ListFonts,fff,v 1.1 2004/04/12 10:40:34 christian Exp $
+; $Id: ListFonts,fff,v 1.2 2004/04/12 13:19:36 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -44,17 +44,38 @@ dff_encodings	*	(1<<0)				; it's an encodings menu
 dff_cr		*	(1<<1)				; terminate with CR instead of NUL
 
 
-init_font_list	FNJSR
-		ADR	R0,path$l			; TODO: enumerate directories on path
-		BL	scan_font_directory
+init_font_list	FNJSR	"R10,R11"
+		SUB	R13,R13,#260
 
-		ADD	R0,R12,#list_of_fonts
-		BL	sort_list
-		ADD	R0,R12,#list_of_encodings
-		BL	sort_list
+		ADR	R0,path$l			; expand the path variable
+		MOV	R1,R13				;
+		MOV	R2,#256				;
+		SWI	XOS_GSTrans			;
+		BLCS	buffer_overflow			;
+		BVS	ret$l				;
+
+		MOV	R11,R13				;
+
+next$l		MOV	R0,R11				; scan each directory in turn
+loop$l		LDRB	R10,[R11],#1			;
+		CMP	R10,#','			;
+		CMPNE	R10,#32				;
+		BHI	loop$l				;
+		MOV	R1,#0				;
+		STRB	R1,[R11,#-1]			;
+		BL	scan_font_directory		; ignore errors on any one directory
+		TEQ	R10,#','			;
+		BEQ	next$l				;
+
+done$l		ADD	R0,R12,#list_of_fonts		; sort the resulting lists
+		BL	sort_list			;
+		ADD	R0,R12,#list_of_encodings	;
+		BL	sort_list			;
+
+ret$l		ADD	R13,R13,#260
 		FNRTS
 
-path$l		=	"ZapFontsSource:",0
+path$l		=	"<ZapFontsSource$Path>",0
 		ALIGN
 
 
@@ -948,7 +969,20 @@ add_font	FNJSR	"R6-R9"
 		STR	R1,[R9,#fe_name]		;
 		MOV	R2,R6				;
 		MOV	R3,R7				;
-		BL	strncopy			;
+
+copy$l		LDRB	R0,[R2],#1			; for some reason, ')' isn't
+		CMP	R0,#32				; allowed in token names
+		BLO	done$l				;
+		TEQ	R0,#'<'				;
+		MOVEQ	R0,#'('				;
+		TEQ	R0,#'>'				;
+		MOVEQ	R0,#')'				;
+		STRB	R0,[R1],#1			;
+		SUBS	R3,R3,#1			;
+		BNE	copy$l				;
+
+done$l		MOV	R0,#0				;
+		STRB	R0,[R1],#1			;
 
 		TEQ	R6,R4				; copy the name
 		STRNE	R1,[R9,#fe_name]		;
@@ -1043,7 +1077,7 @@ comp$l		BL	compare_prefix			;
 
 		; got match
 		TST	R2,#lff_exact			;
-		BEQ	a$l                             ;
+		BEQ	a$l				;
 		LDRB	R14,[R1,#-1]			; return this if it matches exactly
 		CMP	R14,#32				;
 		MOVLO	R7,R6				;

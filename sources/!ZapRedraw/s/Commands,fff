@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.8 2004/04/12 10:40:34 christian Exp $
+; $Id: Commands,fff,v 1.9 2004/04/12 13:19:36 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -30,25 +30,32 @@ command_table	=	|zap$|:CC:"FontTidy",0
 		DCD	syn_cat
 		DCD	hlp_cat
 
+		=	|zap$|:CC:"FontInstall",0
+		ALIGN
+		DCD	com_install
+		DCD	(1<<28)+(1<<16)+(1<<8)
+		DCD	syn_install
+		DCD	hlp_install
+
 		[ DEBUG					; debugging commands
 		=	|zap$|:CC:"FontDescribe",0
 		ALIGN
 		DCD	com_describe
-		DCD     0
+		DCD	0
 		DCD	syn_describe
 		DCD	hlp_describe
 
 		=	|zap$|:CC:"FontDie",0
 		ALIGN
 		DCD	com_die
-		DCD     0
+		DCD	0
 		DCD	syn_die
 		DCD	hlp_die
 
 		=	|zap$|:CC:"FontDebug",0
 		ALIGN
 		DCD	com_debug
-		DCD     0
+		DCD	0
 		DCD	syn_debug
 		DCD	hlp_debug
 		]
@@ -71,6 +78,8 @@ hlp_list	=	"HZRDLST",0
 syn_list	=	"SZRDLST",0
 hlp_cat		=	"HZRDCAT",0
 syn_cat		=	"SZRDCAT",0
+hlp_install	=	"HZRDINS",0
+syn_install	=	"SZRDINS",0
 
 		[ DEBUG
 hlp_describe	=	"*",27,0," describes the font blocks in the cache",13
@@ -229,11 +238,11 @@ done$l		BLVC	newline
 		FNRTS
 
 tabs$l		= 5,32,40,48				; tab stops
-titles$l        = "CBar"
+titles$l	= "CBar"
 		= "UBar"
 		= "SBar"
 		= "NBar"
-         	= "CMem"
+		= "CMem"
 		= "UseH"
 		= "Size"
 		= "Name"
@@ -357,11 +366,11 @@ loop$l		TEQ	R1,#0
 		LDR	R1,[R1,#4]
 		B	loop$l
 
-                LOCAL
+		LOCAL
 
 
 ; list the available fonts
-com_cat         FNJSR	"R4,R5"
+com_cat		FNJSR	"R4,R5"
 		LDR	R12,[R12]
 
 		MOV	R2,#(1<<17)
@@ -385,6 +394,34 @@ loop$l		MOV	R5,#256
 		FNRTS
 
 		LOCAL
+
+
+; install a new font directory, and rescan the lists
+com_install	FNJSR	"R7-R11"
+		LDR	R12,[R12]
+
+		TEQ	R1,#1				; check number of parameters
+		BNE	scan$l				;
+
+		SUB	R13,R13,#256
+		MOV	R11,R0				; copy in the new prefix
+		MOV	R1,R13				;
+		ADR	R2,pref$l			;
+		BL	strcpy				;
+		MOV	R2,R11				;
+		BL	strcopy				;
+
+		MOV	R0,R13				; set it
+		SWI	XOS_CLI				;
+		ADD	R13,R13,#256			;
+
+scan$l		BL	kill_font_list			; rescan the list
+		BL	init_font_list			;
+		FNRTS
+
+pref$l		=	"%Set ZapFontsSource$Path <ZapFontsSource$Path>,",0
+		ALIGN
+
 
 
 ; All of the following are debugging commands
