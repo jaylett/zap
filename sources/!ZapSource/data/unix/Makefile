@@ -10,7 +10,7 @@
 # -bin switches). Both are available from the Zap website, in the CVS
 # section:
 # <URL:http://www.zap.uk.eu.org/cvs/>
-# Some of the internal build scripts need Perl.
+# Some of the internal build scripts need Perl and sed.
 #
 # Targets supported are: Zap (the default target), which builds the core
 # module as ./Zap,ffa (so it's filetyped 'Module' for NFS), and clean,
@@ -34,12 +34,13 @@
 # You'll need to change the following if you add additional compilation
 # units.
 
-OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Cursors \
+OBJECTS		= o/Dispatch o/Redraw o/Template o/Messages o/Cursors \
 		  o/CreateWind o/AlterTxt o/Search o/Commands o/Execute \
 		  o/Update o/Mode0 o/Mode1 o/Mode2 o/Mode3 o/Mode4 o/Mode4dis \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
 		  o/CreateFile o/Undo o/Menus o/MiniBuff o/StartCode \
-		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions
+		  o/StartUp o/Heap o/Boxes o/Fonts o/Exceptions \
+		  o/ModuleBits
 
 # You may need to change some of the following if your system is different
 # to mine. (Link and Asm need to point to as_ro and link_ro, whatever
@@ -48,8 +49,12 @@ OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -upper -o $@
-linkflags	= -o $@ -B 0 -bin
+asmflags	= -objasm -nolocal -upper -pedantic -o $@
+linkflags	= -o o/tmplink -B 0 -bin
+
+# Bits we use to grab the build parameter to make ...
+#__BUILD		= "-DBUILD=$(BUILD)"
+#NEWBUILD	= BUILD=$(BUILD)
 
 # We need rm, but it's almost always the same. You may need to change
 # this on dubious Unixoids so we're using GNU rm instead of the vendor
@@ -60,7 +65,7 @@ rm		= rm -f
 #
 # First, the internal tools we use
 makehdr		= data/unix/makehdr
-timestamp	= data/unix/timestamp
+timestamp	= sed -e "s/00 Jan 0000/`date +'%d %b %Y'`/"
 
 # The bits after here are fairly standard GNU make incantations.
 # Watch out for variable substitution (the $(subst) stuff), which
@@ -71,15 +76,19 @@ t/%:		s/%,fff
 		$(makehdr) -t $@ -h $(subst t/,h/,$(@)) -s $<
 
 o/%:		s/%,fff
-		$(asm) $(asmflags) $<
+		$(asm) $(asmflags) $(__BUILD) $<
 
 # Final target:
 
-Zap:		Zap,ffa
+Zap:		objdirs tmplink
+		$(timestamp) < o/tmplink > Zap,ffa
 
-Zap,ffa:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
+objdirs:
+		mkdir -p o
+		mkdir -p t
+
+tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
 		$(link) $(linkflags) $(OBJECTS)
-		$(timestamp) Zap,ffa
 
 clean:
 		$(rm) o/* t/* $(subst o/,h/,$(OBJECTS)) Zap,ffa
