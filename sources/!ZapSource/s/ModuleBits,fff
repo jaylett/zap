@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.5 2002/11/11 13:49:40 christian Exp $
+; $Id: ModuleBits,fff,v 2.6 2002/11/12 00:06:01 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -40,7 +40,6 @@
  IMPORT mode_table_11
  IMPORT conv_wind_off
  IMPORT warn_user
- IMPORT get_a_256_byte_buffer
  IMPORT poll_word_pdriverchanged
  IMPORT kill_lineeditor
 
@@ -464,16 +463,8 @@ Zap_StringCommand
 
 ; zapcommand
 	FNJSR	"R0-R5"
-	BL	findzap
-	MOVVC	R5,R0
-	BLVC	get_a_256_byte_buffer
-	FNRTS	VS
-	MOV	R2,R0
-;	MOVVC	R0,#6
-;	MOVVC	R3,#&100
-;	SWIVC	XOS_Module		; returns pointer in R2.
-	MOV	R0,R5
-	MOV	R4,R2
+	LDR	R12,[R12]		; get our workspace
+	FNLDR	R2,exception_buffer	; will do for now.
 	; er strcopy?
 loop$l
 	LDRB	r3,[r0],#1
@@ -568,7 +559,7 @@ poll_word_command
 	FNLDR	r10,car_cursor		; r10=cursor block
 	LDR	r0,[r10]		; r0=window offset
 	BL	conv_wind_off		; get r8,r9...
-	BL	get_a_256_byte_buffer
+	FNLDR	R0,exception_buffer
 	LDRB	r1,[r0]			; get first byte
 	CMP	r1,#'*'			; if * this is configuration
 	ADDEQ	r0,r0,#1		; ... so increment start pointer

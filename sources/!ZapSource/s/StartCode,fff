@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.12 2002/11/11 03:14:16 christian Exp $
+; $Id: StartCode,fff,v 2.13 2002/11/12 00:06:01 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -53,7 +53,6 @@
  EXPORT mouse_event
  EXPORT main_loop
  EXPORT main_quit
- EXPORT main_quit_nodie
  EXPORT main_end
  EXPORT kill_wimp
  EXPORT clean_up
@@ -146,7 +145,7 @@ start_code
  BLVC init_opts			; setup options mode (after new init_modes!)
  BLVC init_flash		; start up flash interrupt
  BVS fatal_wimp_error
- BLVC init_setup_abort_handlers	; from Darren Salt...(TT)
+ BLVC register_abort_handlers	; from Darren Salt...(TT)
 ; BLVC loadkeyextend
  BLVC loadhidepointer
  BLVC loadflashcar
@@ -181,16 +180,7 @@ main_loop
  LOCAL
 
 main_quit
- MOV R10,#0
- B main_exit
-
-main_quit_nodie
- MOV R10,#1
-; B main_exit ; fall through
-
 main_exit			; unnecessary...
- BL set_up_quit_flag
- BL storewkspandstack		; !
  ;TEQ R10,#0
  ;SWIEQ OS_ExitAndDie		; ???????
  SYSLOG "Zap main_exit", LOG_STATUS
@@ -200,18 +190,10 @@ main_exit			; unnecessary...
 ; B loopx			; ???????
 ;...
 
-main_end			; R10=0 to kill module - abort startup only
- BL set_up_quit_flag
- BL storewkspandstack
- BL unset_running_var
- MOV R1,#0
- MOV R2,#0
- ADR R3,t$l
- ;TEQ R10,#0
- ;SWIEQ OS_ExitAndDie
+main_end
  SYSLOG "Zap main_end", LOG_STATUS
  SWI OS_Exit
-t$l FNS |zap$|
+
 
 clean_up
  FNJSR
