@@ -1,10 +1,15 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.7 2001/08/12 14:24:28 ds Exp $
+; $Id: ZapRedraw,fff,v 1.8 2002/01/18 21:36:30 ds Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
  GET h.ZapRedHdr
  GET h.Version
+ GET h.Commands
+ GET h.Cache
+ GET h.Messages
+ GET h.DSARedraw
+ GET h.VDURedraw
 
  EXPORT div_mod
  EXPORT find_character
@@ -12,20 +17,15 @@
  EXPORT move_bytes
  EXPORT strcopy
  EXPORT strcpy
+ EXPORT strcasecmp
+ EXPORT strlen
 
- IMPORT redraw_area_vdu
- IMPORT sprite_size
- IMPORT sprite_create
- IMPORT sprite_output
- IMPORT font_findfont
- IMPORT sprite_set_cols
+ EXPORT add_vdu_bitmaps
+ EXPORT read_vdu_vars
+ EXPORT read_system_chars
+ EXPORT cache_font_chars
 
- IMPORT redraw_area_dsa
- IMPORT redraw_raster
- IMPORT convert_bitmap
- IMPORT convert_bitmap_char
- IMPORT cached_char_size
- IMPORT plotrect
+ EXPORT get_r12
 
 ; module header
 
@@ -35,12 +35,12 @@
 
 Module_header
 Start_code		DCD 0
-Initialisation_code	DCD 0
-Finalisation_code	DCD 0
-Service_call_handler	DCD 0
+Initialisation_code	DCD init_code
+Finalisation_code	DCD final_code
+Service_call_handler	DCD service_code
 Title_string		DCD title_string
 Help_string		DCD help_string
-Command_keyword_tab	DCD 0
+Command_keyword_tab	DCD command_table
 
  [ |zap$|="Zap"
 
@@ -55,6 +55,8 @@ SWI_chunk_number	DCD &48440		; text X SWI number
 SWI_handler_code	DCD swi_code
 SWI_decoding_table	DCD swi_table
 SWI_decoding_code	DCD 0
+Messages_File		DCD messages_filename
+Module_Flags		DCD module_flags
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TITLES AND COMMAND TABLES				       ;
@@ -84,43 +86,175 @@ help_string = |zap$|,"Redraw",9
 
 title_string = |zap$|:CC:"Redraw",0
 
+		ALIGN
+
+messages_filename  ;= |zap$|:CC:"FontsMessages:Messages",0
+		   = "ZapFontsMessages:Messages",0
+		ALIGN
+
+module_flags	DCD	1				; 32bit safe!
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Swi table						    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 swi_table
  = |zap$|,"Redraw",0
- = "RedrawArea",0		; 0
- = "GetPaletteEntry",0		; 1
- = "RedrawRaster",0		; 2
- = "ConvertBitmap",0		; 3
- = "PrepareDataLine",0		; 4
- = "AddCursor",0		; 5
- = "FindCharacter",0		; 6
- = "MoveBytes",0		; 7
- = "CachedCharSize",0		; 8
- = "ConvBitmapChar",0		; 9
- = "CreatePalette",0		; 10
- = "InsertChar",0		; 11
- = "ReadSystemChars",0		; 12
- = "ReverseBitmaps",0		; 13
- = "ReadVduVars",0		; 14
- = "GetRectangle",0		; 15
- = "AddVduBitmaps",0		; 16
- = "CacheFontChars",0		; 17
- = "SpriteSize",0		; 18
- = "RedrawWindow",0		; 19
- = "Divide",0			; 20
- = "PlotRectangle",0		; 21
- = "AddCursorSmart",0		; 22
- = "23",0
- = "24",0
- = "25",0
- = "26",0
- = "27",0
- = "UpdateWindow",0		; 27
+ = "RedrawArea",0		; 0	0
+ = "GetPaletteEntry",0		; 1     1
+ = "RedrawRaster",0		; 2     2
+ = "ConvertBitmap",0		; 3     3
+ = "PrepareDataLine",0		; 4     4
+ = "AddCursor",0		; 5     5
+ = "FindCharacter",0		; 6     6
+ = "MoveBytes",0		; 7     7
+ = "CachedCharSize",0		; 8     8
+ = "ConvBitmapChar",0		; 9     9
+ = "CreatePalette",0		; 10    a
+ = "InsertChar",0		; 11    b
+ = "ReadSystemChars",0		; 12    c
+ = "ReverseBitmaps",0		; 13    d
+ = "ReadVduVars",0		; 14    e
+ = "GetRectangle",0		; 15    f
+ = "AddVduBitmaps",0		; 16    10
+ = "CacheFontChars",0		; 17    11
+ = "SpriteSize",0		; 18    12
+ = "RedrawWindow",0		; 19    13
+ = "Divide",0			; 20    14
+ = "PlotRectangle",0		; 21    15
+ = "AddCursorSmart",0		; 22    16
+ = "FindFont",0			; 23    17
+ = "LoseFont",0	                ; 24    18
+ = "ReadCharSize",0		; 25    19
+ = "Version",0			; 26    1a
+ = "ListFonts",0		; 27    1b
+ = "UpdateWindow",0		; 28    1c
+ = "ReadFontInfo",0		; 29	1d
  = 0
  ALIGN
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; initialisation / finalisation code			    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		LOCAL
+
+init_code	FNJSR
+		LDR	R0,[R12]
+		TEQ	R0,#0
+		BNE	reinit$l			; after a non-fatal finalisation
+		MOV	R0,#6				; claim workspace
+		MOV	R3,#workspace_size
+		SWI	XOS_Module
+		FNRTS	VS
+		STR	R2,[R12]
+		MOV	R12,R2
+
+		MOV	R0,#0				; clear it
+		MOV	R1,#workspace_size
+loop$l		STR	R0,[R2],#4
+		SUBS	R1,R1,#4
+		BNE	loop$l
+
+	; Check for ViewFinder.
+		SUB	R13,R13,#12
+		ADR	R0,viewfinder_module
+		SWI	XOS_CLI			; Is the module there?
+		MOVVS	R0,#0			; If not, stop now
+		BVS	set_vf_flag
+		ADR	R0,vf_enable_var	; Read Viewfinder$Enable
+		MOV	R1,R13
+		MOV	R2,#11
+		MOV	R3,#0
+		MOV	R4,#0
+		SWI	XOS_ReadVarVal
+		MOVVS	R4,#2			; Not found? Don't use VF
+		CMP	R4,#2
+		MOVHS	R0,#0
+		BHS	set_vf_flag
+		CMP	R4,#1			; Right. Now is VF in use?
+		LDREQ	R0,[R13]
+		MOVNE	R0,#0
+		STRNEB	R0,[R13,R2]
+		MOVNE	R0,#10
+		MOVNE	R1,R13
+		SWINE	XOS_ReadUnsigned
+		MOVVS	R0,#0			; Not number? Don't use VF
+		MOVVC	R0,R2			; non-0 = use VF
+set_vf_flag	STR	R0,[R12,#viewfinder_select]
+		ADD	R13,R13,#12
+
+		MOV	R1,R12				; initialise fake redraw block
+		ADD	R0,R12,#buffer
+		STR	R0,[R1,#r_workarea]
+		BL	read_vdu_vars			; init cache vdu vars
+
+		ADRVC	R0,messages_filename
+		BLVC	messages_init			; open messages file
+		FNRTS	VS
+		BL	init_cache			; init DA
+
+reinit$l	ADR	R0,cb$l				; add callback routine
+		MOV	R1,R12
+		SWI	XOS_AddCallBack
+		FNRTS
+
+cb$l		FNJSR	"R1"				; PRMs are useless. Are we in SVC mode?
+		LDR	R1,service_ZapRedrawStarted
+		SWI	XOS_ServiceCall
+		FNRTS
+
+
+viewfinder_module
+		=	"%RMEnsure ViewFinder 1.29",0
+vf_enable_var	=	"ViewFinder$Enable",0
+
+		LOCAL
+
+		[ |zap$|="Zap"
+service_ZapRedrawStarted DCD &48480
+service_ZapRedrawDying	 DCD &48481
+		|
+service_ZapRedrawStarted DCD &48440
+service_ZapRedrawDying	 DCD &48441
+		]
+
+; kill the module, if allowed
+final_code	TEQ	R10,#0
+                MOVEQ	PC,R14                          ; non-fatal
+		FNJSR					; svc mode
+		LDR	R12,[R12]
+		BL	check_kill_cache		; ok to kill the cache?
+		FNRTS	VS				; nope
+		LDR	R1,service_ZapRedrawDying
+		SWI	XOS_ServiceCall
+		TEQ	R1,#0
+		FNPULL	EQ
+		BEQ	error_cantdie			; in s.Cache
+		BL	messages_kill			; close messages file
+		BLVC	kill_cache			; kill cache if empty
+		MOVVC	R0,#7                           ; free workspace
+		MOVVC	R2,R12
+		SWIVC	XOS_Module
+		MOV	R0,#0
+		STR	R0,[R12]			; null private word
+		FNRTS
+
+
+; service call handler - listens to Service_ModeChange
+service_code	TEQ	R1,#&46
+		MOVNE	PC,R14
+
+		LDR	R12,[R12]
+		B	mode_change
+
+
+get_r12		LDR	R12,local_r12
+		MOV	PC,R14
+
+local_r12	DCD	0				; yuck
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SWI code						    ;
@@ -132,13 +266,15 @@ swi_table
 ; should I MOVS on returning incase user mode? X form
 
 swi_code
+ LDR R12,[R12]
+ STR R12,local_r12		; eugh
  CMP R11,#(end$l-start$l)/4
  ADDCC PC,PC,R11,LSL#2
  B unknown$l
 start$l
  B redraw_area			; 0
  B get_palette_entry
- B redraw_raster
+ B redraw_raster_select
  B convert_bitmap
  B prepare_data_line
  B add_cursor			; 5
@@ -159,14 +295,15 @@ start$l
  B div_mod
  B plotrect
  B add_cursor_smart
- B unknown$l
- B unknown$l
- B unknown$l
- B unknown$l
- B unknown$l
+ B find_font
+ B lose_font
+ B read_char_size
+ B version_swi
+ B list_fonts
  B update_window
+ B read_font_info
 end$l
-unknown$l ERRlit "Unknown ZapRedraw SWI"
+unknown$l ERROR err_ukswi,"UKSWI"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Get palette entry SWI					    ;
@@ -196,9 +333,23 @@ get_palette_entry
 redraw_area
  ;SWI &107
  LDR R0,[R1,#r_flags]
- TST R0,#1
+ TST R0,#rf_vdu
  BEQ redraw_area_dsa		; direct screen access
  B redraw_area_vdu		; vdu mode
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Version SWI   					    ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; read the version of the module
+; E
+; X R0 = version number  R1 -> div_mod  R2 -> move_bytes
+version_swi	MOV	R0,#version_number		; version number (decimal * 100)
+		ADR	R1,div_mod
+		ADRL	R2,move_bytes
+		MOV	PC,R14
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Division/Modulo - optimised routine written by Darren Salt ;
@@ -266,12 +417,12 @@ div_mod	CMP	R1,#33
 ;	B	divby39
 divby0	MOV	R2,#0
 	MVN	R0,#1<<31	; error!
-	MOVS	PC,R14
+	MOV	PC,R14
 divby1	MOV	R2,#0
-	MOVS	PC,R14
+	MOV	PC,R14
 divby2	AND	R2,R0,#1
 	MOV	R0,R0,LSR #1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby3	ADD	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -285,10 +436,10 @@ divby3	ADD	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#3
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby4	AND	R2,R0,#3
 	MOV	R0,R0,LSR #2
-	MOVS	PC,R14
+	MOV	PC,R14
 divby5	SUB	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -302,7 +453,7 @@ divby5	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#5
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby6	ADD	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -316,7 +467,7 @@ divby6	ADD	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#6
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby7	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #3
 	ADD	R1,R1,R1,LSR #6
@@ -331,10 +482,10 @@ divby7	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#7
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby8	AND	R2,R0,#7
 	MOV	R0,R0,LSR #3
-	MOVS	PC,R14
+	MOV	PC,R14
 divby9	SUB	R1,R0,R0,LSR #3
 	ADD	R1,R1,R1,LSR #6
 	ADD	R1,R1,R1,LSR #12
@@ -348,7 +499,7 @@ divby9	SUB	R1,R0,R0,LSR #3
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#9
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby10	SUB	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -362,7 +513,7 @@ divby10	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0A
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby11	SUB	R1,R0,R0,LSR #2
 	SUB	R1,R1,R0,LSR #5
 	ADD	R1,R1,R0,LSR #7
@@ -378,7 +529,7 @@ divby11	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0B
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby12	ADD	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -392,7 +543,7 @@ divby12	ADD	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0C
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby13	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R0,LSR #3
 	SUB	R1,R1,R0,LSR #7
@@ -409,7 +560,7 @@ divby13	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0D
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby14	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #3
 	ADD	R1,R1,R1,LSR #6
@@ -424,7 +575,7 @@ divby14	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0E
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby15	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -438,10 +589,10 @@ divby15	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&0F
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby16	AND	R2,R0,#15
 	MOV	R0,R0,LSR #4
-	MOVS	PC,R14
+	MOV	PC,R14
 divby17	SUB	R1,R0,R0,LSR #4
 	ADD	R1,R1,R1,LSR #8
 	ADD	R1,R1,R1,LSR #16
@@ -454,7 +605,7 @@ divby17	SUB	R1,R0,R0,LSR #4
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&11
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby18	SUB	R1,R0,R0,LSR #3
 	ADD	R1,R1,R1,LSR #6
 	ADD	R1,R1,R1,LSR #12
@@ -468,7 +619,7 @@ divby18	SUB	R1,R0,R0,LSR #3
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&12
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby19	SUB	R1,R0,R0,LSR #3
 	SUB	R1,R1,R0,LSR #5
 	SUB	R1,R1,R0,LSR #9
@@ -485,7 +636,7 @@ divby19	SUB	R1,R0,R0,LSR #3
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&13
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby20	SUB	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -499,7 +650,7 @@ divby20	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&14
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby21	SUB	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #6
 	ADD	R1,R1,R1,LSR #12
@@ -514,7 +665,7 @@ divby21	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&15
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby22	SUB	R1,R0,R0,LSR #2
 	SUB	R1,R1,R0,LSR #5
 	ADD	R1,R1,R0,LSR #7
@@ -530,7 +681,7 @@ divby22	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&16
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby23	SUB	R1,R0,R0,LSR #2
 	SUB	R1,R1,R0,LSR #4
 	ADD	R1,R1,R0,LSR #7
@@ -546,7 +697,7 @@ divby23	SUB	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&17
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby24	ADD	R1,R0,R0,LSR #2
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -560,7 +711,7 @@ divby24	ADD	R1,R0,R0,LSR #2
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&18
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby25	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R0,LSR #3
 	ADD	R1,R1,R0,LSR #6
@@ -578,7 +729,7 @@ divby25	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&19
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby26	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R0,LSR #3
 	SUB	R1,R1,R0,LSR #7
@@ -595,7 +746,7 @@ divby26	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1A
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby27	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R0,LSR #3
 	SUB	R1,R1,R0,LSR #5
@@ -613,7 +764,7 @@ divby27	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1B
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby28	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #3
 	ADD	R1,R1,R1,LSR #6
@@ -628,7 +779,7 @@ divby28	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1C
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby29	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R0,LSR #4
 	SUB	R1,R1,R0,LSR #6
@@ -650,7 +801,7 @@ divby29	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1D
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby30	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #4
 	ADD	R1,R1,R1,LSR #8
@@ -664,7 +815,7 @@ divby30	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1E
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby31	MOV	R1,R0,LSR #1
 	ADD	R1,R1,R1,LSR #5
 	ADD	R1,R1,R1,LSR #10
@@ -678,10 +829,10 @@ divby31	MOV	R1,R0,LSR #1
 	ADDGE	R1,R1,#1
 	SUBGE	R2,R2,#&1F
 	MOV	R0,R1
-	MOVS	PC,R14
+	MOV	PC,R14
 divby32	AND	R2,R0,#31
 	MOV	R0,R0,LSR #5
-	MOVS	PC,R14
+	MOV	PC,R14
 ;divby33	SUB	R1,R0,R0,LSR #5
 ;	ADD	R1,R1,R1,LSR #10
 ;	ADD	R1,R1,R1,LSR #20
@@ -694,7 +845,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&21
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby34	SUB	R1,R0,R0,LSR #4
 ;	ADD	R1,R1,R1,LSR #8
 ;	ADD	R1,R1,R1,LSR #16
@@ -707,7 +858,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&22
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby35	SUB	R1,R0,R0,LSR #3
 ;	ADD	R1,R1,R0,LSR #5
 ;	ADD	R1,R1,R0,LSR #7
@@ -723,7 +874,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&23
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby36	SUB	R1,R0,R0,LSR #3
 ;	ADD	R1,R1,R1,LSR #6
 ;	ADD	R1,R1,R1,LSR #12
@@ -737,7 +888,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&24
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby37	SUB	R1,R0,R0,LSR #3
 ;	SUB	R1,R1,R0,LSR #7
 ;	SUB	R1,R1,R0,LSR #9
@@ -757,7 +908,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&25
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby38	SUB	R1,R0,R0,LSR #3
 ;	SUB	R1,R1,R0,LSR #5
 ;	SUB	R1,R1,R0,LSR #9
@@ -774,7 +925,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&26
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 ;divby39	SUB	R1,R0,R0,LSR #2
 ;	ADD	R1,R1,R0,LSR #4
 ;	ADD	R1,R1,R0,LSR #7
@@ -790,7 +941,7 @@ divby32	AND	R2,R0,#31
 ;	ADDGE	R1,R1,#1
 ;	SUBGE	R2,R2,#&27
 ;	MOV	R0,R1
-;	MOVS	PC,R14
+;	MOV	PC,R14
 divbyn
  MOV R2,#0			; clear remainder
  RSB R1,R1,#0			; negate denom
@@ -821,7 +972,7 @@ div_mod_1
  SUB R3,R3,#4
  TEQ R3,#0
  BNE div_mod_1			; DO NOT CORRUPT CARRY
- MOVS PC,R14
+ MOV PC,R14
 
 ;old_div_mod
 ; MOV R2,#0			; clear remainder
@@ -844,7 +995,7 @@ div_mod_1
 ; SUB R3,R3,#4
 ; TEQ R3,#0
 ; BNE div_mod_1			; DO NOT CORRUPT CARRY
-; MOVS PC,R14
+; MOV PC,R14
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Skip one control code					    ;
@@ -933,7 +1084,7 @@ skip_ctrl_10
 ; space save above...?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Perpare data line for drawing				    ;
+; Prepare data line for drawing				    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R0=colour to use for ctrl chars / -1 if none
@@ -941,7 +1092,7 @@ skip_ctrl_10
 ;  R2=input string
 ;  R3=foreground mask
 ;  R4=background mask
-;  R5=input length + flags
+;  R5=input length + flags     (flags??)
 ;  R6=dest buffer (size 6*R5+16)
 ;  R7=font mask... (not supplied if b3 of r_flags is zero)
 ;X R0=highest char code used
@@ -958,15 +1109,18 @@ prepare_data_line
  LDR R7,[R1,#r_for]		; current foreground
  AND R7,R7,#&FF
  LDR R8,[R1,#r_bac]		; current background
- LDR R1,[R1,#r_flags]		; current flags
- TST R1,#&8
+ LDR R11,[R1,#r_flags]		; current flags
+ TST R11,#rf_substyles		; &8
  BEQ ordinary_prepare_data_line
-; STR R0,[R13,#-28] 		; ctrl chars col (R1 not needed)
+; STR R0,[R13,#-28]		; ctrl chars col
  STR R0,local_ctrl_colour
  MOV R9,R6			; save start of output
  MOV R14,#&20			; highest used code (space always)
  STR R14,local_max_out
- MOV R1,#-1			; dummy fonts flag (never match...!)
+ LDR R11,[R1,#r_caddr]
+ CMP R11,#&8000
+ ANDLO R1,R11,#&FF		; use initial substyles if present
+ MOVHS R1,#-1			; dummy fonts flag (never match...!)
 pdl_loop
  CMP R5,#0
  BLE pdl_end
@@ -1074,7 +1228,7 @@ pdl_just_change_font
 ; DCD 0
 
 ;E R0=colour to use for ctrl chars / -1 if none
-;  R1=redraw block giving start for/bac cols
+;  (R1=redraw block giving start for/bac cols)
 ;  R2=input string
 ;  R3=foreground mask R4=background mask
 ;  R5=input length
@@ -1401,7 +1555,7 @@ c$l
 
  SUBS R3,R3,#1
  BGT c$l			; copy remaining bytes
- MOVS PC,R14
+ MOV PC,R14
 ualign$l
  LDRB R0,[R1,#-1]!
  SUBS R3,R3,#1
@@ -1504,14 +1658,14 @@ e$l
  LDMFD R13!,{R4}
 us4$l
  ADDS R3,R3,#4			; number of bytes left
- LDMEQFD R13!,{R12,PC}^
+ LDMEQFD R13!,{R12,PC}
  ADD R1,R1,R12,LSR#3		; address of last byte used
 f$l
  LDRB R14,[R1,#-1]!		; get next byte (don't read too far)
  SUBS R3,R3,#1
  STRB R14,[R2,#-1]!		; put next byte
  BGT f$l
- LDMFD R13!,{R12,PC}^
+ LDMFD R13!,{R12,PC}
 down$l				; MOVE BYTES DOWN (from start)
  TST R2,#3
  BNE dalign$l			; ensure output (R2) aligned
@@ -1544,7 +1698,7 @@ i$l
  MOV R0,R0,ROR#8
  SUBS R3,R3,#1
  BGT i$l			; copy the remaining bytes
- MOVS PC,R14
+ MOV PC,R14
 dalign$l
  LDRB R0,[R1],#1
  SUBS R3,R3,#1
@@ -1648,14 +1802,14 @@ k$l
  LDMFD R13!,{R11}
 ds4$l
  ADDS R3,R3,#4			; number of bytes left
- LDMEQFD R13!,{R12,PC}^
+ LDMEQFD R13!,{R12,PC}
  SUB R1,R1,R14,LSR#3		; address of first unused byte
 l$l
  LDRB R0,[R1],#1		; get next byte - don't read off end
  SUBS R3,R3,#1
  STRB R0,[R2],#1
  BGT l$l			; copy remaining bytes
- LDMFD R13!,{R12,PC}^
+ LDMFD R13!,{R12,PC}
 
 ; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; ; Find character SWI					    ;
@@ -1701,23 +1855,26 @@ fc_2
 ;X Palette created #
 
 create_palette
- FNJSR "R1-R7"
+ FNJSR "R1-R8"
  MOV R5,R1			; save redraw block
- LDR R6,[R5,#r_workarea]	; wimp palette &BBGGRRXX
+ ;LDR R6,[R5,#r_workarea]	; wimp palette &BBGGRRXX
+ ADD R6,R12,#buffer		; use our own workspace
  MOV R7,R0			; save reason code
  MOV R1,R6
+ MOV R8,R2
+ LDR R2,true$l
  SWI XWimp_ReadPalette		; read the 20 word palette
  FNRTS VS
  LDR R1,[R5,#r_bpp]		; bits per pixel
 cp_loop
- LDR R0,[R2],#4			; get next colour
+ LDR R0,[R8],#4			; get next colour
  TST R7,#1
- BEQ cp_1			; don't convert wimp->24 bit
- LDR R0,[R6,R0,LSL#2]		; get palette entry for it
- LDR R14,cp_mask
- BIC R0,R0,R14,LSR#4		; clear bottom nibbles
- AND R14,R0,R14			; get top nibbles
- ORR R0,R0,R14,LSR#4		; duplicate top nibbles
+; BEQ cp_1			; don't convert wimp->24 bit
+ LDRNE R0,[R6,R0,LSL#2]		; get palette entry for it
+; LDR R14,cp_mask
+; BIC R0,R0,R14,LSR#4		; clear bottom nibbles
+; AND R14,R0,R14			; get top nibbles
+; ORR R0,R0,R14,LSR#4		; duplicate top nibbles
 cp_1
  TST R7,#2
  BEQ cp_2			; don't convert 24 bit->mask
@@ -1730,8 +1887,9 @@ cp_2
  SUBS R4,R4,#1
  BGT cp_loop
  FNRTS
-cp_mask
- DCD &F0F0F000
+;cp_mask
+; DCD &F0F0F000
+true$l = "TRUE"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Insert Char SWI					    ;
@@ -1767,8 +1925,10 @@ ic_0
 read_system_chars
  FNJSR "R1-R9"
  MOV R3,R0			; R3=output buffer
- LDR R1,[R1,#r_workarea]	; 16 byte work area
- ADD R1,R1,#3			; R1=work (with +1 is word aligned)
+ ;LDR R1,[R1,#r_workarea]	; 16 byte work area
+ ;ADD R1,R1,#3			; R1=work (with +1 is word aligned)
+ ADD R1,R12,#buffer		; use our own workspace
+ ADD R1,R1,#3
  ADR R0,init_def_masks
  LDMIA R0,{R4-R6}		; R4-R6=masks
  MOV R2,#&20			; character number
@@ -1838,7 +1998,8 @@ read_vdu_vars
  FNJSR "R1-R4"
  MOV R2,R1			; save red block
  ADR R0,rvv_d1
- LDR R1,[R2,#r_workarea]
+ ;LDR R1,[R2,#r_workarea]
+ ADD R1,R12,#buffer		; use our own buffer
  SWI XOS_ReadVduVariables
  FNRTS VS
  LDR R3,[R1]			; XEig (log2 of num of xos per pix)
@@ -1910,21 +2071,63 @@ get_rectangle
  ADD R2,R2,R0			; x os offset in work area
  MOV R0,R2,ASR R5
  STR R0,[R1,#r_scrollx]
- LDR R0,[R4,#16]		; y max
- SUB R3,R3,R0			; y os offset in vis area
- LDR R0,[R4,#24]		; y scroll
- ADD R3,R3,R0			; y os offset in work area
+ LDR R7,[R4,#16]		; y max
+ SUB R3,R3,R7			; y os offset in vis area
+ LDR R7,[R4,#24]		; y scroll
+ ADD R3,R3,R7			; y os offset in work area
  RSB R3,R3,#0			; y os downward
- MOV R0,R3,ASR R6		; y pix signed
+ MOV R7,R3,ASR R6		; y pix signed
+ STR R7,[R1,#r_scrolly]
+
+ LDR R3,[R1,#r_flags]
+ TST R3,#rf_rtol
+ BNE rtol$l
+
+margin$l
+ LDR R3,[R1,#r_flags]		; subtract left margin if present
+ TST R3,#rf_extend		; is length present?
+ FNRTS EQ			; nope
+ LDR R3,[R1,#r_length]
+ CMP R3,#r_lmargin		; do we have left margin parameter?
+ FNRTS LO
+ LDR R2,[R1,#r_lmargin]
+ SUB R0,R0,R2
+ STR R0,[R1,#r_scrollx]
+
+ CMP R3,#r_tmargin		; do we have the top margin?
+ FNRTS LO
+ LDR R2,[R1,#r_tmargin]
+ SUB R0,R7,R2
  STR R0,[R1,#r_scrolly]
+
  FNRTS
+
+rtol$l
+ PUSH "R1"
+ LDR R0,[R4,#0]			; handle
+ ADD R1,R12,#buffer
+ STR R0,[R1],#1			; no icons
+ SWI XWimp_GetWindowInfo
+ FNRTS VS
+ LDR R0,[R1,#51]		; wa maxx (b0 set)
+ PULL "R1"
+ LDR R2,[R4,#4]                 ; visible minx
+ ADD R2,R2,R0
+ LDR R0,[R4,#20]		; scrollx
+ SUB R2,R2,R0			; screen coords of wa maxx
+ LDR R3,[R4,#36]		; rectangle maxx
+ SUB R0,R2,R3
+ MOV R0,R0,ASR R5
+ STR R0,[R1,#r_scrollx]
+ B margin$l
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Add Vdu Bitmaps SWI					    ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=redraw block (r_height/r_width)
-;  r_workarea=64 bytes + room for sprite
+;  r_workarea=64 bytes + room for sprite ??? is this true?
 ;  R2=first char R3=last char (inc) R4=bitmap at 1 bpp to convert
 ;X Extra characters in the interval created #
 
@@ -2131,8 +2334,7 @@ do10
  ADDS R11,R0,#0			; save error and clv
  BL long_op_off			; switch off hourglass
  MOV R0,R11
- FNPULL
- ORRS PC,R14,#Vbit		; return with error
+ FNRTV
 
 ;X Hourglass on and escape enabled #
 
@@ -2222,8 +2424,7 @@ fo23
  MOV R0,#0
  BL sprite_output		; restore output
  MOV R0,R5
- FNPULL
- ORRS PC,R14,#Vbit		; restore error
+ FNRTV
 
 ;E R5=cache mode
 ;  R6-R7=characters to cache inclusive R6=<R7<=255
@@ -2248,8 +2449,7 @@ font_cache_chars
  BL sprite_set_cols
  BVS fo25
 fo24
- MOV R0,#16
- SWI XOS_WriteC			; clear graphics area
+ SWI XOS_WriteI+16		; clear graphics area
  BVS fo25
  ADD R1,R11,#a_temp1
  MOV R2,#1<<4			; use os coords
@@ -2280,8 +2480,7 @@ fo25
  MOV R0,R8
  SWI XFont_LoseFont
  MOV R0,R1
- FNPULL
- ORRS PC,R14,#Vbit
+ FNRTV
 
 ;E R6=character to cache R9=bytes per sprite line
 ;  R10=redraw block R11+&40=sprite area
@@ -2365,7 +2564,7 @@ strcopy
  BCS strcopy
  MOV R0,#0
  STRB R0,[R1],#1
- MOVS PC,R14
+ MOV PC,R14
 
 ;E R1=dest R2=source (copy till <32 and add no zero)
 ;X R0=terminatior R1=end of dest R2=char after terminator |
@@ -2376,6 +2575,64 @@ strcpy
  STRCSB R0,[R1],#1
  BCS strcpy
  MOVCC PC,R14
+
+ LOCAL
+
+
+; compares two strings case insesnsitive
+; E r0,r1 -> strings
+; X Z = same  r1 -> after r1's terminator  r0 preserved
+; null pointers are handled and are equivalent
+strcasecmp
+  FNJSR "R0,R2-R4"			; preserve
+  TEQ R0,#0
+  TEQEQ R1,#0
+  FNRTS EQ
+  TEQ R0,#0
+  TEQNE R1,#0
+  BNE loop$l
+  CMP R14,#0				; clear Z
+  FNRTS
+loop$l
+  LDRB R2,[R0],#1			; load char
+  LDRB R3,[R1],#1			;
+  CMP R2,#31				; fin?
+  CMPLS R3,#31				; other one fin also?
+  BHI nope$l				; nope
+  MOVS R0,#0                            ; yes - set Z
+  FNRTS					; done
+nope$l
+  CMP R2,#'z'				; lower than z?
+  RSBLSS R4,R2,#'a'			; and higher than a?
+  BICLS R2,R2,#&20			; yes - make upper case
+  CMP R3,#'z'				; same for other
+  RSBLSS R4,R3,#'a'			;
+  BICLS R3,R3,#&20			;
+  ;STMFD R13!,{R0}
+  ;MOV R0,R2
+  ;SWI XOS_WriteC
+  ;MOV R0,R3
+  ;SWI XOS_WriteC
+  ;LDMFD R13!,{R0}
+  CMP R2,R3				; same?
+  BEQ loop$l				; try again
+  FNRTS					; no - return ne
+
+  LOCAL
+
+
+; find the length of a string
+; E r0 -> string
+; X r1 = length
+strlen
+ FNJSR "R0"
+ MOV R1,#-1
+loop$l
+ ADD R1,R1,#1
+ LDRB R14,[R0],#1
+ CMP R14,#32
+ BHS loop$l
+ FNRTS
 
  LOCAL
 

@@ -1,47 +1,257 @@
 ; Standard ZapRedraw header file
 ; If this one changes then they all have to be recompiled!
-; $Id: ZapRedHdr,fff,v 1.3 1999/03/11 18:10:08 james Exp $
+; $Id: ZapRedHdr,fff,v 1.4 2002/01/18 21:36:29 ds Exp $
 
  GBLS |zap$|
  GBLS |zapdir$|
-|zap$| SETS "Zap"			; Zap or ZapX assembley
+|zap$| SETS "Zap"			; Zap or ZapX assembly
 |zapdir$| SETS "<":CC:|zap$|:CC:"$Dir>" ; Application directory
 
+ GBLL ARM32
+ARM32 SETL {TRUE}
+
 ENUM			* &48480	; base error number
+
 
 ; get headers - some of which use the above variables
 
  GET <ZapSource$Dir>.h.System
  GET <ZapSource$Dir>.h.ZapLibrary
  GET <ZapSource$Dir>.h.Macros
+ GET h.Errors
 
+;--------------------------------------------------------------------------------------
+; build options
+
+handles		* 32			; number of font handles (1-handles)
+da_sizelimit	* 2 * 1024 * 1024	; absolute ceiling for cache da
+substyles	* 16			; number of substyles
+cache_min	* 32			; minimum cache block size (8 minimum)
+
+EMPTY		* 0			; margins are always r_bac (new)
+FULL		* 1			; margins are same as first char (current)
+MARGINS		* FULL			; stick with current behaviour for now
+
+;--------------------------------------------------------------------------------------
 ; 64 bytes workspace = 16 variables
 ; y's only need to be calculated once!
-;                               ;      D S A       |       V D U
-                    ^ 0
+;				;      D S A	   |	   V D U
+		    ^ 0
 
-a_x1                # 4         ; 1st char pix off | font size (points)
-a_x2                # 4         ; 1st char pix do  | num chars (+end two)
-a_x3                # 4         ; num mid chars do | width of char in os
-a_x4                # 4         ; last char pix do | height of char in os
-a_x5                # 4         ;           char scroll off
-a_ext1              # 4         ; ext sub address  | start op store
-a_ext2              # 4         ; ext sub priv wrd |
-a_stack1            # 4         ; stacked R3 (txt) | linespacing in os
-a_stack2            # 4         ; stacked R4 (bmp) | cur for/bac col
-a_stack3            # 4         ; stacked R10 (for)| actual for col
-a_stack4            # 4         ; stacked R11 (bac)| actual bac col
-a_temp1             # 4         ;       temporary lowest sub word
-a_spr1              # 4         ; general 1        | saved
-a_spr2              # 4         ; general 2        | R0-R3
-a_spr3              # 4         ; general 3        | of vdu
-a_spr4              # 4         ; general 4        | output
-a_topofvars         # 4         ; must not be used
-;a_normfont          # 4         ; general 4        | output
-;a_boldfont          # 4         ; general 4        | output
-;a_italfont          # 4         ; general 4        | output
-;a_topofvars         # 4         ; general 4        | output
+a_x1		    # 4		; 1st char pix off | font size (points)
+a_x2		    # 4		; 1st char pix do  | num chars (+end two)
+a_x3		    # 4		; num mid chars do | width of char in os
+a_x4		    # 4		; last char pix do | height of char in os
+a_x5		    # 4		;	    char scroll off
+a_ext1		    # 4		; ext sub address  | start op store
+a_ext2		    # 4		; ext sub priv wrd | font manager font handles
+a_stack1	    # 4		; stacked R3 (txt) | linespacing in os
+a_stack2	    # 4		; stacked R4 (bmp) | cur for/bac col
+a_stack3	    # 4		; stacked R10 (for)| actual for col
+a_stack4	    # 4		; stacked R11 (bac)| actual bac col
+a_temp1		    # 4		;	temporary lowest sub word
+;a_vf_font_bitmaps	# 0	; VF: font block
+a_spr1		    # 4		; general 1	   | saved
+;a_vf_font_width		# 0
+a_spr2		    # 4		; general 2	   | R0-R3
+;a_vf_font_height	# 0
+a_spr3		    # 4		; general 3	   | of vdu
+;a_vf_font_flags		# 0
+a_spr4		    # 4		; general 4	   | output
+;a_vf_char		# 8	; VF: x,y of top left of first char
+;a_vf_clip		# 8	; VF: x,y of top left of clip rectangle
+;a_vf_clip_size		# 8	; VF: width,height of clip rectangle
+;a_vf_string		# 4	; VF: pointer to string info block
+;a_vf_colour		# 4	; VF: pointer to colour data
+;a_vf_font		# 4	; VF: pointer to font info block
+;a_vf_string_ptr		# 4	; VF: string block
+;a_vf_string_length	# 4
+;a_vf_string_0		# 4
+;a_vf_colour_fg		# 4	; VF: colour block
+;a_vf_colour_bg		# 4
+;a_vf_colour_gcol	# 4
+;a_vf_colour_flags	# 4
+;a_vf_draw_flags		# 4
+a_topofvars	    # 4		; must not be used
+;a_normfont	     # 4	 ; general 4	    | output
+;a_boldfont	     # 4	 ; general 4	    | output
+;a_italfont	     # 4	 ; general 4	    | output
+;a_topofvars	     # 4	 ; general 4	    | output
 
+;--------------------------------------------------------------------------------------
+; private module workspace
+
+		^ 0
+redraw_block	# 104					; fake small redraw block (r_)
+							; must be at offset 0
+
+cache_addr	# 4					; pointer to dynamic area
+cache_size	# 4					; size of cache's DA
+; keep these next two together
+cache_zero	# 4					; 0 (space in this free block)
+cache_freelist	# 4					; list of free blocks in the cache
+cache_areanum	# 4					; DA number of cache
+
+messages_structure # 16					; MessageTrans structure
+
+viewfinder_select # 4					; non-zero if ViewFinder is active
+
+temp		# 4					; temp var
+
+font_handles	# (4 * handles)				; font block pointers
+
+buffer		# 256					; 256 byte buffer
+
+		[ |zap$| = "ZapX"
+debug		# 8
+		]
+
+workspace_size	* @					; size of workspace
+
+
+;--------------------------------------------------------------------------------------
+; font block - don't change the order of things in here (see handle_to_redraw etc)
+		^ 0
+fb_usage	# 4					; usage counter
+fb_name		# 4					; -> name of font
+fb_charw	# 4					; width  (pixels)
+fb_charh	# 4					; height (   "  )
+fb_cbpl		# 4					; copy of r_cbpl
+fb_cbpc		# 4					; copy of r_cbpc
+fb_flags	# 4					; flags
+fb_data		# (4 * substyles)			; pointers to cache data / 0
+fb_length	* @					; length of block
+
+		^ :INDEX:fb_data			; alternative vars in VDU mode
+; keep these first two at the top - they pretend to be substyles.
+fb_1bcache	# 4					; 1bpp bitmaps (expanded)
+fb_aacache	# 4					; antialiased bitmaps
+fb_xsize	# 4					; x size (points * 16)
+fb_aspect	# 4					; font aspect ratio
+fb_xoff		# 4					; x offset in char box  (cbpl in VDU mode)
+fb_yoff		# 4					; y			(cbpc)
+fb_spritesize	# 4					; r_workarea required
+fb_handles	# 4					; font mgr handles (all substyles)
+fb_shavel	# 4					; pixels to shave off left of char
+fb_shavet	# 4					;		      top
+fb_shaver	# 4					;		      right
+fb_shaveb	# 4					;		      bottom
+fb_vdulength	* @					; length of block in VDU mode
+
+;--------------------------------------------------------------------------------------
+; font block flags
+ff_ssallowed	* (1<<0)				; font has substyles
+ff_vdu		* (1<<1)				; VDU mode font
+
+;--------------------------------------------------------------------------------------
+; standard substyle bits
+; don't change these either.
+ss_strikethrough * (1<<0)				; don't know who chose this
+ss_bold		 * (1<<5)				; convention...
+ss_italic	 * (1<<6)				;
+ss_underlined	 * (1<<7)				;
+
+;--------------------------------------------------------------------------------------
+; redraw flags (in r_flags)
+rf_vdu		* (1<<0)				; 0 => DSA mode  1 => VDU mode
+rf_doubleheight	* (1<<1)				; double height mode		DSA
+rf_extroutine	* (1<<2)				; extension routine		DSA
+rf_substyles	* (1<<3)				; subtyles used
+rf_realvdu	* (1<<4)				; use OS_Plot			VDU
+rf_autoscale	* (1<<5)				; automatically set/clear b1	DSA
+rf_extend	* (1<<6)				; long redraw block provided
+rf_rtol		* (1<<7)				; right to left text plotting	VDU
+rf_transparent	* (1<<8)				; don't plot background		VDU
+rf_aasuppress	* (1<<9)				; don't antialias		DSAVDU
+rf_dsavdu	* (1<<30)				; 'using dsavdu' temp flag
+rf_workarea	* (1<<31)				; 'workarea in cache' temp flag
+
+;--------------------------------------------------------------------------------------
+; new macros
+
+; load options word
+
+	MACRO
+$la	FNLDR $a,$b,$cc
+$la	LDR$cc $a,[R12,#$b]
+	MEND
+
+; load options byte
+
+	MACRO
+$la	FNLDRB $a,$b,$cc
+$la	LDR$cc.B $a,[R12,#$b]
+	MEND
+
+; save options word
+
+	MACRO
+$la	FNSTR $a,$b,$cc
+$la	STR$cc $a,[R12,#$b]
+	MEND
+
+; save options byte
+
+	MACRO
+$la	FNSTRB $a,$b,$cc
+$la	STR$cc.B $a,[R12,#$b]
+	MEND
+
+; debug beep
+
+	MACRO
+$la	BEEP $cc
+$la	[ |zap$| = "ZapX"
+	STM$cc.FD	R13!,{R14}		; don't use FNJSR because it doesn't nest
+	SWI$cc		&20107
+	LDM$cc.FD	R13!,{R14}
+	]
+	MEND
+
+
+; set debug var
+
+	MACRO
+$la	DEBUG $r,$cc
+	[ |zap$| = "ZapX"
+	IMPORT		get_r12
+$la	STM$cc.FD	R13!,{R12,R14}		; don't use FNJSR because it doesn't nest
+	BL$cc		get_r12
+	STR$cc		$r,[R12,#debug]
+	SWI$cc		&20107
+	LDM$cc.FD	R13!,{R12,R14}
+	]
+	MEND
+
+
+; debug print value of register (uses top of buffer)
+
+	MACRO
+$la	PRINT $r,$cc
+	[ |zap$| = "ZapX"
+	IMPORT get_r12
+	ROUT
+$la	B$cc	%ft01
+	MOV	PC,R14
+01	STMFD	R13!,{R0-R2,R12,R14}
+	SWI	XOS_WriteS
+	=	"$r: ",0
+	ALIGN
+	MOV	R0,$r
+	BL	get_r12
+	ADD	R1,R12,#buffer
+	ADD	R1,R1,#256-16
+	MOV	R2,#16
+	SWI	XOS_ConvertHex8
+	SWI	XOS_Write0
+	SWI	XOS_NewLine
+	LDMFD	R13!,{R0-R2,R12,R14}
+	]
+	MEND
+
+
+
+;--------------------------------------------------------------------------------------
 ; default area assignment
 
  AREA |Assembler|,READONLY,CODE

@@ -1,0 +1,99 @@
+# Make file for ZapRedraw
+# using freeware tools make, AS, DRLink
+# (c) Zap Developers
+# $Id: MakefileAS,fe1,v 1.2 2002/01/18 21:36:29 ds Exp $
+
+# For the standard build name:
+#	make -r -f MakefileAS
+# For alternative build names:
+#	make -r -f MakefileAS BUILD=foo
+#	make -r -f MakefileAS BUILD=foo-42
+#    "-<n>" is automatically appended if you omit it.
+# BTW, give 'make' lots of memory ;-)
+
+# Targets:
+#	Redraw		Assemble .s files and link. This is the default
+#	Headers		Remake the automatically-created header files
+#	Clean		Wipe the .o and .t (header marker) files
+#	Revision	Stamps h.Version
+
+# Where to get the tools:
+#	AS:	<URL:http://www.youmustbejoking.demon.co.uk/progs.html#as>
+#	Make:	<URL:ftp://ftp.uni-stuttgart.de/pub/systems/acorn/riscos/unixtools/gnu/make.absolute>
+#	DRLink: <URL:http://micros.hensa.ac.uk/local/riscos/programming/drlink.arc>
+
+Hs		= t.Cache t.Commands t.DSARedraw t.Messages t.VDURedraw t.VFRedraw t.ZapRedraw 
+OBJECTS		= o.Cache o.Commands o.DSARedraw o.Messages o.VDURedraw o.VFRedraw o.ZapRedraw 
+
+TARGET		= ZapRedraw
+ZapS		= <ZapSource$$Dir>
+link		= drlink
+#linkPartFlags	= -aof
+linkFlags	= -bin -b &00000000 -nounused
+as		= as
+asFlags		= -throwback -nolocal -objasm -upper -pedantic -D__ZAP__ -DASSEMBLER=AS -target ARM3
+
+__BUILD		= "-DBUILD=$(BUILD)"
+NEWBUILD	= BUILD=$(BUILD)
+
+
+Redraw:		$(Hs) $(TARGET)
+		Run $(ZapS).data.MCopy $(TARGET) ZapXRedraw
+		@Echo <7>Finished
+
+$(TARGET):	$(OBJECTS) 
+		$(link) $(linkFlags) -o $(TARGET) $(OBJECTS)
+		Settype $(TARGET) Module
+
+Headers:	$(Hs)
+		@Echo Made headers
+
+Clean:
+		IfThere o.* Then Wipe o.* ~CF~R~V
+		IfThere t.* Then Wipe t.* ~CF~R~V
+
+Revision:
+		Stamp h.Version
+		chain:make -r -f MakefileAS $(NEWBUILD)
+
+
+s.% o.%:
+		$(as) $(asFlags) $(__BUILD) s.$*
+
+s.% t.%:
+		@Run $(ZapS).data.StoH s.$* h.$*
+		Create t.$* 0
+
+
+#o.objects:	$(OBJECTS)
+#		$(link) $(linkPartFlags) -o o.objects1 $(OBJECTS1)
+
+t.Cache:	s.Cache
+t.Commands:	s.Commands
+t.DSARedraw:	s.DSARedraw
+t.Messages:	s.Messages
+t.VDURedraw:	s.VDURedraw
+t.VFRedraw:	s.VFRedraw
+t.ZapRedraw:	s.ZapRedraw
+
+$(ZapS).h.ZapLibrary:	ZapCode:Tools.Technical.E-Library
+		Run $(ZapS).data.BasicToAsm ZapCode:Tools.Technical.E-Library $(ZapS).h.ZapLibrary
+
+# Generated dependencies:
+o.Cache:	s.Cache
+o.Commands:	s.Commands
+o.DSARedraw:	s.DSARedraw
+o.Messages:	s.Messages
+o.VDURedraw:	s.VDURedraw
+o.VFRedraw:	s.VFRedraw
+o.ZapRedraw:	s.ZapRedraw
+
+o.Cache o.Commands o.DSARedraw o.Messages o.VDURedraw o.VFRedraw o.ZapRedraw: $(ZapS).h.Macros $(ZapS).h.System $(ZapS).h.ZapLibrary h.Errors h.ZapRedHdr
+o.Cache o.Commands o.DSARedraw o.VDURedraw o.VFRedraw: h.ZapRedraw
+o.Cache o.Commands o.ZapRedraw: h.Messages
+o.Cache o.VFRedraw o.ZapRedraw: h.DSARedraw
+o.Cache o.ZapRedraw: h.VDURedraw
+o.Commands o.DSARedraw o.VDURedraw o.VFRedraw o.ZapRedraw: h.Cache
+o.DSARedraw o.VDURedraw: h.VFRedraw
+o.VDURedraw o.VFRedraw: h.SWIs
+o.ZapRedraw: h.Commands h.Version

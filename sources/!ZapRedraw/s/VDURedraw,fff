@@ -1,7 +1,11 @@
 ; Contains code for redraw via VDU drivers
-; $Id: VDURedraw,fff,v 1.6 2000/12/15 19:38:27 ds Exp $
+; $Id: VDURedraw,fff,v 1.7 2002/01/18 21:36:30 ds Exp $
 
  GET h.ZapRedHdr
+ GET h.ZapRedraw
+ GET h.Cache
+ GET h.VFRedraw
+ GET h.SWIs
 
  EXPORT redraw_area_vdu
  EXPORT sprite_size
@@ -11,17 +15,11 @@
  EXPORT sprite_set_cols
  EXPORT plotrect
 
- IMPORT skip_control_char
- IMPORT div_mod
- IMPORT find_character
- IMPORT move_bytes
- IMPORT strcopy
- IMPORT strcpy
+ EXPORT find_vdu_fonts
+ EXPORT lose_vdu_fonts
 
 ;  GBLL noosplot
 ; noosplot SETL {TRUE}
-
-bit_realvdu * 1<<4
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; VDU redraw of an area					    ;
@@ -33,11 +31,12 @@ bit_realvdu * 1<<4
 
 redraw_area_vdu
  FNJSR "R1-R12"
+	LDR	R10,[R12,#viewfinder_select]
+	CMP	R10,#1
+	LDRHS	R10,[R1,#r_flags]
+	BICHS	R10,R10,#rf_realvdu	; force this if using ViewFinder
+	STRHS	R10,[R1,#r_flags]
  MOV R10,R1			; save the redraw block
- ;LDR R11,[R10,#r_minx]		; minx
- ;CMP R11,#&400
- ;MOV R11,#20
- ;STR R11,[R10,#r_minx]	; minx
 
 ; [ noosplot = {TRUE}
 
@@ -45,63 +44,29 @@ redraw_area_vdu
 
 ; ]
 
- LDR R11,[R10,#r_workarea]	; workarea
- LDR R8,[R10,#r_caddr]		; font name / 0
- MOV R5,#1			; for current mode
- TEQ R8,#0
- BEQ font$l
- LDR R0,[R10,#r_flags]		; flags for no sub-styles...
- TST R0,#1<<3
- BEQ completelynormal$l
- ; Italic
- BL getobliquepath$l
- BLVC font_findfont		; sets up R8...
+ BL handle_to_name		; r11 r8 charw charh cbpl cbpc r1=a_ext2 r0->name
+ LDRVC R2,[R10,#r_flags]
+ BLVC get_vdu_fonts		; get handles
  BVS end$l
- TEQ R8,#0
- BLEQ tryforitalic$l
- STRVCB R8,[R11,#a_spr2 + 2]	; italic font
- ; Bold
- LDRVC R8,[R10,#r_caddr]	; font name / 0
- BLVC getboldpath$l
- BLVC font_findfont		; sets up R8...
- BVS end$l
- TEQ R8,#0
- BLEQ tryfortruncatedbold$l
- STRVCB R8,[R11,#a_spr2 + 1]	; bold font
- LDRVC R8,[R10,#r_caddr]	; font name / 0
-
- LDRVC R8,[R10,#r_caddr]	; font name / 0
- BLVC getboldobliquepath$l
- BLVC font_findfont		; sets up R8...
- BVS end$l
- TEQ R8,#0
- BLEQ tryforbolditalic$l
- BVS end$l
- TEQ R8,#0
- BLEQ tryfortruncatedboldoblique$l
- BVS end$l
- TEQ R8,#0
- BLEQ tryfortruncatedbolditalic$l
- STRVCB R8,[R11,#a_spr2 + 3]	; bold italic font
- LDRVC R8,[R10,#r_caddr]	; base font name / 0
-completelynormal$l
- BLVC font_findfont		; sets up R8...
- BVS end$l
- STRB R8,[R11,#a_spr2]		; default font
+ STR R1,[R11,#a_ext2]		; store them
 font$l				; got the font (0=system font)
 ; MOV R5,#1
  BL sprite_get_info
  ADD R0,R11,#a_topofvars	; address for sprite area
  LDR R14,[R11,#&60]
  CMP R14,R2
- BNE notcreatedalready$l
- LDR R14,[R11,#&64]
- CMP R14,R1
+ LDRNE R14,[R11,#&64]
+ CMPNE R14,R1
  BNE notcreatedalready$l
 createdalready$l
  BL calculate_vdu		; R0=curr line R3/R4=os posn R9=num
  BVS end$l
  MOV R2,R0			; save curr line
+
+ LDR R0,[R10,#r_scrolly]
+ CMP R0,#0
+ BLMI tmargin$l			; draw top margin
+
  LDR R6,[R10,#r_cbpl]
  LDR R7,[R10,#r_cbpc]		; x/y os offsets in character box
  LDR R1,[R11,#a_x4]		; character height in os
@@ -116,98 +81,202 @@ line$l
  LDR R0,[R10,#r_data]
  ADD R5,R0,R5			; address of the line start
  BL calculate_x_scroll_vdu	; set up cols and inc R5
- BVS end$l
- BL vdu_redraw_line
- BVS end$l
- SUB R4,R4,R1			; dec by one char
- SUB R9,R9,#1			; done another line
- B line$l
+ ;BVS end$l
+ BLVC vdu_redraw_line
+ SUBVC R4,R4,R1			; dec by one char
+ SUBVC R9,R9,#1			; done another line
+ BVC line$l
+ B end$l
+
 dataend$l			; run out of data
- ADR R5,eol$l			; null text
- BL calculate_x_scroll_vdu	; set up cols
- BVS end$l
+ LDR R0,[R10,#r_flags]
+ TST R0,#rf_transparent
+ BNE end$l			; nothing to do if transparent
+ LDR R0,[R10,#r_bac]
+ LDR R5,[R10,#r_palette]
+ LDR R0,[R5,R0,LSL #2]
+ STR R0,[R11,#a_stack4]		; bg colour
+ MOV R8,#0			; ignore font
  BL vdu_set_colours		; set initial colours
  BVS end$l
-fill$l				; fill off the data end
-;  LDR R1,[R11,#a_x4]		; character height in os
-; is R1 correctly set? :-(
-; is R3 correctly set?
-; is R4 correctly set?
-; is R9 correctly set?
-; SWI &107			; gets here.
-; MOV R3,#0			; ?????????????????? ?????????
- LDR R0,[R10,#r_scrollx]	; check for -ve offset...
- CMP R0,#0
- BLMI negativekludge$l		; problem not here.
- LDR R0,[R11,#a_x2]		; num of chars to draw
-; MOV R0,#&400			; no effect
- BL vdu_clear_bac2		; clear the line...?
- BVS end$l
- BIC R12,R12,#1			; finished background
- SUB R4,R4,R1
- SUBS R9,R9,#1
- BGT fill$l
-; SWI &107			; gets here.
-; FNRTS				; serious problem???
-end$l
- BVS errorend$l
- ADDS R0,R8,#0			; clv and R0=font handle
- BLNE losefonts$l
- FNRTS				; VS	; does this work (YES)
-; MOV R0,#0
-; FNPULL
-; MOVEQ PC,R14
-; ORRS PC,R14,#Vbit
-eol$l = 0,2
- ALIGN
+fill$l				; fill off the data end all in one go
+ ADD R4,R4,R1			; maxy
+ MLA R1,R9,R1,R1		; total height to fill
+ SUB R5,R4,R1			; miny
+ LDR R6,[R10,#r_magx]
+ LDR R0,[R10,#r_minx]
+ LDR R2,[R10,#r_maxx]
+ MOV R7,R0,LSL R6		; minx
+ MOV R2,R2,LSL R6               ; maxx
+ LDR R6,[R10,#r_flags]
+ TST R6,#rf_realvdu
+ BEQ fillos$l
 
-errorend$l
- MOV R9,R0			; error pointer
- ADDS R0,R8,#0			; clv and R0=font handle
- BLNE losefonts$l
- MOVS R0,R9
+ MOV R3,R4
+ BL get_col_num_in_r4
+ MOV R0,R7
+ MOV R1,R5
+ BL toplotrect
+ B end$l
+
+fillos$l
+ MOV R1,R7
+ MOV R6,R2
+ MOV R2,R5
+ MOV R0,#4
+ SWI XOS_Plot
+ MOV R1,R6
+ MOV R2,R4
+ MOV R0,#96+7
+ SWI XOS_Plot
+
+end$l
+ MOVVS R9,R0
+ MOVVC R9,#0			; (no error)
+ ;ADDS R0,R8,#0			; clv
+ LDR R0,[R11,#a_ext2]
+ LDR R1,[R10,#r_caddr]
+ CMP R1,#&8000
+ BLHS lose_vdu_fonts		; lose them if not from our handle
+ LDR R0,[R10,#r_workarea]
+ TEQ R0,#0
+ MOVNE R11,#0
+ MOVS R0,R11
+ BLNE cache_free		; free workarea if in cache and we have some
+ MOVS R0,R9			; restore error pointer, if any
+ FNRTS EQ
  FNRTV
 
-losefonts$l
- FNJSR
- LDR R0,[R10,#r_flags]		; flags
- TST R0,#1<<3
- BEQ completelylost$l
- LDRB R0,[R11,#a_spr2 + 1]	; bold font
- TEQ R0,#0
- SWINE XFont_LoseFont
-; FNRTS VS
- LDRB R0,[R11,#a_spr2 + 2]	; italic font
- TEQ R0,#0
- SWINE XFont_LoseFont
-; FNRTS VS
- LDRB R0,[R11,#a_spr2 + 3]	; bold italic font
- TEQ R0,#0
- SWINE XFont_LoseFont
-; FNRTS VS
-completelylost$l
- LDRB R0,[R11,#a_spr2]		; font
- TEQ R0,#0
- SWINE XFont_LoseFont
+
+; draw top margin
+tmargin$l
+ FNJSR "R1-R3,R5"
+ LDR R1,[R10,#r_palette]
+ LDR R2,[R10,#r_bac]
+ LDR R1,[R1,R2,LSL #2]
+ STR R1,[R11,#a_stack4]		; initial bg colour
+
+ LDR R1,[R11,#a_x4]
+ ADD R6,R4,R1			; top of redraw area
+ LDR R3,[R10,#r_minx]
+ LDR R2,[R10,#r_maxx]
+ LDR R1,[R10,#r_magx]
+ MOV R7,R2,LSL R1		; maxx of window
+ MOV R3,R3,LSL R1
+ LDR R1,[R10,#r_magy]
+ RSB R0,R0,#0			; margin size in pixels
+ SUB R5,R6,R0,LSL R1		; miny of margin
+ LDR R0,[R10,#r_flags]
+ TST R0,#rf_transparent
+ LDRNE R1,[R11,#a_x4]
+ SUBNE R4,R5,R1			; new miny
+ FNRTS NE
+ TST R0,#rf_realvdu
+ BEQ tmosplot$l
+
+ BL get_col_num_in_r4
+ MOV R0,R3
+ MOV R1,R5
+ MOV R2,R7
+ MOV R3,R6
+ BLVC toplotrect
+ LDRVC R1,[R11,#a_x4]
+ SUBVC R4,R5,R1			; new miny
  FNRTS
 
-negativekludge$l
- FNJSR "R3" ; ,R4"		; is R4 needed?
-; MOV R0,#&400			; no effect
- BL vdu_clear_bac2		; 'clear' the background
+tmosplot$l
+ MOV R2,R5
+ MOV R1,R3
+ MOV R0,#4
+ SWI XOS_Plot
+ BLVC vdu_set_colours
+ MOVVC R1,R7
+ MOVVC R2,R6
+ MOVVC R0,#96+7
+ SWIVC XOS_Plot
+ LDRVC R1,[R11,#a_x4]
+ SUBVC R4,R5,R1			; new miny
  FNRTS
+
 
 notcreatedalready$l
  BL sprite_create		; create the sprite area etc
  BVC createdalready$l
  B end$l
 
+ LOCAL
+
+
+; get the font handles - either from the block or find them now
+; E r10 -> redraw block
+; X r1 contains value for a_ext2
+get_vdu_fonts
+ LDR R3,[R10,#r_caddr]
+ CMP R3,#0			; (NOT a font handle, system font) - sets C
+ CMPNE R3,#&8000
+ MOVCC PC,R14			; alrady done in handle_to_name
+ MOV R0,R3			; name pointer
+				; FALL THROUGH
+ LOCAL
+
+; find all the fonts for a font name
+; E r0 -> font name  r2 = r_flags (substyles bit)  a_x1 contains size/a-r
+;   r11 -> workarea
+; X r1 contains value suitable for storing in a_ext2
+;   r8 = first font handle
+find_vdu_fonts			; FALL THROUGH
+ FNJSR "R4-R7,R9"
+ MOV R7,R0
+ MOV R9,#0			; no fonts yet
+ MOV R8,R7
+ MOV R5,#1			; for current mode
+ TEQ R8,#0
+ MOVEQ R1,#0
+ FNRTS EQ			; system font
+ ;LDR R0,[R10,#r_flags]		; flags for no sub-styles...
+ TST R2,#rf_substyles
+ BEQ completelynormal$l
+ ; Italic
+ BL getobliquepath$l
+ BLVC font_findfont		; sets up R8...
+ FNRTS VS
+ TEQ R8,#0
+ BLEQ tryforitalic$l
+ ORRVC R9,R9,R8,LSL #16
+ ; Bold
+ MOVVC R8,R7
+ BLVC getboldpath$l
+ BLVC font_findfont		; sets up R8...
+ FNRTS VS
+ TEQ R8,#0
+ BLEQ tryfortruncatedbold$l
+ ORR R9,R9,R8,LSL #8
+ MOVVC R8,R7
+
+ BLVC getboldobliquepath$l
+ BLVC font_findfont		; sets up R8...
+ FNRTS VS
+ TEQ R8,#0
+ BLEQ tryforbolditalic$l
+ FNRTS VS
+ TEQ R8,#0
+ BLEQ tryfortruncatedboldoblique$l
+ FNRTS VS
+ TEQ R8,#0
+ BLEQ tryfortruncatedbolditalic$l
+ ORRVC R9,R9,R8,LSL #24
+ MOVVC R8,R7
+completelynormal$l
+ BLVC font_findfont		; sets up R8...
+ ORRVC R1,R9,R8
+ FNRTS
+
 ;E R8 = normal path
 ;X R8 = oblique path
 getobliquepath$l
  FNJSR
  MOV R2,R8
- ADD R8,R11,#a_topofvars	; address for sprite area
+ ADD R8,R11,#a_topofvars
  MOV R1,R8
  BL strcpy
  ADR R2,oblique$l
@@ -219,7 +288,7 @@ getobliquepath$l
 getitalicpath$l
  FNJSR
  MOV R2,R8
- ADD R8,R11,#a_topofvars	; address for sprite area
+ ADD R8,R11,#a_topofvars
  MOV R1,R8
  BL strcpy
  ADR R2,italic$l
@@ -231,7 +300,7 @@ getitalicpath$l
 gettruncatedboldpath$l
  FNJSR
  MOV R2,R8
- ADD R8,R11,#a_topofvars	; address for sprite area
+ ADD R8,R11,#a_topofvars
  MOV R1,R8
  BL strcopy
 aroundloop$l
@@ -251,7 +320,7 @@ foundit$l
 getboldpath$l
  FNJSR
  MOV R2,R8
- ADD R8,R11,#a_topofvars	; address for sprite area
+ ADD R8,R11,#a_topofvars
  MOV R1,R8
  BL strcpy
  B foundit$l
@@ -287,14 +356,14 @@ bold$l
 
 tryforitalic$l
  FNJSR
- LDR R8,[R10,#r_caddr]		; font name / 0
+ MOV R8,R7
  BL getitalicpath$l
  BL font_findfont		; sets up R8...
  FNRTS
 
 tryforbolditalic$l
  FNJSR
- LDR R8,[R10,#r_caddr]		; font name / 0
+ MOV R8,R7
  BL getboldpath$l
  SUB R1,R1,#1
  ADR R2,italic$l
@@ -304,14 +373,14 @@ tryforbolditalic$l
 
 tryfortruncatedbold$l
  FNJSR
- LDR R8,[R10,#r_caddr]		; font name / 0
+ MOV R8,R7
  BL gettruncatedboldpath$l
  BL font_findfont		; sets up R8...
  FNRTS
 
 tryfortruncatedbolditalic$l
  FNJSR
- LDR R8,[R10,#r_caddr]		; font name / 0
+ MOV R8,R7
  BL gettruncatedboldpath$l
  SUB R1,R1,#1
  ADR R2,italic$l
@@ -321,13 +390,35 @@ tryfortruncatedbolditalic$l
 
 tryfortruncatedboldoblique$l
  FNJSR
- LDR R8,[R10,#r_caddr]		; font name / 0
+ MOV R8,R7
  BL gettruncatedboldpath$l
  SUB R1,R1,#1
  ADR R2,oblique$l
  BL strcopy
  BL font_findfont		; sets up R8...
  FNRTS
+
+
+ LOCAL
+
+; lose all fonts for current redraw
+; E r0 = a_ext2
+; X
+lose_vdu_fonts
+ FNJSR "R11"
+ MOV R11,R0
+ ANDS R0,R11,#&FF<<8
+ MOV R0,R0,LSR #8
+ SWINE XFont_LoseFont
+ ANDS R0,R11,#&FF<<16
+ MOV R0,R0,LSR #16
+ SWINE XFont_LoseFont
+ MOVS R0,R11,LSR #24
+ SWINE XFont_LoseFont
+ ANDS R0,R11,#&FF
+ SWINE XFont_LoseFont
+ FNRTS				; was FNRTSS
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; VDU redraw of a line					    ;
@@ -348,15 +439,18 @@ vdu_redraw_line
  LDR R0,[R11,#a_stack3]		; start bac colour
  STR R0,[R11,#a_temp1]
  LDR R0,[R11,#a_stack4]		; start bac colour
- STR R0,[R11,#a_ext2]		; Hmm...
+ STR R0,[R11,#a_spr2]		; Hmm...
  BL vdu_set_colours		; set init for/bac
  MOVVC R12,#0			; start off with zero flags
- LDRVC R2,[R11,#a_x3]		; x skip
+ LDRVC R2,[R10,#r_flags]
+ TSTVC R2,#rf_rtol
+ LDRVC R2,[R11,#a_x3]		; charw in os
+ RSBNE R2,R2,#0
  LDRVC R9,[R11,#a_x2]		; number of characters to do
  BLVC vrl_background		; redraw the background
  LDRVC R0,[R11,#a_temp1]
  STRVC R0,[R11,#a_stack3]	; start bac colour
- LDRVC R0,[R11,#a_ext2]
+ LDRVC R0,[R11,#a_spr2]
  STRVC R0,[R11,#a_stack4]	; start bac colour
  BLVC vdu_set_colours		; set init for/bac hmm...
 ; MOVVC R14,#0
@@ -369,7 +463,7 @@ vdu_redraw_line
 
 ;E R3/R4=bottom left of line start R5=chars R6/R7=box offset
 ;  R8=font handle R10=redraw R11=workspace R12=flags
-;  R2=xskip R9=num chars
+;  R2=charw R9=num chars
 ;X Background pass made. R12 updated #
 
 vrl_background
@@ -377,12 +471,23 @@ vrl_background
  ORR R12,R12,#1			; starting background
  LDR R0,[R11,#a_stack4]		; start bac colour
  STR R0,[R11,#a_stack2]		; make it the current colour
+
+ LDR R0,[R10,#r_flags]
+ TST R0,#rf_rtol
+ SUBNE R3,R3,R2			; move to right of char if r->l
  BL vdu_start_bac		; start bac
  FNRTS VS
 
- LDR R0,[R10,#r_scrollx]	; check for -ve offset (hmm...)
+ LDR R0,[R10,#r_scrollx]	; check for -ve offset (for left margin)
  CMP R0,#0
- BLMI vdu_clear_bac		; negativekludge$l
+ BPL nomargin$l
+ LDR R1,[R10,#r_flags]
+ TST R1,#rf_rtol
+ LDR R1,[R10,#r_magx]
+ ADDNE R3,R3,R0,LSL R1
+ SUBEQ R3,R3,R0,LSL R1		; new xmin (after margin)
+
+nomargin$l
  SUB R3,R3,R2
 vrlb_1
  ADD R3,R3,R2			; next character
@@ -410,15 +515,11 @@ vrlb_2
  BL vdu_end_bac
  FNRTS
 
-;negativekludge$l
-; FNJSR "R3"
-; MVNMI R3,#32			; just a small number :(
-; BL vdu_clear_bac		; 'clear' the background
-; FNRTS
+ LOCAL
 
 ;E R3/R4=bottom left of line start R5=chars R6/R7=box offset
 ;  R8=font handle R10=redraw R11=workspace R12=flags
-;  R2=xskip R9=num chars
+;  R2=charw R9=num chars
 ;  Initial colours set up
 ;X Foreground pass made. R12 updated #
 
@@ -426,8 +527,17 @@ vrl_foreground
  FNJSR "R1-R4,R5,R9"		; R4 not incl orig.
  ADD R3,R3,R6			; add on *here* to save time...
  ADD R4,R4,R7
+ LDR R0,[R10,#r_scrollx]
+ CMP R0,#0
+ BPL nomargin$l
+ LDR R1,[R10,#r_flags]
+ TST R1,#rf_rtol
+ LDR R1,[R10,#r_magx]
+ SUBEQ R3,R3,R0,LSL R1		; add on margin offset
+ ADDNE R3,R3,R0,LSL R1		; add on margin offset
+nomargin$l
  ORR R12,R12,#2			; starting foreground
- LDRB R0,[R11,#a_stack1 + 2]		; start font
+ LDRB R0,[R11,#a_stack1 + 2]		; start substyle
  STRB R0,[R11,#a_stack1 + 1]
  BL set_up_first_font		; set init font
  LDR R0,[R11,#a_stack3]		; start foreground colour
@@ -444,30 +554,37 @@ vrlf_4
  BGT vrlf_1			; wasn't one to do
  BIC R12,R12,#2			; finished foreground
  FNRTS
-; B vrlf_2			; wasn't one to do
-; BVC vrlf_1
-; FNRTS
 vrlf_3
  BL vdu_control_char
  FNRTS VS
  CMN R0,#1
  BGT vrlf_4
  BEQ vrlf_1			; done the character
- ;ADD R3,R3,R2			; discarded...?
- ;MLA R3,R2,R9,R3		; end of the line
 vrlf_2
  BIC R12,R12,#2			; finished foreground
  FNRTS
 
+ LOCAL
+
+
 ;E R3/R4=bottom left of line start R5=chars R6/R7=box offset
 ;  R8=font handle R10=redraw R11=workspace R12=flags
-;  R2=xskip R9=num chars
+;  R2=charw R9=num chars
 ;  Initial colours set up
 ;X Background pass made. R12 updated #
 
 vrl_cursors
  FNJSR "R1-R3,R5,R9"
  ORR R12,R12,#4			; starting cursor pass
+ LDR R0,[R10,#r_scrollx]
+ CMP R0,#0
+ BPL nomargin$l
+ LDR R1,[R10,#r_flags]
+ TST R1,#rf_rtol
+ LDR R1,[R10,#r_magx]
+ SUBEQ R3,R3,R0,LSL R1		; add on margin offset
+ ADDNE R3,R3,R0,LSL R1		; add on margin offset
+nomargin$l
  SUB R3,R3,R2			; foreground cols carry on
 vrlc_1
  ADD R3,R3,R2			; next character
@@ -520,8 +637,8 @@ vcc_start
  B vcc_6			; Change foreground colour to f.
  B vcc_7			; Change background colour to b.
  B vcc_8			; Cursor merge of characters x,y.
- B vcc_9			; change font
- B vcc_10			; Switch colour to fg, bac/change font
+ B vcc_9			; change substyle
+ B vcc_10			; Switch colour to for,bac and change substyle
 vcc_end
 
 vcc_1
@@ -533,7 +650,7 @@ vcc_1
 	ADD	R5,R5,#2	; throw away colour changes
  B vcc_1end
 vcc_1bac
- 	ADD	R5,R5,#1	; throw away foreground!?!?
+	ADD	R5,R5,#1	; throw away foreground!?!?
  LDRB R0,[R5],#1		; get background
  BL vdu_new_bac			; change if necessary
 	BVC	vcc_1end
@@ -575,15 +692,11 @@ vcc_4
  MOV R2,R4			; current coords
  MOV R0,#4
  SWI XOS_Plot			; move to correct posn
-; STR R3,local_xstored		; nothing to do with it...
-; STR R4,local_ystored		; nothing to do with it...
  MOVVC R0,R12
  BLVC vdu_merge_characters
  MVNVC R0,#0			; done it
  FNRTS
 vcc_4bac
-; MVN R14,#0
-; STR R14,[R11,#a_stack4]	; blat actual bg colour
  BL vdu_one_bac			; clear a background square
  MVNVC R0,#0			; done it
  FNRTS
@@ -603,14 +716,22 @@ vcc_6
 
 vcc_7
  FNJSR
- ;LDRB R0,[R5],#1
- ;TST R12,#1 ; is this needed? changebackground if bg pass...?
- ;BLNE vdu_new_bac ; stops flicker...?
- ;BL vdu_new_bac
- BL to_colour_setting_bac	; hmm
- ;SWI &107
+ LDRB R0,[R5],#1
+ TST R12,#1
+ BNE justbac7$l
+
+ LDR R14,[R10,#r_palette]
+ LDR R14,[R14,R0,LSL#2]		; 24 bit colour entry
+ TST R12,#2
+ STR R14,[R11,#a_stack4]
+ BLNE vdu_set_colours		; update aa colours now on fg pass
 	BVC	vcc_1end
 	FNRTS
+
+justbac7$l
+ BL vdu_new_bac
+ BVC vcc_1end
+ FNRTS
 
 vcc_8 ; used for cursors and not selection...
  FNJSR "R1-R4,R6-R9"
@@ -618,6 +739,8 @@ vcc_8 ; used for cursors and not selection...
  FNRTS VS
  CMN R0,#1			; already drawn?
  FNRTS EQ
+ CMP R0,#5                      ; }
+ ADDLS R0,R0,#&100		; } see corresponding notes in s.DSARedraw - cl
  CMP R0,#&100
  BCC vcc_8a			; just swap cols
  ORR R12,R12,#1<<3		; set request for a merge pass
@@ -655,17 +778,14 @@ vcc_8a
 vcc_8a_bac
  MOV R1,R9,LSR#8
  AND R1,R1,#&FF			; cursor background
-; MVN R14,#0
-; STR R14,[R11,#a_stack4]	; blat actual bg colour
  LDR R0,[R10,#r_palette]
  LDR R0,[R0,R1,LSL#2]		; 24 bit background
- ;STR R0,[R11,#a_stack4]		; set new colour...???
  BL vdu_given_one_back		; clear the one square
  MVNVC R0,#0			; done it (was B -> vcc_8end)
  FNRTS
 vcc_8a_for
  LDR R0,[R11,#a_stack4]		; start bac colour
- STR R0,[R11,#a_ext2]		; appears to be unused here :-)
+ STR R0,[R11,#a_spr2]		; appears to be unused here :-)
  MOV R1,R9,LSR#8
  AND R1,R1,#&FF			; cursor background
  LDR R0,[R10,#r_palette]
@@ -677,7 +797,7 @@ vcc_8a_for
  LDR R1,[R0,R1,LSL#2]		; 24 bit foreground
  MOV R0,R9,LSR#16		; base character
  BL vdu_given_one_for
- LDR R0,[R11,#a_ext2]		; appears to be unused here :-)
+ LDR R0,[R11,#a_spr2]		; appears to be unused here :-)
  STR R0,[R11,#a_stack4]		; start bac colour was a_stack4...!
  MVNVC R0,#0			; done it (was B -> vcc_8end)
  FNRTS
@@ -800,7 +920,7 @@ vdu_new_bac
 ;X Current colour set - not changed till you draw. #
 
 vdu_new_for
- FNJSR 				; "R1"
+ FNJSR				; "R1"
  LDR R14,[R10,#r_palette]
  LDR R14,[R14,R0,LSL#2]		; 24 bit colour entry
  STR R14,[R11,#a_stack2]	; set as new current colour
@@ -812,87 +932,13 @@ vdu_new_for
 
 ; [ noosplot = {FALSE}
 
-;E R0=number of characters to be printed
-;  R3,R4=os coords of bottom left of first char R11
-;X Background cleared, (+linespacing)
-;  R11=workarea #
-
-to_real_vdu_clear_bac
- PULL R14
- ; fall through...
-
-real_vdu_clear_bac
-real_vdu_clear_bac2
- FNJSR "R1-R2"
- LDR R1,[R11,#a_x3]		; width in os for each char
- MLA R1,R0,R1,R3
- SUB R1,R1,#1
- LDR R2,[R11,#a_x4]		; height in os of the char
- ADD R2,R4,R2
- SUB R2,R2,#1
- MOV R0,#4			; move abs to top right
- SWI XOS_Plot
- MOVVC R0,#96+7			; abs curr bac
- MOVVC R1,R3
- LDRVCB R2,[R11,#a_stack1]
- SUBVC R2,R4,R2			; bottom (inc linesp)
- SWIVC XOS_Plot
- FNRTS
-
-; ]
-
-;E R0=number of characters to be printed
-;  R3,R4=os coords of bottom left of first char R10,R11
-;X Background cleared, (+linespacing)
-
-; [ noosplot = {TRUE}
-
-vdu_clear_bac
- FNJSR ;"R1" ; -R4"
- LDR R14,[R10,#r_flags]
- TST R14,#bit_realvdu
- BEQ to_real_vdu_clear_bac
- LDRB R14,[R11,#a_stack1]
- SUB R14,R4,R14			; bottom (inc linesp)
- STR R14,local_ystored		; OK...
- MOV R14,#0
- STR R14,local_xstored
- FNRTS
-
-vdu_clear_bac2
- LDR R2,[R10,#r_flags]		; shit - corrupts R1 :-(
- TST R2,#bit_realvdu
- BEQ real_vdu_clear_bac2
- FNJSR "R1-R4"
- LDR R1,[R11,#a_x4]		; height in os of the char
- ADD R1,R4,R1
-
- MOV R2,#&8000			; R3 - ignoreing R0=width ???
- LDRB R3,[R11,#a_stack1]
- SUB R3,R4,R3			; bottom (inc linesp)
- BL get_col_num_in_r4
- STRVC R2,local_xstored		; also not the problem...
- STRVC R3,local_ystored		; also not the problem...
- MOVVC R0,#0
-; CMP R1,R3
-; FNRTS LE
- BLVC toplotrect
- FNRTS
-
-; ]
-
-; [ noosplot = {FALSE}
-
 ;E R3/R4=bottom left of the char R11 R12
 ;X Graphics cursor moved to this posn-linesp #
 
 to_real_vdu_start_bac
  PULL "R14"
 real_vdu_start_bac
-; TST R12,#1<<4
-; MOVNE PC,R14
  FNJSR "R1-R3"
-; ORR R12,R12,#1<<4		; starting an operation
  MOV R0,#4			; move...
  MOV R1,R3
  LDRB R2,[R11,#a_stack1]
@@ -914,7 +960,7 @@ vdu_start_bac
  FNJSR
  ORR R12,R12,#1<<4		; starting an operation
  LDR R14,[R10,#r_flags]
- TST R14,#bit_realvdu
+ TST R14,#rf_realvdu
  BEQ to_real_vdu_start_bac
  LDRB R14,[R11,#a_stack1]
  SUB R14,R4,R14
@@ -931,12 +977,9 @@ vdu_start_bac
 ; ;X Filled rectangle drawn in bac col to top left -1 #
 
 real_vdu_end_bac
-; TST R12,#1<<4
-; MOVEQ PC,R14
-; BIC R12,R12,#1<<4
  LDR R0,[R11,#a_ext1]		; start coord
  CMP R0,R3			; have we moved
- MOVGE PC,R14
+ MOVEQ PC,R14
  FNJSR "R1-R4"
  MOV R0,#96+7			; abs curr bac (96=rectangle fill)
  SUB R1,R3,#1
@@ -958,11 +1001,23 @@ vdu_end_bac
  MOVEQ PC,R14
  BIC R12,R12,#1<<4
  LDR R0,[R10,#r_flags]
- TST R0,#bit_realvdu
+ TST R0,#rf_transparent
+ BEQ ok$l
+ PUSH "R2"
+ LDR R0,[R10,#r_bac]
+ LDR R2,[R10,#r_palette]
+ LDR R0,[R2,R0,LSL #2]
+ LDR R2,[R11,#a_stack4]
+ TEQ R0,R2
+ PULL "R2"
+ MOVEQ PC,R14			; don't plot if r_bac value and transparent
+ LDR R0,[R10,#r_flags]
+ok$l
+ TST R0,#rf_realvdu
  BEQ real_vdu_end_bac
  LDR R0,[R11,#a_ext1]		; start coord
  CMP R0,R3			; have we moved
- MOVGE PC,R14
+ MOVEQ PC,R14
  FNJSR "R1-R4"
  SUB R2,R3,#0			; x co-ordinate...
  LDR R14,[R11,#a_x4]		; char height in os
@@ -970,8 +1025,6 @@ vdu_end_bac
  BL get_col_num_in_r4
  LDR R0,local_xstored
  LDR R1,local_ystored
-; STR R2,local_xstored		; also not the problem...
-; STR R3,local_ystored		; also not the problem...
  BL toplotrect
  FNRTS
 
@@ -1041,12 +1094,6 @@ vdu_given_one_back
 ;E R1=new 24 bit colour to make actual R3/R4=pos R11
 ;X R0 preserved if no error #
 
-;vdu_change_col
-; FNJSR "R0"
-; STR R1,[R11,#a_stack3]
-; BL vdu_set_colours
-; FNRTS
-
 exceptional$l
  PUSH "R0"
  STR R1,[R11,#a_stack3]
@@ -1091,16 +1138,16 @@ vdu_redraw_char
  TEQ R0,#0
  MOVEQ R0,#'0'
  CMP R0,#&20
- LDMEQFD R13 !,{PC}		; don't bother to paint spaces...
+ LDMEQFD R13!,{PC}		; don't bother to paint spaces...
  ADDCC R0,R0,#&40
- TEQ R0,#&7F
+ CMP R0,#&7F
  CMPNE R0,#&100
  BCS vrc_2
  TEQ R8,#0
  BEQ vrc_1
  PUSH "R1-R2,R5"
  LDRB R5,[R11,#a_stack1 + 1]	; font name...
- TST R5,#&80
+ TST R5,#ss_underlined
  BNE doitunderlined$l
 dontdoitunderlined$l
 ; ADD R1,R11,#a_temp1	; a_spr1 ; a_temp1
@@ -1108,7 +1155,7 @@ dontdoitunderlined$l
  STR R0,[R1]
  MOV R2,#1<<4
  SWI XFont_Paint
- TST R5,#&01
+ TST R5,#ss_strikethrough	; ok - TST doesn't corrupt V
  LDMEQFD R13!,{R1-R2,R5,PC}
 dostrikethrough
  ADRVC R1,strikethroughon
@@ -1119,28 +1166,24 @@ dostrikethrough
 doitunderlined$l
  CMP R0,#32
  BLE dontdoitunderlined$l
- LDR R14,underlineon
- ORR R14,R14,R0,LSL #24
- ADR R1,local_yuckvdu
-; ADD R1,R11,#a_temp1	; a_spr1 ; a_temp1
- STR R14,[R1]
-; MOV R14,#0		; could speed up...
-; STR R14,[R1,#4]	; at a_spr1 in fact... 1,#a_temp1
+ ADR R1,underlineon
+ STRB R0,[R1,#3]
  MOV R2,#1<<4
  SWI XFont_Paint
  TST R5,#&01
  LDMEQFD R13!,{R1-R2,R5,PC}
- B dostrikethrough
+ BVC dostrikethrough
+ LDMFD R13!,{R1-R2,R5,PC}
 
 underlineon
- = 25,232,24,0
+ = 25,232,16,0		; thickness was 24
+ & 0
 
 strikethroughon
  = 25,70,16,32
  & 0
 
 local_yuckvdu
- & 0
  & 0
 
 vrc_1
@@ -1155,19 +1198,19 @@ vrc_1
  LDMFD R13!,{R1,R2,R7,PC}
 vrc_2
  PUSH "R1-R5"
- SUBS R5,R0,#&100		; &100 -> 0
- BCC vrc_7F
-; MVNCC R5,#0			; &7F -> -1
- CMP R5,#(vrc_end-vrc_start)/4
- LDMGEFD R13!,{R1-R5,PC}
+ MOV R5,R0
  MOV R0,#4
  MOV R1,R3
  MOV R2,R4
- SWI XOS_Plot			; move to bottom left of box
-; LDRVC R3,[R11,#a_x3]		; width
-; LDRVC R4,[R11,#a_x4]		; height
-; SUBVC R1,R3,#1
-; SUBVC R2,R4,#1		; top right rel inc
+ TST R12,#12
+ LDRNE R2,[R11,#a_x4]		; height
+ MOVEQ R2,R4
+ ADDNE R2,R4,R2
+ SWI XOS_Plot			; move to top left of box
+ SUBS R5,R5,#&100		; &100 -> 0
+ BCC vrc_7F
+ CMP R5,#(vrc_end-vrc_start)/4
+ LDMGEFD R13!,{R1-R5,PC}
  ADDVC PC,PC,R5,LSL#2		; dispatch to draw code
  B vrc_7F
 vrc_start
@@ -1179,75 +1222,62 @@ vrc_start
  B vrc_105
 vrc_end
 vrc_7F
- MOV R0,#4
- SUB R1,R3,R6 ; ?
- SUB R2,R4,R7 ; ?
- SWI XOS_Plot			; move to bottom left of box
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
  SUBVC R1,R3,#1
- SUBVC R2,R4,#1			; top right relative inc
-; SUBVC R1,R1,R6 ; ?
-; SUBVC R2,R2,R7 ; ?
-
+ RSBVC R2,R4,#1			; bottom right relative inc
  MOVVC R0,#96+1			; rectangle fill
  SWIVC XOS_Plot
-
  LDMFD R13!,{R1-R5,PC}
 vrc_100
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
- SUBVC R1,R3,#1
  MOVVC R0,#0
  BLVC vrc_right
  MOVVC R0,#1
  BLVC vrc_left
- BLVC vrc_up
+ BLVC vrc_down
  BLVC vrc_right
  LDMFD R13!,{R1-R5,PC}
 vrc_101
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
- SUBVC R1,R3,#1
  MOVVC R0,#1
  BLVC vrc_right
  MOVVC R0,#0
- BLVC vrc_up
+ BLVC vrc_down
  MOVVC R0,#1
  BLVC vrc_left
  LDMFD R13!,{R1-R5,PC}
 vrc_102
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
- SUBVC R1,R3,#1
  MOVVC R0,#1
  BLVC vrc_right
- BLVC vrc_up
+ BLVC vrc_down
  BLVC vrc_left
  LDMFD R13!,{R1-R5,PC}
 vrc_103
  LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
- SUBVC R1,R3,#1
  MOVVC R0,#1
  BLVC vrc_right
- BLVC vrc_up
- BLVC vrc_left
  BLVC vrc_down
+ BLVC vrc_left
+ BLVC vrc_up
  LDMFD R13!,{R1-R5,PC}
 vrc_104
  LDRVC R3,[R11,#a_x3]		; width
-; LDRVC R4,[R11,#a_x4]		; height
- SUBVC R1,R3,#1
+ LDRVC R4,[R11,#a_x4]		; height
+ MOVVC R0,#0
+ BLVC vrc_down
  MOVVC R0,#1
  BLVC vrc_right
  LDMFD R13!,{R1-R5,PC}
 vrc_105
-; LDRVC R3,[R11,#a_x3]		; width
  LDRVC R4,[R11,#a_x4]		; height
- SUBVC R2,R4,#1			; top right rel inc
  MOVVC R0,#1
- BLVC vrc_up
+ BLVC vrc_down
  LDMFD R13!,{R1-R5,PC}
 
 ;E R0=plot code
@@ -1276,9 +1306,7 @@ vrc_down
 vrc_main
  FNJSR "R0"			; assumes one thing on stack below
  SWI XOS_Plot
- FNRTS ;VC
-; LDMFD R13!,{R14}		; and is /very/ dodgy - TT.
-; LDMFD R13!,{PC}
+ FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; VDU merging						    ;
@@ -1296,36 +1324,25 @@ vrc_main
 ;X Masked bit of merged sprite plotted #
 
 vdu_merge_characters
- FNJSR "R1-R5"
+ FNJSR "R1-R9"			; was -R11
  MOV R5,#1 ; 1			; current mode
  MOV R4,R0			; save mask character
- MOV R0,#&82			; ouput to mask + save
+ MOV R0,#&82			; output to mask + save
  ADD R1,R11,#a_topofvars	; sprite area
  BL sprite_output
- FNRTS VS
- BL vdu_mask_colours
- BVS vmc_1
- MOV R0,#16			; CLG - background colour...
- SWI XOS_WriteC
- BVS vmc_1
- MOV R0,R4			; character
-; MOV R3,#0
-; MOV R4,#0
- MOV R3,R6
- MOV R4,R7
- BL call_vdu_redraw_char	; draw the mask character
- BVS vmc_1
- MOV R0,#1
- ADD R1,R11,#a_topofvars
- BL sprite_output		; switch output to main sprite
- BVS vmc_1
- BL colour_setting_up
- BVS vmc_1
- MOV R0,#16
- SWI XOS_WriteC			; CLG - background colour...
- BVS vmc_1
- MOV R0,R9,LSR#16		; base character
- BL call_vdu_redraw_char	; draw the base character
+ BLVC vdu_mask_colours
+ SWIVC XOS_WriteI+16		; CLG - background colour...
+ MOVVC R0,R4			; character
+ MOVVC R3,R6
+ MOVVC R4,R7
+ BLVC call_vdu_redraw_char	; draw the mask character
+ MOVVC R0,#1
+ ADDVC R1,R11,#a_topofvars
+ BLVC sprite_output		; switch output to main sprite
+ BLVC colour_setting_up
+ SWIVC XOS_WriteI+16		; CLG - background colour...
+ MOVVC R0,R9,LSR#16		; base character
+ BLVC call_vdu_redraw_char	; draw the base character
  BVS vmc_1
  MOV R0,#0
  BL sprite_output		; restore output to screen
@@ -1340,9 +1357,8 @@ vmc_1
  ADDS R5,R0,#0			; save error and clv
  MOV R0,#0
  BL sprite_output		; restore
- FNPULL
- MOVVC R0,R5
- ORRS PC,R14,#Vbit
+ MOV R0,R5			; was VC
+ FNRTV
 
 to_colour_setting_bac
 	LDRB	R0,[R5],#1	; for col
@@ -1352,39 +1368,19 @@ to_colour_setting_bac
 to_colour_setting_both		; change fg and bg colours...
  FNJSR "R0-R2,R8,R9,R10"
  LDRB R0,[R5],#1		; for col
- AND R0,R0,#&FF			; bac zap colour ; ???
  BL vdu_new_for
  LDRVC R14,[R10,#r_palette]
  LDRVC R0,[R14,R0,LSL#2]
  STRVC R0,[R11,#a_stack3]		; new for colour
 
  LDRVCB R0,[R5],#1			; for col
- ANDVC R0,R0,#&FF			; bac zap colour ; ???
+ ;ANDVC R0,R0,#&FF			; bac zap colour ; ???
  LDRVC R14,[R10,#r_palette]
  LDRVC R0,[R14,R0,LSL#2]
  STRVC R0,[R11,#a_stack4]		; new bac colour
  MOVVC R8,#1
  BLVC vdu_set_colours
  FNRTS
-
-;to_colour_setting_both2		; change fg and bg colours...
-; FNJSR "R0-R2,R5,R8,R9,R10"
-; LDRB R0,[R5],#1		; for col
-; ;AND R0,R0,#&FF			; bac zap colour
-; BL vdu_new_for
-; FNRTS VS
-; LDR R14,[R10,#r_palette]
-; LDR R0,[R14,R0,LSL#2]
-; STR R0,[R11,#a_stack3]		; new for colour
-;
-; LDRB R0,[R5],#1		; for col
-; ;AND R0,R0,#&FF			; bac zap colour
-; LDR R14,[R10,#r_palette]
-; LDR R0,[R14,R0,LSL#2]
-; STR R0,[R11,#a_stack4]		; new bac colour
-; MOV R8,#1
-; BL vdu_set_colours
-; FNRTS
 
 ;E R9 = fgcol/bgcol R10 and R11...
 colour_setting_up
@@ -1405,34 +1401,22 @@ colour_setting_up
 ;X Colours set to background 0 and foreground num_cols-1 #
 
 vdu_mask_colours
- FNJSR "R1-R4"
- MOV R1,#1
- LDR R0,[R10,#r_bpp]
- MOV R0,R1,LSL R0
- MOV R2,R1,LSL R0		; number of colours
- ADR R0,vmc_0
- MOV R1,#25
- SWI XOS_WriteN			; set graphics colours
- FNRTS VS
- SUB R0,R2,#1			; max col number
- CMP R0,#63
- MOVCS R0,#63			; clip to 63 (other bits in tint)
- SWI XOS_WriteC			; complete foreground colour
- FNRTS VS
- TEQ R8,#0			; font ?
- FNRTS EQ
- MOV R0,#0
- MOV R1,#0
- SUB R2,R2,#1
- MOV R3,#0
- SWI XFont_SetFontColours
- FNRTS
-vmc_0
- = 18,0,128			; back col 0
- = 23,17,3,0,0,0,0,0,0,0	; back tint 0
- = 23,17,2,255,0,0,0,0,0,0	; for tint 255
- = 18,0				; for col to be set
- ALIGN
+	FNJSR	"R1"
+	ADR	R0,mask$l
+	MOV	R1,#mask_end$l-mask$l
+	SWI	XOS_WriteN
+	MOVVC	R0,#0		; current font
+	MOVVC	R1,#0		; background
+	MOVVC	R2,#1		; foreground
+	MOVVC	R3,#0		; last colour offset
+	SWIVC	XFont_SetFontColours
+	FNRTS
+mask$l	= 18,0,128
+	= 18,0,63
+	= 23,17,2,0,0,0,0,0,0,0
+	= 23,17,3,255,0,0,0,0,0,0
+mask_end$l
+	ALIGN
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Calculate VDU arguments				    ;
@@ -1455,18 +1439,25 @@ calculate_vdu
  LDR R0,[R10,#r_scrollx]
  LDR R1,[R10,#r_charw]
  CMP R0,#0			; fix
- RSBMI R0,R0,#0			; fix
+ MOVMI R0,#0			; account for left margin
  MOV R4,R1			; save charw
  BL div_mod
- LDR R7,[R10,#r_scrollx]	; fix
- CMP R7,#0			; fix
- RSBMI R0,R0,#0			; fix
- RSBMI R2,R2,#0			; fix
  STR R0,[R11,#a_x5]		; scroll offset in chars
- LDR R7,[R10,#r_minx]
- SUB R7,R7,R2			; actual min x
+ LDR R7,[R10,#r_flags]
+ TST R7,#rf_rtol
+ LDRNE R7,[R10,#r_maxx]
+ SUBNE R1,R4,R2
+ SUBNE R7,R7,R1
+ LDREQ R7,[R10,#r_minx]
+ SUBEQ R7,R7,R2			; start of char
+ LDR R1,[R10,#r_minx]
+ SUB R1,R1,R2			; actual min x
  LDR R0,[R10,#r_maxx]
- SUB R0,R0,R7
+ SUB R0,R0,R1
+ LDR R1,[R10,#r_scrollx]
+ CMP R1,#0
+ ADDMIS R0,R0,R1		; subtract margin from width
+ MOVMI R0,#0
  MOV R1,R4
  BL div_mod
  TEQ R2,#0
@@ -1483,6 +1474,8 @@ calculate_vdu
  STR R0,[R11,#a_x4]		; char height in os
  ADD R4,R4,R1			; total character height
  LDR R0,[R10,#r_scrolly]
+ CMP R0,#0
+ MOVMI R0,#0			; account for top margin
  MOV R1,R4
  BL div_mod
  MOV R8,R0			; save scroll offset in lines
@@ -1490,6 +1483,10 @@ calculate_vdu
  SUB R5,R5,R2			; real min y
  LDR R0,[R10,#r_maxy]
  SUB R0,R0,R5
+ LDR R1,[R10,#r_scrolly]
+ CMP R1,#0
+ ADDMIS R0,R0,R1		; correct height for margin
+ MOVMI R0,#0
  MOV R1,R4
  BL div_mod
  TEQ R2,#0
@@ -1523,8 +1520,16 @@ calculate_x_scroll_vdu
  MOV R1,R5			; start of text
  LDR R2,[R10,#r_for]		; start foreground
  LDR R3,[R10,#r_bac]		; start background
- MOV R4,#&10			; start font...
+ LDR R4,[R10,#r_caddr]
+ CMP R4,#&8000
+ ANDLO R4,R4,#&FF		; start font from handle
+ MOVHS R4,#&10			;  otherwise plain
+ [ MARGINS = EMPTY
+ TEQ R0,#0			; use current if in margin
+ BLNE find_character		; move to nth char
+ |
  BL find_character		; move to nth char
+ ]
  MOV R5,R1			; new first character
  LDR R1,[R10,#r_palette]
  LDR R2,[R1,R2,LSL#2]
@@ -1542,14 +1547,14 @@ set_up_first_font
  FNJSR
  AND R14,R0,#&60
  TEQ R14,#&20
- LDRB R8,[R11,#a_spr2]		; normal font
- LDREQB R8,[R11,#a_spr2 + 1]	; bold font
+ MOV R8,#0
+ LDREQB R8,[R11,#a_ext2 + 1]	; bold font
  TEQ R14,#&40
- LDREQB R8,[R11,#a_spr2 + 2]	; italic font
+ LDREQB R8,[R11,#a_ext2 + 2]	; italic font
  TEQ R14,#&60
- LDREQB R8,[R11,#a_spr2 + 3]	; bold italic font
+ LDREQB R8,[R11,#a_ext2 + 3]	; bold italic font
  TEQ R8,#0
- LDREQB R8,[R11,#a_spr2]	; normal font
+ LDREQB R8,[R11,#a_ext2]	; normal font
  MOV R0,R8
  SWI XFont_SetFont
  FNRTS
@@ -1580,6 +1585,9 @@ font_findfont
  MOVEQ R3,R2			; x size = y size
  TEQ R5,#2
  BNE ff_0			; finished getting size
+ LDR R0,[R10,#r_mode]
+ CMP R0,#256
+ BHS ff_0			; don't scale if using deep sprites
  LDR R0,[R10,#r_magx]
  RSBS R0,R0,#1
  MOVGT R2,R2,LSL R0		; double size
@@ -1592,8 +1600,6 @@ ff_0
  MOV R5,#0			; default resolution
  SWI XFont_FindFont
  MOVVC R8,R0			; font handle
-; CMP R8,#255
-; SWICS &107
  MOVVS R8,#0
  SUBS R14,R14,R14		; clv - don't report as an error
  FNRTS
@@ -1677,6 +1683,8 @@ sprite_get_size
  MOV R1,R1,LSL R0		; number of colours
  CMP R1,#16
  MOVCS R1,#16			; clip to 16 palette regs
+ CMP R0,#8
+ MOVHI R1,#0			; or 0 if >8bpp
  MOV R1,R1,LSL#3		; 8 bytes per register
  ADD R0,R1,R2,LSL#1		; palette+image+mask
  ADD R0,R0,#&3C			; 44 bytes sprite head +16 area
@@ -1714,13 +1722,61 @@ sprite_create
  STR R0,[R6,#&30]		; offset to sprite image
  ADD R0,R0,R2
  STR R0,[R6,#&34]		; offset to mask
- TEQ R5,#2
- LDRNE R0,[R10,#r_mode]
- MOVEQ R0,#0
+ ;TEQ R5,#2
+ ;LDRNE R0,[R10,#r_mode]
+ ;MOVEQ R0,#0
+ LDR R0,[R10,#r_mode]
+	CMP	R0,#256
+	BLO	shallow$l	; not a mode descriptor
+	TST	R0,#1
+	BNE	shallow$l	; is already in the right format
+	MOV	R1,#3
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	TEQ	R5,#2
+	MOVEQ	R2,#1
+	MOV	R3,#1:OR:4<<27	; assume 8bpp
+	TEQ	R2,#1
+	MOVEQ	R3,#1:OR:1<<27	; 1bpp
+	TEQ	R2,#3
+	MOVEQ	R3,#1:OR:2<<27	; 2bpp
+	TEQ	R2,#15
+	MOVEQ	R3,#1:OR:3<<27	; 4bpp
+	CMP	R2,#256
+	MOVHS	R3,#1:OR:5<<27	; 16bpp (15bit)
+	CMP	R2,#65536
+	MOVHS	R3,#1:OR:6<<27	; 32bpp (24bit)
+	MOV	R1,#4
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	CMP	R2,#3
+	MOVHS	R2,#2
+	ADR	R14,res$l
+	LDRB	R14,[R14,R2]	; translate eigenvalues to pixels/inch
+	ORR	R3,R3,R14,LSL #1
+	MOV	R1,#5
+	SWI	XOS_ReadModeVariable
+	FNRTS	VS
+	CMP	R2,#3
+	MOVHS	R2,#2
+	ADR	R14,res$l
+	LDRB	R14,[R14,R2]	; translate eigenvalues to pixels/inch
+	ORR	R0,R3,R14,LSL #14
+shallow$l
  STR R0,[R6,#&38]		; mode sprite defined in
+ TEQ R5,#2
+ LDRNE R1,[R10,#r_bpp]		; actually log2 bpp
+ MOVEQ R1,#0
+ CMP R1,#3                      ; > 8bpp?
+ BHI sp_3			; no palette :-)
  ADD R6,R6,#&3C			; start of palette
+	TEQ	R1,#0
  BEQ sp_1			; create a mode 0 palette
- MOV R5,R1,LSR#3		; number of palette entries
+ MOV R5,#1
+ MOV R5,R5,LSL R1		; bpp
+ MOV R5,R5,LSL R1		; number of colours
+ CMP R5,#16
+ MOVHS R5,#16			; number of palette entries
  MOV R7,#0			; current colour
 sp_2
  MOV R0,R7
@@ -1733,18 +1789,14 @@ sp_2
  BCC sp_2
  B sp_3
 sp_1
- ADR R1,sp_mode0
- MOV R2,R6
- MOV R3,#16
- BL move_bytes
+	MOV	R1,#&10
+	MOV	R2,#&FFFFFF10
+	STR	R1,[R6]
+	STMIB	R6,{R1,R2}
+	STR	R2,[R6,#12]
 sp_3
  MOV R0,R4			; number of bytes per sprite line
  FNRTS
-sp_mode0
- DCD &00000010
- DCD &00000010
- DCD &FFFFFF10
- DCD &FFFFFF10
 
 sprite_area
  DCD 0				; &00 size (filled in later)
@@ -1762,6 +1814,8 @@ sprite_area
  DCD 0				; offset to mask (filled later)
  DCD 0				; mode defined in
 sprite_area_end
+
+res$l	=	180, 90, 45, 0
 
 ;E R0=b0-b6 0=restore output 1=to sprite 2=to mask
 ;     b7    Set if old R0-R3 should be saved for restoring
@@ -1791,11 +1845,22 @@ sprite_output
  STMNEIA R14,{R0-R3}		; save old values
  SWI XColourTrans_InvalidateCache
  FNRTS VS
- TST R4,#&7F			; were we restoring?
- FNRTS EQ
- MOV R0,#5
- SWI XOS_WriteC			; VDU 5
- FNRTS
+ TST R4,#&7F
+	FNRTS	EQ
+	LDR	R1,[R13]
+	LDRB	R14,[R1,#36]
+	CMP	R14,#8
+	BLS	noheight$l
+	ADR	R0,height$l
+	MOV	R1,#11
+	SWI	XOS_WriteN
+	FNRTS
+noheight$l
+	SWI	XOS_WriteI+5		; VDU 5
+	FNRTS
+height$l
+	= 23,17,7,6,8,0,16,0,0,0,5
+	ALIGN
 
 ;E R5=mode (1=current 2=mode0)
 ;  R1=background R2=foreground (24 bit) (ignored if R5=2)
@@ -1813,58 +1878,23 @@ sprite_set_cols
  MOV R3,#0
  MOV R4,#0			; gcol action
  SWI XColourTrans_SetGCOL
-; FNRTS VS
-; LDRVC R0,[R11,#a_stack4]	; bac ????????????????????????
  MOVVC R0,R6
  STRVC R6,[R11,#a_stack4]	; bac ???
  MOVVC R3,#&80
  MOVVC R4,#0
  SWIVC XColourTrans_SetGCOL
- FNRTS VS
  TEQ R8,#0			; no font?
  FNRTS EQ
- MOV R0,#0			; current font
- MOV R1,R6
- MOV R2,R7
- MOV R3,#14			; max for col offset
- SWI XColourTrans_SetFontColours
+ MOVVC R0,#0			; current font
+ MOVVC R1,R6
+ MOVVC R2,R7
+ MOVVC R3,#14			; max for col offset
+ SWIVC XColourTrans_SetFontColours
  FNRTS
 ssc_0
- ADR R0,ssc_1
- MOV R1,#6
- SWI XOS_WriteN			; bac=0 for=1
- FNRTS VS
- TEQ R8,#0
- FNRTS EQ
- MOV R0,#0			; current font
- MOV R1,#0			; background
- MOV R2,#1			; foreground
- MOV R3,#0			; last colour offset
- SWI XFont_SetFontColours
- FNRTS
-ssc_1 = 18,0,128,18,0,1
- ALIGN
+	FNPULL
+	B	vdu_mask_colours
 
-;E R0=spritearea containing sprite with mask
-;X mask inverted #
-
-sprite_invert_mask
- FNJSR "R1,R2"
- ADD R1,R0,#&10			; start of sprite
- LDR R0,[R1,#&24]		; offset to mask
- ADD R2,R1,R0			; address of mask
- LDR R0,[R1,#&10]		; width in words -1
- LDR R1,[R1,#&14]		; height in lines -1
- ADD R0,R0,#1
- ADD R1,R1,#1
- MUL R1,R0,R1			; size in words
-sim_1
- LDR R0,[R2]
- MVN R0,R0
- STR R0,[R2],#4
- SUBS R1,R1,#1
- BGT sim_1
- FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Darren Salt's fast rectangle plotter ;
@@ -1932,76 +1962,40 @@ toplotrect
  MOV R3,R3,ASR R5
 
  CMP R0,R2
-; BEQ beepprob
  MOVGE R6,R0			; if WWW then swap them...
  MOVGE R0,R2
  MOVGE R2,R6
 
  LDR R6,GWLCol			; clip left
-; CMP R6,#0
-; MOVMI R6,#0
-; CMP R2,R6
-; BLT beepprob
  CMP R0,R6
  MOVLT R0,R6
 
  LDR R6,GWRCol			; clip right
-; ADD R6,R6,#1
-; CMP R0,R6
-; BGT beepprob
  CMP R2,R6
  ADDGT R2,R6,#1
 
-; ; Overkill...
-; CMP R0,R2
-; BGE beepprob
-;  MOVGE R6,R0			; if WWW then swap them...
-;  MOVGE R0,R2
-;  MOVGE R2,R6
-
-; SUB R14,R2,R0			; bugfix :-(
-; CMP R14,#12			; bugfix :-(
-; ADDLT R2,R0,#12		; bugfix :-(
-
  CMP R3,R1			; if WWW then swap them...
-; BEQ beepprob
  MOVGE R6,R3
  MOVGE R3,R1
  MOVGE R1,R6
 
  LDR R6,GWBRow			; clip bottom
-; CMP R6,#0
-; MOVMI R6,#0
-; CMP R1,R6
-; BLT beepprob
  CMP R3,R6
  MOVLT R3,R6
 
  LDR R6,GWTRow			; clip top
-; ADD R6,R6,#1
-; CMP R3,R6
-; BGT beepprob
  CMP R1,R6
  ADDGT R1,R6,#1
 
-; CMP R3,R1			; if WWW then swap them...
-; BGE beepprob
-; ; BEQ beepprob
-;  MOVGE R6,R3
-;  MOVGE R3,R1
-;  MOVGE R1,R6
-
  LDR R5,[R10,#r_ysize]
-; SUB R5,R5,#1
  SUB R1,R5,R1
  SUB R3,R5,R3
 
- BL plotrect
- FNRTS
+ TEQ R1,R3			; don't allow the trivial case
+ TEQNE R0,R2
 
-;beepprob
-; SWI &107
-; FNRTS
+ BLNE plotrect
+ FNRTS
 
 ; R0 = left   X (inclusive)
 ; R1 = top    Y (inclusive)
@@ -2014,9 +2008,14 @@ toplotrect
 ; internally:
 ; R1 number of rows to go...
 ; R11 screenend...
+; (or ViewFinder is used)
 
 plotrect
  FNJSR
+	LDR	R14,[R12,#viewfinder_select]
+	TEQ	R14,#0
+	FNPULL	NE
+	BNE	to_vf_plot_rect
  LDR R5,depth
  MOV R0,R0,LSL R5               ; -> start bit position on row
  MOV R2,R2,LSL R5               ; -> end ...
@@ -2031,10 +2030,10 @@ plotrect
  SUB R1,R3,R1
  ADD R0,R0,#31
  MOV R2,R2,LSR #5
- SUBS R0,R2,R0,LSR #5    	; no. of full words to plot
+ SUBS R0,R2,R0,LSR #5   	; no. of full words to plot
  TEQEQ R6,#0
  MOVEQ R6,#32
- BLE plot_narrow_rect    	; ... <=32 bits wide & within one word
+ BLE plot_narrow_rect   	; ... <=32 bits wide & within one word
  MOV R8,R4
  MOV R9,R4
  MOV R10,R4
@@ -2159,20 +2158,20 @@ local_linecount
 
 ; ]
 
-;osplot__
-; MOV 0,#4
-; MOV 1,4
-; MOV 2,5
-; SWI OS_Plot
-; MOV 0,#97
-; MOV 1,6
-; MOV 2,7
-; SWI OS_Plot
-; MOVS PC,14
-
-; GCOL 85,170,255
-; Upper left corner, measured in pixels from screen top left
-; Size, measured in pixels
-; Number of rectangles to plot (of each type)
+to_vf_plot_rect
+	FNJSR	"R0-R5"
+	SUBS	R2,R2,R0
+	SUBGTS	R3,R3,R1
+	FNRTS	LE		; sanity check
+	MOV	R5,R4
+	MOV	R4,#0
+	MOV	R6,#-1
+	STMFD	R13!,{R0-R6}
+	MOV	R0,#2:OR:9<<28
+	MOV	R1,R13
+	SWI	XViewFinder_Draw
+	ADD	R13,R13,#7*4
+	STRVS	R0,[R13]
+	FNRTS
 
  END

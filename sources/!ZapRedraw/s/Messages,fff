@@ -1,0 +1,67 @@
+; Contains code to call MessageTrans
+; $Id: Messages,fff,v 1.2 2002/01/18 21:36:30 ds Exp $
+
+ GET h.ZapRedHdr
+
+ EXPORT messages_init
+ EXPORT messages_kill
+ EXPORT messages_lookup
+ EXPORT messages_error
+
+
+; initialise the messages structure
+; E r0 -> messages filename
+; X
+messages_init	FNJSR					; svc mode
+		MOV	R1,R0
+		;MOV	R1,R0
+		;SWI	XMessageTrans_FileInfo
+		;TST	R0,#1
+		;BEEP	NE
+		ADD	R0,R12,#messages_structure
+		;MOV	R1,R11
+		MOV	R2,#0				; use RMA (may already be open)
+		SWI	XMessageTrans_OpenFile
+		FNRTS
+
+		LOCAL
+
+
+; close the messagetrans file
+; E
+; X
+messages_kill	FNJSR					; svc mode
+		ADD	R0,R12,#messages_structure
+		SWI	XMessageTrans_CloseFile
+		FNRTS
+
+		LOCAL
+
+
+; lookup a messagetrans token
+; E r0 -> token  r4-r7 parameters
+; X r0 -> translation
+messages_lookup	FNJSR					; svc mode
+		MOV	R1,R0
+		ADD	R0,R12,#messages_structure
+		ADD	R2,R12,#buffer
+		MOV	R3,#256
+		SWI	XMessageTrans_Lookup
+		MOVVC	R0,R2
+		FNRTS
+
+		LOCAL
+
+
+; lookup an error message
+; E r0 -> error block  r4-r7 parameters
+; X
+messages_error	FNJSR	"R1-R3"				; svc mode
+		ADD	R1,R12,#messages_structure
+		ADD	R2,R12,#buffer			; since it's available
+		MOV	R3,#256
+		SWI	XMessageTrans_ErrorLookup
+		FNRTS					; ... with V set
+
+
+ END

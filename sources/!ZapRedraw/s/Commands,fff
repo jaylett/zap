@@ -1,0 +1,764 @@
+; Contains the module command table
+; $Id: Commands,fff,v 1.2 2002/01/18 21:36:30 ds Exp $
+
+ GET h.ZapRedHdr
+ GET h.ZapRedraw
+ GET h.Messages
+ GET h.Cache
+
+ EXPORT command_table
+
+command_table	=	|zap$|:CC:"FontTidy",0
+		ALIGN
+		DCD	com_tidy
+		DCD	1<<28
+		DCD	syn_tidy
+		DCD	hlp_tidy
+
+		=	|zap$|:CC:"FontList",0
+		ALIGN
+		DCD	com_list
+		DCD	1<<28
+		DCD	syn_list
+		DCD	hlp_list
+
+		[ |zap$| = "ZapX"			; debugging commands
+		=	"ZapXFontDescribe",0
+		ALIGN
+		DCD	com_describe
+		DCD     0
+		DCD	syn_describe
+		DCD	hlp_describe
+
+		=	"ZapXFontDie",0
+		ALIGN
+		DCD	com_die
+		DCD     0
+		DCD	syn_die
+		DCD	hlp_die
+
+		=	"ZapXFontDebug",0
+		ALIGN
+		DCD	com_debug
+		DCD     0
+		DCD	syn_debug
+		DCD	hlp_debug
+		]
+
+		DCD	0
+
+
+hlp_tidy	=	"HZRDTDY",0
+syn_tidy	=	"SZRDTDY",0
+hlp_list	=	"HZRDLST",0
+syn_list	=	"SZRDLST",0
+
+		[ |zap$| = "ZapX"
+hlp_describe	=	"*",27,0," describes the font blocks in the cache",13
+syn_describe	=	27,1,0
+hlp_die		=	"*",27,0," kills all font handles, without releasing their "
+		=	"memory, so that the module may die",13
+syn_die		=	27,1,0
+hlp_debug	=	"*",27,0," prints the value of the variable 'debug'",13
+syn_debug	=	27,1,0
+
+		ALIGN
+		]
+
+
+com_tidy	LDR	R12,[R12]
+		B	tidy_cache
+
+		LOCAL
+
+
+; list the font blocks in the cache (only the more useful information, and neatly)
+
+com_list	FNJSR
+		LDR	R12,[R12]
+		BL	newline
+		FNRTS	VS
+
+		MOV	R11,#7
+		ADR	R10,tabs$l
+		ADR	R9,titles$l
+loop1$l		CMP	R11,#3
+		ADREQ	R10,tabs$l
+		BLEQ	newline
+		LDRVCB	R0,[R10],#1
+		BLVC	tabulate
+		LDRVC	R1,[R9,R11,LSL #2]
+		ADDVC	R0,R12,#buffer
+		STRVC	R1,[R0]
+		MOVVC	R1,#0
+		STRVCB	R1,[R0,#4]
+		BLVC	messages_lookup
+		BLVC	write
+		FNRTS	VS
+		SUBS	R11,R11,#1
+		BPL	loop1$l
+
+		MOV	R11,#-1
+		ADD	R10,R12,#font_handles
+		ADR	R9,tabs$l
+
+loop2$l		ADD	R11,R11,#1
+		CMP	R11,#handles-1
+		BEQ	done$l
+		LDR	R8,[R10,R11,LSL #2]
+		TEQ	R8,#0				; no font in this handle
+		BEQ	loop2$l
+
+		BL	newline
+
+		ADDVC	R0,R11,#1			; handle number
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		LDRVCB	R1,[R9]
+		SUBVC	R1,R1,#2
+		BLVC	writer
+
+		SWIVC	&12E				; '.'
+		SWIVC	&120				; ' '
+		FNRTS	VS
+		FNLDR	R0,temp
+		ADD	R0,R0,#2
+		FNSTR	R0,temp
+
+		LDR	R0,[R8,#fb_name]		; name
+		TEQ	R0,#0
+		BLEQ	getsys$l
+		BLVC	write
+
+		LDRVCB	R0,[R9,#1]
+		BLVC	tabulate
+
+		LDRVC	R0,[R8,#fb_charw]		; size
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		BLVC	write
+		FNLDR	R0,temp
+		ADD	R0,R0,#1
+		FNSTR	R0,temp
+		SWI	&20178				; 'x'
+		LDRVC	R0,[R8,#fb_charh]
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		BLVC	write
+
+		LDRVCB	R0,[R9,#2]
+		BLVC	tabulate
+
+		LDRVC	R0,[R8,#fb_usage]		; use
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		BLVC	write
+
+		LDRVCB	R0,[R9,#3]
+		BLVC	tabulate
+
+		MOVVC	R0,R8				; cache memory
+		BLVC	count_font_block
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#16
+		SWIVC	XOS_ConvertFixedFileSize
+		BLVC	write
+
+		BVC	loop2$l
+		FNRTS
+
+done$l		BLVC	newline
+		BLVC	newline
+
+		ADRVC	R0,size$l			; cache size
+		BLVC	messages_lookup
+		BLVC	write
+		FNLDR	R11,temp,VC
+		SWIVC	&120
+		FNLDR	R0,cache_size,VC
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#16
+		SWIVC	XOS_ConvertFixedFileSize
+		BLVC	write
+
+		BLVC	newline
+
+		ADRVC	R0,free$l			; cache free mem
+		BLVC	messages_lookup
+		MOVVC	R1,R11
+		BLVC	writer				; align colons
+		FNLDR	R11,temp,VC
+		SWIVC	&120
+		BLVC	cache_count_free
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#16
+		SWIVC	XOS_ConvertFixedFileSize
+		BLVC	write
+
+		SWIVC	XOS_NewLine
+		FNRTS
+
+tabs$l		= 5,32,40,48				; tab stops
+titles$l        = "CBar"
+		= "UBar"
+		= "SBar"
+		= "NBar"
+         	= "CMem"
+		= "UseH"
+		= "Size"
+		= "Name"
+
+size$l		= "CSize",0
+free$l		= "CFree",0
+
+getsys$l	LDR	R0,[R8,#fb_flags]
+		TST	R0,#ff_vdu
+		ADREQ	R0,systd$l
+		ADRNE	R0,systv$l
+		B	messages_lookup
+
+systd$l		= "SysFntD",0
+systv$l		= "SysFntV",0
+
+
+		LOCAL
+
+
+newline		FNJSR
+		MOV	R0,#0
+		FNSTR	R0,temp
+		SWI	XOS_NewLine
+		FNRTS
+
+tabulate	FNJSR	"R10,R11"
+		MOV	R11,R0
+		FNLDR	R10,temp
+		MOV	R0,#32
+loopt$l		SWI	XOS_WriteC			; always write at least 1 space
+		FNRTS	VS
+		ADD	R10,R10,#1
+		CMP	R10,R11
+		BLO	loopt$l
+		FNSTR	R10,temp
+		FNRTS
+
+write		FNJSR
+		BL	strlen
+		FNLDR	R14,temp
+		ADD	R14,R14,R1
+		FNSTR	R14,temp
+		SWI	XOS_Write0
+		FNRTS
+
+writer		FNJSR	"R10,R11"
+		MOV	R10,R0
+		FNLDR	R11,temp
+		FNSTR	R1,temp
+		SUB	R11,R1,R11
+		BL	strlen
+		SUB	R11,R11,R1
+		SUB	R11,R11,#1
+loopw$l		SWI	&20120
+		FNRTS	VS
+		SUBS	R11,R11,#1
+		BPL	loopw$l
+
+		MOV	R0,R10
+		SWI	XOS_Write0
+		FNRTS
+
+
+
+; count the memory used by a font
+; E r0 -> font block
+; X r0 = memory count
+count_font_block
+		FNJSR	"R11"
+		MOV	R11,R0
+
+		LDR	R0,[R11,#-4]			; mem used by font block itself
+
+		LDR	R1,[R11,#fb_name]
+		TEQ	R1,#0
+		LDRNE	R1,[R1,#-4]
+		ADD	R0,R0,R1
+
+		LDR	R1,[R11,#fb_flags]
+		TST	R1,#ff_vdu
+		MOVEQ	R2,#substyles
+		MOVNE	R2,#2				; just aa and not for vdu
+
+		ADD	R11,R11,#fb_data		; count the substyle blocks
+loop$l		LDR	R1,[R11,R2,LSL #2]
+		TEQ	R1,#0
+		LDRNE	R1,[R1,#-4]
+		ADD	R0,R0,R1
+		SUBS	R2,R2,#1
+		BNE	loop$l
+
+		FNRTS
+
+		LOCAL
+
+; count the free memory in the cache
+; E
+; X r0 = free mem
+cache_count_free
+		MOV	R0,#0
+		FNLDR	R1,cache_freelist
+loop$l		TEQ	R1,#0
+		MOVEQ	PC,R14
+		LDR	R2,[R1]
+		ADD	R0,R0,R2
+		LDR	R1,[R1,#4]
+		B	loop$l
+
+                LOCAL
+
+
+; All of the following are debugging commands
+
+
+		[ |zap$| = "ZapX"
+
+; kill all font handles so we can die
+com_die		LDR	R12,[R12]
+		ADD	R1,R12,#font_handles
+		MOV	R2,#handles
+		MOV	R3,#0
+loop$l		STR	R3,[R1],#4
+		SUBS	R2,R2,#1
+		BNE	loop$l
+		MOV	PC,R14
+
+		LOCAL
+
+
+; --------------------------------
+; don't look at the following code
+
+; describe the font cache
+; E  as for any command
+; X
+com_describe	FNJSR	"R1-R12"
+		LDR	R12,[R12]
+		; do the font handles & blocks
+		SWI	XOS_WriteS
+		= " Font blocks in cache:",10,13,0
+		ALIGN
+		FNRTS	VS
+		ADD	R1,R12,#font_handles
+		MOV	R2,#0
+loop$l		LDR	R0,[R1,R2,LSL #2]
+		TEQ	R0,#0
+		BLNE	describe_font_block
+		ADD	R2,R2,#1
+		TEQ	R2,#handles
+		BNE	loop$l
+
+		; do the free list
+
+		MOV	R11,#0				; total free space
+		MOV	R10,#0				; largest block size
+
+		SWI	XOS_WriteS
+		= 10,13,10,13," Free list:",10,13,10,13,0
+		ALIGN
+		FNRTS	VS
+		FNLDR	R4,cache_freelist
+		TEQ	R4,#0
+		BNE	loop2$l
+
+		SWI	XOS_WriteS
+		= "   No free blocks",10,13,0
+		ALIGN
+		BVC	other$l
+		FNRTS
+
+loop2$l		SWI	XOS_WriteS
+		= "   Address: ",0
+		ALIGN
+		MOVVC	R0,R4
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "      Size: ",0
+		ALIGN
+		FNRTS	VS
+		LDR	R0,[R4]
+		ADD	R11,R11,R0
+		CMP	R0,R10
+		MOVHS	R10,R0
+		BL	hex8
+
+		LDR	R4,[R4,#4]
+		TEQ	R4,#0
+		BNE	loop2$l
+
+		; other info
+other$l		SWI	XOS_WriteS
+		= 10,13,"        Total size: ",0
+		ALIGN
+		FNLDR	R0,cache_size,VC
+		BLVC	filesize
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "       Area number: ",0
+		ALIGN
+		FNLDR	R0,cache_areanum,VC
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "  Total free space: ",0
+		ALIGN
+		MOVVC	R0,R11
+		BLVC	filesize
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "     Largest block: ",0
+		ALIGN
+		MOVVC	R0,R10
+		BLVC	filesize
+
+		FNRTS
+
+hex8		FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+filesize	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertFileSize
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+cardinal4	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertCardinal4
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+integer4	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertInteger4
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+
+; describe a font block
+; E r0 -> block  r2 = handle
+; X r1,r2 preserved
+describe_font_block
+		FNJSR	"R1-R2,R11"
+		MOV	R11,R0
+		SWI	XOS_WriteS
+		= 10,13,"   Handle:   ",0
+		ALIGN
+		ADDVC	R0,R2,#1
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   Address:  ",0
+		ALIGN
+		MOVVC	R0,R11
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   Name:     ",0
+		ALIGN
+		FNRTS	VS
+		LDR	R0,[R11,#fb_name]
+		TEQ	R0,#0
+		ADREQ	R0,syst$l
+		SWI	XOS_Write0
+		SWIVC	&20120
+		SWIVC	&20120
+		SWIVC	&20128
+		LDRVC	R0,[R11,#fb_name]
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   Width:    ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_charw]
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   Height:   ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_charh]
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   Usage:    ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_usage]
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   cbpl:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_cbpl]
+		BLVC	cardinal4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   cbpc:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_cbpc]
+		BLVC	cardinal4
+		FNRTS	VS
+
+		BL	do_flags
+
+		LDR	R0,[R11,#fb_flags]
+		TST	R0,#ff_vdu
+		BNE	vdu$l
+
+		SWI	XOS_WriteS
+		= "   Styles cached:  ",10,13,0
+		ALIGN
+		FNRTS	VS
+		MOV	R10,#0
+		ADD	R11,R11,#fb_data
+sloop$l		LDR	R0,[R11,R10,LSL #2]
+		TEQ	R0,#0
+		BLNE	ss$l
+		ADD	R10,R10,#1
+		CMP	R10,#substyles
+		BLO	sloop$l
+
+		FNRTS
+
+syst$l		= " (system)",0
+		ALIGN
+
+vdu$l		SWI	XOS_WriteS
+		= "   workarea: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_spritesize]
+		BLVC	filesize
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   width:    ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_xsize]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   aspect:   ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_aspect]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   xoff:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_xoff]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   yoff:     ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_yoff]
+		BLVC	integer4
+		FNRTS	VS
+		SWI	XOS_WriteS
+		= "   handles:    ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_handles]
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   aa cache:   ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_aacache]
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "   1bpp cache: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_1bcache]
+		BLVC	hex8
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "    shaving block:",10,13,"       Left: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_shavel]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "      Right: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_shaver]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "        Top: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_shavet]
+		BLVC	integer4
+		FNRTS	VS
+
+		SWI	XOS_WriteS
+		= "     Bottom: ",0
+		ALIGN
+		LDRVC	R0,[R11,#fb_shaveb]
+		BLVC	integer4
+
+		FNRTS
+
+
+ss$l		FNJSR
+		MOV	R9,#38
+		SWI	XOS_WriteS
+		= "       ",0
+		FNRTS	VS
+		TEQ	R10,#0
+		BNE	not0$l
+
+		SUB	R9,R9,#5
+		SWI	XOS_WriteS
+		= "base ",0
+		ALIGN
+		FNRTS	VS
+saddr$l		MOV	R0,#' '
+saloop$l	SWI	XOS_WriteC
+		FNRTS	VS
+		SUBS	R9,R9,#1
+		BNE	saloop$l
+		LDR	R0,[R11,R10,LSL #2]
+		BL	hex8
+		FNRTS
+
+not0$l		TST	R10,#1<<1
+		BEQ	not5$l
+		SUB	R9,R9,#5
+		SWI	XOS_WriteS
+		= "bold ",0
+		ALIGN
+		FNRTS	VS
+not5$l		TST	R10,#1<<2
+		BEQ	not6$l
+		SUB	R9,R9,#7
+		SWI	XOS_WriteS
+		= "italic ",0
+		ALIGN
+		FNRTS	VS
+not6$l		TST	R10,#1<<3
+		BEQ	not7$l
+		SUB	R9,R9,#11
+		SWI	XOS_WriteS
+		= "underlined ",0
+		ALIGN
+		FNRTS	VS
+not7$l		TST	R10,#1<<0
+		BEQ	saddr$l
+		SUB	R9,R9,#14
+		SWI	XOS_WriteS
+		= "strikethrough ",0
+		ALIGN
+		BVC	saddr$l
+		FNRTS
+
+
+
+		LOCAL
+
+do_flags	FNJSR	"R10"
+		SWI	XOS_WriteS
+		= "   Flags:   ",0
+		ALIGN
+		FNRTS	VS
+		LDR	R10,[R11,#fb_flags]
+		TST	R10,#ff_ssallowed
+		BEQ	noss$l
+		SWI	XOS_WriteS
+		= " substyles ",0
+		ALIGN
+		FNRTS	VS
+
+noss$l		TST	R10,#ff_vdu
+		BEQ	notvdu$l
+		SWI	XOS_WriteS
+		= " vdu  ",0
+		ALIGN
+		FNRTS	VS
+
+notvdu$l	SWI	&20128
+		MOVVC	R0,R10
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
+		FNRTS
+
+
+
+com_debug	FNJSR
+		LDR	R12,[R12]
+		SWI	XOS_WriteS
+		= " Value of debug: ",0
+		ALIGN
+		FNRTS	VS
+		FNLDR	R0,debug
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20120
+		SWIVC	&20128
+		FNLDR	R0,debug,VC
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
+		MOV	R0,#-1
+		STR	R0,[R12,#debug]
+		FNRTS
+
+		]
+
+ END
