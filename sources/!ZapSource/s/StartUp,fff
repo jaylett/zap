@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 1.1.2.4 1999/01/14 14:46:55 dj Exp $
+; $Id: StartUp,fff,v 1.1.2.5 1999/01/14 17:22:57 dj Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -13,6 +13,7 @@
  GET h.Version
 
 ; IMPORT env_noicon_check
+ IMPORT command_string
 
  EXPORT init_vars
  EXPORT init_stack
@@ -173,6 +174,7 @@ list$l
  DCD &10,ext_messages
  DCD 4,ext_comm_flags
  DCD 0,wimp_clicksend
+ DCD 0,startup_command
  DCD if_limit*4,if_bits	; eeek lots of memory :-<
  ;DCD 0,tem_offsets
  DCD -1
@@ -762,6 +764,7 @@ init_envstring
  LOCAL
 
 ;X Looks at the environment string and loads any file after "Zap " WD #
+;  Also runs the startup command (&322).
 
 init_load
  FNJSR "R1-R5"
@@ -774,7 +777,8 @@ init_load
  LDR R0,[R5],#4			; get first word
  LDR R1,zap$l
  TEQ R0,R1
- FNRTS NE			; no match
+ FNPULL NE			; no match
+ BNE startup_command$l
 
  MOV R0,R5
  BL str_len
@@ -794,7 +798,8 @@ loop2$l
  LDRB R14,[R2]
  CMP R14,#'-'
  CMPNE R14,#&20
- FNRTS LE			; no match
+ FNPULL LE			; no match
+ BLE startup_command$l
 
 ;  MOV R5,R2
 ; skip$l
@@ -813,8 +818,22 @@ loop2$l
  BL strmove			; copy filename to buffer stripping spaces
  FNLDR R0,wimp_data
  BL install_file
+ FNLDR R1,opt_switches
+ TST R1,#switch_ExecuteStartCom
+ BLNE startup_command$l
  FNRTS
 zap$l = "Zap "
+
+; Execute startup command
+startup_command$l
+ FNJSR "r0,r8-r10"
+ MOV R8,#0
+ MOV R9,#0
+ MOV R10,#0			; no context to command
+ FNLDR R0,startup_command
+ ORR R0,R0,#(1:SHL:31)		; don't learn (should be irrelevant ...)
+ BL command_string
+ FNRTSS				; no error!
 
  LOCAL
 
