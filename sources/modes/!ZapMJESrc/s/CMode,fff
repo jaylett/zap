@@ -318,310 +318,124 @@ exit$L		LDMFD	sp!,{cursorblk,lr}
 		LOCAL
 
 
-;  Generate function browser
-
-sourcetext$L	=	"Source file: ",0
-functext$L	=	10,10,"Functions:"
-newltext$L	=	10,0
-
-;		EXPORT	funcbrowser$C
-;funcbrowser$C	STMFD	sp!,{lr}
-;		BL	checkmode
-;		LDMNEFD	sp!,{pc}
-;		STMFD	sp!,{r1,r2,windowblk,fileblk}
-;		CALL	Zap_GetWindOff
-;		STMFD	sp!,{r0}
-;		MOV	r4,#-1
-;		LDR	r5,f_len
-;		BL	initfindfunc$C
-;		MOV	r0,#-1
-;loop$L		LDR	windowblk,[sp,#3*4]
-;		LDR	fileblk,[sp,#4*4]
-;		MOV	r4,r1
-;		BL	findfunc$C
-;		BLCS	stoplongop
-;		LDMCSFD	sp!,{r0-r2,windowblk,fileblk,pc}
-;		STMFD	sp!,{r1-r6}
-;		CMP	r0,#-1
-;		BNE	addline$L
-;		LDR	r0,=&FFF			;  Text
-;		MOV	r1,#1
-;		MOV	r2,#0				;  No undo
-;		MOV	r3,#&FF
-;		MOV	r4,#11				;  Mode throwback
-;		CALL	Zap_CreateFile
-;		STR	windowblk,[sp,#7*4]
-;		STR	fileblk,[sp,#8*4]
-;		MOV	r0,#11
-;		CALL	Zap_NewMode
-;		ADR	r0,sourcetext$L
-;		BL	appendtext$L
-;		LDR	r0,[sp,#6*4]
-;		MOV	r1,fileblk
-;		MOV	r4,windowblk			; new
-;		CALL	Zap_ConvWindOff
-;		STR	r8,[sp,#9*4]
-;		STR	r9,[sp,#10*4]
-;		LDR	r0,f_name
-;		MOV	fileblk,r1
-;		MOV	windowblk,r4			; new
-;		BL	appendtext$L
-;		ADR	r0,functext$L
-;		BL	appendtext$L
-;		LDR	windowblk,[sp,#9*4]
-;addline$L	LDR	r0,[sp]
-;		LDR	fileblk,=e_clnoff
-;		BL	callbasemode
-;		LDR	r4,f_ptr
-;		LDR	r5,f_splito
-;		LDR	windowblk,[sp,#7*4]
-;		LDR	fileblk,[sp,#8*4]
-;		SUB	sp,sp,#12
-;		ADD	r0,r2,#1
-;		MOV	r6,r0
-;		MOV	r1,sp
-;		MOV	r2,#9
-;		SWI	XOS_ConvertCardinal3
-;		LDR	r0,=&20202020
-;		STR	r0,[sp]
-;		STR	r0,[sp,#4]
-;		MOV	r0,r6
-;		ADD	r1,sp,r2
-;		SUB	r1,r1,#1
-;		MOV	r2,#9
-;		SWI	XOS_ConvertCardinal3
-;		LDR	r0,colontext$L
-;		STR	r0,[sp,#8]
-;		MOV	r0,#1
-;		LDR	r1,f_len
-;		MOV	r2,#11
-;		MOV	r3,sp
-;		CALL	Zap_DoCommand
-;		ADD	sp,sp,#12
-;		MOV	r2,#0
-;		ADD	r3,r4,r7
-;		SUB	r4,r5,r7
-;lengthloop1$L	LDRB	r0,[r3,r2]
-;		LDRB	lr,w_cr
-;		TEQ	r0,lr
-;		TEQNE	r0,#'{'
-;		BEQ	foundend$L
-;		ADD	r2,r2,#1
-;		CMP	r2,r4
-;		BLO	lengthloop1$L
-;		MOV	r0,#1
-;		LDR	r1,f_len
-;		CALL	Zap_DoCommand
-;		LDR	r5,[sp,#10*4]
-;		LDR	r3,[r5,#f_ptr-f_0]
-;		LDR	r4,[r5,#f_splite-f_0]
-;		ADD	r3,r3,r4
-;		MOV	r2,#0
-;lengthloop2$L	LDRB	r0,[r3,r2]
-;		LDRB	lr,w_cr
-;		TEQ	r0,lr
-;		TEQNE	r0,#'{'
-;		ADDNE	r2,r2,#1
-;		BNE	lengthloop2$L
-;foundend$L	MOV	r0,#1
-;		LDR	r1,f_len
-;		CALL	Zap_Command
-;		ADRL	r0,newltext$L
-;		BL	appendtext$L
-;		MOV	r0,r6
-;		LDR	r1,[sp,#10*4]
-;		LDR	r1,[r1,#f_name-f_0]
-;		LDR	r4,[sp,#6*4]
-;		LDR	r5,=3<<16 + 1<<8 + 1		;  source=2, 1 line/find
-;		CALL	Zap_NewLinkEntry
-;		LDR	r1,f_flags
-;		BIC	r1,r1,#1<<3			;  Clear file altered bit
-;		STR	r1,f_flags
-;		LDMFD	sp!,{r1-r6}
-;		B	loop$L
-
-;colontext$L	=	" : ",0
-
-;  Add text pointed to by r0 onto end of file; destroys r1
-
-;appendtext$L	JMP	Zap_InsertString,r1
-
-
 		EXPORT	funcbrowser$C
 funcbrowser$C	STMFD	sp!,{lr}
 		BL	checkmode
 		LDMNEFD	sp!,{pc}
-		STMFD	sp!,{r1,r2,windowblk,fileblk}
-		; split fudge due to prefindfunc bodge ;-)
-;		STMFD	sp!,{r0,r1}
-;		MOV	R0,#0
-;		MOV	R1,#0
-;		CALL	Zap_SplitBuffer
-;		LDMFD	sp!,{r0,r1}
-		;
 		CALL	Zap_GetWindOff
-		STMFD	sp!,{r0}
+		MOV	r1,#-1
+		STMFD	sp!,{r0-r2,windowblk,fileblk}
 		MOV	r4,#-1
 		LDR	r5,f_len
 		BL	initfindfunc$C
-		MOV	r0,#-1
-loop$L		LDR	windowblk,[sp,#3*4]
-		LDR	fileblk,[sp,#4*4]
+loop$L		LDR	r0,[sp]
+		CALL	Zap_ConvWindOff
 		BL	prefindfunc$C		; skip this line...!?!
 		MOV	r4,r1
 		BL	findfunc$C
 		BCS	extitfrombroza$L
-		STMFD	sp!,{r1-r6}
+		STMFD	sp!,{r1-r7}
+		LDR	r0,[sp,#8*4]
 		CMP	r0,#-1
 		BNE	addline$L
 		BL	secndsetup$L
-		STR	R0,[sp,#7*4]			; window index
-
-;		LDR	r0,=&FFF			;  Text
-;		MOV	r1,#1
-;		MOV	r2,#0				;  No undo
-;		MOV	r3,#&FF
-;		MOV	r4,#11				;  Mode throwback
-;		CALL	Zap_CreateFile
-;		CALL	Zap_GetWindOff
-
-;		STR	windowblk,[sp,#7*4]		; **MAY CHANGE***
-;		STR	fileblk,[sp,#8*4]		; **MAY CHANGE***
-
-;		MOV	r0,#11
-;		CALL	Zap_NewMode
-		ADR	r0,sourcetext$L
-		BL	appendtext$L
-		LDR	r0,[sp,#6*4]			; original window?
-		MOV	r1,fileblk
-		MOV	r4,windowblk			; new
+		STR	r0,[sp,#8*4]			; window index
+		STR	windowblk,[sp,#10*4]
+		STR	fileblk,[sp,#11*4]
+addline$L
+		; Buffer the function name
+		LDR	r0,[sp,#7*4]		; original window
 		CALL	Zap_ConvWindOff
-;
-		STR	r8,[sp,#9*4]			; **MAY CHANGE***
-		STR	r9,[sp,#10*4]			; **MAY CHANGE***
-;
-		LDR	r0,f_name
-		MOV	fileblk,r1
-		MOV	windowblk,r4			; new
-		BL	appendtext$L
-		ADR	r0,functext$L
-		BL	appendtext$L
-		LDR	windowblk,[sp,#9*4]
-addline$L	LDR	r0,[sp]
-		LDR	fileblk,=e_clnoff
-		BL	callbasemode
+		BL	getkbdbuf$L
+		ADD	r0,r0,#256
+		MOV	r2,#0
+		MOV	r6,#255		; (copy at most 255 chars)
 		LDR	r4,f_ptr
 		LDR	r5,f_splito
-;		CALL	Zap_GetWindOff
-		LDR	R0,[sp,#7*4]			; **MAY CHANGE***
-		CALL	Zap_ConvWindOff
-;		LDR	R0,[windowblk,#w_file-w_0]
-;		CALL	Zap_ConvFileOff
-
-;		LDR	windowblk,[sp,#7*4]		; the throwback file
-;		LDR	fileblk,[sp,#8*4]		; the throwback file
-
-		SUB	sp,sp,#12
-		ADD	r0,r2,#1
-		MOV	r6,r0				; = log line no...?
-		MOV	r1,sp
-		MOV	r2,#9
-		SWI	XOS_ConvertCardinal3
-		LDR	r0,=&20202020
-		STR	r0,[sp]
-		STR	r0,[sp,#4]
-		MOV	r0,r6
-		ADD	r1,sp,r2
-		SUB	r1,r1,#1
-		MOV	r2,#9
-		SWI	XOS_ConvertCardinal3
-		LDR	r0,colontext$L
-		STR	r0,[sp,#8]
-		MOV	r0,#1
-		LDR	r1,f_len
-		MOV	r2,#11
-		MOV	r3,sp
-		CALL	Zap_DoCommand
-		ADD	sp,sp,#12		; ?
-		MOV	r2,#0
 		ADD	r3,r4,r7
 		SUB	r4,r5,r7
-lengthloop1$L	LDRB	r0,[r3,r2]
 		LDRB	lr,w_cr
-		TEQ	r0,lr
-		TEQNE	r0,#'{'			; dangerous - may be in comm
+lengthloop1$L	LDRB	r1,[r3,r2]
+		TEQ	r1,lr
+		TEQNE	r1,#'{'			; dangerous - may be in comm
 		BEQ	foundend$L
 		ADD	r2,r2,#1
 		CMP	r2,r4
 		BLO	lengthloop1$L
-		MOV	r0,#1
-		LDR	r1,f_len
-		CALL	Zap_DoCommand
-
-		LDR	r5,[sp,#10*4]		; stored R9???
-		LDR	r3,[r5,#f_ptr-f_0]
-		LDR	r4,[r5,#f_splite-f_0]
+		CMP	r2,#255
+		MOVHS	r2,#255
+		RSB	r6,r2,#255
+		MOV	lr,r2
+copyloop1$L	SUBS	lr,lr,#1
+		LDRPLB	r1,[r3,lr]
+		STRPLB	r1,[r0,lr]
+		BPL	copyloop1$L
+		ADD	r0,r0,r2
+		LDR	r3,f_ptr
+		LDR	r4,f_splite
 		ADD	r3,r3,r4
 		MOV	r2,#0
-lengthloop2$L	LDRB	r0,[r3,r2]
 		LDRB	lr,w_cr
-		TEQ	r0,lr
-		TEQNE	r0,#'{'			; dangerous - may be in comm
+lengthloop2$L	LDRB	r1,[r3,r2]
+		TEQ	r1,lr
+		TEQNE	r1,#'{'			; dangerous - may be in comm
 		ADDNE	r2,r2,#1
 		BNE	lengthloop2$L
-foundend$L	MOV	r0,#1				; insert...
-		LDR	r1,f_len
-		CALL	Zap_Command
-		ADRL	r0,newltext$L
-		BL	appendtext$L
-		MOV	r0,r6
-;		MOV	r0,#0 ; dummy !!!!!!!!!!!!!!!!!!!!
+foundend$L	CMP	r2,r6
+		MOVHS	r2,r6
+		MOV	lr,r2
+copyloop2$L	SUBS	lr,lr,#1
+		LDRPLB	r1,[r3,lr]
+		STRPLB	r1,[r0,lr]
+		BPL	copyloop2$L
+		MOV	r1,#0
+		STRB	r1,[r0,r2]
 
-		LDR	r4,[sp,#6*4]
-
-		STMFD	sp!,{R0,R8,R9}
-
-		MOV	R0,R4
+		; Add the throwback line
+		LDR	r0,[sp,#7*4]			; original window
 		CALL	Zap_ConvWindOff
+		LDR	r0,[sp]
+		CALL	Zap_OffsetLine
 		LDR	r1,f_name
+		LDR	r4,w_file
+		LDR	r0,[sp,#8*4]			; **MAY CHANGE***
+		CALL	Zap_ConvWindOff
+		BL	getkbdbuf$L
+		MOV	r3,r0
+		ADD	r0,r2,#1		; line no.
+		ADD	r2,r3,#256		; buffer address
+		ADR	r3,tb_file$L
+		ORR	r3,r3,#1<<31
+		LDR	r5,=2<<16 + 1<<8 + 1	;  source=2, 1 line/find
+		ADR	r6,tb_hdr$L
+		ORR	r6,r6,#1<<31
+		ADR	r7,tb_null$L
+		CALL	Zap_Throwback
 
-;		LDR	r1,[sp,#10*4]
-;		LDR	r1,[r1,#f_name-f_0]
-
-		LDMFD	sp!,{R0,R8,R9}
-;		STMFD	sp!,{R1-R7}
-;		ADR	R2,functext$L
-;		ADR	R3,sourcetext$L
-		MOV	R4,#-1
-		LDR	r5,=3<<16 + 1<<8 + 1	;  source=2, 1 line/find
-		CALL	Zap_NewLinkEntry
-;		MOV	R6,#0
-;		MOV	R7,#0
-;		CALL	Zap_Throwback
-;		LDMFD	sp!,{R1-R7}
-
-		LDR	r1,f_flags
-		BIC	r1,r1,#1<<3		;  Clear file altered bit
-		STR	r1,f_flags
-		LDMFD	sp!,{r1-r6}
+		LDMFD	sp!,{r1-r7}
 		B	loop$L
 
-colontext$L	=	" : ",0
+getkbdbuf$L	STMFD	sp!,{r1,lr}
+		MOV	r1,#35
+		CALL	Zap_ReadVar
+		LDMFD	sp!,{r1,pc}
 
 ;  Add text pointed to by r0 onto end of file; destroys r1
 
-appendtext$L	JMP	Zap_InsertString,r1
-
 secndsetup$L	STMFD	sp!,{lr}
-;		LDR	r0,=&FFF			;  Text
-;		MOV	r1,#1
-;		MOV	r2,#0				;  No undo
-;		MOV	r3,#&FF
-;		MOV	r4,#11				;  Mode throwback
-;		CALL	Zap_CreateFile
-;		CALL	Zap_GetWindOff
+		MOV	r0,#1<<29 :OR: 3<<30
+		ADR	r1,tb_title$L
+		ADR	r2,tb_tokens$L
 		CALL	Zap_CreateThrowback
 		LDMFD	sp!,{pc}
+tb_title$L	=	"mje_tb_title",0
+		ALIGN
+tb_tokens$L	&	0, 9:OR:6<<28
+tb_file$L	=	"mje_tb_func", 0
+		&	0, 13
+tb_hdr$L	=	"mje_tb_line", 0
+		ALIGN
+tb_null$L	&	0, 0
 
 extitfrombroza$L
 		BL	stoplongop
@@ -895,12 +709,12 @@ preprocloop$L	BL	getchar$L
 		BNE	preprocloop$L
 		TEQ	lastchar$L,#'\'
 		BEQ	preprocloop$L
-		B	loop$L
+		B	newl$L ; loop$L
 
 cppcommentlp$L	BL	getchar$L
 		TEQ	char$L,cr$L
 		BNE	cppcommentlp$L
-		B	loop$L
+		B	newl$L ; loop$L
 
 opencurly$L	CMP	state$L,#-2
 		MOVLT	state$L,#1

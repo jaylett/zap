@@ -58,6 +58,7 @@ extracmdtable	DCD	extracmdtable		;  Offset of table from start of module
 		CMD	"MJE_PAUSE",pause
 		CMD	"MJE_INDENT",indent
 		CMD	"MJE_COMMENTSET",commentset
+		CMD	"MJE_INDENTCOMMENTSET",indentcmntset
 
 ;  Help commands
 
@@ -549,20 +550,20 @@ ZapMJEWorkPath  = "ZapMJEWork$Path",0
 EndOfWorkPath   = ".^.^.,C:,",0
 UseZapMJEWork   = "ZapMJEWork:h.",0
 ptrtoblnk$L	= "@",0
-s$L		= "Find header:",0
-notfound$L	= "Named header file not located",0
-notfound2$L	= "Unable to resolve header file name",0
+s$L		= "mje_findhdr",0
+notfound$L	= "mje_hdrnotfound",0
+notfound2$L	= "mje_hdrnotresolv",0
 		ALIGN
 
 errormessage$L
 		ADR	R0,notfound$L
-		MOV	R1,#0
+		MOV	R1,#1<<29
 		CALL	Zap_Warning
 		B	errorquit1$L
 
 errormessage2$L
 		ADR	R0,notfound2$L
-		MOV	R1,#0
+		MOV	R1,#1<<29
 		CALL	Zap_Warning
 		B	errorquit1$L
 
@@ -583,7 +584,7 @@ supplied$L	MOV	R6,R0
 		B	findtheheader$L
 
 pointtoblank$L	ADR R0,s$L
-		CALL Zap_MiniPrompt
+		CALL Zap_MiniPromptToken
 		RTS
 
 		LOCAL
@@ -629,11 +630,11 @@ nofile		SUB	r0,r3,#2
 		CALL	Zap_Free,r6
 		RTS VS
 		ADR	r0,filenotfound$L
-		MOV	r1,#0
+		MOV	r1,#1<<29
 		PULL
 		JMP	Zap_Warning,r6
 
-filenotfound$L	=	"File not found",0
+filenotfound$L	=	"mje_notfound",0
 
 
 		LOCAL
@@ -766,7 +767,6 @@ maybe_grey	STMFD	sp!,{r0-r4,lr}
 
 		LOCAL
 
-
 ;  Menu entry for select comment set
 
 		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable ;  Flags for command
@@ -783,6 +783,33 @@ commentset	SAVE
 		EOREQ	r0,r0,#1
 		STREQ	r0,m_sharedflags1
 		AND	r3,r0,#1
+		MOV	R0,R4
+checkforgrey$L	BL	maybe_grey
+		MOVEQ	r0,#0
+		MOVNE	r0,#2
+		ORR	r0,r0,r3
+
+		RTS
+
+		LOCAL
+
+;  Menu entry for indent comment set
+
+		DCD	x_nor10 + x_nor8 + x_nor9 + x_wordparam + x_tickable ;  Flags for command
+
+indentcmntset	SAVE
+		MOV	R4,R0
+		MOV	r0,#0
+		BL	checkmode
+		MOVNE	R3,#0
+		BNE	checkforgrey$L
+		RTS	NE
+		LDR	r0,m_sharedflags1
+		TEQ	r2,#0
+		EOREQ	r0,r0,#2
+		STREQ	r0,m_sharedflags1
+		AND	r3,r0,#2
+		MOV	r3,r3,LSR #1
 		MOV	R0,R4
 checkforgrey$L	BL	maybe_grey
 		MOVEQ	r0,#0

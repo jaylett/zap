@@ -256,11 +256,26 @@ in_comment	STMFD	sp!,{r1-r12,lr}
 		LDR	windowblk,[r3,#p_windowblk]
 		LDR	modeblk,[r3,#p_modeblk]
 		LDR	r12,[r3,#p_zapwsblk]
-		BL	asm_a_comment
+		MOV	r4,#comment
+		BL	asm_a_generic
+		LDMFD	sp!,{r1-r12,pc}
+
+; E R0,R8,R9... (cloned from in_comment; one change made)
+		EXPORT	in_string
+in_string	STMFD	sp!,{r1-r12,lr}
+		MOV 	r11,r0
+		LDR	r3,[r10]
+		LDR	fileblk,[r3,#p_fileblk]
+		LDR	windowblk,[r3,#p_windowblk]
+		LDR	modeblk,[r3,#p_modeblk]
+		LDR	r12,[r3,#p_zapwsblk]
+		MOV	r4,#string
+		BL	asm_a_generic
 		LDMFD	sp!,{r1-r12,pc}
 
 		EXPORT	asm_a_comment
-asm_a_comment	STMFD	sp!,{lr}
+asm_a_comment	MOV	r4,#comment
+asm_a_generic	STMFD	sp!,{r4,lr}
 		LDR	r4,w_format
 
 		BL	scaninit$C		; sets up R5...
@@ -272,8 +287,52 @@ asm_a_comment	STMFD	sp!,{lr}
 		BCS	notinacomment$L
 
 		BL	scanto$C
+		LDR	r0,[sp]
 		AND	state,state,#15
-		TEQ	state,#9		; a comment?
+		TEQ	state,r0		; a comment?
+		MOVEQ	r0,#1
+		MOVNE	r0,#0
+		ADD	sp,sp,#4
+		LDMFD	sp!,{pc}
+
+notinacomment$L	MOV	r0,#0
+		ADD	sp,sp,#4
+		LDMFD	sp!,{pc}
+inassembler$L	MOV	R0,#2
+		ADD	sp,sp,#4
+		LDMFD	sp!,{pc}
+
+		LOCAL
+
+; E R0,R8,R9... (cloned from in_string)
+		EXPORT	in_quoted
+in_quoted	STMFD	sp!,{r1-r12,lr}
+		MOV 	r11,r0
+		LDR	r3,[r10]
+		LDR	fileblk,[r3,#p_fileblk]
+		LDR	windowblk,[r3,#p_windowblk]
+		LDR	modeblk,[r3,#p_modeblk]
+		LDR	r12,[r3,#p_zapwsblk]
+		BL	asm_a_quoted
+		LDMFD	sp!,{r1-r12,pc}
+
+asm_a_quoted	STMFD	sp!,{lr}
+		LDR	r4,w_format
+
+		BL	scaninit$C		; sets up R5...
+
+		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext)
+		BEQ	inassembler$L
+		LDR	R0,f_len
+		CMP	R11,R0
+		BCS	notinacomment$L
+
+		BL	scanto$C
+		LDR	r0,[sp]
+		AND	state,state,#15
+		TEQ	state,#comment		; a comment?
+		TEQNE	state,#string		; a string?
+		TEQNE	state,#charconst	; a character constant?
 		MOVEQ	r0,#1
 		MOVNE	r0,#0
 		LDMFD	sp!,{pc}
