@@ -14,6 +14,7 @@
 
 use strict;
 use Getopt::Long;
+use POSIX;
 
 sub strip_space($)
 {
@@ -202,6 +203,8 @@ sub split_operands($)
 	# embedded NUL! Eek!
 #	$line .= "\":CC::CHR:0:CC:\"";
 	$line .= "\", 0, \"";
+      } elsif ($chars[$i] =~ m/\\/) {
+	$line .= '\\\\'; # double up the quote character
       } else {
 	$line .= $chars[$i];
       }
@@ -542,7 +545,17 @@ foreach $object (@objects) {
 	      # numeric constant (can have '!' at end if a post-offset constant)
               $args[$i] =~ s/^#(\s*)(.*)$/$2/;
               ($args[$i] =~ s/^&//) and $args[$i] = "0x$args[$i]";
-	      $args[$i] =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$3'/i;
+#	      $args[$i] =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$3'/i;
+	      my $asc_trap = $args[$i];
+	      if ($asc_trap =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/$3/i) {
+		# $asc_trap is a single character. If printable, we want
+		# '$asc_trap'. Otherwise we want the decimal value.
+		if (isprint($asc_trap)) {
+		  $args[$i] = "'$asc_trap'";
+		} else {
+		  $args[$i] = ord($asc_trap);
+		}
+	      }
 	      $args[$i] = "#$args[$i]";
 	    } elsif ($args[$i] =~ m/^{/) {
 	      # register range
@@ -575,19 +588,21 @@ foreach $object (@objects) {
 #	      warn "Register offset: $args[$i]";
 	      $args[$i] = "[";
 	      $args[$i] .= transform_reg($reg_list[0]);
-	      if ($reg_list[1]) {
-		$args[$i] .= ", ";
+	      if (defined $reg_list[1]) {
 		$reg_list[1] = strip_space($reg_list[1]);
-		if ($reg_list[1] =~ m/^#/) {
-		  # constant
-		  my $const = $reg_list[1];
-		  $const =~ s/^#(\s*)(.*)$/$2/;
-		  ($const =~ s/^&//) and $const = "0x$const";
-		  $const =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$2'/i;
-		  $args[$i] .= "#$const";
-		} else {
-		  # register
-		  $args[$i] .= transform_reg($reg_list[1]);
+		if ($reg_list[1] ne "") {
+		  $args[$i] .= ", ";
+		  if ($reg_list[1] =~ m/^#/) {
+		    # constant
+		    my $const = $reg_list[1];
+		    $const =~ s/^#(\s*)(.*)$/$2/;
+		    ($const =~ s/^&//) and $const = "0x$const";
+		    $const =~ s/^ASC(\s*)"(\\)?(.).*"(.*)$/'$2'/i;
+		    $args[$i] .= "#$const";
+		  } else {
+		    # register
+		    $args[$i] .= transform_reg($reg_list[1]);
+		  }
 		}
 	      }
 	      $args[$i] .= "]";
