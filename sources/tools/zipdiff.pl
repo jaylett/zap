@@ -7,12 +7,14 @@ use Getopt::Long;
 
 my ($progname, $progversion) = ("zipdiff.pl", "1.0");
 my ($verbose, $help, $man) = ('', 0, 0);
-my ($zip1, $zip2, $outzip, $inzip) = ('', '', '', '');
+my ($zip1, $zip2, $outzip, $inzip, $manifest_file) =
+  ('', '', '', '', 'Manifest');
 
 Getopt::Long::Configure("bundling");
 
 GetOptions('inzip=s' => \$inzip,
 	   'outzip=s' => \$outzip,
+	   'manifest=s' => \$manifest_file,
 	   'help|?' => \$help,
 	   'man' => \$man,
 	   'verbose' => \$verbose);# or
@@ -167,8 +169,12 @@ if ($outzip) {
     $ozh->removeMember($file);
     $ozh->addMember($member);
   }
-  $ozh->removeMember('Manifest');
-  $ozh->addString($manifest, 'Manifest');
+  my $old_manifest = $ozh->contents($manifest_file);
+  $ozh->removeMember($manifest_file);
+  if ($old_manifest) {
+    $manifest = $old_manifest . "\n\n" . $manifest;
+  }
+  $ozh->addString($manifest, $manifest_file);
   my $cmt = $ozh->zipfileComment();
   if ($cmt) {
     $cmt .= "\n";
@@ -197,6 +203,7 @@ zipdiff.pl [options] zip1 zip2
   --verbose       run in verbose mode
   --outzip FILE   produce zipfile of diffs, not manifest
   --inzip FILE    zipfile to augment when producing diffs zipfile
+  --manifest NAME name of manifest file in zip (default: Manifest)
 
 =head1 OPTIONS
 
@@ -212,7 +219,11 @@ Print the manual page and exit.
 
 =item B<--outzip>
 
-Product a zipfile of changed/new files or diffs, not a manifest.
+Produce a zipfile of changed/new files or diffs, not just a manifest.
+
+=item B<--inzip>
+
+Zipfile to merge with to produce output zipfile.
 
 =item B<--verbose>
 
