@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: buttons,fff,v 1.2 2003/02/05 16:20:00 christian Exp $
+; $Id: buttons,fff,v 1.3 2003/02/09 13:43:42 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -474,6 +474,7 @@ Buttons_FlagsToggle
 		BNE	a$l
 		MOV	R1,#36				; opt_info
 		FNcall	Zap_ReadVar,R0
+		MOV	R14,R0
 
 a$l		TEQ	R2,#15
 		BNE	set$l
@@ -566,8 +567,14 @@ mr_length	*	@
 ; X r10 -> block
 		FNAME	get_mode_block
 get_mode_block	FNJSR	"R9"
-		LDRB	R9,[R8,#w_format]		; mode number
-		LDR	R10,mode_blocks
+		TEQ	R8,#0
+		LDRNEB	R9,[R8,#w_format]		; mode number
+		BNE	ok$l
+		MOV	R1,#3				; opt_format
+		FNcall	Zap_ReadVar,R0
+		AND	R9,R0,#&FF			; mode number
+
+ok$l		LDR	R10,mode_blocks
 		LDR	R1,mode_blocklen
 
 loop$l		TEQ	R1,#0
@@ -629,40 +636,27 @@ path$l		=	":Buttons.",0
 ; Code to load resources necessary for buttons bars
 ; -------------------------------------------------
 
-; get the sprites area for a mode
+; get the menu for a mode
 ; E r10 -> mode block
 ; X r1 -> menu / -1
-		FNAME	get_sprites
+		FNAME	get_menu
 get_menu	LDR	R1,[R10,#mr_menu]		; return if we've already loaded it
 		TEQ	R1,#0
 		MOVNE	PC,R14
 
-		FNJSR	"R9,R10"
-		MOV	R10,#1
+		FNJSR	"R9"
 		SUB	R13,R13,#256			; get the path
-loop$l		MOV	R0,R13
+		MOV	R0,R13
 		BL	get_mode_path
 		ADR	R1,menus$l			; add on the leafname
 		MOV	R0,R13
 		BL	strcat
-		TEQ	R10,#1
-		BNE	nosfix$l
-		MOV	R0,#2				; add the mode suffix
-		SWI	XWimp_ReadSysInfo
-		MOV	R1,R0
-		MOV	R0,R13
-		BL	strcat
 
-nosfix$l	MOV	R0,#17				; See if a Buttons Menus file exists
+		MOV	R0,#17				; See if a Buttons Menus file exists
 		MOV	R1,R13
 		SWI	XOS_File
-		TEQ	R0,#1
-		BEQ	ok$l
-		SUBS	R10,R10,#1			; did we add a mode suffix?
-		BPL	loop$l
-		B	usemode$l
 
-ok$l		MOV	R0,R13				; load it
+		MOV	R0,R13				; load it
 		FNcall	Zap_LoadMenu,R1
 		BVS	err$l
 
@@ -674,9 +668,9 @@ ok$l		MOV	R0,R13				; load it
 usemode$l	LDR	R0,[R10,#mr_mode]
 		FNcall	Zap_ReadMode,R1
 		BVS	err$l
-		TEQ	R0,#0				; does it have one?
-		MOVEQ	R0,#-1
 		LDR	R1,[R1,#e_menu * 2]
+		TEQ	R1,#0				; does it have one?
+		MOVEQ	R1,#-1
 		STR	R1,[R10,#mr_menu]
 		B	done$l
 
@@ -699,19 +693,33 @@ get_sprites	LDR	R0,[R10,#mr_sprites]		; return if we've already loaded it
 		TEQ	R0,#0
 		MOVNE	PC,R14
 
-		FNJSR	"R9"
+		FNJSR	"R8,R9"
+		MOV	R8,#1
 		SUB	R13,R13,#256			; get the path
-		MOV	R0,R13
+loop$l		MOV	R0,R13
 		BL	get_mode_path
 		ADR	R1,sprites$l			; add on the leafname
 		MOV	R0,R13
 		BL	strcat
 
-		MOV	R0,#17				; read its length
+		TEQ	R8,#1
+		BNE	nosfix$l
+		MOV	R0,#2				; add the mode suffix
+		SWI	XWimp_ReadSysInfo
+		MOV	R1,R0
+		MOV	R0,R13
+		BL	strcat
+
+nosfix$l	MOV	R0,#17				; read its length
 		MOV	R1,R13
 		SWI	XOS_File
+		TEQ	R0,#1
+		BEQ	ok$l
+		SUBS	R8,R8,#1			; did we add a mode suffix?
+		BPL	loop$l
+		B	fail$l
 
-		ADDVC	R0,R4,#8			; get a block
+ok$l		ADDVC	R0,R4,#8			; get a block
 		FNcallc	Zap_Claim,VC,R1
 		BVS	fail$l
 
