@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.14 2003/06/03 18:53:45 ds Exp $
+  // $Id: download.php,v 1.15 2003/11/30 12:10:06 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -24,7 +24,7 @@
  <li><a href="#130">v1.30</a> - released 20th June, 1995
  <li><a href="#old">v1.20</a> - released 25th October, 1994
  <li><a href="#old">v1.10</a> - released 24th March, 1994
- <li>v1.00 - released 22nd October, 1993
+ <li><a href="#old">v1.00</a> - released 22nd October, 1993
  <li>v0.90 - released 25th May, 1993
  <li>v0.80 - released 17th January, 1993
  <li><a href="#old">v0.70</a> - released 29th September, 1992
@@ -271,10 +271,11 @@ if ($patch) {
 <?php
   zapfile ('1.20/zap.arc', 'v1.20', '', '');
   zapfile ('1.10/zap.zip', 'v1.10', '', '');
+  zapfile ('1.00/zap.zip', 'v1.00', '', '');
   zapfile ('0.70/zap.zip', 'v0.70', '', '');
 ?>
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2003/06/03 18:53:45 $');
+  zap_body_end ('$Date: 2003/11/30 12:10:06 $');
 ?>
