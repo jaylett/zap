@@ -1,5 +1,5 @@
 <?php
-  // $Id: lists.php,v 1.1 2002/01/23 20:27:02 ds Exp $
+  // $Id: lists.php,v 1.2 2002/04/24 23:21:43 ds Exp $
   include ".php/zap-std.inc";
   setroot ('lists');
   zap_header ("Zap mailing lists", 'up:/', 'next:mailers:mailers');
@@ -20,7 +20,7 @@
  <dt><a href="mailto:zap-buglist@zap.tartarus.org">zap-buglist</a></dt>
   <dd>
    <p>This is the list where bug reports are discussed. Please do <em>not</em> send bug reports to this address; use <tt><a href="mailto:bugs@zap.tartarus.org">bugs@zap.tartarus.org</a></tt> instead.</p>
-   <p>Note that email to this list will have its <em>Reply-To</em> header set to the list. This is evil, and I shouldn't do it, but I discovered I more or less had to, because so many people were replying to the bug submission email address instead of the list. See <a href="http://www.unicom.com/pw/reply-to-harmful">Reply-To Munging Considered Harmful</a> for an overview of why this makes me shiver uncontrollably. Ideally I'll write a small filter which will add <em>Reply-To</em> to emails coming in from the submission address <em>only</em>, so I can remove this.</p>
+   <p>Note that email to this list will have its <em>Reply-To</em> header set to the list. This is evil, and I shouldn't do it, but I discovered I more or less had to, because so many people were replying to the bug submission email address instead of the list. See <a href="http://www.unicom.com/pw/reply-to-harmful.html">Reply-To Munging Considered Harmful</a> for an overview of why this makes me shiver uncontrollably. Ideally I'll write a small filter which will add <em>Reply-To</em> to emails coming in from the submission address <em>only</em>, so I can remove this.</p>
    <p><a href="http://lists.tartarus.org/mailman/listinfo/zap-buglist">Subscribe to zap-buglist</a></p>
   </dd>
 
@@ -62,5 +62,5 @@
 </pre>
 
 <?php
-  zap_body_end ('$Date: 2002/01/23 20:27:02 $');
+  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
 ?>

@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.3 2002/04/08 02:20:59 ds Exp $
+  // $Id: index.php,v 1.4 2002/04/24 23:21:43 ds Exp $
   include ".php/zap-std.inc";
   setroot ('index');
   zap_header ("Zap - a programmers' editor", 'top:');
@@ -36,8 +36,8 @@
 
 <hr>
 
-<p>The zap.uk.eu.org domain is supplied by <a href="http://www.eu.org/">eu.org</a>, a source of free domain registration. Primary DNS is supplied by <a href="http://tartarus.org/">Tartarus.Org</a>, and secondary DNS arranged by <a href="http://www.metahusky.net/gavin">Gavin Kelman</a>. It is, however, being phased out due to technical problems.</p>
+<p>The zap.uk.eu.org domain is supplied by <a href="http://www.eu.org/">eu.org</a>, a source of free domain registration. Primary DNS is supplied by <a href="http://tartarus.org/">Tartarus.Org</a>, and secondary DNS arranged by <a href="http://www.metahusky.net/gavin/">Gavin Kelman</a>. It is, however, being phased out due to technical problems.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/04/08 02:20:59 $');
+  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
 ?>

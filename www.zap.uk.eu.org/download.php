@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.5 2002/02/01 13:40:31 james Exp $
+  // $Id: download.php,v 1.6 2002/04/24 23:21:43 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -55,7 +55,7 @@ Development release sites
 	 ' href="/ftp/pub/', $release, '/', $betadir, '/', $leaf, '">';
   }
 ?>
-<p>Version 1.44 of Zap is a public beta phase. We believe it to be fairly stable, and are currently working on getting remaining important bugs fixed prior to a stable release. The current release is beta <?php echo $beta; ?>. Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts.</p>
+<p>Version 1.44 of Zap is a public beta phase. We believe it to be fairly stable, and are currently working on getting remaining important bugs fixed prior to a stable release. The current release is beta <?php echo $beta; ?>. Grab one of the core archives, plus extensions as required. A minimal ZapFonts is supplied in the core archives; the full one contains many more fonts. A <a href="redraw/viewfinder">ViewFinder-enhanced ZapRedraw</a> is available separately.</p>
 
 <p>To decide what you need to download, please consult the <? href ('.message', 'class="file"'); ?>list of which extensions are in which group</a>. Alternatively, you can download them <? href ('individual_modes', 'class="dir"'); ?>individually</a>.</p>
 
@@ -256,5 +256,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/02/01 13:40:31 $');
+  zap_body_end ('$Date: 2002/04/24 23:21:43 $');
 ?>
