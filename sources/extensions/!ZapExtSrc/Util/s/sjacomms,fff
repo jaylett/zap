@@ -1,5 +1,5 @@
 ; Zap Util Command Extension
-; $Id: sjacomms,fff,v 1.3 1999/02/26 10:58:43 james Exp $
+; $Id: sjacomms,fff,v 1.4 1999/03/04 19:19:55 james Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -21,17 +21,97 @@
 ; COMMANDSEL		- Perform command with the selection as parameter
 ; NEXT(FILE|WINDOW|VIEW)
 ;			- Moves cursor to the next (file|window|view on file)
+; SETNAMEINCORE		- Sets filename based on in-core text, configured by c-vars
 
 ; Includes
 		GET	h.ZapUtil
 		GET	h.dsutils
 		GET	h.module
+		GET	h.coreutils
 
 ; What we give to other people
 		EXPORT	sja_commandsel
 		EXPORT	sja_nextview
 		EXPORT	sja_nextwindow
 		EXPORT	sja_nextfile
+		EXPORT	sja_setname
+
+; SETNAMEINCORE - find SetNameStart, find SetNameEnd; whatever's between them
+; is the in-core filename. Ultimately SetNameTranslation will enable us to do
+; format translations, although quite how this can work I don't know; we need
+; to be able to do Unix <-> RISC OS filename handling somehow. Any ideas, shout.
+		LOCAL
+
+		&	0
+		; basically: nothing ...
+sja_setname	TEQ	r2,#0
+		TEQNE	r8,#0
+		TEQNE	r9,#0
+		MOVNE	pc,lr
+
+		FNJSR
+
+		BL	util_splitbuffer	; do this now because it uses r0,r1
+
+		ADR	r0,start$l
+		FNcall	Zap_ReadVariable
+		FNRTS	EQ			; no such variable!
+
+		MOV	r1,#2			; no output
+		MOV	r3,#-1			; from start
+		MOV	r4,#1			; forward
+		MOV	r5,#zsearch_casesensitive :OR: zsearch_nomacros :OR: zsearch_dontbeep :OR: zsearch_returnendofmatch
+		FNcall	Zap_Search
+		FNRTS	VS
+
+		CMP	r0,#0
+		MOVLT	r0,#0
+		FNRTS	LT			; couldn't find it
+
+		MOV	r3,r1			; position to start searching for end from ...
+		MOV	r6,r1			; and store it
+
+		ADR	r0,end$l
+		FNcall	Zap_ReadVariable
+		FNRTS	EQ
+
+		MOV	r1,#2
+		MOV	r4,#1
+		MOV	r5,#zsearch_casesensitive :OR: zsearch_nomacros :OR: zsearch_dontbeep :OR: zsearch_returnendofmatch
+		FNcall	Zap_Search
+		FNRTS	VS
+
+		CMP	r0,#0
+		MOVLT	r0,#0
+		FNRTS	LT
+
+		; r6 -> start of filename
+		; r0 -> char after end of filename
+		; we may have boundary issues with both ...
+		; !!! at this point we'd do the filename translation ...
+		SUB	r1,r0,#1		; -> last char of filename
+		SUB	r0,r1,r6		; length of filename
+		ADD	r0,r0,#2		; and a NUL, and correct for r1 SUB above
+                FNcall	Zap_Claim
+		FNRTS	VS
+		MOV	r4,r0			; preserve buffer
+		LDR	r3,[fileptr,#f_ptr]
+		ADD	r2,r6,r3		; pointers are now into
+		ADD	r1,r1,r3		; the real data ...
+		BL	strcopy_limit
+		MOV	r0,r4			; restore buffer
+
+		FNcall	Zap_NewFileName		; update filename (corrupts R0)
+		FNcallc	Zap_NewFileTitle,VC	; update title bar - only if previous worked
+		MOV	r0,r4			; restore it again ...
+		FNcall	Zap_Free		; release buffer
+
+		FNRTS
+
+start$l		=	"SetNameStart", 0
+end$l		=	"SetNameEnd", 0
+;translation$l	=	"SetNameTranslation", 0
+		ALIGN
 
 ; COMMANDSEL - call a single command, substituting the current selection for
 ; the string parameter
