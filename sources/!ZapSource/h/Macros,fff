@@ -1,5 +1,5 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 2.14 2003/01/25 18:30:22 christian Exp $
+; $Id: Macros,fff,v 2.15 2003/08/26 00:28:51 christian Exp $
 
 ; count in-core storage
 	GBLA InCoreTotal
@@ -48,6 +48,34 @@ $la
 	STMFD R13!,{$StackedRegs,R14}
 	]
 	MEND
+
+
+; set to profile this function
+; must be called with a label
+	MACRO
+$la	PROFILE
+	[ "$la" = ""
+	 ! "PROFILE requires a label argument"
+	]
+
+	[ Profile
+	B	$la					; cope with falling through
+	=	"$la",0
+	ALIGN
+	DCD	16 + (:LEN:"$la"+4):AND::NOT:3		; offset to function name
+	DCD	0					; number of times called
+	DCD	0					; start time
+	DCD	0					; accumulative time
+$la	STR	R14,[R13,#-4]!
+	BL	profile_start
+	BL	$la.__profiled
+	STR	R14,[R13,#-4]!				; in case R14 is return parameter
+	BL	profile_end
+	LDMFD	R13!,{R14,PC}
+$la.__profiled
+	]
+	MEND
+
 
 ; end of sub + pull all stacked registers
 
