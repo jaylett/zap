@@ -1,5 +1,5 @@
 ; Zap Text Command Extension
-; $Id: corecomms,fff,v 1.3 1999/02/26 10:58:41 james Exp $
+; $Id: corecomms,fff,v 1.4 1999/04/16 17:28:24 ds Exp $
 ; Copyright (C) 1998-1999 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
@@ -66,17 +66,15 @@ swapcase
 
 ; new code can cope with ISO Latin 1 characters:
 		CMP	r0,#'z'
-		BHI	capital$l
+		BHI	capital_1$l
 		CMP	r0,#'a'
-		BLO	capital$l
-		SUB	r0,r0,#'a'-'A'
-		MOV	pc,lr
+		SUBHS	r0,r0,#'a'-'A'
+		MOVHS	pc,lr
 capital$l
 		CMP	r0,#'Z'
 		BHI	capital_1$l
 		CMP	r0,#'A'
-		MOVLO	pc,lr
-		ADD	r0,r0,#'a'-'A'
+		ADDHS	r0,r0,#'a'-'A'
 		MOV	pc,lr
 capital_1$l
 		PUSH	"r0,r11,lr"
@@ -93,10 +91,7 @@ capital_1$l
 		CMPNE	r0,#'÷'
 		CMPNE	r0,#'ß'
 		CMPNE	r0,#'ÿ'
-		MOVEQ	pc,lr
-		CMP	r0,#'à'
-		ADDLO	r0,r0,#'à'-'À'
-		SUBHS	r0,r0,#'à'-'À'
+		EORNE	r0,r0,#32
 		MOV	pc,lr
 
 capital_2$l
@@ -160,21 +155,6 @@ sp$l		=	" "
 
 		ALIGN
 
-; util_cursop - perform char op on char at cursor
-; \E r6 = charcter routine, r8-r10
-; \X r0-7 corrupted
-;
-; Char op routine takes character input in r0 and returns it in r0.
-; r8/r9 will also be valid for the file the input character came from.
-; However r10 may not be (so you can't find *where* in the file you're
-; acting on).
-; This is stored back using STRB, so only the LSB is used. All other
-; registers should be preserved. Flags may be altered.
-		LOCAL
-util_cursop
-		FNJSR
-		B	cursop$l
-
 ; util_charop - perform char op on selection (or char at cursor if none)
 ; \E r6 = character routine, r8-r10
 ; \X r0-7 corrupted
@@ -208,35 +188,63 @@ selloop$l	LDRB	r0,[r5]
 nosel$l
 		UNSTACK				; retrieve windptr, fileptr
 						; also corrects StackedRegs
-cursop$l	LDR	r7,[cursorptr,#c_off]	; offset in file of cursor
-		LDR	r0,[fileptr,#f_len]	; end of file
-		CMP	r7,r0
-		FNRTS	CS			; invalid cursor position
+		FNPULL
+		; fall through to util_cursop
 
-		MOV	r0,r7
+; util_cursop - perform char op on char at cursor
+; \E r6 = charcter routine, r8-r10
+; \X r0-7 corrupted
+;
+; Char op routine takes character input in r0 and returns it in r0.
+; r8/r9 will also be valid for the file the input character came from.
+; However r10 may not be (so you can't find *where* in the file you're
+; acting on).
+; This is stored back using STRB, so only the LSB is used. All other
+; registers should be preserved. Flags may be altered.
+		LOCAL
+util_cursop
+		FNJSR
+		MOV	r7,r6
+		LDR	r6,[r8,#w_format]	; setup similarly to e_char
+		MOV	r5,#1
+		LDR	r4,[r8,#w_flags]
+		ADR	r3,cursop_main$l
+		ORR	r4,r4,#modeconfig_Overwrite
+		FNcall	Zap_CharDelDispatch
+		BLVC	util_advancecursor
+		FNRTS
+
+cursop_main$l
+		LDR	r0,[cursorptr,#c_off]	; offset in file of cursor
+		LDR	r1,[fileptr,#f_len]	; end of file
+		CMP	r0,r1
+		MOVHS	pc,lr			; invalid cursor position
+		FNJSR
 		BL	util_readc
-		MOV	r5,r0
+		MOV	r1,r0
 
 		MOV	lr,pc			; return address
-		MOV	pc,r6			; jump to routine
+		MOV	pc,r7			; jump to routine
 
-		TEQ	r0,r5
-		BEQ	getout$l
+		TEQ	r0,r1
+		FNRTS	EQ
 
-;		LDR	r3,[zapws,#wimp_kbdbuf]	; find keyboard buffer
-		ADRL	r3,ds_wksp		; 320 byte buffer ...
-		STRB	r0,[r3]			; and put the replacement character there
-
-		MOV	r0,#3
-		MOV	r1,r7
+		ADRL	r3,ds_wksp
+		STR	r0,[r3]
+		MOV	r0,#&33
+		LDR	r1,[cursorptr,#c_off]
 		MOV	r2,#1
 		FNcall	Zap_Command		; single character replace (data in r3)
-		FNRTS	VS
-
-getout$l	ADD	r7,r7,#1
-		STR	r7,[cursorptr,#c_off]	; advance cursor
-		FNcall	Zap_ReflectCaret
 		FNRTS
+
+util_advancecursor
+		LDR	r0,[cursorptr,#c_off]
+		ADD	r0,r0,#1
+		STR	r0,[cursorptr,#c_off]	; advance cursor
+		LDR	r0,[r9,#f_depth]
+		TEQ	r0,#0
+		MOVNE	pc,lr
+		FNjump	Zap_ReflectCaret
 
 ; That's it
 		END
