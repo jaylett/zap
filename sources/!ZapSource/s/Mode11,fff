@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 2.7 2003/12/31 15:47:19 christian Exp $
+; $Id: Mode11,fff,v 2.8 2004/01/01 17:34:47 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1381,16 +1381,22 @@ enderror$l
 	FNRTS
 
 insert$l
-	TST	R0,#zap_IsToken
-	BEQ	insert_string
 	FNJSR	"R1-R3"
-	BIC	R1,R0,#zap_IsToken
-	FNLDR	R2,wimp_data
+	TST	R0,#zap_IsToken		; check for b31 set token flag
+	BICNE	R1,R0,#zap_IsToken	; FIXME: remove this flags for ARM32
+	BNE	ia$l
+
+	LDRB	R1,[R0]			; check for 27 token flag
+	TEQ	R1,#27
+	BNE	inot$l
+	ADD	R1,R0,#1
+
+ia$l	FNLDR	R2,wimp_data		; lookup token
 	MOV	R3,#256
 	BL	lookup_token_gs
 	MOVVC	R0,R2
 	ADDVS	R0,R0,#4
-	FNPULL
+inot$l	FNPULL
 	B	insert_string
 
 ret2$l  =	10
