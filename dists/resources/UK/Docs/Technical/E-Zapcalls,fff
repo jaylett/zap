@@ -1506,3 +1506,39 @@ There are some preallocated buffer IDs:
 (See h.ZapConsts for the label names.)
 If you require a private buffer, it is recommended that you use the address
 of your command or some other suitable resource within your module.
+
+Zap_GetFileMode
+As for Zap_WhichMode, but also uses FileId content matching.
+
+Zap_AddFilter
+Adds a routine to the list of filters that can intercept mode entry points.
+There are two types of filter: pre filters are called before the mode entry
+point, post filters are called after the mode has returned. The filters are
+only called from Zap_CallMode, NOT Zap_CallGivenMode or Zap_BaseMode. This
+means that where an entry point passes control to its base mode, your filter
+will be called only once, for the mode the window is in.
+It is not normally possible to filter e_redrawline or e_redrawlnum due to the
+way these entry points are called.
+	\E R0 = filter type  0 = pre filter  1 = post filter
+	   R1 -> routine
+	   R2 = private word
+	   R3 = mode number to filter (or -1 for all modes)
+	   R4 = e_ entry point
+	   
+	The filter code is called with:
+		\E R0-R10 as for the mode entry point
+		   R11 private word passed in R2 to Zap_AddFilter, R12 etc
+		\X Can update R0-R10 and corrupt R11.
+		   Prefilters can return R11 = 0 to claim the entry point, 
+		   so the mode and subsequent filters aren't called.
+
+Zap_RemoveFilter
+Removes a filter code from the list of filters.
+	\E R0 = filter type  0 = pre filter  1 = post filter
+	   R1 -> routine
+	   R2 = private word
+	   R3 = mode number to filter (or -1 for all modes)
+	   R4 = e_ entry point
+
+R0-R4 should be the same as on the call to Zap_AddFilter.
+		   
