@@ -1,5 +1,5 @@
 ; Contains misc string handling subs
-; $Id: Strings,fff,v 2.8 2002/11/10 14:20:04 christian Exp $
+; $Id: Strings,fff,v 2.9 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Heap
@@ -55,7 +55,7 @@
 ;E R0=pointer to string terminated by 0 or 10 or 13
 ;  May contain tabs or other ctrl chars
 ;X R0=length of string not including the terminator |
-
+ FNAME str_len
 str_len
  FNJSR "R1"
  MOV R1,R0
@@ -73,7 +73,7 @@ a$l
 
 ;E R1=dest R2=source (copy till <32 and zero added)
 ;X R0=0 R1=end of dest (after 0) R2=char after terminator |
-
+ FNAME strcopy
 strcopy
  LDRB R0,[R2],#1
  CMP R0,#32
@@ -85,7 +85,7 @@ strcopy
 
 ;E R1=dest R2=source (copy till <32 and add no zero)
 ;X R0=terminatior R1=end of dest R2=char after terminator |
-
+ FNAME strcpy
 strcpy
  LDRB R0,[R2],#1
  CMP R0,#32
@@ -97,7 +97,7 @@ strcpy
 
 ;E R1=src (NUL-terminated)
 ;X R0=copy of src (new heap block)
-
+	FNAME	strdup
 strdup
 	FNJSR	"R1-R3"
 	MOV	R2,R1
@@ -117,7 +117,7 @@ len$l	LDRB	R14,[R2],#1
 
 ;E R1=dest R2=source R3=dest buf size R4=max terminating char
 ;X str moved R1=dest 0 term R2=source term+1 R3=amount left in buf |
-
+ FNAME strmove
 strmove
  SUBS R3,R3,#1			; remove room for terminator
  MOVMI PC,R14			; no room
@@ -147,7 +147,7 @@ c$l
 ;X R0=bytes left in buffer R1=first free byte in buffer
 ;  R2=first uncopied byte or the terminator if finished
 ;  Zero terminator added to the string
-
+ FNAME strbuf
 strbuf
  FNJSR
 a$l
@@ -167,7 +167,7 @@ b$l
 
 ;E R1=dest string (0 term) R2=source string
 ;X Source string copied 'over' the destination string R1-R2 corrupt.
-
+ FNAME strover
 strover
  LDRB R0,[R1]
  CMP R0,#&20
@@ -182,7 +182,7 @@ strover
 
 ;E R1=first str R2=second str
 ;X Z flag returned R0-R2 corrupted case sensitive |
-
+ FNAME strcmp
 strcmp
  FNJSR
 a$l
@@ -200,7 +200,7 @@ a$l
 
 ;E R1=first string R2=second string
 ;X Z flag returned R0-R2 corrupted. Not case sensitive |
-
+ FNAME strCMP
 strCMP
  FNJSR
 a$l
@@ -225,7 +225,7 @@ a$l
 
 ;E R1=string R2=text (NB null strings R1 always fail to match)
 ;X EQ if R1 matches start of text and R0=next point in text |
-
+ FNAME strcmpstr
 strcmpstr
  FNJSR "R1-R2"
  LDRB R0,[R1]
@@ -247,7 +247,7 @@ a$l
 ;E R1=string R2=text (NB null strings R1 always fail to match)
 ;X EQ if R1 matches start of text and R0=next point in text |
 ;  Match is case insensitive
-
+ FNAME strCMPstr
 strCMPstr
  FNJSR "R1-R2"
  LDRB R0,[R1]
@@ -308,7 +308,7 @@ b$l
 
 ;E R0=byte R1=buffer R2=number
 ;X R0 saved R1=next byte after R2 R0's R2 undef |
-
+ FNAME strstr
 strstr
  SUBS R2,R2,#1
  STRGEB R0,[R1],#1
@@ -317,7 +317,7 @@ strstr
 
 ;E R0=number R1=buffer
 ;X number inserted into buffer, R1 updated to number end |
-
+ FNAME strnum
 strnum
  FNJSR
  MOV R2,#16
@@ -326,6 +326,7 @@ strnum
 
 ;E R0=string (poss. null) or 0  R2=default
 ;X R0=R0 or R2 if (R0==0 OR [R0]==0)  R1 corrupt
+ FNAME strdefault
 strdefault
  TEQ R0,#0
  LDRNEB R1,[R0]
@@ -339,7 +340,7 @@ strdefault
 
 ;E R0-R9=args R10=address of sub
 ;X R0-R9=returned args & sub executed with long_op on/errors handled #
-
+ FNAME do_longop
 do_longop
  FNJSR "R11"
  MOV R11,R0
@@ -360,7 +361,7 @@ do10
  FNRTV
 
 ;X Hourglass on and escape enabled #
-
+ FNAME long_op_on
 long_op_on
  FNJSR "R1,R2"
  SWI XHourglass_On
@@ -371,7 +372,7 @@ long_op_on
  FNRTS
 
 ;X Hourglass off and escape disabled #
-
+ FNAME long_op_off
 long_op_off
  FNJSR "R1,R2"
  SWI XHourglass_Off
@@ -385,7 +386,7 @@ long_op_off
 
 ;E R0=numerator R1=denominator
 ;X percentage shown on hourglass #
-
+ FNAME long_op_display
 long_op_display
  FNJSR "R1-R3"
  MOV R2,#100
@@ -398,7 +399,7 @@ long_op_display
 
 ;E R1=pointer to string of hex digits
 ;X R1=first non hex digit found & R0=value of those found |
-
+ FNAME hex_read
 hex_read
  FNJSR "R2"
  MOV R2,#0			; accumulated value
@@ -415,7 +416,7 @@ he1
 
 ;E R0=ascii character (upper or lower case)
 ;X R0=hex value (0-15) / CS if not valid |
-
+ FNAME hex_char
 hex_char
  CMP R0,#'a'
  SUBHS R0,R0,#32		; be case insensitive
@@ -431,7 +432,7 @@ hex_char
 
 ;E R0=value (bottom 8 bits) R6=buffer
 ;X 2 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
-
+ FNAME hex2
 hex2
  AND R1,R0,#&F0
  MOV R1,R1,LSR#4
@@ -448,7 +449,7 @@ hex2
 
 ;E R0=value (bottom 8 bits) R6=buffer
 ;X 8 digit bin of value put in buffer R0 saved (R1 corrupted/R6 inc)
-
+ FNAME bin8
 bin8
  FNJSR
  MOV R1,#'0'
@@ -481,7 +482,7 @@ bin8
 
 ;E R0=value (all 32 bits) R6=buffer
 ;X 8 dig hex of value put in buffer R0 saved (R1 corrupted/R6 inc)
-
+ FNAME hex8
 hex8
  FNJSR
  MOV R0,R0,ROR#24
@@ -496,7 +497,7 @@ hex8
 
 ;E R0=word
 ;X Byte order reversed (little endian -> big endian) |
-
+ FNAME reverse_word
 reverse_word
  FNJSR				; label bytes abcd
  EOR R14,R0,R0,ROR#16		; (aEORc)(bEORd)(aEORc)(bEORd)
@@ -514,7 +515,7 @@ reverse_word
 ;E R10=keys file pointer
 ;X R10=rest of current string skipped then spaces skipped
 ;  Returns line terminator if reached |
-
+ FNAME str_jump
 str_jump
  SUB R10,R10,#1
 a$l
@@ -544,7 +545,7 @@ str_skip
 ;X R10=start of next argument if spaces used as a separator
 ;  Start of separator otherwise. Separators are any punctuation symbol
 ;  in ascii range !-/ :-? [-^ {-}
-
+ FNAME str_separator
 str_separator
  SUB R10,R10,#1			; compensate
 a$l
@@ -578,7 +579,7 @@ a$l
 ;E R10=keys file pointer
 ;X R10=start of next argument if spaces used as a separator
 ;  Start of separator otherwise. Separators are in range \[^A-Za-z0-9_]
-
+	FNAME	str_fnseparator
 str_fnseparator
 	SUB	R10,R10,#1			; compensate
 a$l	LDRB	R0,[R10,#1]!
@@ -605,7 +606,7 @@ skip$l	LDRB	R0,[R10,#1]!
 ;E R10=keys file pointer
 ;X R10=start of next line CS if reached 0 at end of file
 ;  In this case R0 points to the terminator.
-
+ FNAME str_next
 str_next
  LDRB R0,[R10],#1
  TEQ R0,#10
@@ -624,7 +625,7 @@ a$l
 ;E R10=pointer in file of signed integer
 ;X R0=number read at this point VS if not valid.
 ;  R10=next arg, calls str_separator so arg may start with ':' etc
-
+ FNAME str_readnum
 str_readnum
  FNJSR "R1-R2"
  MOV R1,R10			; string
@@ -649,7 +650,7 @@ str_readnum
 ;X R10=pointer to char following comma or end of string
 ;  R0=char at [R10,#-1] (comma or <' ')
 ;  Commas in "" are ignored
-
+	FNAME	str_comma
 str_comma
 a$l	LDRB	R0,[R10],#1
 	CMP	R0,#','
@@ -669,7 +670,7 @@ b$l	LDRB	R0,[R10],#1
 ;E R10=pointer in file of string argument (eg (fred) inc quotes)
 ;X R0=length of the string argument or -1 if invalid or quotes mismatched
 ;  before a terminating character (eg 0 or LF)
-
+ FNAME expr_strlen
 expr_strlen
  FNJSR "R1,R2,R10"
  MOV R2,#0
@@ -705,7 +706,7 @@ bad$l
 ;E R10=pointer in file of string argument (eg "fred" inc quotes)
 ;X R0=length of the string argument or -1 if invalid or quotes mismatched
 ;  before a terminating character (eg 0 or LF)
-
+ FNAME str_strlen
 str_strlen
  FNJSR "R1,R10"
  LDRB R0,[R10],#1		; first character
@@ -735,7 +736,7 @@ bad$l
 ;X String copied to dest buffer and 0 added on the end
 ;  R1 updated to byte after 0
 ;  R10 updated to bytes after quote or pointer to file terminator
-
+ FNAME expr_strcopy
 expr_strcopy
  FNJSR "R2,R3"
  MOV R2,#0
@@ -773,7 +774,7 @@ end$l
 ;X String copied to dest buffer and 0 added on the end
 ;  R1 updated to byte after 0
 ;  R10 updated to bytes after quote or pointer to file terminator
-
+ FNAME str_strcopy
 str_strcopy
  FNJSR "R2"
  MVN R2,#1<<31
@@ -821,7 +822,7 @@ limit$l
 ;   - if len >= R2 then truncated to (R2-1) characters plus terminator
 ;  R1 updated to byte after 0
 ;  R10 updated to bytes after quote or pointer to file terminator
-
+ FNAME str_strncopy
 str_strncopy
 	FNJSR	"R2"
 	B	str_strcopy_entry
@@ -836,7 +837,7 @@ str_strncopy
 ;X R0=output from the routine & file read #
 ;  Internal rountine called with R10=start of the file in a buffer and
 ;  the file terminated by 0.
-
+ FNAME str_readfile
 str_readfile
  FNJSR "R1-R7,R10-R11"
  MOV R7,R0			; address of the sub to call

@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 2.2 2002/11/10 20:43:43 christian Exp $
+; $Id: Cursors,fff,v 2.3 2002/11/14 19:30:30 christian Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -112,7 +112,7 @@
 ;  R8/R9=the file
 ;X Caret put in the file at the start and startup commands executed
 ;  if present
-
+	FNAME	create_window_caret
 create_window_caret
 	FNJSR "R1,R2,R7,R10"
 	MOV R10,R0			; save the block pointer
@@ -145,7 +145,7 @@ create_window_caret
 
 ;E R0=file offset R8/R9
 ;X caret mode set to 1 and caret put at this offset #
-
+	FNAME	put_caret
 put_caret
 	FNJSR "R10"
 	MOV R10,R0			; save offset
@@ -1066,6 +1066,7 @@ wiggleabit2
  LOCAL
 
 ;E R2,R3 x,y
+ FNAME poscursoratxcommay
 poscursoratxcommay
  FNJSR "R2"
  LDR R14,[R8,#w_format]
@@ -1083,7 +1084,7 @@ columntemp
 
 ;E as for mouse click R2/R3=xycol
 ;  adjust clicked on the window
-
+ FNAME mc_place_adjust
 mc_place_adjust
  FNJSR "R1-R11"
  ; SWI &107 ;
@@ -1214,7 +1215,7 @@ escapedragflag
 
 ;E as for a standard drag sub
 ;X drag seleceted region dealt with.
-
+ FNAME process_drag
 process_drag
  FNJSR "R1-R11"
  MOV R2,R0			; save drag state
@@ -1270,6 +1271,7 @@ theexit$l
  BL remove_zero_size_selections
  FNRTS
 
+ FNAME remove_zero_size_selections
 remove_zero_size_selections
  FNJSR
  BL get_selection
@@ -1371,9 +1373,10 @@ remove_zero_size_selections
 ; FNRTS
 
 	LOCAL
+
 ;E R2/R3=xycol R8/R9 (inc margin)
 ;X R0=file offset R1=loff R2/R3=xycol (inc margin) with y clipped #
-
+ FNAME find_offset
 find_offset
  FNJSR "R2,R11"
  LDR R0,[R8,#w_height]
@@ -1428,7 +1431,7 @@ offset_end$l
 
 ;E R10=caret block
 ;X caret updated from c_off and caret plotted #
-
+ FNAME reflect_caret
 reflect_caret
  FNJSR
  BL update_caret
@@ -1448,7 +1451,7 @@ $l	FNLDR	$r,car_input
 
 ;E R10=caret block
 ;X caret vals updated from c_off but caret not plotted #
-
+	FNAME	update_caret
 update_caret
 	FNJSR	"R1-R3,R8-R9"
 	LDR	R0,[R10,#c_wind]
@@ -1468,7 +1471,7 @@ update_caret
 	FNRTS
 
 ;X Input focus gained/lost according to caret mode R8??? #
-
+ FNAME gain_input_with_service
 gain_input_with_service
 ; STMFD R13!,{R1-R5,R8-R9,R14}
 ; MVN R5,#&0
@@ -1528,7 +1531,7 @@ ga1
 
 ;E R8
 ;X returns EQ if cursor caret in this window |
-
+ FNAME test_caret
 test_caret
  FNJSR
  FNLDR R0,car_cursor
@@ -1540,7 +1543,7 @@ test_caret
 
 ;E R8
 ;X Returns EQ if input caret in this window |
-
+ FNAME test_input
 test_input
  FNLDR R0,car_input
  LDR R0,[R0,#c_wind]
@@ -1554,7 +1557,7 @@ test_input
 
 ;E R10=caret block
 ;X old caret posn and new caret posn redrawn #
-
+ FNAME plot_caret
 plot_caret
  FNJSR
  BL clear_caret			; hmm.
@@ -1563,7 +1566,7 @@ plot_caret
 
 ;E R10=caret block and car_mode 1/2
 ;X caret posn redrawn without setting as old posn #
-
+ FNAME set_caret_update
 set_caret_update
  FNJSR "R1,R8,R9"
  LDR R0,[R10,#c_wind]
@@ -1655,7 +1658,7 @@ set_caret_update
 
 ;E R10=caret block
 ;X caret posn redrawn and this posn set as old posn #
-
+ FNAME set_caret
 set_caret
  FNLDR R0,car_mode
  CMP R0,#3
@@ -1848,6 +1851,7 @@ resetatselstart
  FNSTR R6,fnd_word,NE		; save actual selected region start
  MOV PC,R14
 
+	FNAME	set_charoff
 set_charoff
 	FNJSR	"R11"
 	IsCur	R11
@@ -1868,7 +1872,7 @@ set_charoff
 
 ;E R10=caret blk
 ;X old caret posn redrawn and then marked null #
-
+ FNAME clear_caret
 clear_caret
  FNLDR R0,car_mode
  CMP R0,#3
@@ -1902,7 +1906,7 @@ clear_caret_always
 
 ;E R8
 ;X Position at point coord updated #
-
+ FNAME clear_point
 clear_point
  FNJSR "R1"
  FNLDR R1,car_block
@@ -1923,7 +1927,7 @@ clear_point
 
 ;E R8
 ;X point caret scrubbed out #
-
+ FNAME scrub_point
 scrub_point
  FNJSR "R1"
  FNLDR R1,car_mode
@@ -1935,7 +1939,7 @@ scrub_point
 
 ;E R10=caret block
 ;X Old caret posn rubbed out even if new pos=old pos
-
+ FNAME scrub_caret
 scrub_caret
  FNJSR "R1"
  FNLDR R1,car_mode
@@ -1947,7 +1951,7 @@ scrub_caret
 
 ;E R0=file offset (it is clipped by this routine) R8/R9
 ;X R0=loff R1=caret width R2/R3=xycol of this char (inc margin) #
-
+ FNAME offset_line_column
 offset_line_column
  FNJSR "R4"
  LDR R4,[R9,#f_len]		; clip (eg taskwindow width change)
@@ -1968,7 +1972,7 @@ offset_line_column
 
 ;E R0=new caret mode
 ;X R0 set as new caret mode & carets not needed nullified #
-
+ FNAME set_caret_mode
 set_caret_mode
  FNJSR "R1"
  MOV R1,#0
@@ -1989,7 +1993,7 @@ set_caret_mode
  LOCAL
 
 ; set caret mode to 1 #
-
+ FNAME set_caret_mode_to1
 set_caret_mode_to1
  FNJSR "R1-R11"
  FNLDR R11,car_mode		; save old mode
@@ -2040,7 +2044,7 @@ fromctrlsel$l
  FNRTS
 
 ; R0=new caret mode. Caret is in mode 1 at this point #
-
+ FNAME set_caret_mode_from1
 set_caret_mode_from1
  FNJSR "R1-R11"
  FNSTR R0,car_mode		; set new mode
@@ -2122,7 +2126,7 @@ cmode5
 
 ;E R10=caret blk
 ;X caret nulled if it existed #
-
+	FNAME	null_caret
 null_caret
 	FNJSR
 	LDR	R0,[R10,#c_wind]
@@ -2137,6 +2141,7 @@ null_caret
 
 	FNRTS
 
+ FNAME scrub_input_carets
 scrub_input_carets
  FNJSR "R1-R11"
  FNLDR R10,car_cursor ; input
@@ -2181,7 +2186,7 @@ scrub_all_on_this_file
  FNRTS
 
 ;X All carets have their old posns redrawn #
-
+ FNAME remove_carets
 remove_carets
  FNJSR "R10"
  FNLDR R10,car_cursor
@@ -2191,7 +2196,7 @@ remove_carets
  FNRTS
 
 ;X All carets have their old posns redrawn #
-
+ FNAME remove_carets2
 remove_carets2
  FNJSR "R10"
  FNLDR R10,car_cursor
@@ -2205,7 +2210,7 @@ remove_carets2
 
 ;E R8/R9
 ;X All carets in this window reflect_caret'd inc point #
-
+ FNAME reflect_carets
 reflect_carets
  FNJSR "R10"
  FNLDR R10,car_cursor
@@ -2222,7 +2227,7 @@ reflect_carets
 
 ;E R10=caret blk R8
 ;X EQ if this caret in this window |
-
+ FNAME test_cblk
 test_cblk
  FNJSR
  LDR R0,[R10,#c_wind]
@@ -2233,7 +2238,7 @@ test_cblk
 
 ;E R10=caret blk R9
 ;X EQ if this caret in this file
-
+ FNAME test_fblk
 test_fblk
  FNJSR
  LDR R0,[R10,#c_wind]
@@ -2249,7 +2254,7 @@ test_fblk
 
 ;E R8/R9
 ;X all carets in this window removed #
-
+ FNAME delete_carets
 delete_carets
  FNJSR "R10"
  FNLDR R10,car_selection
@@ -2278,7 +2283,7 @@ de25
  FNRTS
 
 ;X mode 1 forced for caret if it is in mode >=1 #
-
+ FNAME default_caret
 default_caret
  FNJSR
  FNLDR R0,car_mode
@@ -2293,7 +2298,7 @@ default_caret
  FNRTS
 
 ;X car mode forced to 1/2 #
-
+ FNAME caret_writable
 caret_writable
  FNJSR
  FNLDR R0,car_mode
@@ -2304,7 +2309,7 @@ caret_writable
  FNRTS
 
 ;X old mode restored if nec, input gained and carets set #
-
+ FNAME restore_carets
 restore_carets
  FNJSR "R10"
  FNLDR R0,car_mode		; get caret mode
@@ -2319,7 +2324,7 @@ restore_carets
  FNRTS
 
 ;X reclaim carets for the duration of a menu/mouse click
-
+ FNAME reclaim_caret
 reclaim_caret
  FNJSR
  FNLDR R0,car_mode
@@ -2332,7 +2337,7 @@ reclaim_caret
 ;X Carets which were reclaimed are now declaimed provided that
 ;  no one has called gain_input to grab the caret.
 ;  R0 AND C FLAG preserved |
-
+ FNAME declaim_caret
 declaim_caret
  FNJSR "R0"
  FNLDR R14,car_omode
@@ -2344,7 +2349,7 @@ declaim_caret
  FNRTS
 
 ;X R10=input caret R8/R9 related window / CS if none |
-
+ FNAME get_input_caret
 get_input_caret
  FNJSR
  FNLDR R10,car_input
@@ -2357,7 +2362,7 @@ get_input_caret
 ; B get_cursor_caret ; fall through...!
 
 ;X R10=cursor caret R8/R9 related window / CS if none |
-
+ FNAME get_cursor_caret
 get_cursor_caret
  FNJSR
  FNLDR R10,car_cursor
@@ -2368,7 +2373,7 @@ get_cursor_caret
  FNRTS
 
 ;X R0=address of window block with input focus or 0 if none |
-
+ FNAME get_input_window
 get_input_window
  FNJSR
  FNLDR R0,car_input
@@ -2389,7 +2394,7 @@ gi1
 
 ;E R0 = 2^n-1 (alignment to 2^n byte boundary) R10=caret
 ;X caret word aligned if window in mode 2/4 #
-
+ FNAME word_align_caret_variable
 word_align_caret_variable
  FNJSR "R0,R8-R9"
  LDR R0,[R10,#c_wind]
@@ -2412,7 +2417,7 @@ word_align_caret_variable
 ;E R8/R9
 ;X R0=offset of input caret if in the window
 ;  or best input posn o/w (ie point posn) |
-
+ FNAME find_input
 find_input
  FNJSR "R1-R2,R8-R10"
  MOV R1,R8			; save old R8
@@ -2428,7 +2433,7 @@ fi13
 
 ;E R8/R9
 ;X caret put in that window at 'input' offset #
-
+ FNAME enter_window
 enter_window
  FNJSR
  BL find_input
@@ -2444,7 +2449,7 @@ enter_window
  LOCAL
 
 ;X flash event started if switches flag set
-
+ FNAME init_flash
 init_flash
  FNJSR "R1-R3"
  FNLDR R0,opt_switches
@@ -2494,7 +2499,7 @@ off$l
 
 ;E none (not R0=&FF000000 if the region is to be preserved!????)
 ;X current selected area cleared & caret mode unchaged #
-
+ FNAME clear_selection
 clear_selection
  FNJSR "R1-R5,R8-R11"
  FNLDR R10,car_selection
@@ -2518,7 +2523,7 @@ clear_selection
  FNRTS
 
 ;X car_selection ordered so start off<=end off |
-
+ FNAME order_selection
 order_selection
  FNJSR "R0,R10"
  FNLDR R10,car_selection
@@ -2542,7 +2547,7 @@ order_selection
  FNRTS
 
 ;X CC R1=file off of sel R2=len of sel R8/R9 / CS if no valid sel |
-
+ FNAME get_selection
 get_selection
  FNJSR ;"R0"
  FNLDR R14,car_selection
@@ -2566,7 +2571,7 @@ get_selection
 ;X CC R1=file off of line start R2=len of line R8/R9 |
 ; Normally called if get_selection returns CS
 ; (uses e_linestart & e_linenext)
-
+	FNAME	get_line
 get_line
 	CMP	R10,#0
 	MOVEQ	PC,R14
@@ -2587,7 +2592,7 @@ get_line
 
 ;E R8,R9
 ;X R1,2,3,8,corrupted / selection completely redrawn...
-
+ FNAME update_selection
 update_selection
  FNJSR
  BL get_selection
@@ -2606,7 +2611,7 @@ update_selection
 
 ;X R3=heap block containing selected data R2=length / R3=0 if none
 ;  Note that R3 should be freed once the data has been used #
-
+ FNAME read_selection
 read_selection
  FNJSR "R1,R8-R11"
  BL get_selection
@@ -2650,7 +2655,7 @@ read_selection
 
 ;E R0=off of first changed char R1=sgnd change R2=new input car posn R9
 ;X Caret and marker positions updated but /not/ redrawn #
-
+ FNAME alter_all_carets
 alter_all_carets
  FNJSR "R3,R10-R11"
  MOV R11,R0			; save first changed offset
@@ -2724,7 +2729,7 @@ getr3offset
 
 ;E R1=sgnd change R9=file R10=caret block R11=first changed off
 ;X If the caret is in the file then posn updated #
-
+ FNAME alter_caret
 alter_caret
  FNJSR "R1-R2,R8"
  BL test_fblk			; check in this file
@@ -2790,7 +2795,7 @@ shift$l
 
 ;E before screen update with R0=first changed R1=signed change R9
 ;X Selection ordered and ends moved #
-
+ FNAME alter_selection
 alter_selection
  FNJSR "R1-R3,R8-R11"
  MOV R11,R0			; save first changed offset
@@ -2825,6 +2830,7 @@ al11
  FNRTS
 
 ;E R8/R9
+ FNAME to_new_carets
 to_new_carets
 ; STMFD R13!,{R10,R14}	; identical to code below...
 ; BL get_wind_off		; R0=window with input focus
@@ -2890,7 +2896,7 @@ new_carets_sub
 
 ;E R0=window with input focus R1=sgn change R2=first changed off
 ;X point carets not in input focus window updated #
-
+ FNAME correct_points
 correct_points
  TEQ R0,R8
  MOVEQ PC,R14			; has the input focus
@@ -2902,7 +2908,7 @@ correct_points
 
 ;E R0=file offset of first changed R1=signed change R9
 ;X markers in the marker buffer updated according to this change #
-
+ FNAME correct_markers
 correct_markers
  TEQ R1,#0
  MOVEQ PC,R14			; no change
@@ -2932,7 +2938,7 @@ co15
 ;E R0=file offset of first changed R1=signed change
 ;  R7=linke entry R9=search file
 ;X link list in this file updated #
-
+ FNAME correct_links
 correct_links
  FNJSR "R2"
  LDR R2,[R7,#4]			; links list for this entry
@@ -3022,7 +3028,7 @@ co1
 
 ;E R0=file offset R8/R9=dest wind R10=caret
 ;X Caret moved to this window & offset without marking #
-
+ FNAME goto_file_offset
 goto_file_offset
  FNJSR "R1-R11"
  MOVS R4,R0			; save required offset
@@ -3157,7 +3163,7 @@ import_the_caret
 
 ;E R0=file offset R8/R9=window to move to R10=caret
 ;X Offset gone to and position marked #
-
+ FNAME goto_offset
 goto_offset
  FNJSR "R4"
  MOV R4,R0			; save offset
@@ -3172,7 +3178,7 @@ goto_offset
 
 ;E R10=caret
 ;X Point (in the window of the caret) updated to this position |
-
+ FNAME update_point
 update_point
  FNJSR "R8-R10"
  LDR R0,[R10,#c_wind]
@@ -3189,7 +3195,7 @@ update_point
 
 ;E R10=caret
 ;X caret position marked (and mark inc) if valid #
-
+ FNAME mark_caret
 mark_caret
  FNJSR "R8-R9"
  LDR R0,[R10,#c_wind]
@@ -3202,7 +3208,7 @@ mark_caret
 
 ;E R0=file offset R8/R9
 ;X marker inserted in marker buffer at f_mark-8 unless already there #
-
+ FNAME insert_marker
 insert_marker
  FNJSR "R1-R7,R10"
  MOV R10,R0			; save file offset
@@ -3248,7 +3254,7 @@ in19
 
 ;E R9=file
 ;X marker at offset f_mark-8 deleted and data shifted down #
-
+ FNAME delete_marker
 delete_marker
  FNJSR "R1-R7"
  LDR R7,[R9,#f_mptr]
@@ -3268,7 +3274,7 @@ delete_marker
 
 ;E R8/R9=dest window R10=caret
 ;X previous mark gone to if exists
-
+ FNAME previous_mark
 previous_mark
  FNJSR "R1-R11"
  LDR R7,[R9,#f_mptr]
@@ -3301,7 +3307,7 @@ ge2
 
 ;E R8/R9=dest window R10=caret
 ;X next mark gone to if existing
-
+ FNAME next_mark
 next_mark
  FNJSR "R1-R11"
  LDR R7,[R9,#f_mptr]
@@ -3327,7 +3333,7 @@ ge1
 
 ;E R0=file offset to toggle R8/R9
 ;X mark at f_mark-8 toggled #
-
+ FNAME toggle_mark
 toggle_mark
  FNJSR "R0,R10"
  BL ensure_mark
@@ -3343,7 +3349,7 @@ to1
 
 ;E R0=file offset to toggle R8/R9
 ;X mark at f_mark-8 toggled #
-
+ FNAME set_mark
 set_mark
  FNJSR "R0,R10"
  BL ensure_mark
@@ -3355,7 +3361,7 @@ set_mark
 
 ;E R0=file offset to toggle R8/R9
 ;X EQ if there is an existing mark at this mosition.
-
+ FNAME ensure_mark
 ensure_mark
  FNJSR "R5,R11"
  FNLDR R5,wind_list
@@ -3375,7 +3381,7 @@ ensure_mark
 
 ;E R8/R9
 ;X default cursor mode and buffer selected #
-
+ FNAME select_buffer
 select_buffer
  FNJSR "R1-R2"
  MOV R2,#0
@@ -3385,7 +3391,7 @@ select_buffer
 
 ;E R2=start offset R3=end offset R8/R9
 ;X Default caret set & this region selected and highlighted #
-
+ FNAME select_region
 select_region
  FNJSR
  BL default_caret
@@ -3394,7 +3400,7 @@ select_region
 
 ;E R2=start off R3=end off R8/R9
 ;X region marked on screen without drawing bits already marked
-
+ FNAME alter_selected_region
 alter_selected_region
  FNJSR "R1-R7,R10"
  FNLDR R10,car_selection
@@ -3489,6 +3495,7 @@ check_to_see_if_deep_change
 ; what is the problem this code was written to cure?
 
 ;E R8,R9,R10
+	FNAME	update_if_in_compound
 update_if_in_compound
 	FNJSR
 	BL	check_to_see_if_deep_change	; are we 'outside' all start_op/stop_ops?
@@ -3499,6 +3506,7 @@ update_if_in_compound
 	FNRTS
 
 ;E R8,R9,R10
+	FNAME	update_if_in_this_wind
 update_if_in_this_wind
 	FNJSR	"R2,R3"
 	BL	check_to_see_if_deep_change	; are we 'outside' all start_op/stop_ops?
@@ -3514,6 +3522,7 @@ update_if_in_this_wind
 
 ;E \R2=c_off
 ;  \R3=c_owidth	R8/R9
+	FNAME	add_and_delete_spaces
 add_and_delete_spaces
 	FNJSR	"R10,R11"
 	LDR	R11,[R9,#f_flags]
@@ -3534,6 +3543,7 @@ add_and_delete_spaces
 	FNRTS
 
 ;E R0,R9...
+	FNAME	space_at_offset
 space_at_offset
 	FNJSR	"R1,R2,R3,R7"
 	MOV	R7,R0
@@ -3560,7 +3570,7 @@ local_space$l
 
 ;E R1=num of times R2/R3 gives movement direction
 ;X executes the movement command R0+ corrupt
-
+ FNAME move_cursor
 move_cursor
  FNJSR
  BL checkescapemovement
@@ -3583,6 +3593,7 @@ move_cursor
  ; SWI &107
  FNRTS
 
+ FNAME checkescapemovement
 checkescapemovement
  FNJSR "R0"
  MOV R0,#&70 ; escape
@@ -3599,6 +3610,7 @@ checkescapemovement
  PULL "R1-R12"
  FNRTS
 
+ FNAME escapetestingcallback
 escapetestingcallback
  FNJSR "R0-R5"
  MOV R0,#&70 ; escape
@@ -3619,7 +3631,7 @@ escapetestingcallbackagain
 
 ;E R1=num of times R3=scroll dir
 ;X executes the movement command R0+ corrupt
-
+ FNAME pagemove_cursor
 pagemove_cursor
  FNJSR
  BL checkescapemovement
@@ -3651,7 +3663,7 @@ pagemove_cursor
  FNRTS
 
 ;X perform scroll cursor command
-
+ FNAME scroll_cursor
 scroll_cursor
  FNJSR
  BL get_cursor_caret
@@ -3672,7 +3684,7 @@ scroll_cursor
 ;E R10=caret block (with valid window state)
 ;X if caret not visible then window reopened (and left al if col 0) #
 ;  R0=-1 if moved /vertically/
-
+ FNAME make_cursor_visible
 make_cursor_visible
  FNJSR "R1-R11"
  ; SWI &107
@@ -3966,7 +3978,7 @@ update_w_bpl
 ;  R8=window
 ;X changes R4 to new pix scroll offset & sets b30 of w_flag
 ;  & CS if altered. Corrupts R0-R1,R3-R7
-
+	FNAME	new_scroll
 new_scroll
 	MLA	R6,R3,R2,R6	; pixel distance edge->visible
 	MLA	R7,R5,R2,R7	; pixel distance edge->visible rhs
@@ -4062,7 +4074,7 @@ neg$l	SUB	R7,R7,R3	; => window width less cursor width
 ;  R8=window
 ;X R0=new first column of cursor (clipped to 0)
 ;  Corrupts R0-R1,R3-R7 (?)
-
+ FNAME new_constrict
 new_constrict
  CMP R3,R5			; has the cursor region +ve width?
  BGE ne32			; no
@@ -4086,7 +4098,7 @@ ne32
 
 ;E Cursor caret is in a window with R8 updated
 ;X Cursor caret moved if necessary to keep it visible #
-
+ FNAME constrict_cursor
 constrict_cursor
  FNJSR "R1-R11"
  ;SWI &107			; testing...
@@ -4173,7 +4185,7 @@ secondconfiningsubroutine
 ;E R2=col change (-3 cLeft -2 sLeft -1 Left 0  1 Right 2 sRight 3 cRight)
 ;  R3=row change if R2=0 R8/R9
 ;X cursor caret moved by this amount #
-
+ FNAME move_by
 move_by
  FNJSR "R1-R11" ; STMFD R13!,{R1-R11,R14}
  BL get_cursor_caret
@@ -4292,6 +4304,7 @@ local_dont_update
  DCD 0
 
 ;E R3 = scrolly shift...
+ FNAME shift_the_window
 shift_the_window
  FNJSR "R0-R12"
 
@@ -4312,6 +4325,7 @@ shift_the_window
  BL reopen_window
  FNRTS
 
+ FNAME shift_by
 shift_by
  FNJSR "R1-R11"
  MOV R11,R1			; window block
@@ -4342,7 +4356,7 @@ shift_by
 ;E R0=string to indent by (number or actual string)
 ;  set b31 to do an outdent instead
 ;X selection (if it exists) indented by R0 #
-
+ FNAME indent_selection
 indent_selection
  FNJSR "R1-R11"
  MOV R5,R0,LSR#31		; save indent/outdent bit
@@ -4438,7 +4452,7 @@ end$l				; end/error
 
 ;E R2-R5=region R8
 ;X region corrected so that R2R3 <= R4R5 and clipped to margin
-
+ FNAME correct_region
 correct_region
  CMP R5,R3
  BGT co16

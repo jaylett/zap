@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 2.6 2002/11/10 17:02:03 christian Exp $
+; $Id: AlterTxt,fff,v 2.7 2002/11/14 19:30:30 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -61,7 +61,7 @@
 ;  R1=minimum size of split
 ;  R9=file
 ;X file split at this offset #
-
+ FNAME split_buffer
 split_buffer
  FNJSR "R1-R10"
  LDR R7,[R9,#f_len]
@@ -100,7 +100,7 @@ move$l
 ;  R9=file
 ;X file buffer size changed by this amount (preserving split etc) #
 ;  (Affects f_bufl and f_blklen - undo stuff at the end shifted)
-
+ FNAME enlarge_buffer
 enlarge_buffer
  FNJSR "R1-R11"
  FNLDR R10,file_list
@@ -149,7 +149,7 @@ tidy$l				; set new split offsets and length
 
 ;E R0=file off R9
 ;X R0=character at this offset R1 corrupted (no checking) |
-
+ FNAME cln_readc
 cln_readc
  LDR R1,[R9,#f_splito]
  CMP R0,R1
@@ -165,7 +165,7 @@ cln_readc
 ;X R0=word at this address (not nec aligned)
 ;  Zero bytes inserted into word if word goes off end of file
 ;  Endianness of work taken from R8,#w_format |
-
+ FNAME cln_readw
 cln_readw
  FNJSR "R1-R5"
  MOV R3,R0			; offset
@@ -190,7 +190,7 @@ in16
 ;E R0=word R1=offset R8/R9
 ;X word replaced/inserted if at end via replace_area #
 ; (was exec command) #
-
+ FNAME cln_writew
 cln_writew
  FNJSR "R1-R3"
  LDR R2,[R8,#w_format]
@@ -213,7 +213,7 @@ cln_writew
 ;E R0=coltab width/0 for edit tab
 ;  R1=num tabs R2=xcol(em) R3=yline R8/R9
 ;X R0=new column position after tab (exc margin) #
-
+ FNAME cln_tabcol
 cln_tabcol
  FNJSR "R1-R7,R10,R11"
  MOV R4,R1			; tab count
@@ -267,7 +267,7 @@ cl14
 ; should returns file offset in previous logical line which is long enough
 ; or -1 if this doesn't exist.
 ; in fact returns file offset in previous physical line :(
-
+ FNAME offset_for_tabs
 offset_for_tabs
 ; FNJSR
 ; MOV R0,R3
@@ -302,7 +302,7 @@ offset_for_tabs
 
 ;E R0=number of chars to copy
 ;X That number of chars copied from cursor to input #
-
+ FNAME copy_text
 copy_text
  FNJSR "R1-R11"
  MOV R1,R0			; number of bytes to copy
@@ -357,7 +357,7 @@ co12
  LOCAL
 
 ; sub for Tab command (with R0=tab mode<<9 and R5=w_flags)
-
+ FNAME insert_tab
 insert_tab
  FNJSR
  AND R0,R0,#3<<9		; tab mode
@@ -426,7 +426,7 @@ ta6
 ;X Command executed, placed in input buffer, and input caret updated to
 ;  the end of the block and made visible. #
 ; if R0=1/5 then on exit R3=pointer to snipped text (may == wimp_data)...
-
+ FNAME execute_command
 execute_command
  TEQ R2,#0
  MOVEQ PC,R14			; nothing to do
@@ -453,7 +453,7 @@ ex10
  B ex11
 
 ;E As for execute_command except called by the mode and don't need R8 #
-
+ FNAME command_primative
 command_primative
  FNJSR "R1-R11"
  MOV R10,R0			; save command num
@@ -506,7 +506,7 @@ maybe_rapid_not_preinput
 ;E R9=file
 ;X caret mode and selected region status prepared for
 ;  insertion of text #
-
+ FNAME pre_input
 pre_input
  FNJSR "R10"
  LDR R0,[R9,#f_flags]
@@ -567,7 +567,7 @@ local_commandtypestored
 
 ;E R0=command R1-R5=command data as in execute_command R9
 ;X Command action performed and R1-R5=undo data, input caret updated #
-
+ FNAME do_command
 do_command
  STR R0,local_commandtypestored	; get actual command number (0-7)
  ANDS R0,R0,#&07		; get actual command number (0-7)
@@ -621,7 +621,7 @@ maybe_scrub_all_on_this_file
 ;  R2=file offset of first char to be shifted up/down R9
 ;  f_docom,f_dolen,f_dodata setup
 ;X clear carets and save txt status in each window looking at this file #
-
+ FNAME save_txt_status
 save_txt_status
  FNJSR "R10"
 
@@ -646,6 +646,7 @@ sa10
  BLVC do_eachwindow		; NO DRAW OPS AFTER THIS
  FNRTS		; AS IT MAY CORRUPT THE CACHE PTR
 
+ FNAME save_txt_status_concat
 save_txt_status_concat
  LDR R10,[R9,#f_altered]
  CMP R10,#0
@@ -675,6 +676,7 @@ save_txt_status_concat
 ; FNRTS
 
 ; nearly the same as the routine that follows
+ FNAME new_proposed_txt_status
 new_proposed_txt_status
  FNJSR "R10-R11"
  LDR R10,[R9,#f_depth]
@@ -697,7 +699,7 @@ new_proposed_txt_status_concat
 
 ;E R0=first changed R1=signed change R2=new input car off R9
 ;X carets & windows & markers on this file updated due to change #
-
+ FNAME new_txt_status
 new_txt_status
  FNJSR "R10-R11"
  LDR R10,[R9,#f_depth]
@@ -793,7 +795,7 @@ new_txt_status
 ;  BL scrub_caret
 ;  ;SWI &107
 ;  FNRTS
-
+ FNAME new_txt_concat_wind
 new_txt_concat_wind
  FNJSR "R1-R2"
  LDR R0,[R8,#w_savedo]		; current saved line offset
@@ -809,6 +811,7 @@ new_txt_concat_wind
  STRVC R1,[R8,#w_height]	; new height
  FNRTS
 
+ FNAME pre_new_txt_status_concat
 pre_new_txt_status_concat
  FNJSR "R10-R11"
 new_txt_status_concat
@@ -830,7 +833,7 @@ call_scrub_point
 ;E f_*vars set according to change R8/R9
 ;  R0=window with input caret (remove point caret if not).
 ;X save txt status of this window #
-
+ FNAME save_txt_status_wind
 save_txt_status_wind
  FNJSR "R1,R11"
  TEQ R0,R8			; has this window got input focus
@@ -866,6 +869,7 @@ localtempr0prevline
 localtempr0prevline2
  DCD 0
 
+ FNAME getprevlineinfo
 getprevlineinfo
  FNJSR
  LDR R14,[R8,#w_format]
@@ -897,7 +901,7 @@ simple_prevline
 ;  for the current operation to be concatonated R8/R9
 ;  f_change f_shiftable not updated, f_altered is updated
 ;X w_savedo and w_savedl updated due to concatonisation #
-
+ FNAME save_txt_concat_wind
 save_txt_concat_wind
  FNJSR "R1-R4,R11"
  MOVS R4,R0			; fist altered char
@@ -952,7 +956,7 @@ save_txt_concat_wind
 
 ;E R8/R9 (not updated)
 ;X window updated (and R8) and height changed WB #
-
+ FNAME new_txt_status_wind
 new_txt_status_wind
  LDR R0,[R9,#f_altered]		; zero start posn?
  CMP R0,#-1
@@ -1057,7 +1061,7 @@ new_txt_status_wind
 
 ;E R0=first line R8 (updated)/R9
 ;X Line numbers redrawn from this line if they exit WB #
-
+ FNAME update_linenos
 update_linenos
  FNJSR "R1-R3"
  LDR R1,[R8,#w_format]
@@ -1093,7 +1097,7 @@ update_linenos
 
 ;E R0=first phy line to move from R1=signed move R8 (updated)
 ;X changes height of window and shifts the lines R0+ from margin WB #
-
+ FNAME change_work_height
 change_work_height
  FNJSR "R1-R7,R10-R11"
  MOV R10,R0			; save first line to move from
@@ -1191,7 +1195,7 @@ ch2
 ;E R8/R9 with R8 updated
 
 ;X window extent set according to w_height if it can WB #
-
+ FNAME change_extent
 change_extent
  FNJSR "R1-R3"
  FNLDR R1,wimp_block
@@ -1245,6 +1249,7 @@ needtoopenwindow$l
 ; ;E R8=window
 ; ;X Force redraw called to invalidate window area #
 ;
+ FNAME invalidate_window
 invalidate_window		; Tim thinks this is dirty code...
  FNJSR "R1-R4"
  BL ccd_workxy
@@ -1264,7 +1269,7 @@ invalidate_window		; Tim thinks this is dirty code...
 ;E R9=file you are going to operate on or 0 if none
 ;X Operation set up. Call stop_operation to print results |
 ;  R0 is saved.
-
+ FNAME start_operation
 start_operation
  FNJSR "R0"
  CMP R9,#0
@@ -1297,7 +1302,7 @@ start_operation
 
 ;E R0=error pointer if VS R9=file or 0 for none
 ;X Current operation displayed (and error preserved) #
-
+ FNAME stop_operation
 stop_operation
  FNJSR "R10-R11"
  MOVVS R10,R0
@@ -1387,6 +1392,7 @@ local_storedreight
 
  ; note that r8 not known at this point...
  ; new bit to cure redraw probs!
+ FNAME redraw_patching_update
 redraw_patching_update
  FNJSR "R0-R11"
 ; SWI &107			; gets here...
@@ -1442,7 +1448,7 @@ nuffindone$l
 
 ;E R1=file off R2=num of bytes R3=ptr to data R9
 ;X text inserted, window & caret updated #
-
+ FNAME insert_text
 insert_text
  FNJSR "R1-R5,R8,R10"
  ;BL maybe_adjust_insert_offset
@@ -1557,7 +1563,7 @@ mark_proposed_new_sel
 
 ;E R1=file offset R2=num of bytes R9
 ;X #
-
+ FNAME delete_text
 delete_text
  FNJSR "R1-R3,R4-R5"
  FNLDR R14,opt_switches
@@ -1606,7 +1612,7 @@ err$l ERRlit "Internal error: delete_text"
 
 ;E R1=file offset R2=num of bytes R9
 ;X R3=temp ptr to deleted data (in split) #
-
+ FNAME delete_text_blk
 delete_text_blk
  FNPULL	; :-(
  FNJSR "R1-R2,R4-R5"
@@ -1656,7 +1662,7 @@ delete_text_blk
 
 ;E R0=command num R1=file offset R2=num of bytes R3=replacement blk R9
 ;X R4=temp ptr to original (deleted) data (was in split :<) #
-
+ FNAME replace_text
 replace_text
  FNJSR "R1-R3,R5-R8"
  MOV R8,R0			; save command num 3 or 4
@@ -1701,7 +1707,7 @@ replace_text
 
 ;E R0=char
 ;X R0=char with case swapped |
-
+ FNAME swap_case
 swap_case
  CMP R0,#'z'
  MOVHI PC,R14
@@ -1716,7 +1722,7 @@ swap_case
 
 ;E R0=date format string
 ;X R0=date length and date read to wimp_kbdbuf WB KB #
-
+ FNAME read_date
 read_date
  FNJSR "R1-R11"
  MOV R10,R0			; date format string
@@ -1738,7 +1744,7 @@ read_date
 
 ;E R0=date format string R2=default R8/R9/R10=input caret
 ;X date inserted KB WB #
-
+ FNAME insert_date
 insert_date
  FNJSR "R1-R3"
  BL strdefault
@@ -1754,7 +1760,7 @@ insert_date
 
 ;E R0=pointer to string (0 terminated Only) R8/R9
 ;X string entered at file end (using execute command) #
-
+ FNAME insert_string
 insert_string
  FNJSR "R1-R3"
  MOV R3,R0			; string
@@ -1773,7 +1779,7 @@ a$l
 ; R11=max number of chars to replace (<=R5).
 ; Chars are replaced (if overwrite) as much as possible
 ; & then inserted R4,R6,R8-R10 preserved #
-
+ FNAME insert_chars_at
 insert_chars_at
  FNJSR
  TST R4,#2
@@ -1805,7 +1811,7 @@ in17
 
 ;E R1=number of returns R8-R10=caret
 ;X returns entered with auto indent trailing added if nec KB #
-
+ FNAME insert_returns
 insert_returns
  FNJSR "R1-R7"
  MOV R7,R1			; save num times to add
@@ -1861,6 +1867,7 @@ in57
  FNRTS
 
 ;E,X as for replace_area (except that R8 is not required)
+ FNAME do_replace_area
 do_replace_area
  FNJSR "R8"
  MOV R8,#0
@@ -1871,7 +1878,7 @@ do_replace_area
 ;X file contents R1.R2 replaced by R3.R4 by minimum number of commands #
 ;  data is concatonated if replace/insert/delete length is 1
 ;  actual text is examined so no replacement done if not needed
-
+ FNAME replace_area
 replace_area
  FNJSR "R1-R5"
  MOV R5,R1			; save file offset
@@ -2006,7 +2013,7 @@ currentselection_replacement
 ;     b2 => Convert spaces to tabs (outside "quoted" text)
 ;  R8/R9=window
 ;X File processed KB #
-
+ FNAME strip_spaces
 strip_spaces
  FNJSR "R1-R10"
  LDR R1,[R9,#f_flags]
@@ -2180,7 +2187,7 @@ quit$l				; return CS to quit (escape set)
 
 ;E R9=file to be operated on
 ;X Operation level set to 1 and no marker buffered |
-
+ FNAME undo_start_operation
 undo_start_operation
  FNJSR
 ; SWI XHourglass_On
@@ -2197,7 +2204,7 @@ undo_start_operation
 
 ;E R0=error pointer if VS R9=file to be operated on
 ;X Current operation stop op'd but no marker buffered #
-
+ FNAME undo_stop_operation
 undo_stop_operation
  FNJSR "R10-R11"
  ORRVS R10,R0,#1<<31
@@ -2207,7 +2214,7 @@ undo_stop_operation
 
 ;E R0=offset of first stable character R8/R9
 ;X Start of cache set to the line containg this character #
-
+ FNAME clip_cache
 clip_cache
  FNJSR "R1-R2"
  MOV R1,#0

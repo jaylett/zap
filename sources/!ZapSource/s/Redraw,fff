@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.6 2002/11/12 13:10:30 christian Exp $
+; $Id: Redraw,fff,v 2.7 2002/11/14 19:30:30 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -72,6 +72,7 @@
 
  LOCAL
 
+ FNAME redraw_request
 redraw_request
  FNJSR
  LDR R0,[R1]			; window handle
@@ -122,7 +123,7 @@ null$l MOV PC,R14
 ;  Must set up red_flags/screen/bpl/caddr/cbpl/cbpc/palette
 ;  Must NOT use wimp block.
 ;  (charh,charw,linesp already set up - see redraw_to_red)
-
+ FNAME redraw_area
 redraw_area
  FNJSR "R1"
  LDR R0,[R8,#w_palette]
@@ -159,7 +160,7 @@ redraw_area
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;X Reads vdu variables to scn_* #
-
+ FNAME check_scn_valid
 check_scn_valid
  FNJSR "R1-R4"
  ADD R1,R12,#red_flags
@@ -185,7 +186,7 @@ check_scn_valid
 
 ;E R0=size of buffer required
 ;X red_blkbuf buffer enlarged to this size with spaces #
-
+ FNAME ensure_redblk
 ensure_redblk
  FNJSR "R1-R2"
  ADD R1,R0,#3			; size required
@@ -219,7 +220,7 @@ en1
 
 ;E R1=redraw window block (as given by wimp) R8/R9
 ;X this area redrawn #
-
+ FNAME redraw_window
 redraw_window
  FNJSR "R1-R4"
  BL redraw_to_red		; convert coords to pixels
@@ -239,7 +240,7 @@ redraw_window
 ;   red_minx/miny/maxx/maxy/bpp/charw/charh/linesp
 ;   red_scrollx/scrolly.
 ;  Note red_for/red_bac are constant and should already be filled
-
+ FNAME redraw_to_red
 redraw_to_red
  FNJSR "R4-R6"
  MOV R0,R1			; wimp redraw block
@@ -276,7 +277,7 @@ redraw_to_red
 
 ;E R1=window block R2=xos R3=yos on screen
 ;X R2/R3=pix of posn in work area |
-
+ FNAME convert_coords
 convert_coords
  LDR R0,[R1,#4]			; x min
  SUB R2,R2,R0			; x os offset in vis area
@@ -295,7 +296,7 @@ convert_coords
 
 ;E R2/R3=xypix R8
 ;X R2/R3=xycol |
-
+ FNAME ccd_xypix_xyline
 ccd_xypix_xyline
  FNJSR
  BL ccd_xpix_xline
@@ -304,7 +305,7 @@ ccd_xypix_xyline
 
 ;E R3=ypix R8
 ;X R3=yline |
-
+ FNAME ccd_ypix_yline
 ccd_ypix_yline
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
@@ -319,7 +320,7 @@ ccd_ypix_yline
 
 ;E R2=xpix R8
 ;X R2=xcol |
-
+ FNAME ccd_xpix_xline
 ccd_xpix_xline
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -334,7 +335,7 @@ ccd_xpix_xline
 
 ;E R3=yos R8
 ;X R3=yline |
-
+ FNAME ccd_yos_yline
 ccd_yos_yline
  RSB R3,R3,#0
  FNLDR R0,scn_magy
@@ -343,7 +344,7 @@ ccd_yos_yline
 
 ;E R2=xos R8
 ;X R2=xcol |
-
+ FNAME ccd_xos_xline
 ccd_xos_xline
  FNLDR R0,scn_magx
  MOV R2,R2,LSR R0
@@ -351,7 +352,7 @@ ccd_xos_xline
 
 ;E R3=yos R8
 ;X R3=yline R6=yrast |
-
+ FNAME ccd_yos_ypair
 ccd_yos_ypair
  RSB R3,R3,#0
  FNLDR R0,scn_magy
@@ -360,7 +361,7 @@ ccd_yos_ypair
 
 ;E R3=ypix R8
 ;X R3=yline R6=yrast |
-
+ FNAME ccd_ypix_ypair
 ccd_ypix_ypair
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
@@ -377,7 +378,7 @@ ccd_ypix_ypair
 
 ;E R3=xpix R8
 ;X R3=xcol R6=xoff |
-
+ FNAME ccd_xpix_xpair
 ccd_xpix_xpair
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -394,7 +395,7 @@ ccd_xpix_xpair
 
 ;E R2/R3=xycol R8
 ;X R2/R3=xyos |
-
+ FNAME ccd_xyline_xyos
 ccd_xyline_xyos
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -415,7 +416,7 @@ ccd_xyline_xyos
 
 ;E R2/R3=xycol R8
 ;X R2/R3=xypix |
-
+ FNAME ccd_xyline_xypix
 ccd_xyline_xypix
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -429,7 +430,7 @@ ccd_xyline_xypix
 
 ;E R3=yline R8
 ;X R3=yos |
-
+ FNAME ccd_yline_yos
 ccd_yline_yos
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
@@ -442,7 +443,7 @@ ccd_yline_yos
 
 ;E R3=yline R6=yrast R8
 ;X R3=yos |
-
+ FNAME ccd_ypair_yos
 ccd_ypair_yos
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
@@ -455,7 +456,7 @@ ccd_ypair_yos
 
 ;E R3=xline R6=xrast R8
 ;X R3=xos |
-
+ FNAME ccd_xpair_xos
 ccd_xpair_xos
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -470,7 +471,7 @@ ccd_xpair_xos
 
 ;E R3=yline R6=yrast R8
 ;X R3=ypix |
-
+ FNAME ccd_ypair_ypix
 ccd_ypair_ypix
  LDR R0,[R8,#w_rl]
  TEQ R0,#8
@@ -480,7 +481,7 @@ ccd_ypair_ypix
 
 ;E R3=xline R6=xrast
 ;X R3=xpix |
-
+ FNAME ccd_xpair_xpix
 ccd_xpair_xpix
  LDR R0,[R8,#w_rw]
  TEQ R0,#8
@@ -490,7 +491,7 @@ ccd_xpair_xpix
 
 ;E R11=window block R8 (y window edge in work area)
 ;X R3=min y line R5=max y line R6=min y rast R7=max y rast |
-
+ FNAME ccd_blk_yrow
 ccd_blk_yrow
  FNJSR
  FNLDR R0,scn_magy
@@ -513,7 +514,7 @@ ccd_blk_yrow
 
 ;E R11=window block R8 (y visible edge in work area)
 ;X R3=min y line R5=max y line R6=min y rast R7=max y rast |
-
+ FNAME ccd_blk_yrow_vis
 ccd_blk_yrow_vis
  FNJSR
  FNLDR R0,scn_magy
@@ -543,7 +544,7 @@ ccd_blk_yrow_vis
 
 ;E R11=window block R8 (find x window edged in work area)
 ;X R3=min x line R5=max x line R6=min x rast R7=max x rast |
-
+ FNAME ccd_blk_xrow
 ccd_blk_xrow
  FNJSR
  FNLDR R0,scn_magx
@@ -569,7 +570,7 @@ ccd_blk_xrow
 
 ;E R11=window block R8 (find visible edges in work area)
 ;X R3=min x line R5=max x line R6=min x rast R7=max x rast |
-
+ FNAME ccd_blk_xrow_vis
 ccd_blk_xrow_vis
  FNJSR
  FNLDR R0,scn_magx
@@ -595,7 +596,7 @@ ccd_blk_xrow_vis
 
 ;E R2/R3=xypix
 ;X R2/R3=xyos |
-
+ FNAME ccd_xypix_xyos
 ccd_xypix_xyos
  FNLDR R0,scn_magx
  MOV R2,R2,LSL R0
@@ -609,7 +610,7 @@ ccd_xypix_xyos
 
 ;E R8
 ;X R2=work max x os R3=work min y os |
-
+ FNAME ccd_workxy
 ccd_workxy
  FNJSR
  LDR R2,[R8,#w_width]
@@ -626,7 +627,7 @@ ccd_workxy
 
 ;E R11=window block R8 (find visible edges in work area)
 ;X R3=min x line R5=max x line R6=min x rast R7=max x rast |
-
+ FNAME ccd_blk_xrow_vis_margin
 ccd_blk_xrow_vis_margin
  FNJSR
  FNLDR R0,scn_magx
@@ -664,7 +665,7 @@ ccd_blk_xrow_vis_margin
 
 ;E R1=first unused red_data offset R2-R3 redraw lines R8/R9
 ;X R1=new first unused offset #
-
+ FNAME invert_carets
 invert_carets
  FNJSR "R4,R10"
  FNLDR R10,car_mode
@@ -732,7 +733,7 @@ ok$l
 ;  R4=cursor type in bits 0-7
 ;  R8/R9 R10=caret block for caret to draw
 ;X R1=new first unused offset & caret inserted into redraw data #
-
+ FNAME invert_caret
 invert_caret
  AND R0,R4,#&FF			; cursor type
  TEQ R0,#4
@@ -800,7 +801,7 @@ invert_caret
 ; to use). In addition, we set up the rest of R7 to ZapRedraw_AddCursor, which gives
 ; the fg/bg of the cursor, plus the what type of merge to use to add the cursor into
 ; the r_data line.
-
+ FNAME get_caret_string
 get_caret_string
  FNJSR "R1-R2"
  ADD R0,R3,#1
@@ -872,7 +873,7 @@ get_caret_4
 ;X red_data updated to hold new format text #
 ;  R1=first free offset in r_data buffer
 ;  R0=largest character used
-
+ FNAME create_redraw_data
 create_redraw_data
  FNJSR "R2-R11"
  SUB R10,R3,R2			; number of lines to do
@@ -946,7 +947,7 @@ error$l
 ;E R11=red_data R6=current pointer in red_data block
 ;  R7=red_datasize R0=amount must have free
 ;X amount ensured (R6/R7/R11 may change) #
-
+ FNAME ensure_red_data
 ensure_red_data
  ADD R0,R6,R0			; new end
  SUB R0,R0,R11			; new length
@@ -975,7 +976,7 @@ ensure_red_data
 ;X Lines within the file cached
 ;  R0=start of cached data (or 0 if first line was off end)
 ;  R1-R7 & R10-R11 corrupted #
-
+ FNAME update_cache
 update_cache
  FNJSR "R1-R11"
  LDR R11,[R8,#w_height]		; number of lines in file
@@ -1084,7 +1085,7 @@ update_c7
 
 ;E R6=source cache line R7=dest cache line R8/R9 R10=num of lines to move
 ;X R2-R5 & R8-R9 saved and cache lines moved
-
+ FNAME move_cache_lines
 move_cache_lines
  TEQ R6,R7
  TEQNE R10,#0
@@ -1123,7 +1124,7 @@ blat_redraw_cache
 
 ;E R6=cache loff R7=file loff R8/R9 R10 num of line
 ;X R0=file off/R1=log ln of first line. R2-R5,R8-R9 saved
-
+ FNAME red_cache_lines
 red_cache_lines
  FNJSR "R2-R5"
  MOV R0,R7			; phy ln of first line
@@ -1186,6 +1187,7 @@ red_cl_11
  FNRTV				; escape
 
 
+ FNAME generate_cache_font_data
 generate_cache_font_data
  FNJSR "R0,R11"
  MOV R0,#11
@@ -1275,6 +1277,7 @@ loop$l
 
 ;X R6=number of colours
 ;  R7=pointer to colours
+ FNAME get_mode_colours_ptr
 get_mode_colours_ptr
  FNJSR
  LDR R6,[R8,#w_modedata]
@@ -1295,7 +1298,7 @@ get_mode_colours_ptr
 ;	  R5=apparant start of file
 ;E R6=cache addr R7=file off R8/R9 R10=phy ln R11=log ln
 ;X R7/R11 updated to start of next phy line. R2-R6,R8-R10 saved
-
+ FNAME redraw_cache_line
 redraw_cache_line
  FNJSR "R2-R6,R10"
  BL print_blank			; fill line with spaces
@@ -1352,7 +1355,7 @@ calle_init
 
 ;E R5=w_format R7=phy line file offset R10=phy line R11=log line
 ;X R0=line number to show CC / CS if none
-
+ FNAME get_linenumber
 get_linenumber
  FNJSR
  TST R5,#format_LinesAreLines
@@ -1389,6 +1392,7 @@ linenumberbuffer
  DCD 0
  DCD 0
 
+ FNAME print_nulls
 print_nulls
  AND R2,R14,#7
  LDR R14,[R8,#w_info]
@@ -1434,6 +1438,7 @@ lnloop$l
 
 ; As for print_hex
 
+ FNAME print_decimal
 print_decimal
  PUSH "R6"
  MOV R10,R0			; save number
@@ -1501,7 +1506,7 @@ exitlinenumberloop
 ;  R2=num of chars to colour>0 R6=start of cache line R8
 ;X R0 preserved, R1 preserved, R2-R3 corrupted
 ;  Background colour set to syscol_BgEditable
-
+ FNAME colour_chars_both
 colour_chars_both
  FNJSR "R1"
  LDR R14,[R8,#w_txtw]
@@ -1519,7 +1524,7 @@ co26a
 ;E R0=colour R1=offset in cache line of first char
 ;  R2=num of chars to colour>0 R6=start of cache line R8
 ;X R0 preserved, R1 preserved, R2-R3 corrupted
-
+ FNAME colour_chars
 colour_chars
  LDR R3,[R8,#w_txtw]
  ADD R3,R6,R3			; start of the line
@@ -1534,7 +1539,7 @@ co26
 ;E R6=cache line
 ;X R0-R5 corrupted. Line blanked to spaces.
 ;  Foreground mask set to 2's, background to 0's.
-
+ FNAME print_blank
 print_blank
  LDR R4,[R8,#w_txtw]		; width (multiple of 8)
  MOV R3,R6			; start of cache line
@@ -1589,7 +1594,7 @@ ov1
 ;  R8/S9
 ;  R10=line number currently on already in the selection
 ;X Selection coloured #
-
+ FNAME redraw_cache_selection
 redraw_cache_selection
  FNJSR "R1-R5"
  FNLDR R1,car_selection
@@ -1658,6 +1663,7 @@ linenumbercolons
 ;E R1=window blk of area in chars (handle ...) R8/R9
 ;X the coords changed to os and area redrawn (using update window) #
 
+ FNAME update_area
 update_area
  FNJSR "R1-R4"
  LDR R2,[R1,#4]			; xmin
@@ -1682,7 +1688,7 @@ update_area
 
 ;E R1=window blk of area in os (handle ...) R8/R9
 ;X window area updated using Wimp_UpdateWindow #
-
+ FNAME update_window
 update_window
  FNJSR "R1"
  SWI XWimp_UpdateWindow		; update the window
@@ -1697,7 +1703,7 @@ up1
  FNRTS
 
 ;X All windows redrawn (eg palette/char set change)
-
+ FNAME redraw_all
 redraw_all
  FNJSR "R10"
  ADR R10,update_whole_window
@@ -1707,13 +1713,14 @@ redraw_all
 
 ;E R8/R9=window to update
 ;X whole work area redrawn and title updated & redrawn CB #
-
+ FNAME update_whole_window
 update_whole_window
  FNJSR "R1-R3"
  BL update_whole_window_bar_title
  BLVC new_title			; redraw title
  FNRTS
 
+ FNAME update_whole_window_bar_title
 update_whole_window_bar_title
  FNJSR
  FNLDR R1,car_block
@@ -1735,7 +1742,7 @@ update_whole_window_bar_title
 ;E R8=window block
 ;X palette (of current mode) copied into palette block & converted to
 ;  masks if in DSA mode #
-
+ FNAME create_palette
 create_palette
  FNJSR "R1-R4"
  MOV R0,#-1
@@ -1767,6 +1774,7 @@ a$l
 
 ;E R8 palette set up
 ;X palette converted to DSA-style palette
+ FNAME create_dsa_palette
 create_dsa_palette
  FNJSR "R1-R3"
  ADD R1,R12,#red_flags		; redraw block
@@ -1778,7 +1786,7 @@ create_dsa_palette
 
 ;E R0=region start R1=region end R0<R1 or R0>R1 R8/R9
 ;X screen updated (R0,R1 may be either way round) #
-
+ FNAME update_between_offsets
 update_between_offsets
  TEQ R0,R1
  MOVEQ PC,R14			; nothing to update
@@ -1802,7 +1810,7 @@ update_between_offsets
  LOCAL
 
 ;X page size set up in wimp_print / error if no printer driver #
-
+ FNAME pnt_get_pagesize
 pnt_get_pagesize
  FNJSR "R1-R6"
  SWI XPDriver_PageSize
@@ -1821,7 +1829,7 @@ default_height$l & 841889 ; 29.7cm
 
 ;E R0=window width in chars & wimp_print number of pages/sheet paper size
 ;X lines per page/x scale/y scale filled in wimp_print #
-
+ FNAME pnt_fit_pages
 pnt_fit_pages
  FNJSR "R1-R11"
  MOV R6,R0			; save width in chars
@@ -1874,7 +1882,7 @@ pnt_fit_pages
 
 ;E R0=use colour R8/R9=file
 ;X pages printed using wimp_print #
-
+ FNAME print_file
 print_file
  FNJSR "R1-R5,R7,R8,R10"
  FNSTR R0,opt_temporary		; colour flag
@@ -1902,6 +1910,7 @@ print_file
  BL pnt_lose_font		; this copes with VS
  FNRTS				; may be VS and error...
 
+ FNAME print_file_sub
 print_file_sub
  FNJSR "R1-R11"
  MOV R0,#&8F			; Openout with errors
@@ -1975,7 +1984,7 @@ print_file_s0	FNS ("printer:")
 
 ;E R8-R9=file R10=wimp_print
 ;X os rectangles (R1) and transformation matrices (R2) set up |
-
+ FNAME pnt_matrix
 pnt_matrix
  FNJSR "R1-R3"
  ADD R1,R10,#print_column_rectangle
@@ -2028,7 +2037,7 @@ pn2
 
 ;E R0=column offset in sheet R1=page number R8-R9 file R10=wimp_print
 ;X column sent to printer #
-
+ FNAME pnt_send_column
 pnt_send_column
  FNJSR "R1-R11"
  MOV R7,R0			; save col offset
@@ -2060,7 +2069,7 @@ pnt_send_column
 
 ;E R10=wimp_print
 ;X title rectangle sent to printer driver if necessary #
-
+ FNAME pnt_send_title
 pnt_send_title
  FNJSR "R1-R11"
  FNLDR R11,opt_flags
@@ -2117,7 +2126,7 @@ add_fudge_factors
 ;E R1=page num R8-R9=file R10=wimp_print and rectangles sent to printer
 ;X Rectangles got from printer driver and plotted WB KB WD #
 
-
+ FNAME print_page
 print_page
  FNJSR "R1-R11"
  MOV R7,R1			; save page number
@@ -2185,7 +2194,7 @@ pn14
 
 ;E R1=area to redraw (as for Wimp_Redraw) R8-R9
 ;X Area printed by vdu redraw #
-
+ FNAME print_rectangle
 print_rectangle
  FNJSR "R1-R4,R8"
  BL redraw_to_red		; convert coords to pixels
@@ -2199,7 +2208,7 @@ print_rectangle
 
 ;E Redraw block set up except for palette/font name/flags/size etc
 ;X Text printed by font vdu call #
-
+ FNAME print_area_font
 print_area_font
  FNJSR "R1,R8"
  MOV R14,#9			; vdu redraw + sub-styles + |vdu background|
@@ -2214,6 +2223,7 @@ print_area_font
  SWIVC XZapRedraw_RedrawArea
  FNRTS
 
+ FNAME set_up_print_palette
 set_up_print_palette
  FNJSR "R1-R8,R11"
  FNLDR R7,wimp_data
@@ -2262,7 +2272,7 @@ systemcase$l
 
 ;E R1=rectangle to clip (minx,miny,maxx,maxy) R2=rectangle to clip to
 ;X rectangle clipped |
-
+ FNAME rectangle_clip
 rectangle_clip
  FNJSR
  LDR R0,[R1,#&0]
@@ -2285,7 +2295,7 @@ rectangle_clip
 
 ;E R1=redraw block
 ;X graphics window 28-40 clipped to visible area 4-16 |
-
+ FNAME redraw_clip
 redraw_clip
  FNJSR "R1,R2"
  ADD R2,R1,#4
@@ -2296,6 +2306,7 @@ redraw_clip
 ; get the font to be used during printing
 ; E R8
 ; X pnt_font, pnt_charw, pnt_charh setup
+ 		FNAME	pnt_find_font
 pnt_find_font	FNJSR
 		BL	read_vdu_font_name
 		LDR	R2,[R8,#w_vdufontsize]
@@ -2318,6 +2329,7 @@ pnt_find_font	FNJSR
 ; lose the font used during printing
 ; E possibly VS and R0 = error
 ; X
+		FNAME	pnt_lose_font
 pnt_lose_font	FNJSR	"R11"
 		MOVVC	R11,#0
 		ADDVSS	R11,R0,#0			; keep the error and CLV
@@ -2339,13 +2351,14 @@ pnt_lose_font	FNJSR	"R11"
 
 ;E R8-R9 & wimp_print set up
 ;X file printed by direct output of ascii #
-
+ FNAME quick_print
 quick_print
  FNJSR "R10"
  ADR R10,quick_print_sub
  BL do_longop
  FNRTS
 
+ FNAME quick_print_sub
 quick_print_sub
  FNJSR "R1-R11"
  SWI XOS_WriteC + &102
@@ -2388,7 +2401,7 @@ printeofstring
 
 ;E R1=line R8/R9
 ;X line cached and printed, R1-R2,R8-R9 only saved #
-
+ FNAME printer_cache_line
 printer_cache_line
  FNJSR "R1-R2"
  MOV R2,R1
@@ -2404,7 +2417,7 @@ printer_cache_line
 
 ;E R0=page num/-1 for none R1=cache line width R8/R9
 ;X wimp_data filled with cache line for heading WB KB WD #
-
+ FNAME create_heading
 create_heading
  FNJSR "R1-R4,R10-R11"
  MOV R10,R0			; save page number
@@ -2468,7 +2481,7 @@ cr_s3 = "zap_P_time",0
 
 ;E R0=pointer to string ending in 0A
 ;X string output to printer (inc 0A) #
-
+ FNAME printer_string
 printer_string
  FNJSR "R1"
  MOV R1,R0
@@ -2484,7 +2497,7 @@ pr2
  FNRTS
 
 ;X newline sent to printer #
-
+ FNAME printer_newline
 printer_newline
  FNJSR "R1-R3"
  FNLDR R0,wimp_eolstring	; end of line GS string
@@ -2501,7 +2514,7 @@ pr10
  B pr10
 
 ;X sof string sent to printer #
-
+ FNAME printer_startoffile
 printer_startoffile
  FNJSR "R1-R3"
  FNLDR R0,wimp_sofstring	; end of line GS string
@@ -2518,7 +2531,7 @@ prsoflp$l
  B prsoflp$l
 
 ;X eof string sent to printer #
-
+ FNAME printer_endoffile
 printer_endoffile
  FNJSR "R1-R3"
  FNLDR R0,wimp_eofstring	; end of line GS string
@@ -2540,7 +2553,7 @@ preoflp$l
 ;  R2=length of cache lines
 ;X R1=wimp_cacheline R2=length (exc 0A)
 ;  ctrl/end spaces gone 0A added #
-
+ FNAME tidy_cache_line
 tidy_cache_line
  FNJSR "R3-R4"
  MOV R4,R0			; save the flags
@@ -2587,7 +2600,7 @@ ge12
 
 ;E R1=address of cache line R2=length of cache lines
 ;X R0=actual length with end spaces removed |
-
+ FNAME get_cache_line
 get_cache_line
  FNJSR
  ADD R14,R1,R2
@@ -2605,7 +2618,7 @@ ge10
 ;E R2-R5 region R8/R9 (correct way around)
 ;X Region updated (uses caret block) #
 ;  Cache blatted as now selection stored there
-
+ FNAME update_region
 update_region
  FNJSR "R1-R4,R10-R11"
  FNLDR R1,car_block		; workspace

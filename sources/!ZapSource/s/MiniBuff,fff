@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help
-; $Id: MiniBuff,fff,v 2.12 2002/11/11 00:14:37 christian Exp $
+; $Id: MiniBuff,fff,v 2.13 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -83,7 +83,7 @@
 ; which will be when this code beeps. (I get beep in various directories
 ; with things > 12 characters.
 
-
+ FNAME find_completions
 find_completions
  FNJSR "R2-R11"
  MOV R10,R0			; save filename
@@ -162,6 +162,7 @@ fi24
  LOCAL
 
 ;X filename in minibuffer completed #
+ FNAME complete_filename
 complete_filename
  FNJSR "R1-R4"
  FNLDR R0,mini_ptr
@@ -219,7 +220,7 @@ perform_completion
 ;X R0=0 if no matches found R0=1 if unique match found
 ;  R0=2 if characters added R0=3 if match found but can extend
 ;  R0=4 if several possible extensions no chars added WB WD #
-
+ FNAME add_completions
 add_completions
  FNJSR "R1-R11"
  CMP R0,#0			; any matches found?
@@ -283,7 +284,7 @@ ad24
 
 ;E R0=message R1=delay or 0 for default +flags R8/R9
 ;  b31 => don't beep  b30 => no prefix  b29 => R0->token
-
+ FNAME warn_user_token
 warn_user_token
  ORR R1,R1,#warn_UseMessageTrans
 warn_user
@@ -352,7 +353,7 @@ local_callbacktime & 0
 
 ;E R8/R9=window to popup on / 0 to open at default coords
 ;X Minibuffer window created and opened, input focus not gained #
-
+ FNAME minibuffer_open
 minibuffer_open
  FNJSR "R1-R7"
  BL get_MiniBuf
@@ -368,7 +369,7 @@ minibuffer_open
  FNRTS
 
 ;X ensures minibuffer open / closed accoriding to opt_flags #
-
+ FNAME minibuffer_ensure
 minibuffer_ensure
  FNLDR R0,opt_flags
  MOV R0,R0,LSR#23
@@ -388,7 +389,7 @@ mi1
 
 ;E R8/R9
 ;X Minibuffer is visable on screen
-
+ FNAME minibuffer_ensure_open
 minibuffer_ensure_open
  FNJSR "R7"
  BL get_wind_off		; R0=associated window
@@ -417,7 +418,7 @@ mi11
 ;E R7=command number to assosiate to minibuffer contents R8/R9
 ;X Minibuffer created if closed / refreshed ow
 ;  Caret placed, line editor position reset #
-
+ FNAME minibuffer_start
 minibuffer_start
  FNJSR "R7"
  FNLDR R0,opt_switches
@@ -439,7 +440,7 @@ minibuffer_start
 
 ;E R0=character to write to the minibuffer
 ;X Single character written (screen not updated) #
-
+ FNAME minibuffer_writec
 minibuffer_writec
  FNJSR
  AND R14,R0,#&FF
@@ -470,7 +471,7 @@ d$l DCD 0
 ;  31=move right to whitespace/'.'
 ;  127=delete char 32-126/128-255 insert char
 ;  all others ignored. Screen not updated #
-
+ FNAME minibuffer_write
 minibuffer_write
  FNJSR "R1-R8"
  ;SWI &107
@@ -703,7 +704,7 @@ mi_paste$l
 
 ;E R0=pointer to token (GSTransed) R4-R7=parameters
 ;X String written to minibuffer with codes as for minibuffer_write
-
+ FNAME minibuffer_write_token
 minibuffer_write_token
 	FNJSR	"R1-R7"
 	MOV	R1,R0
@@ -721,7 +722,7 @@ minibuffer_write_token
 ;E R0=pointer to string of text only
 ;X Text replaces the text before mark, updating all offsets #
 ;  ": " appended if necessary (unless b31 set)
-
+ FNAME minibuffer_prompt
 minibuffer_prompt
  FNJSR "R1-R7"
  FNLDR R14,key_flags
@@ -775,7 +776,7 @@ minibuffer_prompt
 
 ;E R0=pointer to token R4-R7=parameters
 ;X Text replaces the text before mark, updating all offsets #
-
+	FNAME	minibuffer_prompt_token
 minibuffer_prompt_token
 	FNJSR	"R1-R7,R11"
 	AND	R11,R0,#1<<31
@@ -795,7 +796,7 @@ minibuffer_prompt_token
 ;E R0=pointer to text R4-R7=parameters R1=history buffer
 ;X Text replaces the text before mark, updating all offsets;
 ;  buffer selected #
-
+	FNAME	minibuffer_prompt_and_history
 minibuffer_prompt_and_history
 	FNJSR
 	BL	minibuffer_prompt
@@ -806,7 +807,7 @@ minibuffer_prompt_and_history
 ;E R0=pointer to token R4-R7=parameters R1=history buffer
 ;X Text replaces the text before mark, updating all offsets
 ;  buffer selected #
-
+	FNAME	minibuffer_prompt_token_and_history
 minibuffer_prompt_token_and_history
 	FNJSR
 	BL	minibuffer_prompt_token
@@ -816,7 +817,7 @@ minibuffer_prompt_token_and_history
 
 ;X Minibuffer updated on screen (if open) with scroll offsets
 ;  set to ensure cursor in view etc WB #
-
+ FNAME minibuffer_update
 minibuffer_update
  FNJSR "R1-R7"
  BL get_MiniBuf
@@ -854,6 +855,7 @@ minibuffer_show
 
  LOCAL
 
+ FNAME minibuffer_setcaret
 minibuffer_setcaret
  FNJSR "R1-R6"
  BL minibuffer_ensurecaret
@@ -887,7 +889,7 @@ font$l
 
 ;E R7=minibuffer
 ;X Ensures caret is visible WB #
-
+ FNAME minibuffer_ensurecaret
 minibuffer_ensurecaret
  FNJSR "R1"
  FNLDR R1,wimp_block
@@ -907,6 +909,7 @@ minibuffer_ensurecaret
 
  LOCAL
 
+ FNAME show_mini_caret
 show_mini_caret
  FNJSR "R2-R7"
  BL checkfortextop
@@ -974,7 +977,7 @@ font$l
 ;   R1=1
 ;   R2 altered to contain 'string' type
 ;  Returns R0 from command/0 if no command #
-
+ FNAME minibuffer_command
 minibuffer_command
  FNJSR "R1,R2,R7-R10"
  BL get_input_caret
@@ -996,7 +999,7 @@ mi12
  FNRTS
 
 ;X Clears minibuffer contents and command before new instr #
-
+ FNAME minibuffer_clear
 minibuffer_clear
  FNJSR
  MOV R0,#0
@@ -1010,7 +1013,7 @@ minibuffer_clear
 
 ;X If minibuffer open and not clear then cleared #
 ;  (called before a command executed)
-
+ FNAME minibuffer_wipe
 minibuffer_wipe
  FNJSR "R7"
  FNLDR R0,mini_len
@@ -1026,7 +1029,7 @@ minibuffer_wipe
  FNRTS
 
 ;X Minibuffer close if popup / input lost ow.
-
+ FNAME minibuffer_close
 minibuffer_close
  FNJSR "R7"
  BL get_MiniBuf
@@ -1054,7 +1057,7 @@ mi13
 
 ;E R0=string (usually minibuffer string)
 ;X R0=number stored in string/CS if none WB
-
+ FNAME minibuffer_eval
 minibuffer_eval
  FNJSR "R1-R2"
  FNLDR R1,wimp_block
@@ -1077,7 +1080,7 @@ mi15
 
 ;E R0=key R7=minibuffer
 ;X Minibuffer key processed (never close the window) #
-
+ FNAME process_minibuffer_key
 process_minibuffer_key
  FNJSR
  ;SWI &107
@@ -1151,7 +1154,7 @@ close$l
 ;X Current contents of minibuffer appended to the history buffer,
 ;  Buffer pointer set to this line.
 ;  b15 of opt_switches flag cleared (MinibufferStatus)
-
+ FNAME minibuffer_addline
 minibuffer_addline
  FNJSR "R1"
  FNLDR R0,mini_lineed
@@ -1171,7 +1174,7 @@ minibuffer_addline
 
 ;E R0=zap key/-1 of typed key R4=command flags R5=wimp key
 ;X key action taken via minibuffer_write (no scn update) KB #
-
+ FNAME minibuffer_key
 minibuffer_key
  FNJSR "R1"
  ;SWI &107
@@ -1310,7 +1313,7 @@ recall$l			; recall a line from the history buffer
 
 ;E R7=window index, R8/R9 or 0 to open at default coords
 ;X leaf window opened at minibuffer posn WB #
-
+ FNAME open_mini_window
 open_mini_window
  FNJSR "R1-R9"
  LDR R6,[R7]			; window data
@@ -1366,7 +1369,7 @@ mi3
 
 ;E R1=proposed new open block R8
 ;X Minibuffer opened first at new posn if need be #
-
+ FNAME reopen_minibuffer
 reopen_minibuffer
  FNJSR R7
  BL get_MiniBuf
@@ -1388,7 +1391,7 @@ reopen_minibuffer
 ;E R1=proposed open block R8=window (minibuf must be open)
 ;X Reopen minibuffer at same relative offset to R8 window #
 ;NB R1=R8 on most calls and may be wimp_block (eg Toggle)!
-
+ FNAME reflect_minibuffer
 reflect_minibuffer
  FNJSR "R1-R7"
  MOV R2,R1			; save new open block
@@ -1432,7 +1435,7 @@ reflect_minibuffer
 
 ;E R1=window block (as given by wimp) R7=window index of minibuffer
 ;X draw the area #
-
+ FNAME redraw_minibuffer
 redraw_minibuffer
  FNJSR "R1-R11"
  MOV R11,R1			; save the window block
@@ -1491,7 +1494,7 @@ font$l
 
 ;E R1=wimp redraw block
 ;X R2/R3=top left R4=char offset R5=num chars to draw (clipped) #
-
+ FNAME find_leaf_area
 find_leaf_area
  FNJSR
  LDR R0,[R1,#4]
@@ -1524,7 +1527,7 @@ find_leaf_area
 
 ;E Templates & keys loaded
 ;X Minibuffer vars initialised and buffer opened if opts #
-
+ FNAME init_mini
 init_mini
  FNJSR "R6-R7"
  BL get_MiniBuf
@@ -1552,7 +1555,7 @@ init_mini
 
 ; R1=message block for Help_Help message
 ; corrupts all WB etc
-
+ FNAME help_help
 help_help
  FNJSR
  MOV R11,R1			; save message block
@@ -1653,7 +1656,7 @@ gotmenu$l
 ;     b31 = is a function
 ;X wimp_data contains the help text for the command
 ;  R0=length of help data / 0 if no help data found
-
+ FNAME find_command_help
 find_command_help
  FNJSR "R1-R7,R10-R11"
  FNLDR R6,wimp_data		; buffer start
@@ -1895,7 +1898,7 @@ keyloop1$l
 
 ;E R0=length of data in wimp_data / 0 if none
 ;X File opened.
-
+ FNAME display_help
 display_help
  FNJSR "R1-R5,R8-R9"
  CMP R0,#0
@@ -1937,7 +1940,7 @@ nohelp$l
 ;E R0=pointer to label to get help data about
 ;X R0=pointer to label match in the helpdata file / 0 if not found
 ;  R1=pointer to paragraph following the label #
-
+ FNAME find_help
 find_help
  FNJSR "R2,R11"
  AND R11,R3,#3<<30
@@ -1994,7 +1997,7 @@ c$l
 ;  R11=HelpRequest message to reply to
 ;X Text copied into the message block from #20 and message replied to.
 ;  Only copies up to the first |Z or until the buffer is full.
-
+ FNAME send_help
 send_help
  FNJSR "R1-R4"
  MOV R1,R0			; start of text
@@ -2077,7 +2080,7 @@ trail$l				; strip trailing spaces
 
 ;E R0=pointer in a zero terminated file (line end = &0A)
 ;X R0=start of next para/pointer to terminating char |
-
+ FNAME next_para
 next_para
  FNJSR
 a$l
@@ -2096,7 +2099,7 @@ a$l
  LOCAL
 
 ;X Ensure helpdata file loaded #
-
+ FNAME load_help
 load_help
  FNLDR R0,wimp_helpdata
  CMP R0,#0

@@ -1,6 +1,6 @@
 ; Contains template/leaf window related code including redraw and subs
 ; uses by the Boxes file.
-; $Id: Template,fff,v 2.6 2002/11/11 03:14:16 christian Exp $
+; $Id: Template,fff,v 2.7 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -128,7 +128,7 @@ make_window_mode_0 ; dud
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;X Produce buffer containing list of authors. WB #
-
+ FNAME show_authors
 show_authors
  FNJSR "R1-R11"
  MOV R0,#0			; len
@@ -218,7 +218,7 @@ au_s1
 
 ;E R11=template file pointer
 ;X wimp_sizelist set up #
-
+ FNAME tem_read_sizes
 tem_read_sizes
  FNJSR "R1-R3"
  ADD R3,R11,#16			; skip header
@@ -248,7 +248,7 @@ te_d0
 
 ;E R2=mode number R3=template entry R11=template file
 ;X size added to wimp_sizelist #
-
+ FNAME tem_add_size
 tem_add_size
  FNJSR "R1-R4"
  LDR R0,[R3]
@@ -290,7 +290,7 @@ te19
 
 ;E R0=x coord
 ;X R0=proportion of 1280 @ bit 16 |
-
+ FNAME tem_get_x
 tem_get_x
  FNJSR "R1-R3"
  MOV R0,R0,LSL#8		; divide by 256 @ bit 16
@@ -304,6 +304,8 @@ tem_get_x
 
  LOCAL
 
+
+ FNAME init_templates
 init_templates
  FNJSR "R1-R11"
  FNLDR	R0,tem_sprites		; free area if it exists -
@@ -368,7 +370,7 @@ err$l  ERR "zap_e_notemplates"
 
 ;E R0=list of templates to read R1=template file R2=offsets base
 ;X templates unpaked to tem_list and tem_defn #
-
+ FNAME create_templates
 create_templates
  FNJSR "R1-R11"
  MOV R10,R0			; save list pointer
@@ -400,7 +402,7 @@ free_templates
 
 ;E R10=list of templates
 ;X R0=num of templates in list |
-
+ FNAME tem_count_list
 tem_count_list
  FNJSR "R10-R11"
  MOV R11,#0			; count
@@ -415,7 +417,7 @@ te11
 
 ;E R10=pointer in list of templates
 ;X R10=next element of list |
-
+ FNAME tem_next
 tem_next
  FNJSR
  MOV R0,R10
@@ -427,7 +429,7 @@ tem_next
 
 ;E R10=template list R11=template data
 ;X R0=number of bytes needed in total #
-
+ FNAME tem_count_winds
 tem_count_winds
  FNJSR "R1-R7,R10"
  MOV R4,#0			; zero count
@@ -444,7 +446,7 @@ te12
 
 ;E R4=dest defns R8=dest index R9=off base R10=source index R11=tem file
 ;X templates copied into the buffers R0-R11 corrupted #
-
+ FNAME tem_create_winds
 tem_create_winds
  FNJSR
 te15
@@ -463,7 +465,7 @@ te15
 
 ;E R10=list entry R11=template file
 ;X R7=index entry R6=wind defn / VS if not found #
-
+ FNAME tem_find
 tem_find
  FNJSR "R1-R2"
  ADD R7,R11,#16			; skip header
@@ -484,7 +486,7 @@ err$l ERR "zap_e_templatemissing"
 
 ;E R4=current count R6=window defn (may not be word aligned)
 ;X R4 inc by num of bytes needed. R0-R7 corrupt |
-
+ FNAME tem_count_defn
 tem_count_defn
  FNJSR
  ADD R1,R6,#84
@@ -509,7 +511,7 @@ te14
 
 ;E R4=dest defn R8=dest index R9=off base R10=next index R6=source defn
 ;X window defn created. R4 updated R8 updated R0-R7 corrupted |
-
+ FNAME tem_create_defn
 tem_create_defn
  FNJSR
  STR R4,[R8]			; address of defn
@@ -554,7 +556,7 @@ te16
 
 ;E R4=count R0=icon flags R7=icon R6=window defn (neither word aligned)
 ;X R4 incremented by amount needed for buffers R0-R3 corrupt
-
+ FNAME tem_count_icon
 tem_count_icon
  FNJSR
  TST R0,#1<<8			; is it indirected
@@ -578,7 +580,7 @@ tem_count_icon
 
 ;E R0=flags R4=free space R6=source R7=icon to link R9=offset base
 ;X R0-R3 corrupted R4 updated
-
+ FNAME tem_create_icon
 tem_create_icon
  FNJSR
  TST R0,#1<<6
@@ -645,6 +647,7 @@ sortfonthandle$l
  STRVCB R0,[R14,R6]			; no/ maybe
  FNRTS
 
+ FNAME findfont_if_needed
 findfont_if_needed
  FNJSR "R1-R11"
  MOV R9,R1
@@ -695,6 +698,7 @@ fnthandleindex
 
 	ALIGN
 
+	FNAME	free_font_handles
 free_font_handles
 	FNJSR "R1,R5,R6"
 	MOV R6,#11			; number allowed :-(
@@ -712,6 +716,7 @@ loop1b$l
 
 	LOCAL
 
+	FNAME	set_up_new_fonts
 set_up_new_fonts
 	FNJSR	"R1-R10"
 	MOV	R10,#11
@@ -743,6 +748,7 @@ next$l	STRB	R0,[R9,R10]
 
 	LOCAL
 
+	FNAME	changeto_new_fonts
 changeto_new_fonts
 	FNJSR	"R1-R4"
 	BL	free_font_handles
@@ -755,6 +761,7 @@ changeto_new_fonts
 	LOCAL
 
 ; E R1 = -> to template data
+	FNAME	swapfonts_in_this_template
 swapfonts_in_this_template
 	FNJSR	"R1-R4,R10"
 ;	SWI	&107			; fires...
@@ -793,7 +800,7 @@ loop2$l	LDRB	R14,[R8,R10]
 
 ;E R1=address (not necessarily word aligned)
 ;X R0=word contents (of non aligned word) |
-
+ FNAME read_word
 read_word
  FNJSR
  LDRB R0,[R1]
@@ -807,7 +814,7 @@ read_word
 
 ;E R7=window index
 ;X R8=wind off/0 if none R9=file off/0 if none |
-
+ FNAME conv_index_offs
 conv_index_offs
  LDR R0,[R7,#12]		; wind off
  MOVS R0,R0
@@ -827,7 +834,7 @@ conv_index_offs
 
 ;E R7=index entry addr R1=0 Menu/1 o/w (R8=wind R9=file) or (R8=0 R9=file)
 ;X Window (re)created and contents updated. R0=window handle #
-
+ FNAME create_leaf_window
 create_leaf_window
  FNJSR "R1"
  LDR R0,[R7,#8]			; window handle
@@ -879,7 +886,7 @@ cr3
 
 ;E R7=window index
 ;X leaf window contents updated (but icon not plotted) #
-
+ FNAME leaf_create
 leaf_create
  FNJSR "R1-R11"
  BL conv_index_offs		; set up R8/R9
@@ -899,7 +906,7 @@ leaf_create
 
 ;E R7=window index
 ;X if off menu then menu deleted / window closed (& leaf wind del) WB #
-
+ FNAME close_leaf_window
 close_leaf_window
  FNJSR "R1-R3"
  LDR R0,[R7,#8]
@@ -941,7 +948,7 @@ b$l				; hasn't got input focus
 
 ;E R0=colour strength (0-&FF) R5=icon R6=window defn R7=window
 ;X icon written to with percentage in form xxx.y & icon updated #
-
+ FNAME colour_percent
 colour_percent
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88
@@ -971,7 +978,7 @@ a$l
 
 ;E R0=icon num R1=buffer pointer R6=window defn
 ;X indirected icon now points to this buffer |
-
+ FNAME cw_indtxt
 cw_indtxt
  MOV R0,R0,LSL#5		; icon blocks 32 bytes each
  ADD R0,R0,#88			; offset of icon in window
@@ -981,7 +988,7 @@ cw_indtxt
 
 ;E R0=number R1=icon num R6=window defn
 ;X cardinal number inserted in icons indirected buffer #
-
+ FNAME cw_buffernum
 cw_buffernum
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88
@@ -993,7 +1000,7 @@ cw_buffernum
 
 ;E R0=number R1=icon R6=window defn
 ;X hex number inserted in icons indirected buffer with & #
-
+ FNAME cw_bufferhex
 cw_bufferhex
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88
@@ -1008,7 +1015,7 @@ cw_bufferhex
 
 ;E R0=string pointer/0 R1=icon R6=window defn
 ;X string copied into the buffer or buffer cleared if R0=0 |
-
+ FNAME cw_bufferstr
 cw_bufferstr
  FNJSR "R1-R4,R6"
  ADD R6,R6,#88
@@ -1031,7 +1038,7 @@ cw_bufferstr
 ;E R0=key R5=icon with input focus R7=leaf window index
 ;X Action taken according to key & CS to request window be closed
 ;  R0-R11 corrupted
-
+ FNAME process_leaf_key
 process_leaf_key
  FNJSR
  MOV R1,R7
@@ -1194,7 +1201,7 @@ local_click_flg_type
 ;E R0=dir (+1/-1) R5=current icon R6=wind data R7=wind index
 ;X input focus gained for next writable icon (if found)
 ;  otherwise input focus gained generally #
-
+ FNAME leaf_next_icon
 leaf_next_icon
  FNJSR "R1-R6"
  LDR R4,[R6,#84]		; number of icons
@@ -1238,6 +1245,7 @@ lk10
  BLCC gain_focus_bg
  FNRTS
 
+ FNAME gain_focus_bg
 gain_focus_bg
  FNJSR "R1-R5"
  MVN R1,#0			; no icon
@@ -1250,7 +1258,7 @@ gain_focus_bg
 
 ;E R7=window index
 ;X leaf window contents updated and icons replotted WB #
-
+ FNAME leaf_update
 leaf_update
  FNJSR
  BL leaf_create			; call cw_subs
@@ -1263,7 +1271,7 @@ leaf_update
 ;  R5=-ascii key number clicked
 ;X R5=icon number attatched to this key if there is one
 ;  MINUS flag set if work done.
-
+ FNAME key_to_click
 key_to_click
  FNJSR
 a$l
@@ -1286,7 +1294,7 @@ a$l
 ;  If R5 is Up or Down,  R4 b2..0 = 100
 ;  If R5 is Return,      R4 b2..0 = 001
 ;X Leaf click dealt with CS to close window. #
-
+ FNAME process_leaf_click
 process_leaf_click
  FNJSR "R1-R11"
  BL reclaim_caret		; reclaim caret posn
@@ -1298,7 +1306,7 @@ process_leaf_click
 ;E as for process_leaf_click
 ;X Action taken according to click & CS to request window be closed
 ;  R0-R11 corrupted
-
+ FNAME leaf_click
 leaf_click
  FNJSR
  BL	conv_index_offs		; set up R8/R9
@@ -1320,7 +1328,7 @@ leaf_click
 
 ;E R0=ESG R6=window data R7=window index
 ;X update icons of this ESG R0=first selected icon ESG / -1 if none WB #
-
+ FNAME lc_radioon
 lc_radioon
  FNJSR "R1-R6"
  MOV R4,R0			; ESG to match
@@ -1352,7 +1360,7 @@ lc1
 
 ;E R5=icon R6=wind data R7=wind index
 ;X R0=icon flags read from wimp and WB contains defn(+8) WB #
-
+ FNAME lc_read
 lc_read
  FNJSR "R1"
  FNLDR R1,wimp_block
@@ -1364,7 +1372,7 @@ lc_read
 
 ;E R5=icon num R6=wind data R7=wind index
 ;X R0=Eval of the indirected string / VS if not valid #
-
+ FNAME lc_buffernum
 lc_buffernum
  FNJSR "R1-R2"
  ADD R0,R6,#88
@@ -1385,7 +1393,7 @@ lc_buffernum
 
 ;E R5=icon R6=wind data
 ;X R0=address of indirected icon data |
-
+ FNAME icon_getind
 icon_getind
  ADD R0,R6,#88
  ADD R0,R0,R5,LSL#5
@@ -1394,7 +1402,7 @@ icon_getind
 
 ;E R5=icon R6=data
 ;X R0=icon flags
-
+ FNAME icon_getflags
 icon_getflags
  ADD R0,R6,#88
  ADD R0,R0,R5,LSL#5
@@ -1405,7 +1413,7 @@ icon_getflags
 
 ;E R0=pointer to list of icon numbers terminated by &FF R6=window data R7
 ;X icons cleared #
-
+ FNAME icons_clear
 icons_clear
  FNJSR "R4-R5"
  MOV R4,R0
@@ -1418,7 +1426,7 @@ a$l
 
 ;E R5=icon R6=wind data R7=wind
 ;X indirected string nulled & updated if on screen #
-
+ FNAME icon_clear
 icon_clear
  FNJSR
  ADD R0,R6,#88+20
@@ -1432,7 +1440,7 @@ icon_clear
 
 ;E R0=pointer to list of icon number bytes (&FF terminated) R7=window data
 ;X These icons redrawn on the screen WB #
-
+ FNAME icons_redraw
 icons_redraw
  FNJSR "R5-R6"
  MOV R6,R0
@@ -1446,7 +1454,7 @@ a$l
 
 ;E R5=icon R7=window data
 ;X Icon updated on screen via set icon state if window open WB #
-
+ FNAME icon_redraw
 icon_redraw
  FNJSR "R1"
  LDR R0,[R7,#8]			; window handle
@@ -1463,7 +1471,7 @@ icon_redraw
 ;E R5=icon R7=window data
 ;X Icon updated on screen by Wimp_UpdateWindow (background not redrawn) WB #
 ;  (Checks if window open)
-
+ FNAME icon_update
 icon_update
  FNJSR "R1-R3,R6"
  FNLDR R1,wimp_block
@@ -1482,7 +1490,7 @@ icon_update
 ;E R0=mask R1=eor R5=icon R6=wind data R7=wind R2=&FF00; don't update...
 ;X icons flags =(old BIC R0) EOR R1 wind data updated
 ;  updated on screen as well if window open #
-
+ FNAME icon_alter
 icon_alter
  FNJSR "R1,R6"
  ADD R6,R6,#88
@@ -1511,7 +1519,7 @@ icon_alter
 ;E R5=icon R6=wind data R7=window
 ;X icon selected and all others of same ESG deselected (<>0)
 ;  updated on screen (via icon alter) if necessary.
-
+ FNAME icon_select
 icon_select
  FNJSR "R1-R6"
  MOV R0,#1<<21
@@ -1545,7 +1553,7 @@ next$l
 ;  R4=drag flags (b1=repeated call)
 ;  R5=icon handle R6=window data R7=window index
 ;X drag box called set up to drag a point inside the icon WB #
-
+ FNAME icon_drag
 icon_drag
  FNJSR "R1-R7"
  ADD R6,R6,#88
@@ -1581,6 +1589,7 @@ icon_drag
 
 ;E R7 =
 ;X R0 = flags for that window...
+ FNAME window_getstate
 window_getstate
  FNJSR "R1"
  FNLDR R1,wimp_block
@@ -1592,7 +1601,7 @@ window_getstate
 
 ;E R2/R3=xy os of coord R5=icon handle R6=window data R7=window index
 ;X R2/R3=offset of coord from bottom left of icon WB #
-
+ FNAME icon_get_coord
 icon_get_coord
  FNJSR "R1,R6"
  ADD R6,R6,#88
@@ -1617,7 +1626,7 @@ icon_get_coord
 
 ;E R5=icon handle R6=window data R7=window index
 ;X R0 icon horizontal size
-
+ FNAME icon_get_size
 icon_get_size
  FNJSR "R1,R6"
  ADD R6,R6,#88			; pointer to the icon data
@@ -1628,7 +1637,7 @@ icon_get_size
 
 ;E R5=icon number R6=window data R7=window
 ;X checks the caret is not off the end of the icon WB #
-
+ FNAME icon_checkcaret
 icon_checkcaret
  FNJSR "R1-R6"
  ADD R6,R6,#88
@@ -1658,7 +1667,7 @@ icon_checkcaret
  LOCAL
 
 ;E as icon_bufferstr, except R0=token pointer/0 to clear. No % subst. done.
-
+ FNAME icon_buffertoken
 icon_buffertoken
 	FNJSR
 	TEQ	R0,#0
@@ -1668,7 +1677,7 @@ icon_buffertoken
 
 ;E R0=string pointer/0 to clear R5=icon num R6=window def R7=window
 ;X New text put in buffer and icon redrawn if window open #
-
+ FNAME icon_bufferstr
 icon_bufferstr
  FNJSR "R1-R4,R6"
  ADD R6,R6,#88+20
@@ -1685,7 +1694,7 @@ end$l
 
 ;E R0=number R5=icon num R6=window defn R7=window
 ;X cardinal number inserted in icons indirected buffer #
-
+ FNAME icon_buffernum
 icon_buffernum
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88+20
@@ -1698,7 +1707,7 @@ icon_buffernum
 
 ;E R0=number R5=icon R6=window defn R7=window
 ;X hex number inserted in icons indirected buffer with & #
-
+ FNAME icon_bufferhex
 icon_bufferhex
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88+20
@@ -1713,7 +1722,7 @@ icon_bufferhex
 
 ;E R0=number (low) R4=number (high) R5=icon R6=window defn R7=window
 ;X hex number inserted in icons indirected buffer with & #
-
+ FNAME icon_bufferhex16
 icon_bufferhex16
  FNJSR "R1-R2,R6"
  ADD R6,R6,#88+20
@@ -1731,7 +1740,7 @@ icon_bufferhex16
 ;E R0=b0 is new icon state (set for selected icon) R5=icon R6=data R7=wind
 ;X Icon is selected or deselected according to the bit
 ;  Icon is updated if the window is open WB.
-
+ FNAME icon_set
 icon_set
  FNJSR "R1"
  TST R0,#1
@@ -1747,7 +1756,7 @@ icon_set
 
 ;E R7=wind index
 ;X if caret in this window then set to end of string WB #
-
+ FNAME leaf_correct_caret
 leaf_correct_caret
  FNJSR "R1-R5"
  FNLDR R1,wimp_block
@@ -1781,7 +1790,7 @@ leaf_correct_caret
 ;E R10=filecore sub to call 0=DiscOp 2=Drives 5=Describe disc
 ;  R0-R7=call values & disc record must be updated for R0=0
 ;X SWI called using wimp_dzap / VS if not found R0-R7 updated WB #
-
+ FNAME call_filecore
 call_filecore
  FNJSR
  PUSH "R0-R2,R11"
@@ -1826,7 +1835,7 @@ call_filecore_s5    FNS ("_DescribeDisc")
 
 ;E R0=disc address
 ;X R0=-1 not valid / R0=off R1=sect R2=head R3=track |
-
+ FNAME conv_addr_sht
 conv_addr_sht
  FNJSR "R4-R5,R10"
  FNLDR R10,wimp_dzap
@@ -1853,7 +1862,7 @@ conv_addr_sht
 
 ;E R0=off R1=sect R2=head R3=track
 ;X R0=-1 not valid / R0=disc address |
-
+ FNAME conv_sht_addr
 conv_sht_addr
  FNJSR "R3,R10"
  FNLDR R10,wimp_dzap
@@ -1876,7 +1885,7 @@ conv_sht_addr
 
 ;E R0=disc address and valid data block
 ;X wimp_block contains sht string #
-
+ FNAME conv_addr_str
 conv_addr_str
  FNJSR "R0-R5"
  BL conv_addr_sht		; R0-R3=osht
@@ -1921,7 +1930,7 @@ error$l
 
 ;E R0=buffer address R1=disc address R2=length
 ;X data read to buffer if disc record valid #
-
+ FNAME read_disc
 read_disc
  FNJSR "R1-R4,R10-R11"
  FNLDR R11,wimp_dzap
@@ -1958,7 +1967,7 @@ read_disc
 ;  R8-R9=input
 ; ("Successive sides" formats such as ADFS L use (R2|R3)=track change)
 ;X new sector read if file dzap and unaltered #
-
+ FNAME new_read_disc
 new_read_disc
  FNJSR "R1-R11"
  MUL R5,R1,R0			; save sector change
@@ -2005,6 +2014,7 @@ new_read_disc
  FNRTS
 sub$l B save_window_status
 
+ FNAME new_read_disc_sub
 new_read_disc_sub
  FNJSR
  LDR R0,[R9,#f_load]
@@ -2021,6 +2031,7 @@ new_read_disc_sub
 
 ; E R0 - start, R1 - end, R2 - task handle **R0<R1**
 ; X CS if range invlaid.
+	FNAME	validateaddress
 validateaddress
 	FNJSR	"R0-R2"
 	CMP	R0,#&3800000		; ROM?
@@ -2062,7 +2073,7 @@ isROM$l	CMP	R0,R1
 ;E R0=buffer R1=start address R2=end address
 ;X memory read using wimp_mzap if needed and valid #
 ;  (!wimp_mzap contains the task handle of the task to read from)
-
+ FNAME read_memory
 read_memory
  FNJSR "R1-R4"
  CMP R2,R1
@@ -2124,7 +2135,7 @@ err$l ERR "zap_e_badmemrange"
 
 ;E R5=icon R7=wind index
 ;X drag box initiated on this icon WB #
-
+ FNAME initiate_drag
 initiate_drag
  FNJSR "R1-R6"
  FNLDR R1,wimp_block		; workspace
@@ -2217,7 +2228,7 @@ c$l				; try and drag the sprite
 
 ;E R6=pointer to sprite name
 ;X drag box initiated on this icon WB #
-
+ FNAME initiate_sprite_drag
 initiate_sprite_drag
  FNJSR "R1-R6"
  ;PUSH "R2-R12"
@@ -2326,7 +2337,7 @@ c$l				; try and drag the sprite
 ; SWIMI &107
 ; BL cw_SaveSelBox
 ; FNRTS
-
+ FNAME process_leaf_drag2
 process_leaf_drag2
  FNJSR "R0-R12"
  SWI XDragASprite_Stop
@@ -2371,7 +2382,7 @@ process_leaf_drag2
 
 ;E as for normal drag finished sub
 ;X end of drag responed to WB #
-
+ FNAME process_leaf_drag
 process_leaf_drag
  FNJSR "R1-R11"
  MOV R0,R11			; window handle passed as the data
@@ -2382,6 +2393,8 @@ process_leaf_drag
 
  LOCAL
 
+
+ FNAME drag_Box
 drag_Box			; R8/R9=source file / R8=0 for selection
  FNJSR				; save to the task the wimp pointer is over
 ; MOV R0,#&0
@@ -2482,7 +2495,7 @@ fnameforselected
 
 ;X All leaf windows which are set to be deleted (b5 of flags)
 ;  are deleted #
-
+ FNAME delete_old_leafs
 delete_old_leafs
  FNJSR "R10"
  ADR R10,delete_old_leafs_sub
@@ -2508,7 +2521,7 @@ delete_old_leafs_sub
 
 ;E R7=window index R8/R9
 ;X Leaf window created & opened & got input focus #
-
+ FNAME create_open_leaf
 create_open_leaf
  FNJSR "R1-R7"
  MOV R1,#1			; not created by menu
@@ -2548,7 +2561,7 @@ putinbg$l
 ;E R1=window blk of area in os (handle w_minx .. w_maxy) R7=window index
 ;  (can use wimp block as it's sent to Wimp_UpdateWindow)
 ;X leaf window area updated using Wimp_UpdateWindow #
-
+ FNAME update_leaf_window
 update_leaf_window
  FNJSR "R1"
  SWI XWimp_UpdateWindow		; update the window
@@ -2565,7 +2578,7 @@ a$l
 
 ;E R7=window index
 ;X If delete swap window on dying bit set then window swapped #
-
+ FNAME delete_swap_window
 delete_swap_window
  LDR R0,[R7,#4]			; flags
  TST R0,#1<<4
@@ -2582,6 +2595,7 @@ delete_swap_window
  LOCAL
 
 ;E R11=Message_WindowInfo block.
+ FNAME window_info
 window_info
  FNJSR "R1-R12"
  SYSLOG "Message: Message_WindowInfo", LOG_WINDOW
@@ -2611,7 +2625,7 @@ dead$l
 ;X If R2=0 then opens the window permanently
 ;  If R2=6 then opens the window and returns R0=1 (abort minbuffer)
 ;  If R2=16 then creates and returns R0 as the handle (for menu) #
-
+ FNAME open_leaf_com
 open_leaf_com
  FNJSR "R7"
  FNLDR R7,tem_list		; address of the template list
@@ -2633,7 +2647,7 @@ a$l
 
 ;E R0=t-index of the leaf window to deal with
 ;X leaf deleted and recreated
-
+	FNAME	delete_and_reopen_leaf_com
 delete_and_reopen_leaf_com
 	FNJSR	"R1,R7"
 	FNLDR	R7,tem_list		; address of the template list
@@ -2651,6 +2665,7 @@ delete_and_reopen_leaf_com
 
 	LOCAL
 
+	FNAME	reload_templates
 reload_templates
 	FNJSR	"R1-R3"
 	BL	set_up_new_fonts
@@ -2659,6 +2674,7 @@ reload_templates
 
 	LOCAL
 
+	FNAME	delete_and_reopen_all
 delete_and_reopen_all
 	FNJSR	"R1"
 	FNLDR	R1,tem_num		; the number
@@ -2675,7 +2691,7 @@ lastthing$l
 
 ;E R7=window index
 ;X leaf window opened at inset from window WB #
-
+ FNAME open_leaf_window
 open_leaf_window
  FNJSR "R1-R9"
  LDR R6,[R7]			; window data
@@ -2723,6 +2739,7 @@ ofstmtlat$l
  DCD tmt_offsets
  DCD 0
 
+ FNAME tmt_getxpos
 tmt_getxpos
  FNJSR "R1"
  FNADR R0,ofstmtlat$l
@@ -2748,6 +2765,7 @@ loopx$l
  ADDEQ R0,R0,R2
  FNRTS
 
+ FNAME tmt_getypos
 tmt_getypos
  FNJSR "R1"
  FNADR R0,ofstmtlat$l
@@ -2886,7 +2904,7 @@ loop$l
 ;;;;;;;;;;;;;;;;;;;; Colour box redraw ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=window block R7=window index
-
+ FNAME redraw_ColourBox
 redraw_ColourBox
  FNJSR "R1-R7"
  LDR R6,[R7]			; window defn
@@ -2916,7 +2934,7 @@ redraw_ColourBox
 ;  R3=fill colour (as a palette entry)
 ;  R5=icon number R6=window defn
 ;X rectange drawn #
-
+ FNAME horizontal_fill_icon
 horizontal_fill_icon
  FNJSR "R1-R8"
  ADD R6,R6,#88
@@ -2952,7 +2970,7 @@ white$l DCD &FFFFFF10
 ; replace with ZapRedraw call?
 ;E R1=redraw block R3=fill colour R4=minx R5=miny R6=maxx R7=maxy
 ;X rectangle drawn if it intersects the redraw area #
-
+ FNAME redraw_fill_rectangle
 redraw_fill_rectangle
  FNJSR "R1-R4"
  LDR R0,[R1,#28]		; minx

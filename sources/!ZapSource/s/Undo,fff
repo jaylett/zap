@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.6 2002/11/13 13:40:29 christian Exp $
+; $Id: Undo,fff,v 2.7 2002/11/14 19:30:30 christian Exp $
 
 ; *** Important notes on symbolisation ***
 ;
@@ -196,7 +196,7 @@ undo_Block_DontFreeData	*	(1:SHL:3)
 
 ;E R9=file
 ;X nulls yank / calls pre_input / returns CS if no undo #
-
+		FNAME	pre_undo
 pre_undo	FNJSR
 		FNLDR	R0,yank_len
 		FNSTR	R0,yank_off
@@ -211,6 +211,7 @@ pre_undo	FNJSR
 
 ;E R0=suggested num of chars R1=0 fast undo/1 full undo R9=file
 ;X this number of characters undone #
+		FNAME	undo_command
 undo_command	FNJSR	"R1-R11"
 		MOV	R2,R0
 		MOV	R10,R1
@@ -309,6 +310,7 @@ un24		BL	undo_stop_operation		; display result (copes with VS)
 
 ;E R0=suggested number of chars to redo R9=file
 ;X last undo redone #
+		FNAME	redo_command
 redo_command	FNJSR	"R1-R11"
 		MOV	R2,R0				; save suggested num chars
 		BL	pre_undo			; check text ready for input
@@ -392,6 +394,7 @@ un27		BL	undo_stop_operation
 ;\E R6=ulen R7=uptr R10=undo R11=undop
 ;\X R6=first previous proper instruction (1-7)
 ;   R0=instruction number &17, R10/R11 updaded by fast redos
+		FNAME	redo_back
 redo_back	FNJSR	"R1"
 un11		MOV	R0,R6
 		BL	un_backward
@@ -417,6 +420,7 @@ local_yank_temp_col
 
 ;E R8-R10 input caret to yank at
 ;X last blocks before yank_off yanked #
+		FNAME	yank_command
 yank_command	FNJSR	"R6"
 		BL	possiblystorecolumn
 		FNLDR	R6,yank_off			; current yank offset
@@ -439,6 +443,7 @@ possiblystorecolumn
 
 ;E R6=offset in yank buffer to start from R8-R10
 ;X R6=new yank_off /-ve if none. One yank command pasted. #
+		FNAME	yank_paste_command
 yank_paste_command
 		FNJSR	"R1-R5,R7"
 		FNLDR	R7,yank_ptr			; start of yank buffer
@@ -477,6 +482,7 @@ un30		BL	stop_operation
 
 
 ;X any current yank cancelled and old text deleted #
+		FNAME	yank_cancel
 yank_cancel	FNJSR	"R1,R9"
 		FNLDR	R1,yank_off
 		FNLDR	R0,yank_len
@@ -508,6 +514,7 @@ yank_cancel	FNJSR	"R1,R9"
 
 ;E R8-R10 input caret to paste at
 ;X last deleted block pasted #
+		FNAME	paste_command
 paste_command	FNJSR	"R6"
 		FNLDR	R6,yank_len
 		FNSTR	R6,yank_off			; start at end
@@ -523,7 +530,7 @@ message_claimentity * 15
 message_datarequest * 16
 
 ;E R8-R10 input caret to paste at
-
+		FNAME	pastegc_command
 pastegc_command	FNLDR	r0,opt_switches			; opt_switches word
 		ANDS	r0,r0,#bit_got_gclip		; do we own the GC currently?
 		BNE	paste_command			; lr preserved for return
@@ -575,6 +582,7 @@ reply$l		CMP	r0,#19
 
 
 ; Message_ClaimEntity
+		FNAME	gc_claimentity
 gc_claimentity	FNJSR	"r1"
 		LDR	r0,[r1,#20]			; is it for the clipboard?
 		TST	r0,#4
@@ -592,6 +600,7 @@ gc_claimentity	FNJSR	"r1"
 
 
 ; Message_DataRequest
+		FNAME	gc_datarequest
 gc_datarequest	FNJSR	"r1-r10"
 		LDR	r0,[r1,#36]			; note the good design:
 		; DataRq and ClaimEntity have the
@@ -653,6 +662,7 @@ pullr1andreturn	PULL	"r1"				; restore message pointer
 gc_filename	= "GCScrap", 0
 
 
+		FNAME	gc_claimclip
 gc_claimclip	FNJSR
 		SUB	r13,r13,#24			; space for the wimp message
 		MOV	r1,r13
@@ -679,7 +689,7 @@ gc_claimclip	FNJSR
 ;  R0 BIC b30=0 => R8/R9=file, add last delete undo entry
 ;  R0 BIC b30<>0 => =address of region data blk R1=block length
 ;X Length added to yank_ptr buffer #
-
+		FNAME	add_yank_region
 add_yank_region	FNJSR	"R1-R7"
 		MOV	R2,R0				; data pos start
 		BICS	R0,R2,#addyank_In_KillSequence
@@ -722,6 +732,7 @@ ad19		FNLDR	R4,yank_len			; buffer length
 
 ;E R0=off R7=undo buf R9
 ;X CC R0=next entry off / CS R0=end off |
+		FNAME	un_forward
 un_forward	FNJSR	"R1"
 		LDR	R1,[R9,#f_ulen]
 		CMP	R0,R1
@@ -741,6 +752,7 @@ un1		ADD	R0,R0,#4
 ;  R7 -> this undo buffer
 ;  R9
 ;X CC & R0 = previous entry  /  CS & R0 = 0 |
+		FNAME	un_backward
 un_backward	FNJSR
 un2		CMP	R0,#0
 		FNRTS	LE				; return with CS
@@ -761,6 +773,7 @@ un2		CMP	R0,#0
 ;  R9
 ;
 ;X R7 updated and command buffered with new buffers claimed if b3=0 in R0 #
+		FNAME	buffer_command
 buffer_command	FNJSR	"R1-R3,R6,R8-R11"
 		MOV	R10,R0
 		MOV	R11,R1
@@ -985,7 +998,7 @@ buf_concat_bottom_no_claim
 ;X R0-R5=(bufferable) command required to undo R2 chars
 ;  and cursor moved to this point but not plotted (!?) #
 ;  R0=command number (5-bit) if out of range command 1-4
-
+		FNAME	undo_invert_command
 undo_invert_command
 		FNJSR	"R6,R10-R11"
 		ADD	R6,R7,R6			; address of command to undo
@@ -1023,7 +1036,7 @@ undo_invert_command
 ;E R2=num of bytes to remove R6=buf off of command R7=uptr
 ;X command reduced by this number of bytes (and buffers freed)
 ;  note it only works for bit3 set commands and errors otherwise #
-
+		FNAME	unbuffer_command
 unbuffer_command
 		FNJSR	"R1-R3,R6"
 		ADD	R6,R7,R6			; address of the command
@@ -1055,6 +1068,7 @@ unbuffer_command
 
 ;E R9
 ;X all undo buffer data freed and undo pointers zeroed #
+		FNAME	free_undo
 free_undo	FNJSR	"R1-R7"
 		BL	free_yank			; free yank links to undo data
 		FNRTS	VS
@@ -1099,6 +1113,7 @@ fr10		MOV	R0,#0
 
 ;E R9=file that has just has it's undo turned off/been killed
 ;X yank buffer has references to this file freed.
+		FNAME	free_yank
 free_yank	FNJSR	"R1-R3"
 		BL	get_file_off			; R0=file off
 		FNLDR	R1,yank_ptr
@@ -1117,6 +1132,7 @@ fr11		CMP	R1,R2
 
 ;E R9=file
 ;X undo switched off for this file #
+		FNAME	turn_off_undo
 turn_off_undo	FNJSR
 		LDR	R0,[R9,#f_flags]
 		BIC	R0,R0,#flags_UndoSupported

@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 2.7 2002/11/10 19:52:30 christian Exp $
+; $Id: CreateFile,fff,v 2.8 2002/11/14 19:30:30 christian Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -84,7 +84,7 @@ USE_WRITE_FILES * 0
 ;E R0=filename
 ;X R0=window offset, file installed if not already there etc.
 ;  R0=-1 if file could not be loaded immediately. WB #
-
+ FNAME install_file
 install_file
  FNJSR "R1,R7-R10"
  SYSLOGF "install_file %0s",LOG_FILE
@@ -128,7 +128,7 @@ s$l FNS ("zap_MultipleCopies")
 
 ;E R0=filename. Load file and install without any questions.
 ;X R0=window offset. (Path name canonicalised) WB #
-
+ FNAME install_new_file
 install_new_file
  FNJSR "R1-R10"
  SYSLOGF "install_new_file %0s",LOG_FILE
@@ -235,6 +235,7 @@ err$l				; error loading the file so kill
  MOV R0,R10
  FNRTV				; restore the error
 
+ FNAME get_filename_case_sensitive
 get_filename_case_sensitive
  FNJSR "R0-R6,R11"
  MOV R0,R1
@@ -263,7 +264,7 @@ simplyexit$l
 
 ;E R0=filename R8/R9=window dropped on
 ;X file inserted into text (or name if shift held) #
-
+ FNAME inject_file
 inject_file
  FNJSR "R1-R11"
  [ LOGGING = SYSLOG
@@ -383,7 +384,7 @@ name$l				; insert name instead of file
 ;E R0=length R1=filename R2/R3=load/exec of proposed file
 ;X R9=pointer to file block with rubbish file of correct length #
 ;  Create type set as 0 doesn't use WB #
-
+ FNAME create_file_block
 create_file_block
  FNJSR "R1-R5,R10"		; careful - explicit pull below
  SYSLOGF "create_file_block length %0x for %1s, l %2x e %3x",LOG_FILE
@@ -449,7 +450,7 @@ ext1$l DCD fflags_mask
 ;  R4=format eor (=> (BIC mask) EOR eor)
 ;X R8/R9 Empty file created with current flags/format altered #
 ;  R0=wimp_modelist block for this file
-
+ FNAME create_file
 create_file
  FNJSR "R1-R5"
  SYSLOGF "create_file type %0x, flags BIC %1x EOR %2x, format BIC %3x",LOG_FILE
@@ -469,7 +470,7 @@ create_file
 ;E R0=file type
 ;X created empty new file R8/R9 and window WB but not given input #
 ;  R0=wimp_modelist block of info
-
+ FNAME create_empty
 create_empty
  FNJSR
  SYSLOGF "create_empty type %0x",LOG_FILE
@@ -481,7 +482,7 @@ create_empty
 
 ;E R0=file type
 ;X created new empty file and R9 set up WB #
-
+ FNAME create_empty_file
 create_empty_file
  FNJSR "R1-R4"
  SYSLOGF "create_empty_file type %0x",LOG_FILE
@@ -525,7 +526,7 @@ name$l FNS ("NewFile")
 
 ;E R8/R9 as there is a unique window left open on this file
 ;X file deleted via discard_file / CS and warning given if changed #
-
+ FNAME delete_file
 delete_file
  FNJSR "R1,R7,R10-R11";"R1,R7,R8-R11";
  [ LOGGING = SYSLOG
@@ -567,7 +568,7 @@ kill$l
 ;E R9
 ;X file deleted regardless of whether it has been altered or not
 ;  first all relating windows are deleted via discard_window #
-
+ FNAME discard_file
  DCD 1
 discard_file
  FNJSR "R1,R10-R11"
@@ -611,7 +612,7 @@ link$l				; discard a link
 
 ;E R9
 ;X all memory used by this file freed #
-
+ FNAME free_file
 free_file
  FNJSR "R1"
  [ LOGGING = SYSLOG
@@ -681,7 +682,7 @@ get_file_off
 ;  Checks for CSD/date first #
 ;  e_init is called to check the save is ok
 ;  R0=0 if save ok / -1 if warning box opened - don't kill file
-
+ FNAME save_text
 save_text
  FNJSR "R1,R7,R10-R11"
  [ LOGGING = SYSLOG
@@ -731,7 +732,7 @@ dirok$l				; directory path checked
 
 ;E R0=Name string
 ;X R0=0 if ok/1 if not a full path name |
-
+ FNAME check_file_name
 check_file_name
  FNJSR
 a$l
@@ -752,7 +753,7 @@ a$l
 ;E R8=window R9=file WB
 ;X File saved regardless of CSD but checks dest date first #
 ;  R0=0 if saved / -1 if warned
-
+ FNAME save_file_date
 save_file_date
  FNJSR "R7"
  [ LOGGING = SYSLOG
@@ -781,7 +782,7 @@ save$l
 ;E R9=file (with file name in f_name)
 ;X R0=0 if date ok (file in Zap is newer than the one on the disc)
 ;  R0=1 if the date not ok (file on disc is newer - has changed)
-
+ FNAME check_date
 check_date
  FNJSR "R1-R5"
  FNLDR R0,opt_switches
@@ -833,6 +834,7 @@ end$l
 
 ;E R1=ptr to path
 ;X R2=msb of date R3=lsb of date
+ FNAME read_file_timestamp
 read_file_timestamp
  FNJSR "R1,R4-R7"
  MOV R0,#5
@@ -856,7 +858,7 @@ returnnull$l
 ;E R0=flags b0=> save unsafe
 ;  R8=window R9=file WB WD KB
 ;X file saved regardless of CSD/date #
-
+ FNAME save_file_buffer
 save_file_buffer
  FNJSR "R1-R6,R11"
  [ LOGGING = SYSLOG
@@ -962,6 +964,7 @@ err$l
  LOCAL
 
 ; E R9
+ FNAME initialise_checksums
 initialise_checksums
  FNJSR "R0"
  LDR R0,[R9,#f_len]		; get file length
@@ -974,7 +977,7 @@ initialise_checksums
 
 ;E R9=file split at start with load and exec updated
 ;X File saved to disc by OS_File #
-
+ FNAME save_file
 save_file
  FNJSR "R1-R5"
  [ LOGGING = SYSLOG
@@ -1057,7 +1060,7 @@ save_file
 
 ;E R9
 ;X Title updated & redrawn for all windows on this file #
-
+ FNAME new_file_title
 new_file_title
  FNJSR "R10"
  ADR R10,sub$l
@@ -1067,7 +1070,7 @@ sub$l B new_title
 
 ;E R0=new file name R9
 ;X file name buffer f_name updated #
-
+ FNAME new_file_name
 new_file_name
  FNJSR "R1-R2"
  MOV R2,R0			; save string
@@ -1082,6 +1085,7 @@ new_file_name
 
 ;E R9
 ;X file marked as altered and new title set up #
+ FNAME mark_changed
 mark_changed
  FNJSR "R10"
  LDR R10,[R9,#f_len]
@@ -1149,6 +1153,7 @@ redraw_anyway$l
 
 ; E R9 = file...
 ; X R0 = checksum
+ FNAME calculate_checksum
 calculate_checksum
  FNJSR "R1-R5,R7,R8,R11"
 ; MVN R6,#&E6			; chksum
@@ -1212,6 +1217,7 @@ endrapidly$l
 
  LOCAL
 
+ FNAME quick_calculate_checksum
 quick_calculate_checksum
  FNJSR "R1,R2,R7,R8,R11"
  MVN R11,#&000000B4		; chksum
@@ -1247,7 +1253,7 @@ endrapidly$l
 
 ; E R9
 ; X Z set if unchanged; R0 corrupt.
-
+	FNAME	maybe_test_changed
 maybe_test_changed
 	FNJSR
 	LDR	R14,[R9,#f_len]
@@ -1262,7 +1268,7 @@ maybe_test_changed
 
 ; E R9
 ; X Z set if unchanged; R0 corrupt.
-
+	FNAME	test_changed
 test_changed
 	FNJSR	"R8-R11"
 	LDR	R0,[R9,#f_flags]
@@ -1294,7 +1300,7 @@ test_changed
 
 ; E R0=0 -> unchanged, <>0 -> changed  R9
 ; X File marked appropriately; checksum recalculated if required.
-
+	FNAME	mark_changed_unchanged
 mark_changed_unchanged
 	FNJSR
 	LDR	R14,[R9,#f_flags]
@@ -1318,7 +1324,7 @@ mark_unchanged$l
 
 ;E R0=mask R1=eor R2=command 0/15
 ;X switches flags toggled or tick set if set |
-
+ FNAME new_switches_set
 new_switches_set
  TEQ R2,#15
  BNE new_switches
@@ -1332,7 +1338,7 @@ new_switches_set
 
 ;E R0=switches mask R1=switches eor
 ;X new switches value set |
-
+ FNAME new_switches
 new_switches
  FNJSR
  FNLDR R14,opt_switches
@@ -1347,7 +1353,7 @@ new_switches
 ;  R7=leaf window index to update /0 if none
 ;  R8/R9 window to save / R8=-1 for selection
 ;X filename updated and text/selection saved R8/R9 updated #
-
+ FNAME save_from_leaf
 save_from_leaf
  FNJSR "R1,R11"
  [ LOGGING = SYSLOG
@@ -1373,7 +1379,7 @@ save_from_leaf
 
 ;E R11=leaf window index of leaf window file was saved from (successfully)
 ;X File window closed/swapped etc depending on flags #
-
+ FNAME update_after_save
 update_after_save
  FNJSR "R7-R9"
  MOV R7,R11			; window index
@@ -1396,7 +1402,7 @@ update_after_save
 ;	    b16-b31=filetype if saving as memory
 ;  R8/R9=wind or R8=-1 to save selection (was 0)
 ;X R0=0 if saved successfully - data saved to the given file. #
-
+ FNAME save_to_file
 save_to_file
  FNJSR "R1-R11"
  [ LOGGING = SYSLOG
@@ -1469,7 +1475,7 @@ notdirok$l
  LOCAL
 
 ; E R0-> filename.
-
+ FNAME simply_save_selection
 simply_save_selection
  FNJSR
  SYSLOGF "simply_save_selection to %0s",LOG_FILE
@@ -1509,7 +1515,7 @@ err$l
 
 ;E R0=file name
 ;X R8/R9=window on the file (loaded if necessary) WB #
-
+ FNAME find_file
 find_file
  FNJSR "R1"
  SYSLOGF "file_find %0s",LOG_FILE
@@ -1529,7 +1535,7 @@ fi20
 ;E R0=pointer to file name
 ;X R9=file blk of this file / 0 if not found WB #
 ;  Filename canicalised before checking
-
+ FNAME find_file_look
 find_file_look
  FNJSR "R1-R5"
  SYSLOGF "file_file_look %0s",LOG_FILE
@@ -1570,7 +1576,7 @@ fi16
 
 ;E R0=window OFFSET (and file_list/wind_list may be moved!)
 ;X file dumped to new text file #
-
+ FNAME dump_file
 dump_file
  FNJSR "R1-R11"
  SYSLOGF "dump_file window offset %0d",LOG_FILE
@@ -1662,7 +1668,7 @@ kill_files
 
 ;E R0=load address
 ;X CC & R0=load addr / CS & R0=file type |
-
+ FNAME calc_ftype
 calc_ftype
  FNJSR
  BL checkseeifFTEloaded
@@ -1687,7 +1693,7 @@ itisthere$l
 
 ;E R0=file type / >=&1000 for none
 ;X R2=load address R3=execution address (current date) WB #
-
+ FNAME calc_load
 calc_load
  FNJSR "R1"
  CMP R0,#&1000
@@ -1713,6 +1719,7 @@ local_timestore
  DCD 0
 
 ;X R3 = time low R0 = time high
+ FNAME read_current_time
 read_current_time
  FNJSR "R1"
  ADR R1,local_timestore
@@ -1728,7 +1735,7 @@ read_current_time
 
 ;E R0=file type (bottom 12 bits) R1=buffer (word aligned)
 ;X buffer contains file type string ending in 0 #
-
+ FNAME get_ftype
 get_ftype
  FNJSR "R1-R4"
  MOV R2,R0
@@ -1754,7 +1761,7 @@ cw3
 ;E R0=file type / -1 if none R1=address of buffer
 ;  R2,R3=load,exec if R0=-1
 ;X sprite name for this file type put in buffer #
-
+ FNAME get_file_sprite
 get_file_sprite
  FNJSR "R1-R6"
  MOV R4,R0			; save type
@@ -1817,7 +1824,7 @@ deaddead$l	& &DEADDEAD
 ;X looks through file list -> CC if no unsaved data in Zap / CS o/w |
 
 ; Side effect: will cause some files to be marked as unchanged
-
+	FNAME	test_quit_ok
 test_quit_ok
 	FNJSR	"R2,R9"
 	FNLDR	R9,file_list
@@ -1839,7 +1846,7 @@ te1
 
 ;E R0=filename
 ;X R0=pointer to leaf name part of file |
-
+	FNAME	find_leaf_name
 find_leaf_name
 	FNJSR	"R1"
 	MOV	R1,R0
@@ -1853,7 +1860,7 @@ find$l	LDRB	R14,[R1],#1
 
 ;E R9
 ;X kill ring buffer & marker buffer initialised #
-
+ FNAME init_kill_buffer
 init_kill_buffer
  FNJSR
 ; [ LOGGING = SYSLOG
@@ -1879,7 +1886,7 @@ init_kill_buffer
 
 ;E R9
 ;X All leaf windows on this file deleted #
-
+ FNAME delete_file_leafs
 delete_file_leafs
  FNJSR "R10"
  BL get_file_off
@@ -1905,7 +1912,7 @@ delete_file_leafs_sub
 ;E R9=file
 ;X links entry buffer contents freed and reset #
 ;  the buffer itself is not freed.
-
+ FNAME free_link_entry
 free_link_entry
  FNJSR "R1-R3"
  [ LOGGING = SYSLOG
@@ -1938,7 +1945,7 @@ b$l
  LOCAL
 
 ;X R0=Wimp KB buffer containing current directory name (or 0)
-
+	FNAME	find_current_directory_dde
 find_current_directory_dde
 	FNJSR	"R1-R2"
 	FNLDR	R0,wimp_kbdbuf
@@ -2021,7 +2028,7 @@ curr$l FNS ("@")
 
 ;E R0=flags mask R1=flags eor R9 / R9=0 for main
 ;X New R9 flags set and title bar updated for all windows on this file #
-
+ FNAME new_file_flags
 new_file_flags
  TEQ R9,#0
  BEQ new_opt_flags
@@ -2050,7 +2057,7 @@ new_file_flags_done
 ;E R0=flags mask R1=flags eor R2=command type R8/R9=wind/0
 ;X New R9 flags set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
-
+ FNAME new_file_flags_set
 new_file_flags_set
  TEQ R2,#15
  BNE new_file_flags
@@ -2075,7 +2082,7 @@ new_file_flags_set
 ;  starting with ~ in the same directory as the file then the file
 ;  is renamed into the first ~ directory and any old version
 ;  Uses WB (&100) WD (&100) KB (&200)
-
+ FNAME backup_file
 backup_file
  FNJSR "R1-R11"
  SYSLOGF "backup_file %0s",LOG_FILE+1
@@ -2285,7 +2292,7 @@ comparethem2$l
 ;X If R1 doesn't exist then returns with no error
 ;  If R1 exists and R2<>0 then R1 renamed to R2
 ;  If R1 exists and R2=0 then R1 is deleted
-
+ FNAME rename_file
 rename_file
  FNJSR "R1-R6"
  MOV R6,R2			; save the dest
@@ -2316,7 +2323,7 @@ del$l
 ;  R3=1 for oscli (direct output to file then display)
 ;  R3=2 for wimptask (leave output going to VDU)
 ;X Command called and output displayed if R3=1 WB
-
+ FNAME os_cli
 os_cli
  FNJSR "R1-R6,R8-R9"
  TEQ R2,#6
@@ -2378,6 +2385,8 @@ f$l = "<Wimp$Scrap>",0
 ; >>> gerph change
  [ USE_WRITE_FILES=1
    LOCAL
+
+ FNAME write_loaded_files
 write_loaded_files
    FNJSR   "r0-r5,r9"           ; Stack registers
    MOV     r0,#&83+(1<<2)+(1<<3)         ; mark as making errors

@@ -1,5 +1,5 @@
 ; Contains code for processing keyboard input
-; $Id: KeyBits,fff,v 2.11 2002/11/11 00:14:03 christian Exp $
+; $Id: KeyBits,fff,v 2.12 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -67,7 +67,7 @@ MENUSHORTS	* LONG
 
 ;E R0=wimp key number
 ;X R0=my key number | (or -1 = key is ambiguous) :-/
-
+ FNAME convert_key
 convert_key
  TEQ R0,#&7F
  BEQ ck_delete			; delete key
@@ -454,7 +454,7 @@ ck_page_keys
 
 
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
-
+	FNAME	special_test_shiftctrl
 special_test_shiftctrl
 	FNJSR	"R0,R2-R3"
 	FNLDR	R0,key_modifiers
@@ -474,7 +474,7 @@ special_test_shiftctrl
 	FNRTS
 
 ;X R0 saved R1=flags (b0=shift pressed b1=ctrl pressed)
-
+	FNAME	test_shiftctrl
 test_shiftctrl
 	FNJSR	"R0,R2-R3"
 test_shiftctrl_internal
@@ -498,7 +498,7 @@ test_shiftctrl_internal
 ;  R1=mod state + (key code)<<8, else -1
 ;X CS if key pressed |
 ;  R0 corrupt
-
+	FNAME	special_test_forkey
 special_test_forkey
 	TEQ	R1,#0
 	BMI	test_forkey
@@ -510,7 +510,7 @@ special_test_forkey
 
 ;E R0=inkey number (not eored)
 ;X CS if key pressed |
-
+	FNAME	test_forkey
 test_forkey
 	FNJSR	"R1-R2"
 	EOR	R1,R0,#&FF
@@ -540,7 +540,7 @@ $l = :LEN:"$y","$y"
 ;  String will be padded out to R2 bytes, inc. term.
 ;Internal flags in R2
 ; b0=shift b1=ctrl b2=F b3=1 b4=keypad
-
+ FNAME show_key
 show_key
  FNJSR "R1-R3"
  MOV R3,#2
@@ -725,7 +725,7 @@ sh6
 
 ;E R0=my keycode
 ;X R0=pointer to a 0 term string in WB of string for this key #
-
+ FNAME get_key_string
 get_key_string
  FNJSR "R1-R3"
  ADR R1,ge_s0
@@ -746,7 +746,7 @@ ge_s0 % 12
 ;E R0=data for key command (types byte/word) R7=address of key command
 ;  R11=parameter type (-n for 'nth match')
 ;X R0=key code of lowest key with this command in current map / -1 if none |
-
+ FNAME find_key_w_currentmap
 find_key_w_currentmap
  FNJSR "R1-R5,R11"
  MOV R3,R0			; save key command data
@@ -757,7 +757,7 @@ find_key_w_currentmap
  FNRTS
 
 ;E,X as find_key_w_currentmap, but searches default keymap
-
+ FNAME find_key
 find_key
  FNJSR "R1-R5,R11"
  MOV R3,R0			; save key command data
@@ -802,7 +802,7 @@ c$l				; got a match
 
 ;E R0-R8=args R10=address of sub of # format  R11=number of times
 ;X Sub at R10 executed R11 times as if it were a # sub. #
-
+ FNAME do_ntimes
 do_ntimes
  TEQ R11,#0
  MOVEQ PC,R14
@@ -819,7 +819,7 @@ do1
 
 ;E R0-R8=args R10=address of sub with # format
 ;X Sub at R10 executed with R9 set up for each (valid) file #
-
+ FNAME do_allfiles
 do_allfiles
  FNJSR "R9,R11"
  MOV R11,R0			; save arg R0
@@ -842,7 +842,7 @@ do16
 
 ;E R0-R6,R8-R9=args R10=address of a # sub
 ;X sub at R10 executed for each leaf window with R7 set up #
-
+ FNAME do_eachleaf
 do_eachleaf
  FNJSR "R7,R11"
  MOV R11,R0			; save arg R0
@@ -861,7 +861,7 @@ do4
 ;E R0-R5=args R9=file R10=address of # sub
 ;X sub at R10 executed with R9 set up for each linked file to R9
 ;  R7 is set up to the link entry giving the original file #
-
+ FNAME do_linked_files
 do_linked_files
  FNJSR "R6-R11"
  MOV R11,R0			; save arg R0
@@ -901,7 +901,7 @@ do14
 
 
 ;X settings file read in and variables set from it #
-
+ FNAME init_settings
 init_settings
  FNJSR "R1"
  BL pre_read_keys
@@ -911,7 +911,7 @@ init_settings
  FNRTS
 
 ;X file keys read in and variables set from it #
-
+ FNAME init_keys
 init_keys
  FNJSR "R1"
  MOV R0,#-1
@@ -949,6 +949,7 @@ str5$l = "ZapGenerated:FileIds",0
 
  LOCAL
 
+ FNAME pre_read_keys
 pre_read_keys
  FNJSR "R1-R11"
  BL null_macros			; clear macro defns & link (out of date)
@@ -961,7 +962,7 @@ pre_read_keys
 
 ;E R10=pointer to keys file terminated by a 0
 ;X variables stored in keys file read #
-
+ FNAME read_keys
 read_keys
  FNJSR "R1-R11"
  ; BL null_macros			; clear macro defns & link (out of date)
@@ -1045,6 +1046,7 @@ cr12
 
  LOCAL
 
+ FNAME rk_othervar
 rk_othervar
  SUB R3,R3,#&300		; variable number
  CMP R3,#(varend$l-varstart$l)/8; total number
@@ -1128,6 +1130,7 @@ varend$l
 
 	LOCAL
 
+	FNAME	rk_keymap
 rk_keymap
 	FNJSR	"R4,R5"
 	SUB	R3,R3,#&400	; variable number
@@ -1214,6 +1217,7 @@ nobasemsg$l &	0
 ;E R10=string containing keymap (term <=32)
 ;X Leading spaces skipped; R10 updated
 ;  R14=heap block containing name
+	FNAME	rk_keymap_getname
 rk_keymap_getname
 	FNJSR	"R4,R5"
 	BL	str_skip
@@ -1246,7 +1250,7 @@ copy$l	LDRB	R5,[R4],#1	; ...put name in heap block
 ;internal R1=current keynum R2=command addr R3=parameter
 ;	  R4=end keynum R5=keymap number
 ;	  R6=paramter type 0=none 1=num 2=keynum
-
+ FNAME rk_key
 rk_key
  FNJSR
  FNLDR R5,key_currentdef
@@ -1319,6 +1323,7 @@ loop$l
  BLS loop$l
  FNRTS
 
+ FNAME rk_macro
 rk_macro
  FNJSR
  SUBS R3,R3,#&200		; macro number
@@ -1340,7 +1345,7 @@ rk_macro
  FNRTS
 
 ; R7=offset in vars of buffer in which to place the string
-
+ FNAME rk_string
 rk_string
  FNJSR
  MOV R0,R10
@@ -1356,6 +1361,7 @@ rk_string
  SUBVC R10,R2,#1			; terminator
  FNRTS
 
+ FNAME rk_string_tmt
 rk_string_tmt
  FNJSR
  MOV R0,R10
@@ -1428,7 +1434,7 @@ tmt_offsets
 ; DCD 0
 
 ; clear macro buffer |
-
+ FNAME null_macros
 null_macros
  FNJSR "R1-R7"
  BL get_MacroBox
@@ -1465,7 +1471,7 @@ nu1
 
 ;E For the keys subs, R3=code/5xx for path R10=pointer in file
 ;X may corrupt R0-R9 and (idealy) update R10 #
-
+ FNAME rk_mode
 rk_mode
  FNJSR
  FNLDR R5,wimp_modelist		; start of list
@@ -1574,7 +1580,7 @@ b$l
 
 ;E For the keys subs, R3=code/5xx for path R10=pointer in file
 ;X may corrupt R0-R9 and (idealy) update R10 #
-
+	FNAME	rk_fileid
 rk_fileid
 	FNJSR
 	FNLDR	R5,wimp_fileid		; start of list
@@ -1625,7 +1631,7 @@ regex$l	LDRB	R0,[R10],#1
 	FNRTS
 
 ; R7=offset in vars buffer to put word
-
+ FNAME rk_buffernum
 rk_buffernum
  FNJSR
  MOV R0,R10
@@ -1639,6 +1645,7 @@ rk_buffernum
  STRVC R2,[R12,R7]
  FNRTS
 
+ FNAME rk_buffernum_tmt
 rk_buffernum_tmt
  FNJSR
  MOV R0,R10
@@ -1673,7 +1680,7 @@ rk_buffernum_tmt
 
 ;E For the keys subs, R3=code/5xx for path R10=pointer in file
 ;X may corrupt R0-R9 and (ideally) update R10 #
-
+	FNAME	rk_clicksend
 rk_clicksend
 	FNJSR
 	FNLDR	R5,wimp_clicksend	; start of list
@@ -1874,7 +1881,7 @@ read_cmd$l
 
 ;E R0=table number R1=min key number R2=max key number (+1) R3=keymap name
 ;X key table added to list (or ensured if already there)
-
+ FNAME add_key_table
 add_key_table
  FNJSR "R1-R4"
  MOV R3,R1			; min key num
@@ -1920,7 +1927,7 @@ ad12
  FNRTS
 
 ;E R0=table number R1=key number R2=command R3=parameter R6=param type
-
+ FNAME add_key_entry
 add_key_entry
  FNJSR
  BL find_key_entry		; don't validate!
@@ -1932,7 +1939,7 @@ add_key_entry
 ;X R0=address of key entry / 0 if not found
 ;  Key entry has been validated - ie if the command is not loaded then
 ;  it is and the key entry updated with its address #
-
+ FNAME get_key_entry
 get_key_entry
  FNJSR
  BL find_key_entry_mapped
@@ -1955,7 +1962,7 @@ get_key_entry
 ;E R0=table number R1=key number
 ;X R0=address of key entry / 0 if not found |
 ;  Key entry points to: command/0/b0 set, parameter, type
-
+ FNAME find_key_entry
 find_key_entry
  FNJSR "R2"
  FNLDR R2,key_maplist
@@ -1979,6 +1986,7 @@ notfound$l
  MOV R0,#0
  FNRTS
 
+	FNAME	find_key_entry_mapped
 find_key_entry_mapped
 	FNJSR	"R0,R1"
 	BL	find_key_entry
@@ -1999,6 +2007,7 @@ find_key_entry_mapped
 ;E R0->table name or =table number
 ;X R0=table number / -ve if none
 ;  (also PL if found, MI if not)
+	FNAME	find_key_table_number
 find_key_table_number
 	FNJSR
 	BL	find_key_table_maybe_name
@@ -2008,7 +2017,7 @@ find_key_table_number
 ;E R0->table name or =table number
 ;X R0=table info block pointer / 0 if none
 ;  (also PL if found, MI if not)
-
+	FNAME	find_key_table_maybe_name
 find_key_table_maybe_name
 	CMP	R0,#256
 	BHS	find_key_table_by_name
@@ -2037,6 +2046,7 @@ loop$l
 
 	LOCAL
 
+	FNAME	find_key_table_by_name
 find_key_table_by_name
 	FNJSR	"R1-R4"
 	MOV	R3,R0
@@ -2055,11 +2065,11 @@ loop$l	LDR	R0,[R4],#20
 	FNRTS
 
 
- LOCAL
+	LOCAL
 
 ;E R8
 ;X Base map, current map, help map, default map set up for current mode
-
+	FNAME	init_basemap
 init_basemap
 	FNJSR	"R0-R2"
 	BL	get_basemap
@@ -2082,7 +2092,7 @@ warn$l	FNJSR	"R8-R10"
 	FNRTS
 
 ;X R0,R1 corrupt; warning displayed
-
+	FNAME	bad_keymap
 bad_keymap
 	FNJSR	"R1"
 	ADR	R0,b$l
@@ -2094,7 +2104,7 @@ b$l	=	"zap_UnkKeymap",0
 
 ;E R8
 ;X R0=basemap R1=0 / R0=0 R1=1
-
+	FNAME	get_basemap
 get_basemap
 	FNJSR
 	ADR	R0,basemap$l
@@ -2123,7 +2133,7 @@ basemap$l =	"Basemap",0
 ;  R8-R10=input caret (in correct window)
 ;X If R0>=0 then R6,R7 updated and try and get another key
 ;  If R0<0 then carry on with main loop. #
-
+ FNAME process_key
 process_key
  FNJSR "R1,R5,R11" ; ,R11" ; "R5" R11!!!
  MOVS R5,R0			; wimp key number
@@ -2138,7 +2148,7 @@ process_key
 ;  R5=wimp key number/-1 if failed to get more/&200 if not valid
 ;  R6=num buffered R7=buf command if R6<>0 R8-R10
 ;X R0>=0 to get another key, R0<0 to carry on sending keys #
-
+ FNAME process_converted_key
 process_converted_key
  FNJSR "R1-R5"
  CMP R5,#0			; any more keys?
@@ -2257,7 +2267,7 @@ null$l				; default null entry
 
 ;E R0=zap key number R5=wimp key number R8-R10=input caret
 ;X Key processed as if typed and sent to process key KB #
-
+	FNAME	process_a_key
 process_a_key
 	FNJSR	"R1-R7"
 	MOV	R6,#0			; none buffered
@@ -2273,7 +2283,7 @@ process_a_key
 ;  R4=current key entry pointer R5=wimp key number R8-R10=input
 ;X R4=new command pointer if key should be raw. #
 ;  R8-R10=updated input caret if copy mode cancelled for example.
-
+ FNAME raw_key
 raw_key
  FNLDR R0,key_flags
  BIC R0,R0,#1<<3
@@ -2361,7 +2371,7 @@ trap$l
 
 ;E R3=keynumber 0-&1FF
 ;X R4=in line buffer with command to send it raw. |
-
+ FNAME send_raw_key
 send_raw_key
  FNJSR
  ADR R4,raw_key_buf
@@ -2460,7 +2470,7 @@ sendacharzerototw
 ;  If a string with then address (or 0) stored in kbdbuf
 ;  If a data block then address stored in kbdbuf
 ;  R0=0/1 if minibuffer will be needed |
-
+ FNAME buffer_key
 buffer_key
  FNJSR "R1-R4,R7"
  FNSTR R3,key_last		; save last buffered keynumber
@@ -2491,6 +2501,7 @@ bu10
 
 	LOCAL
 
+	FNAME	Passthrough
 	&	2<<3
 Passthrough
 	FNJSR	"R0"

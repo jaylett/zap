@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 2.10 2002/11/13 19:35:47 christian Exp $
+; $Id: StartUp,fff,v 2.11 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -51,7 +51,7 @@ initial_wimpslot	* 96*1024	; 96K initial wimpslot
  LOCAL
 
 ;X variable blocks claimed and first word nulled & vars set up #
-
+ FNAME init_vars
 init_vars
  FNJSR "R1-R11"
  ADR R10,list$l
@@ -203,7 +203,7 @@ list$l
 
 ;E R12=module workspace NO STACK R14=return address
 ;X R0-R11 corrupt R12 preserved R13=FD stack filled with &ABC00DEF #
-
+ FNAME init_stack
 init_stack
  FNLDR R0,env_start
  ADD R0,R0,#initial_wimpslot-&8000 ; initial size to claim
@@ -224,7 +224,7 @@ init_stack
 err$l ERR "zap_e_initstack"
 
 ;X R0=amount unused on stack (still &ABC00DEF) |
-
+ FNAME free_stack
 free_stack
  FNJSR "R1-R2"
  MOV R0,#0
@@ -245,7 +245,7 @@ stack_word DCD &ABC00DEF
  LOCAL
 
 ;X Fixed length bufs claimed Then env_top updated Then bufs cleared #
-
+ FNAME init_fixed
 init_fixed
  FNJSR "R1-R11"
  FNLDR R10,env_top		; current pointer
@@ -288,7 +288,7 @@ table$l
 ;  Options block read and set up.
 ;  Mode blocks left stored in memory undread until the mode is loaded. #
 ;  Mode blocks all cleared to 0's. TMF MessageTrans pointers all cleared to 0's.
-
+ FNAME init_config
 init_config
  FNJSR "R1-R10"
 ; BL loadzapredraw
@@ -325,7 +325,7 @@ err$l ERR "zap_e_badconfig"
  LOCAL
 
 ;X R6=address of heap block with the config file in.
-
+ FNAME load_config
 load_config
  FNJSR "R1-R5"
  MOV R0,#5
@@ -534,7 +534,7 @@ get_pointer_to_code_cols
 
 ;X R0 = version block (pointing at major vsn no), or 0
 ;  Z flag set accordingly
-
+ FNAME find_version_block
 find_version_block
 	FNJSR	"R5,R6"
 	FNLDR	R6,wimp_config
@@ -552,7 +552,7 @@ findver$l
 ;  R1=Mode number of block to read if R0=2,3
 ;X R0=-1 if block not found (+ve otherwise)
 ;  Block read in and removed from list.
-
+ FNAME read_given_config_block
 read_given_config_block
  FNJSR "R1-R7"
  MOV R3,R0			; save block type
@@ -582,7 +582,7 @@ found$l				; got the right block
 
 ;E R5=pointer to a config file block
 ;X Block read in and deleted if it can be, skipped otherwise
-
+ FNAME read_config_block
 read_config_block
  FNJSR "R1-R4,R6,R8-R11"
  LDR R0,[R5]			; block type
@@ -666,7 +666,7 @@ ver$l
 ;    if b30 set then R1 = mode name (for cloning purposes)
 ;X Block added to end of config file & wimp_config updated
 ;  R14=new block
-
+ FNAME write_config_block
 write_config_block
  FNJSR "R1-R5,R8-R11"
  ADDS R8,R0,#0			; R8=save mode number
@@ -760,7 +760,7 @@ version_info$l
 
 ;E R0 -> mode name
 ;X R0 = pointer to type 3 block / 0
-
+	FNAME	find_config_block
 find_config_block
 	FNJSR	"R1-R4"
 	MOV	R4,R0
@@ -782,7 +782,7 @@ scan$l	LDR	R0,[R3],#4
 
 ;E R0=pointer to config block
 ;X Config block copied; copy added to list
-
+	FNAME	copy_and_link_config_block
 copy_and_link_config_block
 	FNJSR	"R1-R5"
 	MOV	R2,R0
@@ -800,7 +800,7 @@ copy_and_link_config_block
 
 ;E R5=pointer to config block
 ;X Config block added to list
-
+	FNAME	link_config_block
 link_config_block
 	FNJSR	"R1-R3"
 	FNLDR	R0,wimp_config
@@ -819,7 +819,7 @@ len$l	LDR	R1,[R2,#4]!
 
 ;E R5=pointer to config block
 ;X Config block deleted (if present)
-
+	FNAME	delete_config_block
 delete_config_block
 	FNJSR	"R1-R3"
 	FNLDR	R3,wimp_config
@@ -840,7 +840,7 @@ shift$l	LDR	R1,[R3],#4
 
 ;E R5=pointer to mode data block
 ;X Block copied, R9 updated #
-
+ FNAME write_conf_mode_data
 write_conf_mode_data
  FNJSR "R1-R5"
  MOV R4,R3			; source block
@@ -866,7 +866,7 @@ write_conf_mode_data
  LOCAL
 
 ;X Options block updated to new format
-
+ FNAME update_options
 update_options
  FNJSR "R1-R5"
  BL find_version_block
@@ -903,7 +903,7 @@ update_options
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;X Environment string read to start of free memory #
-
+ FNAME init_envstring
 init_envstring
  FNJSR "R1-R2"
  SWI XOS_GetEnv
@@ -921,7 +921,7 @@ init_envstring
 
 ;X Looks at the environment string and loads any file after "Zap " WD #
 ;  Also runs the startup command (&322).
-
+ FNAME init_load
 init_load
  FNJSR "R1-R5"
 ; BL env_noicon_check
@@ -995,6 +995,7 @@ startup_command$l
 
 ;X Config file written and options saved
 
+	FNAME	Saveoptions
 	DCD	7
 Saveoptions
 	FNJSR
@@ -1123,7 +1124,7 @@ err41 FNerr 41,("zap_e_wrongtype")
 ;E R0=file object type R1=file name
 ;X If object cannot have file type operations done then
 ;  error formed in WD #
-
+ FNAME check_object_type
 check_object_type
  TST R0,#1
  MOVNE PC,R14			; is a file
@@ -1147,7 +1148,7 @@ directory$l
 
 ;E R0=error message R1=string to append to error message
 ;X R0=error message + ": " + string in WD and V flag set #
-
+ FNAME generate_error
 generate_error
  FNJSR "R1-R3"
  MOV R3,R1
@@ -1175,7 +1176,7 @@ fill$l FNS (": ")
  LOCAL
 
 ;X External file loaded and contents stored
-
+ FNAME init_external
 init_external
  FNJSR "R1"
  ADR R0,sub$l
@@ -1293,7 +1294,7 @@ start$l				; load the module and do a command
 ;  R4=pointer to name of module to load to deal with this command/mode/mess
 ;     or the clone base mode (if R3=3)
 ;X Object added #
-
+ FNAME add_external_object
 add_external_object
  FNJSR "R1-R6,R10"
  SYSLOGF "add_external_object %10s (type %3d) in module %4s", LOG_MINOR
@@ -1391,7 +1392,7 @@ list$l
 ;  Never want to try loading something twice!!
 ;X Object removed from external lists (or replaced with 0) so it's never
 ;  again loaded. Heap block containing name is freed.
-
+ FNAME remove_external_object
 remove_external_object
  FNJSR "R1-R5"
  SYSLOGF "remove_external_object at %0x", LOG_MINOR
@@ -1436,7 +1437,7 @@ b$l
 	LOCAL
 
 ;X Clone modes added to external list
-
+	FNAME	init_clones
 init_clones
 	FNJSR	"R1-R5"
 	FNLDR	R5,wimp_config
@@ -1462,7 +1463,7 @@ skip$l	LDRB	R0,[R1],#1		; find clone base name
 
 ;E R1 -> mode name, \0, clone base name
 ;X clone mode entry added
-
+	FNAME	add_clone_mode_entry
 add_clone_mode_entry
 	FNJSR	"R1-R5"
 	FNLDR	R2,ext_clones
@@ -1501,7 +1502,7 @@ findend$l
 ;E R1 -> mode name
 ;X R0 -> clone base mode name / 0 if not found
 ;  R1 -> mode name (in list)
-
+	FNAME	find_clone_mode_entry
 find_clone_mode_entry
 	FNJSR	"R1-R3"
 	FNLDR	R3,ext_clones
@@ -1528,7 +1529,7 @@ skip$l	LDRB	R2,[R0],#1
 ;    mode removed from clones list, config block deleted if not already read
 ;    if instantiated then mode is marked as deleted (but remains available)
 ;  error if not a clone or not found
-
+	FNAME	remove_clone_mode_entry
 remove_clone_mode_entry
 	FNJSR	"R1-R7"
 	BL	find_clone_mode_entry

@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.14 2002/11/12 02:27:53 christian Exp $
+; $Id: StartCode,fff,v 2.15 2002/11/14 19:30:30 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -73,6 +73,7 @@
 zap_log$l FNS (|zap$|:CC:"$Log")
 	]
 
+ FNAME start_code
 start_code
  LDR R12,[R12]			; R12=module workspace
  SWI XHourglass_On
@@ -179,6 +180,7 @@ main_loop
 
  LOCAL
 
+ FNAME main_quit
 main_quit
 main_exit			; unnecessary...
  ;TEQ R10,#0
@@ -190,11 +192,13 @@ main_exit			; unnecessary...
 ; B loopx			; ???????
 ;...
 
+ FNAME main_end
 main_end
  SYSLOG "Zap main_end", LOG_STATUS
  SWI OS_Exit
 
 
+ FNAME clean_up
 clean_up
  FNJSR
 ; SWI &107
@@ -255,6 +259,7 @@ clean_up
 
  LOCAL
 
+ FNAME fatal_wimp_error
 fatal_wimp_error
 	[ LOGGING = SYSLOG
  ADD R0,R0,#4
@@ -267,6 +272,7 @@ fatal_wimp_error
  MOV R10,#0			; kill module
  B main_end
 
+ FNAME near_fatal_wimp_error
 near_fatal_wimp_error
  FNJSR "R1,R2"
 	[ LOGGING = SYSLOG
@@ -286,7 +292,7 @@ t$l
 
 ;E R0=error block
 ;X Error reported and goes back to main loop
-
+ FNAME wimp_error
 wimp_error
  FNLDR R14,wimp_pollnum		; get poll number
  TST R14,#1<<31			; did this poll number error before
@@ -344,7 +350,7 @@ are_we_initialising
 
 ;E R0=poll number R1=poll block R2=0,1 for poll idle flag (temporary)
 ;X All registers corrupted. Poll dealt with.
-
+ FNAME dispatch_wimp_poll
 dispatch_wimp_poll
  FNJSR
  CMP R0,#(end$l-start$l)/8
@@ -398,7 +404,7 @@ end$l
 
 ;E R0=message number (0-19) R1=message block
 ;X message passed on to extension modes and command tables #
-
+ FNAME wimp_passon
 wimp_passon
  FNJSR "R2,R3,R11"
  MOV R3,R0			; message number
@@ -421,7 +427,7 @@ wimp_passon
 ;X sub logged. Sub at R2 called with:
 ;  ;E R1=current time R11=sub data (private word)
 ;  ;X Save R1-R11.
-
+ FNAME call_back
 call_back
  CMP R1,#0
  BGT a$l
@@ -471,7 +477,7 @@ wimp_log
 
 ;E R2=address of block to remove
 ;X block removed #
-
+ FNAME wimp_removelog
 wimp_removelog
  FNJSR "R1-R5"
  FNLDR R4,wimp_loglist		; start of list
@@ -488,7 +494,7 @@ wimp_removelog
  LOCAL
 
 ;X R0=poll event number R1=poll block (log looked at to see earliest call) #
-
+ FNAME call_wimp_poll
 call_wimp_poll
  FNJSR "R2"
  MOV R2,#-1
@@ -532,7 +538,7 @@ wait$l
 
 ;X Wimp_log examined and null events called.
 ;  Very old wimp messages deleted.
-
+ FNAME call_null_events
 call_null_events
  FNJSR "R1-R3,R11"
  SWI XOS_ReadMonotonicTime
@@ -587,7 +593,7 @@ m$l
  LOCAL
 
 ; User message event
-
+ FNAME user_message
 user_message
  LDR R0,[R1,#12]		; our reference if this is a reply
  CMP R0,#0
@@ -693,6 +699,7 @@ local_wimp_temp_store
  DCD 0
  DCD 0
 
+ FNAME drag_box
 drag_box
  FNJSR "R1-R3"
  FNSTR R2,wimp_dragsub
@@ -736,6 +743,7 @@ to_last_drag_box_event
  BLEQ last_drag_box_event
  FNRTS
 
+ FNAME last_drag_box_event
 last_drag_box_event
  FNJSR "R0-R12"
  FNLDR R1,wimp_dragsub		; get the drag sub
@@ -750,6 +758,7 @@ last_drag_box_event
  BL drag_box_event
  FNRTS
 
+ FNAME drag_box_event
 drag_box_event			; R1=drag box block
  FNJSR "R11"
  FNLDR R0,wimp_dragsub		; call
@@ -776,6 +785,7 @@ drag_box_event			; R1=drag box block
 local_wimp_dummy_version
  DCD 0 ; wimp_version
 
+ FNAME init_wimp
 init_wimp
  FNLDR R0,wimp_task
  TEQ R0,#0
@@ -817,7 +827,7 @@ messages$l			; null message list indicates you want
 ;E No Stack!!
 ;X wimp version read from Zap$OsVsn
 ;  R0-R11 corrupted
-
+ FNAME init_wimp_vsn
 init_wimp_vsn
  ADR R0,s$l			; name
  ADD R1,R12,#wimp_version	; buffer
@@ -858,7 +868,7 @@ s$l FNS (|zap$|:CC:"$OSVsn")
  LOCAL
 
 ;X wimp task killed if task handle not 0/-1 #
-
+ FNAME kill_wimp
 kill_wimp
  FNJSR "R1"
  FNLDR R0,wimp_task
@@ -877,6 +887,7 @@ init_wimp_task	= "TASK"
  LOCAL
 
 ;X returns in R2 pointer to buffer entries...
+ FNAME env_noicon_check
 env_noicon_check
  FNJSR
  ADR R0,parse_str
@@ -899,7 +910,7 @@ Installicon
  FNRTS
 
 ;X main Zeta icon added to iconbar #
-
+ FNAME init_icon
 init_icon
  FNJSR "R1"
  BL env_noicon_check
@@ -921,6 +932,7 @@ d$l
 
  LOCAL
 
+ FNAME open_request
 open_request
  FNJSR
  LDR R0,[R1]
@@ -956,6 +968,7 @@ text$l				; a Zap text window
 
  LOCAL
 
+ FNAME close_request
 close_request
  FNJSR
  LDR R0,[R1]
@@ -983,6 +996,7 @@ text$l
 
  LOCAL
 
+ FNAME mouse_event
 mouse_event
  FNJSR
  LDR R2,[R1,#0]			; mouse x
@@ -1158,6 +1172,7 @@ localmodeptr$l
 
  LOCAL
 
+ FNAME key_event
 key_event
  FNJSR
  MOV R11,R1			; data block
@@ -1238,6 +1253,7 @@ notakey$l
 
  LOCAL
 
+ FNAME menu_selection
 menu_selection
  FNJSR
  MOV R11,R1			; menu tree
@@ -1282,6 +1298,7 @@ err$l
 
 	LOCAL
 
+	FNAME	scroll_event
 scroll_event
 	FNJSR
 ; SWI &107				; ! NO???
@@ -1299,6 +1316,7 @@ text$l
 
 	LOCAL
 
+	FNAME	lose_caret
 lose_caret
 	FNJSR
 	MOV	R11,R1
@@ -1332,6 +1350,7 @@ text$l
 
 	LOCAL
 
+ FNAME regain_caret
 regain_caret
  FNJSR
  MOV R11,R1			; MUST NOT CALL GAIN CARET!
@@ -1388,6 +1407,7 @@ notlost$l
 
 ; calls the relevant user message sub with R1=message block R0=message num
 
+ FNAME user_message_act
 user_message_act		; act on given user message as if sent
  MOV R11,R1			; Past compatability
  LDR R6,[R1,#16]		; message action
@@ -1513,6 +1533,8 @@ list$l
 temp$l
  DCD 0
  DCD 0
+
+ FNAME send_data_save
 send_data_save
  FNJSR "R1-R11"
  [ LOGGING = SYSLOG
@@ -1641,6 +1663,7 @@ b$l
 
 ; R1=message R11=data block
 
+ FNAME data_save_ack
 data_save_ack			; save out data to a file
  FNJSR
  SYSLOGF "Message: data_save_ack, message at %1x", LOG_FILE
@@ -1674,7 +1697,7 @@ data_save_ack			; save out data to a file
  LOCAL
 
 ; R1=message block R11=data
-
+ FNAME ram_fetch
 ram_fetch			; save out data by Ram transfer
  FNJSR
  SYSLOGF "Message: ram_fetch, message at %1x", LOG_FILE
@@ -1729,6 +1752,7 @@ a$l				; data start address (set up)
  FNRTS
 err$l ERR "zap_e_ramxfer_receiver"
 
+ FNAME data_saved
 data_saved			; app has called us back saying
  FNJSR				; all went well
  SYSLOG "Message: data_saved", LOG_FILE
@@ -1754,7 +1778,7 @@ data_saved			; app has called us back saying
 ; Creates a block in R11 of the format:
 ; 0-&FF Wimp data save message
 ; length of block = &100 + proposed length of data +4
-
+ FNAME data_save
 data_save			; another app (or external edit) wants to
  FNJSR				; saving to me
  SYSLOGF "Message: data_save, message at %1x", LOG_FILE
@@ -1803,7 +1827,7 @@ sub$l				; reply to ram fetch
 
 ;E R0=error pointer if VS R11=info block
 ;X Block freed with error status presered.
-
+ FNAME abort_transfer
 abort_transfer
  FNJSR "R0,R1"
  MOVVC R1,#0
@@ -1816,6 +1840,8 @@ abort_transfer
 
  LOCAL
 
+
+ FNAME ram_fetch_back
 ram_fetch_back			; ram fetch message bounced
  FNJSR
  SYSLOG "Message: ram_fetch bounced (sending DataSaveAck)", LOG_FILE
@@ -1876,6 +1902,7 @@ sub$l				; R0=type R1=mess R2=mess num R11=block
 ;E R1=data load message R11=original data save message block / 0 if filer
 ; R8=?...
 
+ FNAME data_load
 data_load			; app/filer wants me to load a file
  MOV R11,#0			; no data block if from filer
  FNSTR R11,opt_temporary	; tell inject_file to check Shift
@@ -1967,7 +1994,7 @@ f$l
 ; fills in block with
 ;  #0=current offset in the block
 ;  #36=amount asked for
-
+ FNAME ram_transmit
 ram_transmit			; first reply to our ram fetch message
  FNJSR				; my buffer has been filled
  SYSLOGF "Message: ram_transmit, message at %1x", LOG_FILE
@@ -2063,6 +2090,7 @@ err$l ERR "zap_e_ramxfer_transmitter"
 
  LOCAL
 
+ FNAME data_open
 data_open
  FNJSR
  SYSLOG "Message: data_open", LOG_FILE
@@ -2098,6 +2126,8 @@ load$l
  BLVC install_file
  FNRTS
 
+
+ FNAME pre_quit
 pre_quit
  FNJSR
  SYSLOG "Message: pre_quit", LOG_STATUS
@@ -2122,6 +2152,8 @@ pre_quit
  BLVC open_QuitBox
  FNRTS
 
+
+ FNAME save_desktop
 save_desktop
  FNJSR
  SYSLOG "Message: save_desktop", LOG_STATUS
@@ -2161,6 +2193,7 @@ sd_s0 FNS (|zap$|:CC:"$Dir")
 
  LOCAL
 
+ FNAME OLE_OpenSession
 OLE_OpenSession
  FNJSR "R1-R12"
  SYSLOG "Message: OLE_OpenSession", LOG_FILE
@@ -2242,6 +2275,7 @@ reopen$l
  BL message_reply
  FNRTS
 
+ FNAME find_ole_file
 find_ole_file
  ; /E R7 task handle, R8 session number
  ; /X R9 or CS
@@ -2280,6 +2314,7 @@ bad$l
 
  LOCAL
 
+ FNAME OLE_CloseSession
 OLE_CloseSession
  FNJSR
  SYSLOG "Message: OLE_CloseSession", LOG_FILE
@@ -2345,6 +2380,7 @@ find$l
 
  LOCAL
 
+ FNAME Edit_Rq
 Edit_Rq
  FNJSR "R3"
  SYSLOG "Message: Edit_Rq", LOG_FILE
@@ -2521,6 +2557,7 @@ ee_create_window_block$l
 
  LOCAL
 
+ FNAME Edit_Return
 Edit_Return
  FNJSR
  SYSLOG "Message: Edit_Return", LOG_FILE
@@ -2623,7 +2660,7 @@ ec3
 
 ;E R0=-1 for read -2 for file end >=0 to set position
 ;X PL R0=new (clipped) position / MI if read. |
-
+ FNAME edit_cur_off
 edit_cur_off
  FNJSR
  LDR	R14,[R9,#f_len]
@@ -2640,7 +2677,7 @@ edit_cur_off
 
 ;E R1=message block
 ;X Message acknowledged preserving my_ref (reason code 19)
-
+ FNAME message_ack
 message_ack
  FNJSR	"R1-R4"
  LDMIB	R1,{R2,R4}		; task handle of sender, my_ref
@@ -2657,7 +2694,7 @@ message_ack
 ;  R1=message block (with ref etc)
 ;  R5/R6=rountine to handle the reply if b28 of R0 (as for send message)
 ;X Message replied to #
-
+ FNAME message_reply
 message_reply
  FNJSR	"R1-R3"
  BL	message_setup
@@ -2703,7 +2740,7 @@ message_reply
 ;		   R2=message number (R1!16) R11=private word R12=Zap's etc
 ;		;X You can corrupt R0-R11 if R0=17,19
 ;		   You should save R1-R11 if R0=0
-
+ FNAME message_send
 message_send
  FNJSR	"R1-R3,R5"
  TST	R3,#1<<31
@@ -2740,7 +2777,7 @@ a$l				; R3=length of the message
 ;	;X R0=0 if not interested (log entry left alone)
 ;	      else non-0 (log entry will be removed)
 ;	   R1-R11 corrupt
-
+ FNAME message_interested
 message_interested
  MOV	R0,#-2
  B	wimp_log
@@ -2751,7 +2788,7 @@ message_interested
 ;  R3=send code (b31 set then R3=18, b30 set then R3=19, else R3=17)
 ;  R5=reply routine (if b28) with b31 set if interested in bounces
 ;     b30 set if want to know when it's deletd or -1 if b28 clear
-
+ FNAME message_setup
 message_setup
  MOV	R3,R0,LSR#30
  TEQ	R3,#3
@@ -2773,7 +2810,7 @@ message_setup
 ;     b31 set of wants bounces b30 set if wants to know when being deleted
 ;  R6=private word to use on reply (if R5<>0)
 ;X Message logged so replies can be dealt with.
-
+ FNAME message_log
 message_log
  FNJSR	"R1-R3"
  CMP	R5,#-1
@@ -2793,6 +2830,7 @@ message_log
 
  LOCAL
 
+ FNAME mode_changed
 mode_changed
  FNJSR				; NB Can't use mode numbers any more
  SYSLOG "Message: mode_changed", LOG_STATUS
@@ -2838,6 +2876,7 @@ sub$l
 
 ; palette changed WIMP message
 ;
+ FNAME palette_changed
 palette_changed			; called before a mode change + doesn't
  FNJSR				; redraw itself (contrary to the manual!)
  SYSLOG "Message: palette_changed", LOG_STATUS
@@ -2864,7 +2903,7 @@ sub$l				; R8,R9=next window
 ;X opt_flags and opt_format set up for current opt_mode
 ;  also checks opt_mode exists
 ;  will have to be one of Zaps internal modes or a permanently loaded mode
-
+ FNAME init_opts
 init_opts
  FNJSR	"R1,R8-R11"
  FNLDR	R0,default_mode

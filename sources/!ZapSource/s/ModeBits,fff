@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.9 2002/11/10 01:43:42 christian Exp $
+; $Id: ModeBits,fff,v 2.10 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -97,7 +97,7 @@
 ;E R10=mode number for which a module table pointer exists
 ;X 1. New Zap dispatch table created
 ;  2. Mode's e_init called with R1=1 (mode about to start up)
-
+ FNAME init_a_mode
 init_a_mode
  FNJSR "R1-R11"
  MOV R0,R10
@@ -301,7 +301,7 @@ err2$l ERR "zap_e_badbase"
 ;E R10=mode number
 ;X Config file block for this mode read and opt_moden,opt_modedata updated
 ;  (don't do for windows until after e_init 2!)
-
+ FNAME init_mode_config
 init_mode_config
  FNJSR "R1,R6-R10"
  MOV R0,#2			; mode block
@@ -331,7 +331,7 @@ default$l
 ;X All newly initialsed modes have their e_init entry points called with
 ;  R1=2 (started up). All modes in the module must have been started up.
 ;  Don't copy options to window block 'till after this
-
+ FNAME init_modes_init
 init_modes_init
  FNJSR "R1-R11"			; some inits may corrupt registers :(
  ADR R9,init_mode_list
@@ -355,7 +355,7 @@ a$l
 ;X It looks through the list of modes and all modes that have been loaded
 ;  (module table address set up) but not but initialised (linked table
 ;  address not set up) are initialised, ready to go.
-
+ FNAME init_modes
 init_modes			; /the/ problem routine...
  FNJSR "R1,R9-R10"
  MOV R10,#0			; current mode (note: must set up in order)
@@ -390,7 +390,7 @@ next$l
 ;E R0=clone mode number
 ;  R1=clone base mode number
 ;X Mode initialised if necessary
-
+	FNAME	init_mode
 init_mode
 	FNJSR	"R1-R3,R9-R10"
 	MOV	R10,R0
@@ -460,7 +460,7 @@ init_mode_list % (max_mode+1)	; &FF terminated list of modes being loaded
 
 ;E R8/R9=window
 ;X Options blocks for newly create modes set up for this window
-
+ FNAME init_mode_window
 init_mode_window
  FNJSR "R1-R4"
  ADR R3,init_mode_list		; list of the new modes
@@ -479,7 +479,7 @@ a$l				; next mode
  FNRTS
 
 ;X All newly initialised modes have their e_menus looked at and set up
-
+ FNAME init_mode_menu
 init_mode_menu
  FNJSR "R1-R3,R10-R11"
  ADR R3,init_mode_list		; list of the new modes
@@ -516,7 +516,7 @@ got$l				; R2=new menu pointer
 ;E R0=filename of module to load with * command on end / 0 if loaded
 ;  Bit 31 set if no * command present
 ;X Module loaded and all modes/command tables it contains installed #
-
+ FNAME load_mode_module
 load_mode_module
  FNJSR "R1-R2" ; was 1-2
  ADDS R1,R0,#0
@@ -590,7 +590,7 @@ restoreobeydir$l = "%Set Obey$Dir <Obey$Dir_Prev>",0
 
 ;E R0=first command table to initialise
 ;X Command tables between R0 and com_number initialised #
-
+ FNAME init_comms
 init_comms
  FNJSR "R1-R11"
  FNADD R10,R12,command_store	; start of list
@@ -626,7 +626,7 @@ do_call_mode
 
 ;E R0-R10=args R8=wind block giving mode R11=entry point offset
 ;X R0-R11=as returned by the sub (R11 usually subs workspace)
-
+ FNAME call_mode
 call_mode
  FNJSR				; save return address
  PUSH "R0-R2,R14,PC"		; save args and two blanks
@@ -648,7 +648,7 @@ call_mode_common
 
 ;E R0-R9=args R10=mode number to call R11=entry point offset
 ;X R0-R11=as returned by sub & mode called if valid (returns o/w)
-
+ FNAME call_given_mode
 call_given_mode
  FNJSR				; save return address
  PUSH "R0-R2,R14,PC"		; save args and two blanks
@@ -677,7 +677,7 @@ callbasemode$l = "Zap_CallBaseMode",0
 ;E R0-R7=args R8=window R9=mode calling R10=arg R11=e_ offset
 ;X R9 set up to file block then entry point called
 ;  R0-R11 as returned by sub #
-
+ FNAME call_given_base_mode
 call_given_base_mode
  FNJSR				; save return address
  PUSH "R0-R2,R14,PC"		; save args and two blanks
@@ -702,7 +702,7 @@ call_given_base_mode
 
 ;E R1-R9=args R11=entry point offset
 ;X each valid mode called with R0=mode number on entry #
-
+ FNAME broadcast
 broadcast
  FNJSR "R1-R10"
  MOV R10,#0			; start mode
@@ -723,7 +723,7 @@ next$l
 
 ;E R0=mode number
 ;X R0=unlinked table pointer/0 R1=linked table pointer/0 if invalid #
-
+ FNAME read_mode
 read_mode
  FNJSR
  MOV R1,#0
@@ -738,7 +738,7 @@ read_mode
 
 ;E R0=mode number
 ;X R2=mode name string/ VS if not found #
-
+ FNAME mode_name
 mode_name
  FNJSR "R1"
  BL read_mode			; R1=linked table pointer
@@ -754,7 +754,7 @@ err$l ERR "zap_e_badmoden"
 ;E R0=mode number
 ;X Z set if mode is the clone base of (or is!) the current mode
 ;  R0=current mode R14=menu mode
-
+	FNAME	isthisaclonebase
 isthisaclonebase
 	FNJSR	"R1-R3"
 	TEQ	R8,#0
@@ -778,7 +778,7 @@ ret$l	FNLDR	R14,menu_mode
  LOCAL
 
 ;X kill extension modes and command tables WB #
-
+ FNAME kill_modes
 kill_modes
  FNJSR "R1-R11"
  FNADD R7,R12,mode_store	; mode pointer
@@ -808,6 +808,7 @@ next$l
  BCC loop$l			; do the next mode
  FNRTS
 
+ FNAME kill_commands
 kill_commands
  FNJSR "R1-R11"
  FNADD R7,R12,command_store	; start on the commands
@@ -838,7 +839,7 @@ comloop$l
 ;E R0=address of mode table (probably in SVC mode)
 ;X mode table added to list #
 ;  (Internal: returns the mode number in R0)
-
+ FNAME add_new_mode
 add_new_mode
  FNJSR "R1-R4"
  MOV R4,R0			; save table address
@@ -864,10 +865,12 @@ end$l				; R0=mode it is being assigned to
  FNRTS
 err$l ERR "zap_e_manymodes"
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; read/write zap vars						  ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+ FNAME read_var
 read_var
  FNJSR
  BL conv_var_number
@@ -880,6 +883,7 @@ read_var
  LDRNEB R0,[R8,-R0]
  FNRTS
 
+ FNAME write_var
 write_var
  FNJSR "R2"
  MOV R2,R0			; save value to write
@@ -897,7 +901,7 @@ write_var
 
 ;E R1=variable number
 ;X R0=variable offset from R12 #
-
+ FNAME conv_var_number
 conv_var_number
  FNJSR
  CMP R1,#&100
@@ -962,7 +966,7 @@ var_list_end
 ;  w_* updated according to file type of file
 ;      (eg forced to given mode, basemap set, etc.)
 ;  e_postload and e_start called #
-
+ FNAME choose_mode_format
 choose_mode_format
  FNJSR "R1,R10-R11"
  LDR R0,[R9,#f_load]		; load address
@@ -1019,7 +1023,7 @@ setaddr$l
 ;  If b31 set then
 ;   R10 = pointer to the mode name (mode may not be loaded)
 ;  (see rk_mode for format of wimp_modelist) #
-
+ FNAME find_file_mode
 find_file_mode
  FNJSR "R1-R9"
  MOV R7,R1			; keep a copy of filename ptr + flags
@@ -1114,7 +1118,7 @@ deftxt$l
 
 ;E R0 b31 clear for mode number, set for mode name R8/R9
 ;X as for find_file_mode
-
+	FNAME	get_file_mode
 get_file_mode
 	FNJSR	"R1-R7"
 	AND	R6,R0,#1<<31		; R6 != 0 if caller wants mode name
@@ -1214,7 +1218,7 @@ eol$l	=	"\\n",0
 
 ;E R1=create block R8 (giving mode)
 ;X block filled with default opening window for current mode |
-
+ FNAME get_mode_params
 get_mode_params
  FNJSR "R2-R3"
  FNLDR R3,wimp_sizelist
@@ -1266,7 +1270,7 @@ ge_d0
 
 ;E R0=phy ln R8/R9 (uses e_clnphy)
 ;X R0=file off R1=log ln # (R0/R1 off end of file o/w)
-
+ FNAME cln_phy
 cln_phy
  FNJSR "R11"
  MOV R11,#e_clnphy
@@ -1275,7 +1279,7 @@ cln_phy
 
 ;E R0=log ln R8/R9 (uses e_clnlog)
 ;X R0=file off R1=phy ln # (R0/R1 off end of file o/w)
-
+ FNAME cln_log
 cln_log
  FNJSR "R11"
  MOV R11,#e_clnlog
@@ -1285,7 +1289,7 @@ cln_log
 ;E R0=file off R8/R9 (uses e_clnoff)
 ;X R0=phy ln R1=file off of phy line R2=log ln # (if R0 off end of file
 ;  then vals set to an 'imaginary' char at end of file)
-
+ FNAME cln_off
 cln_off
  FNJSR "R11"
  MOV R11,#e_clnoff
@@ -1296,7 +1300,7 @@ cln_off
 
 ;E R8/R9
 ;X R0=length of longest logical line in file less than w_bpl #
-
+ FNAME cln_count
 cln_count
  FNJSR "R1-R11"
  MOV R2,R9
@@ -1328,7 +1332,7 @@ end$l
 
 ;E R0=file off of line R1=file off R8/R9 (uses e_lineoff)
 ;X R0=col offset (exc margin) on screen R1=caret width #
-
+ FNAME cln_lineoff
 cln_lineoff
  FNJSR "R11"
  MOV R11,#e_lineoff
@@ -1337,7 +1341,7 @@ cln_lineoff
 
 ;E R0=file off of line R1=screen col (exc margin) R8/R9 (uses e_linecol)
 ;X R0=file off of nearest char (on or to left) #
-
+ FNAME cln_linecol
 cln_linecol
  FNJSR "R11"
  MOV R11,#e_linecol
@@ -1346,7 +1350,7 @@ cln_linecol
 
 ;E R0=file off R8/R9
 ;X R0=off of next word |
-
+ FNAME cln_txt_splus
 cln_txt_splus
  FNJSR "R1-R2"
  MOV R1,R0
@@ -1356,7 +1360,7 @@ cln_txt_splus
 
 ;E R0=new display mode R8/R9 / R8=0 for main menu change
 ;X Display mode set to R0 #
-
+ FNAME new_mode
 new_mode
  FNJSR "R7-R11"
  MOV R7,R0			; save new mode
@@ -1420,7 +1424,7 @@ get_mode_word
  FNRTS
 
 ;E R0=word R1=mode number R8=window/0
-
+ FNAME put_mode_word
 put_mode_word
  FNJSR
  TEQ R8,#0
@@ -1438,6 +1442,7 @@ put_mode_word
 ;E R0=colour to write R1=mode number/-1 for all modes
 ;  R2=zap colour number R8=window / 0 for default.
 ;X Colour written to all mode(s) #
+ FNAME mode_colour_all
 mode_colour_all
  CMP R1,#-1
  BNE mode_colour		; just do the one colour
@@ -1457,7 +1462,7 @@ a$l
 
 ;E R1=service call number R2-R9=data
 ;X service call issued to all command tables #
-
+ FNAME issue_service
 issue_service
  FNJSR "R10-R11"
  FNLDR R11,com_number		; number of command tables
@@ -1485,7 +1490,7 @@ next$l
 ;E R0=pointer to mode name terminated by <= spaces
 ;X R0=number of this mode / -1 if not found #
 ;  (loads the mode if need be)
-
+ FNAME find_mode_number
 find_mode_number
  FNJSR "R1-R7,R10"
  MOV R10,R0			; save mode name
@@ -1574,7 +1579,7 @@ badclonebase$l
 
 ;E R0=pointer to a mode name terminated by <= space
 ;X R0=number of this mode if already loaded / -1 if not yet loaded #
-
+ FNAME test_mode_name
 test_mode_name
  FNJSR "R1-R10"
  MOV R10,R0			; save mode name pointer
@@ -1606,7 +1611,7 @@ next$l
 ;E R0=mode name
 ;X R0=pointer to next mode in external list, ie. [R0,#-4]=module name
 ;     or 0 (+EQ) if not found
-
+ FNAME find_ext_mode
 find_ext_mode
 	FNJSR	"R1-R5"
 	MOV	R5,R0
@@ -1650,7 +1655,7 @@ loop$l	LDR	R0,[R4]
 ; The module /may/ not be present... if so this routine /should/ try to
 ; fail gracefully.
 ;X Module is killed WB #
-
+ FNAME kill_module
 kill_module
  FNJSR "R1-R2"
  LDR R1,[R0,#&10]		; offset of module title
@@ -1665,7 +1670,7 @@ kill_module
 
 ;E R0=address of the module
 ;X Module kill list is set up... WB #
-
+ FNAME init_kill_list
 init_kill_list
  FNJSR "R1-R2"
  FNLDR R1,wimp_block
@@ -1675,7 +1680,7 @@ init_kill_list
 
 ;E R0=address of the module
 ;X Module is added to kill list... WB #
-
+ FNAME add_to_kill_list
 add_to_kill_list
  FNJSR "R1-R2"
 ; SWI &107
@@ -1694,7 +1699,7 @@ loop$l
 
 ;E R0=address of the module
 ;X Module is added to kill list...
-
+ FNAME kill_if_on_kill_list
 kill_if_on_kill_list
  FNJSR "R1"
 ; SWI &107			; never reached... :-(
@@ -1711,7 +1716,7 @@ loop2$l
 
 ;E R8=window/0 for options
 ;X Set up wimp_format/wimp_flags (restore mode word) #
-
+	FNAME	modes_start
 modes_start
 	FNJSR	"R1-R7"
 	TEQ	R8,#0
@@ -1786,7 +1791,7 @@ wformat_mask$l
 
 ;E R8=window/0 for options
 ;X Saved the current options in flags/format (save_mode_word) #
-
+	FNAME	modes_end
 modes_end
 	FNJSR	"R1-R5"
 	TEQ	R8,#0
@@ -1843,7 +1848,7 @@ modes_end
 ;E R0=value to write / -1 to read
 ;  R1=mode number R2=variable number R8=window/0
 ;X R0=value read/old value
-
+ FNAME mode_data
 mode_data			; read/write a mode data value
  FNJSR "R1-R2"
  TEQ R8,#0
@@ -1862,7 +1867,7 @@ mode_data			; read/write a mode data value
 ;E R0=Zap colour number R8=window
 ;  (internally R1=mode number)
 ;X R0=old value, -1 if mode doesn't exist WB #
-
+ FNAME quick_read_mode_colour
 quick_read_mode_colour		; read colour & style
  FNJSR "R1"
  LDR R14,[R8,#w_modedata]
@@ -1885,7 +1890,7 @@ quick_read_mode_colour		; read colour & style
 ;  R1=mode number
 ;  R2=Zap colour number R8=window / 0 for default.
 ;X R0=old value, -1 if mode doesn't exist WB #
-
+ FNAME mode_colour
 mode_colour			; read/write colour & style
  FNJSR "R1-R3"
  TEQ R8,#0
@@ -1935,7 +1940,7 @@ d$l   DCD &F0F0F000
 ;  read/written. If opt mode block not available on reading then length of
 ;  menu list is used as a default.
 ;  (colours not given default values)
-
+ FNAME mode_colour_num
 mode_colour_num
  FNJSR "R1-R5,R10-R11"
  TEQ R8,#0
@@ -1992,7 +1997,7 @@ err$l ERR "zap_e_badcolrblk"
 
 ;E R0=source mode data block pointer (eg opt_modedata)
 ;X R0=duplicated block (eg to put in w_modedata on a new view/window)
-
+ FNAME create_modedata
 create_modedata
  FNJSR "R1-R5"
  MOV R1,R0			; source block pointer
@@ -2015,7 +2020,7 @@ a$l				; mode loop
 ;  R2=destination mode data pointer (eg w_modedata)
 ;X Block for this mode copied if it was valid #
 ;  Zero/-ve value copied if it wasn't valid
-
+ FNAME create_modedata_block
 create_modedata_block
  FNJSR "R1-R3"
  LDR R1,[R1,R0,LSL #2]		; address of source block
@@ -2039,7 +2044,7 @@ create_modedata_block
 ;X Options block read and stored (WB used for palette)
 ;  Unsupported options have default values inserted.
 ;  NB Old format block used in default file also so must be supported
-
+ FNAME read_conf_mode_data
 read_conf_mode_data
  FNJSR "R1-R5,R9-R10"
  MOV R3,#defend$l-default$l	; length of default mode data block
@@ -2140,7 +2145,7 @@ defend$l			; length is current size of mode data's.
 
 ;E R1=mode number R8/R9=file
 ;X mode data copied to make it default if the mode exists.
-
+ FNAME make_default_mode
 make_default_mode
  FNJSR "R1-R3"
  FNLDR R3,opt_modedata
@@ -2195,7 +2200,7 @@ c$l
 
 ;E R1 => 0=file just loaded 1=after a save R8/R9
 ;  First checks for DOS/SPOOL type file etc then calls mode's e_postload
-
+ FNAME post_load
 post_load
  FNJSR "R1-R2,R11"		; Beware - explicit pull of R1
  TEQ R1,#0
@@ -2293,7 +2298,7 @@ save$l				; after a save
 ;  First strips spaces or tabs if asked to do so
 ;  Then calls modes e_presave
 ;  Finally replaces LF by CRLF/LFCR if the file is marked as a DOS/Spool
-
+ FNAME pre_save
 pre_save
  FNJSR "R11"
  LDR R0,[R8,#w_format]
@@ -2308,6 +2313,7 @@ pre_save
  BLNE text_to_dos
  FNRTS
 
+ FNAME checkforautosoftwrap
 checkforautosoftwrap
  CMP R8,#0
  MOVEQ PC,R14
@@ -2373,7 +2379,7 @@ d2$l
 ;E R2=file type b0=>Dos b1=>Spool
 ;  R8/R9 R9=Coagulated valid file of above type
 ;X Dos/Spool flag set and & CR's removed #
-
+ FNAME dos_to_text
 dos_to_text
  FNJSR "R1-R6"
  LDR R0,[R9,#f_flags]
@@ -2418,7 +2424,7 @@ end$l
 ;E R8/R9 ordinary text file R11=file flags
 ;X CR inserted before every LF if a DOS file
 ;  CR inserted after every LF if a spool file
-
+ FNAME text_to_dos
 text_to_dos
  FNJSR "R1-R7"
  MOV R6,#0

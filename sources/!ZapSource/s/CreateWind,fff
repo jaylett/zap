@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 2.5 2002/11/10 01:43:42 christian Exp $
+; $Id: CreateWind,fff,v 2.6 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -100,7 +100,7 @@
 ;E R8=wind to clone from / 0 R9=file
 ;X new view created for this window R8/R9=new window WB #
 ;  cursor is not put in the window.
-
+ FNAME new_view
 new_view
  FNJSR "R1-R3,R7"
  [ LOGGING = SYSLOG
@@ -171,7 +171,7 @@ ne3
 ;  Cursor is not given to the window.
 ;  NB any new blocks added to this must be handled by new_view
 ;     as well.
-
+ FNAME create_window_block
 create_window_block
  FNJSR "R1-R3,R7"
  [ LOGGING = SYSLOG
@@ -289,7 +289,7 @@ ext3$l DCD winfo_mask			; allow mode forcing here
 ;E R8=window block being set up (eg new creation/new view)
 ;X All buffers (eg cache/title/palette) claimed #
 ;  Window specific set up - w_pwind
-
+ FNAME claim_window_buffers
 claim_window_buffers
  FNJSR
  BL get_wind_off
@@ -314,7 +314,7 @@ claim_window_buffers
 ;E R0=source mode word pointers (opt/w on a newview)
 ;  R8=window to copy to.
 ;X Mode word pointers copied & buffers claimed if nec.
-
+ FNAME copy_mode_buffers
 copy_mode_buffers
  FNJSR "R1-R2"
  MOV R1,R0			; save source
@@ -331,7 +331,7 @@ loop$l
 ;E R1=source mode word pointers (R12+opt_mode0 or R8+w_mode0)
 ;  R0=mode R8=window to copy to.
 ;X If mode valid then block copied #
-
+ FNAME copy_a_mode_buffer
 copy_a_mode_buffer
  FNJSR "R1-R5"
  LDR R4,[R1,R0,LSL#2]		; mode word
@@ -355,7 +355,7 @@ copy_a_mode_buffer
 
 ;E R1=buffer for defn R8
 ;X window defn block created from handle infront+ #
-
+ FNAME create_window
 create_window
  FNJSR "R2-R3,R7"
  [ LOGGING = SYSLOG
@@ -419,8 +419,6 @@ create_w1
 ;E R8/R9
 ;X new w_ vals set from user required vals and cache nulled #
 
-local_nws_correctflags
- DCD 0
 
 call_correct_wind_blk
  LDR R0,local_nws_correctflags
@@ -428,6 +426,7 @@ call_correct_wind_blk
  STR R0,local_nws_correctflags
  B correct_wind_blk
 
+ FNAME correct_wind_blk
 correct_wind_blk
  FNJSR
  LDR R0,[R8,#w_format]
@@ -467,7 +466,7 @@ correct_wind_blk
 ;  R0=3,4 to put at front/back of stack
 ;  R0=5 constrict...
 ;X Window opened
-
+ FNAME open_a_window
 open_a_window
  TEQ R0,#0
  BEQ open_window
@@ -495,7 +494,7 @@ open_a_window
 ;  You should only use this call is window posn/size not changing
 ;  Use reopen_window if position/size changing
 ;  Use reflect_window if opening a new window
-
+ FNAME open_window_constrict
 open_window_constrict
  FNJSR "R11"
  BL open_window
@@ -519,7 +518,7 @@ open_window_constrict
 
 ;E R1=open block R8
 ;X Just calls wimp open window (copying the data) #
-
+ FNAME open_window
 open_window
  FNJSR "R1-R5"
  TEQ R1,R8			; is wind blk being used?
@@ -532,6 +531,7 @@ open_window
  BL issue_service
  FNRTS
 
+	FNAME	hscroll_fiddle
 hscroll_fiddle
 	FNJSR	"R5-R7,R11"
 	FNLDR	R0,wimp_realver
@@ -622,7 +622,7 @@ leave_height_old$l
 
 ;E R1=open block R8
 ;X window opened at new posn and all titles etc taken care of #
-
+ FNAME reopen_window
 reopen_window
  FNJSR "R11"
  ;SWI &107
@@ -638,6 +638,7 @@ reopen_window
  BVC reopen_window_common
  FNRTS
 
+ FNAME reopen_window_noconstriction
 reopen_window_noconstriction
  FNJSR "R11" ; *must* be same as for reopen_window
  BL should_the_window_wrap
@@ -666,6 +667,7 @@ reopen_window_common
  BLEQ reflect_toggle		; save toggle size if need be
  FNRTS
 
+ FNAME preprocesswindowwrap
 preprocesswindowwrap
  FNJSR "R0-R12"
  MOV R0,#1
@@ -676,6 +678,7 @@ preprocesswindowwrap
  BLEQ ww_openwindow
  FNRTS
 
+ FNAME postprocesswindowwrap
 postprocesswindowwrap
  FNJSR "R0-R12"
  MOV R0,#1
@@ -723,6 +726,7 @@ callclnoff
  BL	 notcustomclnoff2
  FNRTS
 
+ FNAME getverticalposition
 getverticalposition
  FNJSR	 "R1-R9"
  MVN	 R0,#0
@@ -756,6 +760,7 @@ notcustomclnphy
  BL	 call_mode
  FNRTS
 
+ FNAME setverticalposition
 setverticalposition
  FNJSR	 "R1-R9"
  LDR	 R0,phyoffslinestart
@@ -790,6 +795,7 @@ storedyeigenf
 onentryto
  DCD &0
 
+ FNAME blat_window_wrap_cache
 blat_window_wrap_cache
  TEQ	 R8,#0
  MOVEQ	 PC,R14
@@ -798,6 +804,7 @@ blat_window_wrap_cache
  STR	 R0,oldwindowdata + 12
  MOV	 PC,R14
 
+ FNAME ww_openwindow
 ww_openwindow
  ;MOV PC,R14
  FNJSR	 "R0-R12"
@@ -1036,9 +1043,7 @@ tmpwindblk
 veryfirsttime
  DCD	0
 
-local_previous_w_bpl
- DCD	0
-
+ FNAME possiblewidthproblems
 possiblewidthproblems
  LDR	R1,[R8,#w_format]
  TST	R1,#bit_windowwrap
@@ -1066,11 +1071,15 @@ possiblewidthproblems
  SWI	XWimp_SetExtent
  FNRTS
 
+local_nws_correctflags
+ DCD 0
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=open block R8 Use whenever the window changes posn.
 ;X window opened , title redrawn and toggle size set #
-
+ FNAME reflect_window
 reflect_window
  FNJSR
  BL reopen_window		; open the window
@@ -1080,7 +1089,7 @@ reflect_window
 
 ;E R8=window block with updated window state
 ;X current size copied to toggle size
-
+ FNAME reflect_toggle
 reflect_toggle
  FNJSR
  LDR R0,[R8,#w_minx]
@@ -1093,10 +1102,11 @@ reflect_toggle
  STR R0,[R8,#w_togmaxy]
  FNRTS
 
+
 ;E R2=proposed open block (inc handle) R1=80 bytes workspace
 ;X R1=actual open block (keeping on screen etc) R1+40=currposn
 ;  R3=xmin change R4=width change R5=ymax change R6=height dif #
-
+ FNAME calculate_open_block
 calculate_open_block
  FNJSR
  PUSH "R1-R3"
@@ -1171,7 +1181,7 @@ calculate_open_block
 
 ;E R2=proposed open block R1=current window posn
 ;X R3=xmin change R4=width change R5=ymax change R6=height dif |
-
+ FNAME calculate_open_change
 calculate_open_change
  FNJSR
  LDR R3,[R1,#w_minx]		; current minx
@@ -1192,13 +1202,18 @@ calculate_open_change
  SUB R6,R14,R6			; change in height
  FNRTS
 
+
+local_previous_w_bpl
+ DCD	0
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; CRUNCH WINDOW						   ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R8
 ;X attempt to delete window (and file if nec) / CS if aborted #
-
+ FNAME delete_window
 delete_window
  FNJSR "R9"
  [ LOGGING = SYSLOG
@@ -1219,7 +1234,7 @@ de3
 ;E R8
 ;X R9=file R0=0 if should delete file instead of window
 ;  R0=1 to keep file but delete window #
-
+ FNAME test_delete_file
 test_delete_file
  FNJSR "R1-R3"
  LDR R1,[R8,#w_file]		; file offset
@@ -1249,7 +1264,7 @@ de2
 
 ;E R8/R9
 ;X R0=0 if deletion will cause prompt / 1 if it will take place #
-
+ FNAME test_delete_window
 test_delete_window
  FNJSR "R9"
  BL test_delete_file
@@ -1264,7 +1279,7 @@ test_delete_window
 
 ;E R8/R9
 ;X window deleted regardless (and filer window opened it adjust) WB #
-
+ FNAME discard_window
  DCD 1
 discard_window
  FNJSR "R1"
@@ -1293,7 +1308,7 @@ discard_window
 
 ;E R8/R9=window with close window request
 ;X R0=0 to continue closing window/1 to abort WB #
-
+ FNAME test_open_dir
 test_open_dir
  FNJSR "R1"
  FNLDR R1,wimp_block
@@ -1310,6 +1325,7 @@ test_open_dir
  ANDVC R0,R1,#1			; shift status
  FNRTS
 
+ FNAME Openparent
  DCD 1
 Openparent
  LDR R0,[R9,#f_name]
@@ -1364,7 +1380,7 @@ fo_s2
 
 ;E R8
 ;X all heap blocks used in this window freed
-
+ FNAME free_window
 free_window
  FNJSR
  [ LOGGING = SYSLOG
@@ -1394,7 +1410,7 @@ free_window
 
 ;E R8
 ;X mode data heap blocks freed
-
+ FNAME free_modedata
 free_modedata
  FNJSR "R1-R2"
  LDR R1,[R8,#w_modedata]
@@ -1412,7 +1428,7 @@ a$l
 
 ;E R8
 ;X Heap block in mode words freed.
-
+ FNAME free_mode_buffers
 free_mode_buffers
  FNJSR "R1-R2"
  MOV R2,#0			; current mode
@@ -1438,7 +1454,7 @@ fm11
 
 ;E R8/R9
 ;X All leaf windows on this window deleted #
-
+ FNAME delete_leafs
 delete_leafs
  FNJSR "R1-R3,R10"
  BL get_wind_off
@@ -1467,7 +1483,7 @@ delete_leafs_sub
 
 ;E R8=window to be deleted R9=file it looks on
 ;X All markers in file R9 onto R8 marked null window (-1) |
-
+ FNAME delete_marks
 delete_marks
  FNJSR "R1-R5"
  FNLDR R5,wind_list
@@ -1492,7 +1508,7 @@ de6
 
 ;E R8/R9 (uses e_width)
 ;X user format used to set up margin/width/bpl #
-
+ FNAME correct_width
 correct_width
  FNJSR "R1,R11"
  LDR R1,[R8,#w_mwidth]		; margin width
@@ -1539,7 +1555,7 @@ set_new_correct_width
 
 ;E R8/R9
 ;X R0=length of window in lines #
-
+ FNAME find_work_height
 find_work_height
  FNJSR "R1-R2"
  LDR R0,[R9,#f_len]
@@ -1550,7 +1566,7 @@ find_work_height
 
 ;E R1=create window block R8/R9
 ;X initial opening dimentions and scroll offsets set up #
-
+ FNAME new_wind_params
 new_wind_params
  FNJSR "R2-R3"
  BL get_mode_params
@@ -1587,7 +1603,7 @@ new_wind_params
 
 ;E R0=window handle
 ;X CC and R0=wind offset /CS R0 saved if not an edit window |
-
+ FNAME convert_wind_handle
 convert_wind_handle
  FNJSR "R1-R3"
  FNLDR R1,wind_list
@@ -1615,7 +1631,7 @@ c$l
 
 ;E R0=window handle
 ;X CC and R0=index entry /CS and R0 saved if not a leaf window |
-
+ FNAME convert_leaf_wind_handle
 convert_leaf_wind_handle
  FNJSR "R1"
  FNLDR R1,tem_list
@@ -1632,7 +1648,7 @@ a$l
 
 ;E R0=job handle (in same place as window handle)
 ;X CC and R8/R9 set up/CS and R0 saved if not a job handle |
-
+ FNAME convert_job_handle
 convert_job_handle
  FNJSR "R1"
  MOV R1,R0			; save incase not ok
@@ -1693,7 +1709,7 @@ cautious_save_window_status
 
 ;E R8/R9 (or 0)
 ;X position of window saved (in w_saved*) #
-
+ FNAME save_window_status
 save_window_status
  TEQ R8,#0
  MOVEQ PC,R14			; no window (on main menu)
@@ -1769,6 +1785,7 @@ end$l				; R0=saved posn offset R2,R4=x R3,R5=y
 
  LOCAL
 
+ FNAME new_window_status_forcebpl
 new_window_status_forcebpl
  FNJSR
  MOV R0,#2
@@ -1779,6 +1796,7 @@ new_window_status_forcebpl
  STR R0,local_nws_correctflags
  FNRTS
 
+ FNAME new_window_status_samewidth
 new_window_status_samewidth
  FNJSR
  MOV R0,#1
@@ -1790,7 +1808,7 @@ new_window_status_samewidth
 
 ;E R8/R9 (or 0)
 ;X Window deleted/recorrected/recreated/opened using w_saved* posn WB #
-
+ FNAME new_window_status
 new_window_status
  TEQ R8,#0
  MOVEQ PC,R14
@@ -1820,6 +1838,7 @@ new_window_status_entry
  BLVC gain_input
  FNRTS				; needs to save R1-R7 !!
 
+ FNAME adjust_vertical_extent
 adjust_vertical_extent
  FNJSR "R1-R11"
 ; BL Beep
@@ -1836,6 +1855,7 @@ adjust_vertical_extent
  BLVC new_extent		; call Wimp_SetExtent & modify open coords
  FNRTS
 
+ FNAME new_window_status_preserve
 new_window_status_preserve
  TEQ R8,#0
  MOVEQ PC,R14
@@ -1863,7 +1883,7 @@ new_window_status_preserve
 
 ;E R8 (updated with open coords) R9
 ;X R8 updated for new screen mode with new coords WB #
-
+ FNAME alter_window
 alter_window
  FNJSR "R1-R11"
 ; SWI &107 ; gets here...
@@ -1907,7 +1927,7 @@ alter_window
 ;E R8=window block with new opening coords (and scroll offsets)
 ;X Window extent set to new value (using ccd_workxy) and opening block
 ;  altered so doesn't go beyond the extent. WB #
-
+ FNAME new_extent
 new_extent
  FNJSR "R1-R3"
  FNLDR R1,wimp_block
@@ -1931,7 +1951,7 @@ new_extent
 
 ;E R0=window offset/-ve
 ;X R8/R9 set up / R8=R9=0 |
-
+ FNAME conv_wind_off
 conv_wind_off
  MOVS R0,R0
  MOVMI R8,#0
@@ -1948,7 +1968,7 @@ conv_wind_off
 
 ;E R8=window pointer
 ;X R0=window offset/-1 if pointer too low |
-
+ FNAME get_wind_off
 get_wind_off
  FNLDR R0,wind_list
  SUBS R0,R8,R0
@@ -1961,7 +1981,7 @@ get_wind_off
 ;E R0=window offset (-1 to try first offset if R4 +ve)
 ;  R4=direction to go (+1/-1)
 ;X R0=next valid window offset / -1 if none (off end).
-
+ FNAME next_wind_offset
 next_wind_offset
  FNJSR "R1,R8"
  FNLDR R8,wind_list
@@ -1985,7 +2005,7 @@ end$l
 
 ;E R8/R9
 ;X Title for this window updated but not redrawn #
-
+ FNAME create_title
 create_title
  FNJSR "R1"
  BL update_title
@@ -2003,7 +2023,7 @@ create_title
 
 ;E R8/R9
 ;X title buffer only updated |
-
+ FNAME update_title
 update_title
  FNJSR "R1-R4"
  LDR R2,[R9,#f_name]		; filename
@@ -2121,7 +2141,7 @@ e$l
 
 ;E R8/R9
 ;X R0=view number of this window R1=number of views on this file |
-
+ FNAME find_view_number
 find_view_number
  FNJSR "R2-R5,R8"
  BL get_file_off
@@ -2168,7 +2188,7 @@ fi27
 
 ;E R8 (with open coords)
 ;X actual buffer wimp displays updated at correct len |
-
+ FNAME reflect_title
 reflect_title
  FNJSR "R1-R3"
 ; LDR R0,local_wm_version
@@ -2204,7 +2224,7 @@ done$l				; R3=length of string to show
 
 ;E R8
 ;X Title icon redrawn on screen WB #
-
+ FNAME redraw_title
 redraw_title
  FNJSR "R1-R4"
  BL update_wind_state
@@ -2233,7 +2253,7 @@ rt_task = "TASK"
 
 ;E R9=file (existing file)
 ;X R8=window showing this file (opened if necessary) #
-
+ FNAME find_window
 find_window
  FNJSR "R1-R2"
  [ LOGGING = SYSLOG
@@ -2325,7 +2345,7 @@ quit$l				; failed
 
 ;E R8/R9
 ;X R8/R9=next window as if you wanted to swap to it R0=offset/-1#
-
+ FNAME find_next_window
 find_next_window
  FNJSR "R1-R7"
  MOV R4,R9			; save start file
@@ -2349,7 +2369,7 @@ sw12
 ;E R9=file pointer (may not be valid) R5=window offset to avoid
 ;X R0=-1 if no window to swap to OR
 ;  R0=offset to goto R8=window pointer |
-
+ FNAME swap_file_window
 swap_file_window
  FNJSR "R1-R7"
  LDR R0,[R9,#f_ptr]
@@ -2395,7 +2415,7 @@ should_the_window_wrap
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;E R1=scroll request block
-
+ FNAME scroll_request
 scroll_request
  FNJSR
  BL conv_wind_off		; set up R8/R9
@@ -2423,7 +2443,7 @@ scroll_request
 
 ;E R0=scroll dir -2-+2 R2=num rasts R3/R6=start R5/R7=end of area
 ;X R3/R6=new scroll offset R7 corrupt |
-
+ FNAME alter_scroll
 alter_scroll
  FNJSR
  TEQ R0,#1
@@ -2455,7 +2475,7 @@ al4
 
 ;E R8/R9
 ;X Title recreated/buffer reflected and window reopened #
-
+ FNAME new_title
 new_title
  FNJSR "R1"
  BL update_wind_state
@@ -2469,7 +2489,7 @@ new_title
 
 ;E R0-R7=args R9 R10=address of sub with # format
 ;X Sub at R10 executed with R8 set up for each window on R9. #
-
+ FNAME do_eachwindow
 do_eachwindow
  FNJSR "R8,R11"
  MOV R11,R0			; save arg R0
@@ -2501,7 +2521,7 @@ do3
 
 ;E R0-R7=args R10=address of sub with # format
 ;X Sub at R10 executed with R8/R9 set up for each valid window #
-
+ FNAME do_allwindow
 do_allwindow
  FNJSR "R8-R9,R11"
  MOV R11,R0			; save arg R0
@@ -2572,7 +2592,7 @@ testandsee$l
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_info called else return tick state in R0.
 ;  Tick is set if (info BIC R0)=R1 #
-
+ FNAME new_info_select
 new_info_select
  TEQ R2,#15
  BNE new_info
@@ -2587,7 +2607,7 @@ new_info_select
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_format called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
-
+ FNAME new_format_select
 new_format_select
  TEQ R2,#15
  BNE new_format
@@ -2688,7 +2708,7 @@ test_for_sc
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_info called else return tick state in R0.
-
+ FNAME new_info_set
 new_info_set
  TEQ R2,#15
  BNE new_info
@@ -2714,7 +2734,7 @@ into_new_info_set2
 
 ;E R0=w_info (or opt_info) R8
 ;X R0 modified according to info returned by e_interrogate
-
+	FNAME	check_info
 check_info
 	FNJSR	"R1"
 	MOV	R1,R0
@@ -2748,7 +2768,7 @@ check_info
 
 ;E R0=display info mask R1=display info eor R8/R9 / R8=0 for main
 ;X New info set to (old BIC R0) EOR R1 #
-
+ FNAME new_info
 new_info
  TEQ R8,#0
  BEQ new_opt_info
@@ -2764,7 +2784,7 @@ new_info
 
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_format called else return tick state in R0.
-
+ FNAME new_format_set
 new_format_set
  TEQ R2,#15
  BNE new_format
@@ -2796,7 +2816,7 @@ into_new_format_set2
 
 ;E R0=display format mask R1=display format eor R8/R9 / R8=0 for main
 ;X New format set to (old BIC R0) EOR R1 #
-
+ FNAME new_format
 new_format
  TEQ R8,#0
  BEQ new_opt_format
@@ -2832,7 +2852,7 @@ new_format
 ;  FNRTS
 
 ;E R0=mask R1=eor R8=0 opt_info set and modes told about it
-
+ FNAME new_opt_info
 new_opt_info
  FNJSR "R10-R11"
  FNLDR R14,opt_info
@@ -2846,7 +2866,7 @@ new_opt_info
  FNRTS
 
 ;E R0=mask R1=eor R8=0 opt_format set and modes told about it
-
+ FNAME new_opt_format
 new_opt_format
  FNJSR "R10-R11"
  FNLDR R14,opt_format
@@ -2860,7 +2880,7 @@ new_opt_format
 
 ;E R0=info mask R1=info eor R8/R9 / R8=0 for main
 ;X New info set and title bar updated #
-
+ FNAME new_wind_info
 new_wind_info
  TEQ R8,#0
  BEQ new_opt_info
@@ -2875,7 +2895,7 @@ new_wind_info
 
 ;E R0=format mask R1=format eor R8/R9 / R8=0 for main
 ;X New format set and title bar updated #
-
+ FNAME new_wind_format
 new_wind_format
  TEQ R8,#0
  BEQ new_opt_format
@@ -2908,7 +2928,7 @@ new_wind_format_set
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_flags called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
-
+ FNAME new_flags_select
 new_flags_select
  TEQ R2,#15
  BNE new_flags
@@ -2925,7 +2945,7 @@ new_flags_select
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X New R8 format set, window updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
-
+ FNAME new_flags_set
 new_flags_set
  TEQ R2,#15
  BNE new_flags
@@ -2941,7 +2961,7 @@ new_flags_set
 
 ;E R0=flags mask R1=flags eor R8/R9 / R8=0 for main
 ;X New flags set up and window status saved #
-
+ FNAME new_flags
 new_flags
  TEQ R8,#0
  BEQ new_opt_flags
@@ -2977,7 +2997,7 @@ new_flags
 
 ;E R0=mask R1=eor
 ;X Options flags dealt with and modes called to save the options #
-
+ FNAME new_opt_flags
 new_opt_flags
  FNJSR "R10-R11"
  FNLDR R14,opt_flags
@@ -2994,7 +3014,7 @@ new_opt_flags
 ;E R0=mask R1=eor R2=command type R8/R9=window
 ;X If R2<>15 then new_flags called else return tick state in R0.
 ;  Tick is set if (format BIC R0)=R1 #
-
+ FNAME new_wind_flags_select
 new_wind_flags_select
  TEQ R2,#15
  BNE new_wind_flags
@@ -3010,7 +3030,7 @@ new_wind_flags_select
 
 ;E R0=flags mask R1=flags eor R8/R9 / R8=0 for main
 ;X New R8 flags set and title bar updated #
-
+ FNAME new_wind_flags
 new_wind_flags
  TEQ R8,#0
  BEQ new_opt_flags
@@ -3025,7 +3045,7 @@ new_wind_flags
 ;E R0=flags mask R1=flags eor R2=command type R8/R9=wind/0
 ;X New R8 flags set, title bar updated, tick state set if R2=15 and
 ;  the relevant bits in R1 are set #
-
+ FNAME new_wind_flags_set
 new_wind_flags_set
  TEQ R2,#15
  BNE new_wind_flags
@@ -3050,7 +3070,7 @@ new_wind_flags_clear
 ;  R4=pointer to extension menu title
 ;X If R2<>17 then saves window status/stores the number/new status #
 ;  If R2=17 then handles creation messages
-
+ FNAME new_w_number
 new_w_number
  FNJSR "R5"
  BICS R14,R2,#(1<<31)
@@ -3067,7 +3087,7 @@ new_w_number
 ;  R5=new number to write
 ;X If R2<>17 then saves window status/stores the number/new status #
 ;  If R2=17 then handles creation messages
-
+ FNAME new_w_num_checked
 new_w_num_checked
  FNJSR "R1-R4"
  BIC R14,R2,#(1<<31)
@@ -3103,7 +3123,7 @@ a$l
 ;E R8
 ;X Window state in R8 updated via Wimp_GetWindowState #
 ;  Updates position and window size
-
+ FNAME update_wind_state
 update_wind_state
  FNJSR "R1"
  MOV R1,R8
@@ -3111,6 +3131,7 @@ update_wind_state
  FNRTS
 
  ;E R0=new width
+ FNAME setwidth_as_a_service
 setwidth_as_a_service
  FNJSR
  MOV R2,R0			; save new width

@@ -1,5 +1,5 @@
 ; Contains Zap search/replace code and throwback generation
-; $Id: Search,fff,v 2.4 2001/08/25 16:55:33 ds Exp $
+; $Id: Search,fff,v 2.5 2002/11/14 19:30:30 christian Exp $
 ; -*- armasm -*-
 
 	GET	h.ZapHeader
@@ -51,7 +51,7 @@
 ;  R5=search flags as below, except b21=0, b25=1, b27=0, b31=1
 ;  (A file block is faked.)
 ;X As for search_data with input R1=2
-
+	FNAME	search_string
 search_string
 	FNJSR	"R8-R10"
 	CMP	R2,#0
@@ -99,7 +99,7 @@ gotlen$l
 ;  If R1=1 then R0=offset of throwback window / -ve if none
 ;  If R1=3 then R0=number of matches
 ;  If b24 of R5 was set then R1=end of match offset (if there was one)
-
+ FNAME search_data
 search_data
  FNJSR "R10"
  ADR R10,sub$l
@@ -238,7 +238,7 @@ countsearchdata
 ;  If R7=2 then returns R0=match offset R11=-1
 ;  If R7=3 then returns R0=match offset R11=R0 on entry
 ;  If R7>=&100 then inserts match in buffer and R11=R0 on entry
-
+ FNAME search_data_buffer
 search_data_buffer
  FNJSR "R1-R6,R8-R10"
  MOVS R11,R0			; save match offset
@@ -314,7 +314,7 @@ openthrowback$l
 ;E R6=source window off
 ;  R7=dest window offset +&100 R11=match offset
 ;X match entered into buffer KB #
-
+ FNAME enter_search_buffer
 enter_search_buffer
  FNJSR "R1-R9"
  ADR R1,search$l
@@ -375,7 +375,7 @@ match$l  = "zap_tb_srcm",0
 ;  R4=number to display in the margin
 ;  R5=b0 for hex display in margin
 ;  Pointer updated so past line number & margin
-
+ FNAME search_data_getline
 search_data_getline
  FNJSR "R1,R10"
  MOV R10,R0			; save the file offset
@@ -418,7 +418,7 @@ ok$l				; worked out R4/R5
 
 ;E R0=search string (zero terminated)
 ;X R0=wimp_kbdbuf contains the search string with macros replaced #
-
+ FNAME replace_macros
 replace_macros
  FNJSR "R1-R11"
  MOV R9,R0			; text
@@ -482,7 +482,7 @@ end$l
 ;  wimp_data contains converted string with
 ;   \a -> a<<8 if a unrecognised and R0=byte len #
 ;  (unless no \ commands flag set)
-
+ FNAME wild_conv_chars
 wild_conv_chars
  FNJSR "R1-R2,R9-R11"
  BIC R5,R5,#zsearch_WildConvChars; clear initially
@@ -531,7 +531,7 @@ end$l
 ;  R2>0  => R2 bytes of data stored in R0 (little endian).
 ;	    (padded with 0's)
 ;  Sets b23 of R5 if \ or ` expanded.
-
+ FNAME wild_get_char
 wild_get_char
  FNJSR
  MOV R2,#1			; default=1 byte
@@ -642,7 +642,7 @@ ctrl$l
 ;E R3=start offset R4=direction R8/R9=file
 ;X buffer split so search area lies in second half of buffer
 ;  and R0=apparent text address start (=f_ptr+f_splits) #
-
+ FNAME split_for_search
 split_for_search
  FNJSR "R1"
  MOV R0,#0			; split offset
@@ -668,7 +668,7 @@ ok$l
 ;X R0=string R1=output (0,1) R3=start offset R4=direction R5=search flags
 ;  R8/R9=new window to start from if searching all.
 ;  for search on this window using the default flags/switches option.
-
+ FNAME default_search
 default_search
  FNJSR "R10"
  BL default_search_flags
@@ -704,7 +704,7 @@ end$l
 ;  R5=search flags
 ;  R8/R9=new window to start from if searching all.
 ;  for search & replace on this window using the default flags options.
-
+ FNAME default_replace
 default_replace
  FNJSR "R10"
  BL default_search_flags
@@ -737,7 +737,7 @@ end$l
  LOCAL
 
 ;X R5=default search flags as read from opt_flags & opt_switches
-
+ FNAME default_search_flags
 default_search_flags
  MOV R5,#0			; zero flags
  FNLDR R0,opt_flags
@@ -760,7 +760,7 @@ default_search_flags
 ;E R0=pointer to string
 ;X string placed in fnd_string buffer (installed as default string) #
 ;  R0=0 if string was null (aborts).
-
+ FNAME new_search_string
 new_search_string
  FNJSR "R1-R3"
  MOV R3,R0			; save search string
@@ -783,7 +783,7 @@ new_search_string
 ;E R0=pointer to string
 ;X string placed in fnd_replace buffer (installed as default string) #
 ;  Null strings are entered (usefull to replace with a null string)
-
+ FNAME new_replace_string
 new_replace_string
  FNJSR "R1-R3"
  MOV R3,R0			; save replace string
@@ -807,7 +807,7 @@ new_replace_string
 ;X R3=start of line file off R2=off in line R1=line ptr R10=line len #
 ;  (uses e_search,3)
 ;  (first makes sure split posn is on a line boundry)
-
+ FNAME search_line_setup
 search_line_setup
  FNJSR "R5-R6,R11"
  MOV R1,#esearch_StartLineSearch
@@ -887,7 +887,7 @@ end$l				; set R0 to line end (terminator)
 ;  R10=line length
 ;X R1 saved R2=file offset of match R3=next file offset to look at
 ;  (uses e_search,4)
-
+ FNAME search_line_end
 search_line_end
  FNJSR "R1,R11"
  MOV R1,#esearch_EndLineSearch
@@ -911,7 +911,7 @@ search_line_end
 ;  R3=start of line file offset R4=direction R11=end of match line offset
 ;  R8/R9
 ;X If R2 +ve then R11=end of match file offset #
-
+ FNAME search_line_delimit
 search_line_delimit
  CMP R2,#0
  MOVMI PC,R14			; no match to consider
@@ -932,7 +932,7 @@ search_line_delimit
 
 ;E R0=string of words R1=length in bytes
 ;X fnd_tree contains the search tree / VS if bad syntax #
-
+ FNAME wildcard_tree
 wildcard_tree
  FNJSR "R7-R11"
  MOV R7,#0			; buffer offset
@@ -945,7 +945,7 @@ wildcard_tree
 
 ;E R7=buffer off R8=text start R9=text end R10=buffer R11=buffer length
 ;X R1-R6 saved R7 updated R8-R9 corrupt R10,R11 updated #
-
+ FNAME wild_tree_sub
 wild_tree_sub
  FNJSR "R1-R2,R6"
 wt0
@@ -1134,7 +1134,7 @@ wt16
 
 ;E R1=text start R9=text end (NB handles ( and [ constructs)
 ;X R1=first bracket or R9 if none AND R2=last bracket(+1) /vs not matched
-
+ FNAME wild_tree_brackets
 wild_tree_brackets
  FNJSR				; text start in R1
 wb1
@@ -1193,7 +1193,7 @@ err$l ERR "zap_e_search_bracketmismatch"
 
 ;e R0=amount to have free R7=offset R10=ptr R11=len
 ;x R0 bytes free in buffer / vs
-
+ FNAME wild_tree_free
 wild_tree_free
  FNJSR
  SUB R14,R11,R7			; current amount free
@@ -1226,7 +1226,7 @@ wild_tree_free
 ;  &yyxx where xx is the original character and yy the othe case
 ;  OR 1 if there is no fixed string to match (use main)
 ; NB The characters are independent. word2 can be valid even if word isn't.
-
+ FNAME wildcard_mask
 wildcard_mask
  FNJSR "R1-R3,R5"		; R5 corrupted as scans string
  MOV R0,#1
@@ -1273,7 +1273,7 @@ second$l			; do the second character
 ;X R0=mask of form &yyxx where x is original and y transverse case.
 ;  OR 1 if R0 was out of range (>&FF) or there wasn't one
 ;  R2,R3,R5 (case sensitive bit) updated
-
+ FNAME wildcard_getmask
 wildcard_getmask
  FNJSR
 next$l				; get next character
@@ -1326,7 +1326,7 @@ a$l
 ;     R0=offset after the match / -1 if none.
 ;  Reset nodes are as above except R1=-1 and R0 need not be
 ;  returned.
-
+ FNAME wildcard_match
 wildcard_match
  FNJSR "R1,R8"
  ADD R8,R0,R4			; address of node
@@ -1615,6 +1615,7 @@ wild_reset_5
 st_CaseSensitive	*	(1:SHL:0)
 st_DisplayPercent	*	(1:SHL:1)
 
+ FNAME search_text
 search_text
  FNJSR "R2-R11"
  MOV R3,#0			; flags
@@ -1808,7 +1809,7 @@ complex$l			; no optimisations possible
 ;E R0=search string R5=search flags R8/R9/ R8=0 for none
 ;X fnd_tree and find_word set up for the search WK,WD #
 ;  b23 of R5 set if wild_conv_chars expanded \s.
-
+ FNAME search_init
 search_init
  FNJSR "R1-R2"
  TST R5,#zsearch_NoMacros
@@ -1836,7 +1837,7 @@ search_init
 ;  R8/R9=current window (to start on if more than one file)
 ;X fnd_string searched for and replaced with fnd_replace #
 ;  NB S & R takes part in second half of buffer to prevent shifting.
-
+ FNAME replace_data
 replace_data
  FNJSR "R10"
  BIC R5,R5,#zsearch_MatchAtCursor
@@ -1986,7 +1987,7 @@ errend$l
 ;  If R7=1 then performs the replacement and R11=new offset to start from
 ;  If R7=2 then performs the replacement and R11=new offset to start from
 ;          or R11 = -1 if outside selection...
-
+ FNAME replace_data_buffer
 replace_data_buffer
  FNJSR "R1-R10"
  ADDS R10,R0,#0			; save start of match offset
@@ -2044,6 +2045,7 @@ notinsel$l
  ; = "Error",0
  ; ALIGN
 
+ FNAME testforinsel
 testforinsel
  FNJSR "R0,R1,R2,R8,R9"
 ; MOV R7,R0
@@ -2065,7 +2067,7 @@ backwards$l
 ;  R8/R9
 ;X Match replaced with fnd_replace2 string (uses e_replace) #
 ;  R1=new file offset of match end (after the replace!)
-
+ FNAME replace_string
 replace_string
  FNJSR "R2-R4,R10-R11"
  SUB R2,R1,R0			; length of match
@@ -2094,7 +2096,7 @@ replace_string
 ;E fnd_tree set up, fnd_replace contains string
 ;  R1=string that was searched through
 ;X fnd_replace2 contains length (#4), replace string #
-
+ FNAME replace_find_string
 replace_find_string
  FNJSR "R1-R11"
  MOV R9,R1			; pointer to text that was searched through
@@ -2155,7 +2157,7 @@ end$l
 
 ;E R0=amount to have free R6=current posn R10=ptr R11=len
 ;X R0 bytes free in buffer R6,R10-R11 updated #
-
+ FNAME rep_find_free
 rep_find_free
  FNJSR
  SUB R14,R6,R10			; offset
@@ -2180,7 +2182,7 @@ rep_find_free
 ;E R0=n (1-9) from &n and fnd_tree set up
 ;X R0=match OFFSET (from fnd_tree) of n'th {} string / 0 if not found
 ;  R2=length of string (maybe null) / 0 if not found #
-
+ FNAME replace_find_bracket
 replace_find_bracket
  FNJSR "R3-R4"
  MOV R3,R0			; count
@@ -2202,7 +2204,7 @@ replace_find_bracket
 ;  R4=fnd_tree
 ;X R3=new count, CC to continue / CS if found match
 ;  R0=node data addr (of {} node) |
-
+ FNAME rfb_sub
 rfb_sub
  FNJSR "R1"
 node$l				; R0=node offset R3=num left
@@ -2253,7 +2255,7 @@ endnode$l
 
 ;E R0-R2,R8-R10 from command entry point R4=dir (+1/-1=cS/cR)
 ;X as for the command - corrupts R0-R11
-
+ FNAME search_as_you_type
 search_as_you_type
  FNJSR
  TEQ R2,#6
@@ -2322,7 +2324,7 @@ err$l	FNS ("zap_p_srcherr")
 ;E R0=file offset for base
 ;X key_off buffer reset to null string with this base
 ;  (for when you start with a new unrelated string)
-
+ FNAME reset_key_off
 reset_key_off
  FNJSR "R1"
  FNLDR R1,key_off		; buffer
@@ -2341,7 +2343,7 @@ reset_key_off
 ;  Match jumped to if possible.
 ;  R0=-1 if failed (for prompt (fail)).
 ;  R0=-2 if failed due to a search error.
-
+ FNAME key_match
 key_match
  FNJSR "R1-R11"
  MOV R11,R0			; save search string
@@ -2423,7 +2425,7 @@ fail$l				; failed due to error or not found
 
 ;E R1=minibuf key (in a search as you type) R4=dir +1/-1 R8-R10
 ;X R0=key if you should pass it on /-1 if direction changed etc #
-
+ FNAME key_new_dir
 key_new_dir
  FNJSR "R1-R2"
  LDRB R0,[R8,#w_basemap]	; base map number
@@ -2508,7 +2510,7 @@ ext5$l DCD Return
 
 ;E R0=search string R4=direction +1/-1
 ;X key_off moved to next match #
-
+ FNAME key_next_match
 key_next_match
  FNJSR "R1-R2,R11"
  MOV R11,R0			; save search string
@@ -2530,7 +2532,7 @@ key_next_match
 
 ;E R0=file offset R5=search flags R8
 ;X Hourglass updated
-
+	FNAME	sumlen_long_op_display
 sumlen_long_op_display
 	TST	R5,#zsearch_AllWindows
 	LDREQ	R1,[R9,#f_len]

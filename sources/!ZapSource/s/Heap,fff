@@ -1,5 +1,5 @@
 ; Contains heap/memory management code
-; $Id: Heap,fff,v 2.5 2002/11/10 22:20:23 christian Exp $
+; $Id: Heap,fff,v 2.6 2002/11/14 19:30:30 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -69,7 +69,7 @@ heap_size		* &1000		; initial heap size / inc size
 ;   set to the given size).
 ;  (Contracting block -1 (the heap) does not call OS_Heap - it is assumed
 ;   that you've done this - see minimise memory)
-
+ FNAME set_block_size
 set_block_size
  FNJSR "R1-R11"
  SYSLOGF "set_block_size %0d to %1x",LOG_MEMORY
@@ -231,7 +231,7 @@ err2$l ERRlit "Corrupted block area (set_block_size)"
 
 ;E R0=zap block number (file may be unlinked)
 ;X R0=start address of next 'live' block (or end) |
-
+ FNAME get_zap_block
 get_zap_block
  FNJSR
  CMP R0,#-1
@@ -258,7 +258,7 @@ loop$l				; find next file
 ;E R0=dynamic area number R1=end address of area (min)
 ;X Size set (NB Dynamic area may have been larger than I thought it was
 ;  so size must be read)
-
+ FNAME set_dynamic_area
 set_dynamic_area
  FNJSR "R1-R9"
  SYSLOGF "set_dynamic_area %0d to %1x",LOG_MEMORY
@@ -287,7 +287,7 @@ noerror$l
 ;E R0=new environment top R12=vars R13=stack
 ;X Wimpslot set to new value and env_top updated #
 ;  (Wimpslot preserved if the enlargement failed)
-
+ FNAME set_wimpslot
 set_wimpslot
  FNJSR "R1-R6,R10"		; note wimpslot corrupts R4
  SUB R0,R0,#&8000		; new size of slot
@@ -320,7 +320,7 @@ out_of_memory ERR "zap_e_lackofmem"
 ;X Heap and dynamic areas initialised, heap to #heap_size.
 ;  set_block_size can be used after this call + init_vars
 ;  but not before! #
-
+ FNAME init_heap
 init_heap
  FNJSR "R1-R4"
  FNLDR R1,env_top		; address for heap
@@ -355,7 +355,7 @@ file$l = |zap$|," files",0
 
 ;E R1=initial size for dynamic area R2=max size of area (or -1) R3=name
 ;X R0=handle of dynamic area R1=address of area #
-
+ FNAME create_dynamic_area
 create_dynamic_area
  FNJSR "R2-R8"			; don't push R1!
  SYSLOGF "create_dynamic_area size %1x, max size %2x, name %3s",LOG_MEMORY+1
@@ -376,7 +376,7 @@ create_dynamic_area
  LOCAL
 
 ;X Kills dynamic areas etc prior to exit #
-
+ FNAME kill_heap
 kill_heap
  FNJSR "R1-R2"
  FNLDR R1,wimp_version
@@ -404,7 +404,7 @@ kill$l	FNJSR	; could be in SVC mode...
 
 ;E R0=signed change in heap
 ;X heap size changed #
-
+ FNAME heap_enlarge
 heap_enlarge
  FNJSR "R1"
  SYSLOGF "heap_enlarge %0x",LOG_MEMORY+3
@@ -421,6 +421,7 @@ heap_enlarge
 
  LOCAL
 
+ FNAME heap_claim
 heap_claim
  FNJSR "R1-R3"
  SYSLOGF "heap_claim %0d (%0x)",LOG_MEMORY+2
@@ -455,6 +456,7 @@ failed$l
 
 ; If this is going all weird, it's because the XOS_Heap returning VS code
 ; used to pull "R1-R3,PC" instead of "R1-R4,PC". However that's wrong ...
+ FNAME heap_ensure
 heap_ensure
  SYSLOGF "heap_ensure %0x to %1d (%1x)",LOG_MEMORY+2
  TEQ R0,#0
@@ -502,6 +504,7 @@ blk$l
 
  LOCAL
 
+ FNAME heap_extend
 heap_extend
  SYSLOGF "heap_extend %0x by %1d (%1x)",LOG_MEMORY+2
  TEQ R0,#0
@@ -559,6 +562,7 @@ failed$l
 
  LOCAL
 
+ FNAME heap_free
 heap_free
  FNJSR "R1-R3"
  SYSLOGF "heap_free %0x",LOG_MEMORY+2
@@ -573,6 +577,7 @@ heap_free
 ;X Heap shrunk as much as possible #
 ; (command MINIMISEMEMORY)
 
+ FNAME minimise_memory
  & 7
 minimise_memory
  FNJSR "R1-R4"
@@ -597,7 +602,7 @@ minimise_memory
 ;E R0=list ptr R1=num in list R2=size of list objects
 ;X R0-R1 updated R2=free block R3=offset of free block
 ;  Entries in block initialised to -1's #
-
+ FNAME claim_list_block
 claim_list_block
  FNJSR "R4,R10"
  SYSLOGF "claim_list_block size %2x (list %0x, num %1d)",LOG_MEMORY
@@ -641,7 +646,7 @@ cl4
 ;  R3=number of bytes
 ;X bytes moved FAST from R1 to R2 with data always preserved R0-R3 corrupt |
 ;  it is careful not to look beyond the start/end of the data
-
+ FNAME move_bytes
 move_bytes
 ; SWI XZapRedraw_MoveBytes
 ; MOV PC,R14
@@ -849,7 +854,7 @@ l$l
 
 ;E R1=word R2=dest (word aligned) R3=number of bytes (word aligned)
 ;X R1-R3 corrupt |
-
+ FNAME fill_words
 fill_words
  SUBS R3,R3,#16*4
  BLT fb2
@@ -886,7 +891,7 @@ fb3
 ;  R1=heap size		   } if heap not ok then these are
 ;  R2=total amount free	   } current values when exiting
 ;  R3=largest free block   }
-
+ FNAME heap_check
 heap_check
  FNJSR "R4-R11"
  MOV R10,R0			; save heap start
