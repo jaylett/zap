@@ -81,14 +81,14 @@ o/%:		s/%,fff h/ZapHeader,fff
 
 # Final target:
 
-Zap:		objdirs tmplink
+Zap,ffa:	objdirs o/tmplink
 		$(timestamp) < o/tmplink > Zap,ffa
 
 objdirs:
 		mkdir -p o
 		mkdir -p t
 
-tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
+o/tmplink:	$(subst o/,t/,$(OBJECTS)) $(OBJECTS)
 		$(link) $(linkflags) $(OBJECTS)
 
 clean:
