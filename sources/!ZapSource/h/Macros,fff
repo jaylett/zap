@@ -1,5 +1,5 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 1.1 1999/01/06 16:59:23 dj Exp $
+; $Id: Macros,fff,v 1.1.2.1 1999/01/06 21:06:06 dj Exp $
 
 ; local labels use label$l to get a local label and LOCAL to start a new
 ; area
@@ -147,12 +147,35 @@ $la	LDR$cc R14,[R12]
  ]
 	MEND
 
+	MACRO
+$la	FNjump $a,$r
+ [ "$r">""
+$la	LDR $r,[R12]
+	ADD PC,$r,#$a
+ |
+$la	STMFD R13,{R14,PC}
+	LDR R14,[R12]
+	ADD R14,R14,#$a
+	STR R14,[R13,#4]
+	LDMFD R13!,{R14,PC}
+ ]
+	MEND
+
 ; Produce a general purpose error sub generating the given error $a
 
 	MACRO
 $la	ERR $a
 $la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#Vbit		; return with an error
+	B lookup_error			; return with an error
+	DCD ENUM			; error number
+	= "$a",0			; error message
+	ALIGN
+	MEND
+
+	MACRO
+$la	ERRlit $a
+$la	ADD R0,PC,#0			; address of the error message
+	ORRS PC,R14,#1<<28		; return with an error
 	DCD ENUM			; error number
 	= "$a",0			; error message
 	ALIGN

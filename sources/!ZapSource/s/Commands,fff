@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 1.1 1999/01/06 16:59:24 dj Exp $
+; $Id: Commands,fff,v 1.1.2.1 1999/01/06 21:06:19 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Template
@@ -571,10 +571,10 @@ Allfiles
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 s$l
-	FNS	("All files command:")
+	FNS	("zap_p_allfiles")
 callallroutine$l
 	FNJSR	"R0-R12"
 	MOV	R8,#0
@@ -605,10 +605,10 @@ a$l
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 s$l
-	FNS	("All modes command:")
+	FNS	("zap_p_allmodes")
 
 callallroutine2$l
 	FNJSR	"R0-R12"
@@ -638,7 +638,7 @@ Allwindows
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 callallroutine$l
 	FNJSR	"R0-R12"
@@ -647,7 +647,7 @@ callallroutine$l
 	BL	command_string		; execute the string
 	STRVS	R0,[R13]
 	FNRTS
-s$l	FNS	("All windows command:")
+s$l	FNS	("zap_p_allwindows")
 
 	LOCAL
 
@@ -755,7 +755,6 @@ get_basemap$l
 	LDRNEB	R0,[R8,#w_basemap]
 	MOVNE	PC,R14
 	MOV	R0,#-1
-modedata$l
 	FNJSR	"R1,R2"
 	FNLDRB	R1,opt_format
 	MOV	R2,#2
@@ -764,11 +763,24 @@ modedata$l
 	FNRTS
 put_basemap$l
 	CMP	R8,#0
-	BEQ	modedata$l
+	BEQ	putoptbasemap$l
 	STRB	R0,[R8,#w_basemap]	; this is a convenience copy...
 	STRB	R0,[R8,#w_currentmap]
 	STRB	R0,[R8,#w_helpmap]
 	MOV	PC,R14
+putoptbasemap$l
+	FNJSR	"R0-R2"
+	MOV	R0,#-1
+	FNLDRB	R1,opt_format
+	MOV	R2,#2
+	BL	mode_data			; mode's base map in low byte
+	LDR	R14,[R13]
+	BIC	R0,R0,#255
+	ORR	R0,R0,R14
+	FNLDRB	R1,opt_format
+	MOV	R2,#2
+	BL	mode_data
+	FNRTS
 
 	LOCAL
 
@@ -790,8 +802,8 @@ Basemapn
 prompt$l
 	ADR	R0,s$l
 	LDMFD	R13!,{R14}
-	B	minibuffer_prompt
-s$l	FNS	("Basemap: ")
+	B	minibuffer_prompt_token
+s$l	FNS	("zap_p_basemap")
 keymap_name ; R14 on stack
 	BL	find_key_table
 	TEQ	R0,#0
@@ -859,10 +871,10 @@ prekey$l
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 s$l
-	FNS	("Press key to bind learnt sequence to: ")
+	FNS	("zap_p_bindtokey")
 
 	DCD	7+(1<<15)
 Basic
@@ -1074,10 +1086,10 @@ m$l
 	FNRTS
 p$l
 	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
 mt$l	=	"Command", 0
-s$l	FNS	("Command: ")
+s$l	FNS	("zap_p_command")
 
 ; This command seems to suffer from severe theoretical problems.
 ; Zap doesn't seem to be able to load modules under these circumstances :(
@@ -1196,7 +1208,7 @@ a$l
 	MOVNE	R3,#w_tab
 	ADR	R4,s$l
 	B	new_w_num_checked
-s$l	FNS	("Tab width")
+s$l	FNS	("zap_m_tabw")
 
 	DCD	7+(1<<15)
 Confinehorizontally
@@ -1567,10 +1579,10 @@ Date
  FNRTS
 da13
  ADR R0,da_s0
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 da_s0
- FNS ("Date format string: ")
+ FNS ("zap_p_date")
 
  DCD 0+(1<<28)
 Defaultmap
@@ -2085,7 +2097,7 @@ Findfile
 ; FNcallc Zap_PutCaret,VC,R11
  FNRTS
 fi11
- BL minibuffer_prompt		; insert prompt
+ BL minibuffer_prompt_token		; insert prompt
  FNRTS VS
  TEQ R9,#0
  BEQ fi12
@@ -2107,14 +2119,17 @@ fi11
  STRB R4,[R3]			; restore name
  FNRTS
 fi12
- BL find_current_directory
+ BL find_current_directory_dde
+ FNRTVC VS			; cope with things like "disk not present"
+ TEQ R0,#0
+ BLEQ find_current_directory
  FNRTVC VS			; cope with things like "disk not present"
  BL minibuffer_write 		; write name into buffer (default)
  MOVVC R0,#'.'
  BLVC minibuffer_writec		; insert current dir as prompt
  FNRTS
-fi_s0 FNS ("Find file: ")
-fi_s1 FNS ("Find file read only: ")
+fi_s0 FNS ("zap_p_findfile")
+fi_s1 FNS ("zap_p_findfilero")
 
  DCD 7+(3<<3)+(1<<6)+(1<<9)+(1<<28)
 Findfilereadonly
@@ -2149,7 +2164,7 @@ Findfunction
  BL warn_user
  FNRTS
 err_notfunfound
- FNS ("Function not found")
+ FNS ("zap_FnNotFound")
 
  DCD 7+(2<<3)+(1<<17)
 Fontaspect
@@ -2169,6 +2184,7 @@ Fontaspect
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#1
  BEQ returnaspect$l
  TEQ R0,#2
@@ -2182,7 +2198,7 @@ returnaspect$l
  ADR R0,local_fontaspect
  FNRTS
 
-s$l FNS ("Font aspect ratio (percent)")
+s$l FNS ("zap_m_faspect")
 local_fontaspect
  DCD 0
 
@@ -2206,6 +2222,7 @@ Fontsize
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#1
  LDREQ R0,[R12,#font_size]
  MOVEQ R0,R0,LSL #16
@@ -2215,7 +2232,7 @@ a$l
  TEQ R0,#2
  MOVEQ R0,#9
  FNRTS
-s$l FNS ("Font size")
+s$l FNS ("zap_m_fsize")
 
  LOCAL
 
@@ -2369,9 +2386,9 @@ key$l
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
-s$l	= "Help on C=Command, F=Function, K=Key, M=Mode, Z=Zap:",0
+s$l	= "zap_p_help",0
 m$l	= "mode_",0
 help$l	FNS (|zapdir$|:CC:".!Help")
 
@@ -2388,9 +2405,9 @@ Helpcom
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
-s$l FNS ("Help on command: ")
+s$l FNS ("zap_p_helpcom")
 
 	LOCAL
 
@@ -2405,9 +2422,9 @@ Helpfn
 	BLVC	display_help
 	FNRTS
 p$l	ADR	R0,s$l
-	BL	minibuffer_prompt
+	BL	minibuffer_prompt_token
 	FNRTS
-s$l	FNS	("Help on function: ")
+s$l	FNS	("zap_p_helpfn")
 
 
  LOCAL
@@ -2462,9 +2479,9 @@ prekey$l
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
-s$l FNS ("Press key you want help on: ")
+s$l FNS ("zap_p_helpkey")
 
  LOCAL
 
@@ -2567,10 +2584,10 @@ is1
  FNRTS
 is2
  ADR R0,is_s0
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 is_s0
- FNS ("Insert string: ")
+ FNS ("zap_p_insert")
 
  DCD (3<<3)+(1<<6)		; string input
 Insertblockgs
@@ -2600,10 +2617,10 @@ Insertgs
  FNRTS
 is3
  ADR R0,is_s1
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 is_s1
- FNS ("Insert GS string: ")
+ FNS ("zap_p_insertgs")
 
  LOCAL
 
@@ -2676,7 +2693,7 @@ Indentby
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 q$l
  SUB R14,R2,#&8100
@@ -2696,13 +2713,14 @@ q$l
 m$l
  TEQ R0,#0
  ADREQ R0,s$l			; menu title
+ BLEQ lookup_token_R0
  TEQ R0,#1
  FNLDR R0,wimp_indentstring,EQ
  TEQ R0,#2
  MOVEQ R0,#32
  FNRTS
 
-s$l FNS ("Indent by: ")
+s$l = "zap_m_indentby",0
 clearstr$l = 21,0
 
  ALIGN
@@ -2756,8 +2774,8 @@ bad_keymap_jump
 prompt$l
 	ADR	R0,s$l
 	LDMFD	R13!,{R14}
-	B	minibuffer_prompt
-s$l	FNS	("Keymap: ")
+	B	minibuffer_prompt_token
+s$l	FNS	("zap_p_keymap")
 
  DCD (1<<15)
 Keepregion
@@ -2977,7 +2995,7 @@ a$l
  MOVNE R3,#w_linesp
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Line sep")
+s$l FNS ("zap_m_linesep")
 
  LOCAL
 
@@ -2991,9 +3009,9 @@ Loadmodule
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
-s$l = "Zap extension module: ",0
+s$l = "zap_p_loadmodule",0
  ALIGN
 
  LOCAL
@@ -3130,7 +3148,7 @@ a$l
  MOVNE R3,#w_mwidth
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Margin")
+s$l FNS ("zap_m_margin")
 
 	DCD     7 + (2<<3)
 Menuopen				; R0 -> menu handle to open
@@ -3512,10 +3530,10 @@ Moden
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 s$l
- = "Mode name: ",0
+ = "zap_p_moden",0
  ALIGN
 
  DCD 7
@@ -3828,10 +3846,10 @@ Quote
  ORR R0,R0,#1<<3		; set quote flag
  FNSTR R0,key_flags
  ADR R0,qu_s0
- BL minibuffer_write
+ BL minibuffer_write_token
  FNRTS
 qu_s0
- FNS ("Quote -")
+ FNS ("zap_m_quote")
 
  LOCAL
 
@@ -3868,7 +3886,7 @@ a$l
  MOVNE R3,#w_cr
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Return char")
+s$l FNS ("zap_m_retchr")
 
  DCD 0
 Returnnoindent
@@ -4102,7 +4120,7 @@ sa11
  FNRTS EQ			; we'll be called again
 sa12				; if no path...
  ADR R0,sa_s0
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
 ; FNcall Zap_MiniPrompt,R11
  BLVC find_current_directory
 ; FNcallc Zap_GetCurrDir,VC,R11
@@ -4117,7 +4135,7 @@ sa12				; if no path...
  MOVVC R0,#0			; open minibuffer
  FNRTS
 sa_s0
- FNS ("Save as: ")
+ FNS ("zap_p_savefile")
 
  DCD 0
 Splitline
@@ -4352,11 +4370,12 @@ Setmarginwidth
  FNRTS
 p$l
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#0			; number of permitted characters...?
  FNRTS EQ
@@ -4370,7 +4389,8 @@ a$l
  ADD R0,R0,#1
  ORR R0,R0,#1<<31		; it's a number
  FNRTS
-s$l FNS ("New margin width: ")
+s$l = "zap_m_setmarginwidth",0
+ ALIGN
 
  LOCAL
 
@@ -4428,11 +4448,12 @@ p$l
  ;CMP R9,#0			; not needed any more...
  ;BEQ abort$l			; this doesn't work :( why not!
  ADR R0,s$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#8
  TEQ R0,#1
@@ -4445,7 +4466,8 @@ a$l
  BL call_given_mode		; read the current width value
  ORRVC R0,R0,#1<<31		; it's a number
  FNRTS
-s$l FNS ("New width: ")
+s$l = "zap_m_setwidth",0
+ ALIGN
 
  LOCAL
 
@@ -4481,7 +4503,7 @@ Startaddr
  ADR R4,s$l
  ORR R2,R2,#1<<31		; hex
  B new_w_number
-s$l FNS ("Start addr")
+s$l FNS ("zap_m_start")
 function$l
  TEQ R8,#0
  LDREQ R0,[R12,#opt_addr]
@@ -4500,7 +4522,7 @@ Startline
  MOVNE R3,#w_stline		; offset of the data
  ADR R4,s$l
  B new_w_number
-s$l FNS ("Start line")
+s$l FNS ("zap_m_startl")
 function$l
  TEQ R8,#0
  LDREQ R0,[R12,#opt_stline]
@@ -4768,7 +4790,7 @@ a$l
  MOVNE R3,#w_tabchar
  ADR R4,s$l
  B new_w_num_checked
-s$l FNS ("Tab char")
+s$l FNS ("zap_m_tabchr")
 
  DCD 7+(2<<3)+(1<<15)
 Tabdisplay
@@ -4815,27 +4837,27 @@ Universalarg
  BL universal_arg
  SWIVC XHourglass_Off
  ADRVC R0,un_s1
- BLVC minibuffer_write
+ BLVC minibuffer_write_token
  FNRTS
 un16
  ADR R0,un_s0
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 un18
  SUB R0,R2,#&8000		; number of the key
- TEQ R0,#&7F
- FNRTS EQ			; pass on delete
- TEQ R0,#&1D
- FNRTS EQ			; pass on return
- CMP R0,#'0'
- ADDCC R0,R0,#&8000
- FNRTS CC			; perfrom < 0
- CMP R0,#'9'
- FNRTS LE			; pass on digits
- ADD R0,R0,#&8000
- FNRTS				; do the rest
-un_s0 FNS ("Number of times to repeat: ")
-un_s1 FNS (:CHR:12:CC:"Now press key to be repeated")
+ TEQ R0,#&7F			; pass on delete,
+ TEQNE R0,#&1C			;  backspace,
+ TEQNE R0,#&1D			;  return,
+ SUB R14,R0,#&100
+ TEQNE R14,#&66			;  enter
+ FNRTS EQ
+ CMP R14,#10			; pass on keypad digits,
+ SUBHS R14,R0,#'0'
+ CMP R14,#10			;  main digits
+ ADDHS R0,R0,#&8000		; but do the rest
+ FNRTS
+un_s0 FNS ("zap_p_universalarg_1")
+un_s1 FNS ("zap_p_universalarg_2")
 
  LOCAL
 
@@ -5131,8 +5153,6 @@ Byte_prompt$l
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  FNRTS VS
- ADR R2,colons$l
- BL strcopy
  FNLDR R0,wimp_block
  BL minibuffer_prompt
  FNRTS VS
@@ -5213,8 +5233,6 @@ prompt$l
  MOV R2,#&100
  SWI XOS_ConvertHex8		; start off with the address in hex
  FNRTS VS
- ADR R2,colons$l
- BL strcopy
  FNLDR R0,wimp_block
  BL minibuffer_prompt
  MOVVC R0,R6
@@ -5254,7 +5272,6 @@ inbinary$l
  MOV R0,R3
  BL minibuffer_write
  FNRTS
-colons$l FNS (" : ")
 dcd$l FNS ("DCD &")
 binarydcd$l FNS ("DCD %")
 assmbl$l FNS ("ASSEMBLE")
@@ -5276,6 +5293,7 @@ Wrapwidth
 a$l
  TEQ R0,#0
  ADREQ R0,s$l
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#8
  TEQ R0,#1
@@ -5284,7 +5302,7 @@ a$l
  ADDEQ R0,R12,#opt_wrapwidth
  ADDNE R0,R8,#w_wrapwidth
  FNRTS
-s$l FNS ("Wrap width")
+s$l FNS ("zap_m_wrapwidth")
 
  DCD (3<<3)+(1<<6)+(1<<9)
 Writefile
@@ -5302,7 +5320,7 @@ wr10
 ; FNcall Zap_CheckFileName,R11	; does name contain path
  MOVVC R7,R0			; save whether it conatins a path
  ADRVC R0,wr_s0
- BLVC minibuffer_prompt
+ BLVC minibuffer_prompt_token
 ; FNcallc Zap_MiniPrompt,VC,R11
  FNRTS VS
  TEQ R7,#0
@@ -5321,7 +5339,7 @@ wr11
 ; FNcall Zap_MiniWrite,R11
  FNRTS
 wr_s0
- FNS ("Write file: ")
+ FNS ("zap_p_writefile")
 
  DCD 0
 Yank
@@ -5387,7 +5405,7 @@ add_command_table
 ad16
  BL err$l
  LDMFD R13!,{R1,PC}
-err$l ERR "Too many command tables!"
+err$l ERR "zap_e_manycmdtables"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Command tick updating subs					;
@@ -5664,7 +5682,8 @@ Until
 	BNE	true$l
 	BL	altesc
 	BCC	false$l
-	ADR	R0,msg$l
+	ADR	R0,query_escape
+	ADR	R4,repeat$l
 	BL	query_abort
 	BEQ	true$l
 false$l	FNLDR	R2,if_count
@@ -5679,30 +5698,42 @@ true$l	FNLDR	R2,if_count
 	SUB	R2,R2,#1
 	FNSTR	R2,if_count
 	FNRTS
-msg$l	& 0
-	= "Escape from REPEAT loop?",0
+query_escape
+	& 0
+	= "zap_q_escrep",0
+repeat$l
+	= "REPEAT",0
 	ALIGN
 
 	LOCAL
 
 query_abort
+	FNJSR
+	BL	lookup_error
+	MOV	R4,R0
+	ADR	R0,btn$l
+	BL	lookup_token_R0
+	MOV	R5,R0
+	ADR	R1,title$l
+	FNLDR	R2,wimp_data
+	MOV	R3,#256
+	BL	lookup_token
 	FNLDR	R1,wimp_realver
-	ADR	R5,btn$l
-	MOV	R4,#1
-	ADR	R3,zap$l
-	ADR	R2,title$l
 	CMP	R1,#320
 	MOVHS	R1,#&910
 	MOVLO	R1,#&13
-	SWI	XWimp_ReportError
+	MOV	R0,R4
+	ADR	R3,zap$l
+	MOV	R4,#1
+	SWI	XWimp_ReportError	; this calls XHourglass_Smash
 	FNRTS	VS
 	MOV	R0,#5
-	SWI	XHourglass_Start	; what is this?
+	SWI	XHourglass_Start
 	TEQ	R1,#1
 	TEQNE	R1,#3
-	MOV	PC,R14
-title$l = "Message from Zap",0
-btn$l	= "Escape,Continue",0
+	FNRTS
+title$l = "zap_q_msg",0
+btn$l	= "zap_q_btns",0
 zap$l	= "!zap",0
 	ALIGN
 
@@ -5746,7 +5777,8 @@ Endwhile
 	BEQ	false$l
 	BL	altesc
 	BCC	true$l
-	ADR	R0,msg$l
+	ADR	R0,query_escape
+	ADR	R4,while$l
 	BL	query_abort
 	BEQ	false$l
 true$l	LDR	R0,[R4]
@@ -5759,8 +5791,7 @@ false$l	FNLDR	R2,if_count
 	SUB	R2,R2,#1
 	FNSTR	R2,if_count
 	FNRTS
-msg$l	& 0
-	= "Escape from WHILE loop?",0
+while$l	=	"WHILE",0
 	ALIGN
 
 
@@ -5996,11 +6027,7 @@ free$l	MOVVC	R1,#0
 	FNRTV
 
 bad_zap_variable
-	ADR	R0,badvar_msg$l
-	ORRS	PC,R14,#1<<28
-badvar_msg$l
-	&	0
-	FNS	("Bad variable name")
+	ERR	"zap_e_badvar"
 
 
 	LOCAL
@@ -6105,6 +6132,7 @@ bad$l	BL	bad_zap_variable
 	LOCAL
 
 typecheck
+	FNJSR	"R1-R4"
 	FNLDR	R3,if_count
 	FNLDR	R2,if_stop
 	SUB	R3,R3,#1
@@ -6114,48 +6142,35 @@ typecheck
 	FNLDR	R2,if_bits
 	LDR	R2,[R2,R3,LSL #3]
 	TEQ	R1,R2,LSR #28
-	BICEQS	PC,R14,#1<<28
+	FNRTVC	EQ
 	MOV	R1,R2,LSR #28
 	ADR	R0,required$l
-fail$l	LDR	R1,[R0,R1,LSL #2]
-	ADD	R0,R0,R1
-	ORRS	PC,R14,#1<<28
+	ADD	R1,R1,#4
+fail$l	ADR	R14,cmd$l
+	LDRB	R4,[R14,R1]
+	ADD	R4,R4,R14
+	MOV	R2,#0
+	BL	lookup_error
+	FNRTS
 
 nomatching$l
-	&	nomatchingif$l-nomatching$l
-	&	nomatchingrepeat$l-nomatching$l
-	&	nomatchingwhile$l-nomatching$l
-	&	nomatchingcase$l-nomatching$l
-nomatchingif$l
 	&	0
-	FNS	("No matching IF")
-nomatchingrepeat$l
-	&	0
-	FNS	("No matching REPEAT")
-nomatchingwhile$l
-	&	0
-	FNS	("No matching WHILE")
-nomatchingcase$l
-	&	0
-	FNS	("No matching CASE")
-
+	FNS	("zap_e_nostruct")
 required$l
-	&	requiredif$l-required$l
-	&	requiredrepeat$l-required$l
-	&	requiredwhile$l-required$l
-	&	requiredcase$l-required$l
-requiredif$l
 	&	0
-	FNS	("Mismatch: ENDIF required")
-requiredrepeat$l
-	&	0
-	FNS	("Mismatch: UNTIL required")
-requiredwhile$l
-	&	0
-	FNS	("Mismatch: ENDWHILE required")
-requiredcase$l
-	&	0
-	FNS	("Mismatch: WHEN\x2C DEFAULT\x2C ENDCASE required")
+	FNS	("zap_e_misstruct")
+	ALIGN
+cmd$l	=	 if$l-cmd$l, rep$l-cmd$l, whi$l-cmd$l, cas$l-cmd$l
+	=	eif$l-cmd$l, unt$l-cmd$l, ewh$l-cmd$l, whn$l-cmd$l
+if$l	=	"IF",0
+rep$l	=	"REPEAT",0
+whi$l	=	"WHILE",0
+cas$l	=	"CASE",0
+eif$l	=	"ENDIF",0
+unt$l	=	"UNTIL",0
+ewh$l	=	"ENDWHILE",0
+whn$l	=	"WHEN, DEFAULT, ENDCASE",0
+	ALIGN
 
 
 ; Functions
@@ -6499,8 +6514,8 @@ In
 	MOV	R11,R10
 	BL	str_comma	; find comma
 	CMP	R0,#32
-	ADRLO	R0,badin_msg$l	; no comma? error
-	FNRTV	LO
+	BLLO	badin_msg$l	; no comma? error
+	FNRTS	VS
 	MOV	R7,R0
 	MOV	R0,#0
 	STRB	R0,[R10,#-1]	; temporary NUL
@@ -6524,8 +6539,7 @@ In
 	FNRTS	EQ
 	FNRTV
 badin_msg$l
-	&	0
-	FNS	("Not enough arguments")
+	ERR	"zap_e_insuffargs"
 
 
 	LOCAL
@@ -6577,6 +6591,8 @@ notnum$l
 	BL	heap_free	; not a number (free the string)
 mismatch$l
 	ADR	R0,mismatch_msg$l
+	MOV	R2,#0
+	BL	lookup_error
 err1$l	MOV	R7,R0		; error return
 	MOVS	R0,R5
 	BLNE	heap_free
@@ -6584,7 +6600,7 @@ err1$l	MOV	R7,R0		; error return
 	FNRTV
 mismatch_msg$l
 	&	0
-	FNS	("Type mismatch in list")
+	FNS	("zap_e_listmismatch")
 
 	LOCAL
 

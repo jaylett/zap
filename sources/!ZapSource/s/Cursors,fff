@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1 1999/01/06 16:59:24 dj Exp $
+; $Id: Cursors,fff,v 1.1.2.1 1999/01/06 21:06:24 dj Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -567,7 +567,7 @@ args$l	LDR	R6,[R7,#-4]
 	MOVNE	R6,#0
 	MOVS	PC,R14
 noact$l	ADR	R0,noactmsg$l
-	MOV	R1,#0
+	MOV	R1,#1<<29
 	BL	warn_user
 	B	ret$l
 
@@ -576,7 +576,7 @@ modet$l	&	0			; 1<<(e_interrogate 14)
 moden$l	&	0			; mode name
 
 noactmsg$l
-	=	"No action taken",0
+	=	"zap_NoAction",0
 	ALIGN
 
 ;E R1=depth R2/R3=xycol R4=buttons R8/R9
@@ -4253,19 +4253,22 @@ start$l				; R0=string pointer / -ve to outdent
  BL get_selection		; R8/R9 for selection
  FNRTS CS			; no selection
 
- BL start_operation		; multiop
-
  LDR R4,[R8,#w_format]
- PUSH "R4"
+ FNLDR R5,opt_flags
+ PUSH "R4,R5"
  BIC R4,R4,#1<<15		; non-standard edit...
+ BIC R5,R5,#1<<22		; no auto-clear selection
  STR R4,[R8,#w_format]
+ FNSTR R5,opt_flags
+
+ BL start_operation		; multiop
 
  MOV R4,R1			; sel start
  ADD R5,R1,R2			; sel end
  MOV R0,R4
  MOV R11,#e_linestart
  BL call_mode
- BVS error$l ; end$l		; find start of line
+ BVS end$l			; find start of line
  CMP R4,R0
  MOVLE R4,R0			; at line start
  BLE atstart$l
@@ -4276,7 +4279,7 @@ loop$l
 ; BVS end$l
  MOVVC R11,#e_linestart		; find line start
  BLVC call_mode
- BVS error$l ; end$l
+ BVS end$l
  CMP R0,R4			; ?
  BLE end$l			; no line to move to so end or
  MOV R4,R0			; there will be an infinite loop!
@@ -4298,14 +4301,14 @@ atstart$l			; R4=start of line to indent
  MOV R11,#e_lineend
  MOV R0,R1
  BL call_mode			; find end of line
- BVS error$l ; end$l
+ BVS end$l
  MOV R10,R0			; save the end of line???
  SUB R0,R0,R1			; length of line
  CMP R2,R0
  MOVGT R2,R0			; clip amount to delete
  MOV R11,#e_replace
  BL call_mode			; alter the line (may word wrap)
- BVS error$l ; end$l
+ BVS end$l
 ; CMP R6,#0
 
 ; ADDPL R5,R5,R4		;
@@ -4324,16 +4327,14 @@ atstart$l			; R4=start of line to indent
 
  B loop$l			; do next line
 end$l				; end/error
- PULL "R0"
+ MOVVC R11,#0
+ MOVVS R11,R0
+ BL stop_operation
+ PULL "R0,R1"
  STR R0,[R8,#w_format]
- BL stop_operation
- FNRTS
-error$l				; end/error
- MOV R11,R0
- PULL "R14"
- STR R14,[R8,#w_format]
- BL stop_operation
- MOV R0,R11
+ FNSTR R1,opt_flags
+ MOVS R0,R11
+ FNRTS EQ
  FNRTV
 
 ;E R2-R5=region R8

@@ -1,16 +1,10 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 1.1 1999/01/06 16:59:26 dj Exp $
+; $Id: ModuleBits,fff,v 1.1.2.1 1999/01/06 21:06:49 dj Exp $
 
 ; Set test_flag for alpha and beta versions.
 ; Set patch_level for patches on major releases.
 ; (You can also use it to do something appropriate for test versions ...)
- GBLS version
- GBLS patch_level
- GBLL test_flag
-version SETS "1.40 "
-patch_level SETS "7"
-test_flag SETL {FALSE}
 
  GET h.ZapHeader
  GET h.Strings
@@ -25,6 +19,8 @@ test_flag SETL {FALSE}
  GET h.ModeBits
  GET h.StartCode
  GET h.Heap
+ GET h.Messages
+ GET h.Version
 
  EXPORT title_string
  EXPORT help_string
@@ -63,17 +59,24 @@ title_string = |zap$|,0
 
 help_string	= |zap$|,9,9
 help_string_1	= version,"(00 Jan 0000)"
-		[ test_flag
-			= " [TEST"
-			[ patch_level <> ""
-				= " ",patch_level
-			]
-			= "]"
-		|
-			[ patch_level <> ""
-				= " patch-",patch_level
-			]
-		]
+ [ BUILD > ""
+		= " ",BUILD
+  [ (BUILD:RIGHT:1 < "0" :LOR: BUILD:RIGHT:1 > "9") :LAND: patch_level <> ""
+		= "-",patch_level
+  ]
+ |
+  [ test_flag
+		= " [TEST"
+   [ patch_level <> ""
+		= " ",patch_level
+   ]
+		= "]"
+  |
+   [ patch_level <> ""
+		= " patch-",patch_level
+   ]
+  ]
+ ]
 help_string_2	FNS (" © Zap developers")
 
 ; Command table
@@ -126,6 +129,7 @@ initialise_code
  MOV R3,   #(variable_size :AND: &00FF)
  ORR R3,R3,#(variable_size :AND: &FF00)
  SWI XOS_Module			; claim varable workspace
+ BLVC messages_open
  FNRTS VS			; R3 saved
  STR R2,[R12]			; save workspace
  MOV R12,R2
@@ -148,6 +152,7 @@ finalise_code
  MOV R2,R12
  MOV R12,R1
  SWI XOS_Module			; free workspace
+ BLVC messages_close
  MOVVC R0,#0
  STRVC R0,[R12]			; null private word
  FNRTS

@@ -1,6 +1,6 @@
 ; Contains mode entry points for Throwback mode.
 ; And subroutines for creating and entering text into a throwback file.
-; $Id: Mode11,fff,v 1.2 1999/01/12 18:23:58 dj Exp $
+; $Id: Mode11,fff,v 1.1.2.1 1999/01/06 21:06:41 dj Exp $
 
  GET h.ZapHeader
  GET h.Strings
@@ -1031,19 +1031,22 @@ dde_fname
 
 DDEutils_ErrorDetails
  FNJSR "R1-R11"
- LDR R0,[R1,#20]		; line number
  LDR R14,[R1,#24]		; severity
  CMP R14,#1
  ADRLT R2,warn$l
  ADREQ R2,error$l
  ADRGT R2,serious$l
+ ORR R2,R2,#1<<31
  ADR R3,err$l
+ ORR R3,R3,#1<<31
  MOV R4,#-1
  MOV R5,#1			; line numbers not offsets
  ADD R5,R5,#1<<16		; throwback
  ADD R5,R5,#1<<8		; a line of header info
  ADR R6,header$l
+ ORR R6,R6,#1<<31
  ADR R7,after$l
+ LDR R0,[R1,#20]		; line number
  BL process_entry		; add to links list + header
  FNRTS VS
  ADD R3,R1,#28			; error string start
@@ -1057,12 +1060,12 @@ DDEutils_ErrorDetails
  BL execute_command		; enter description
 ; BL mode11_inspostpare
  FNRTS
-err$l	  = "Errors in file:  ",0
+err$l	  = "zap_tb_errs",0
 after$l	  = 0
-header$l  = "    Line  Type           Description",0
-warn$l	  = "Warning        ",0
-error$l	  = "Error          ",0
-serious$l = "Serious error  ",0
+header$l  = "zap_tb_hdrl",0
+warn$l	  = "zap_tb_warn",0
+error$l	  = "zap_tb_erro",0
+serious$l = "zap_tb_seri",0
  ALIGN
 
 DDEutils_InfoforFile
@@ -1075,20 +1078,22 @@ DDEutils_InfoforFile
 
 DDEutils_InfoDetails
  FNJSR "R1-R11"
- LDR R0,[R1,#20]		; line number
  ADD R2,R1,#28			; info string start
  ADR R3,info$l
+ ORR R3,R3,#1<<31
  MOV R4,#-1
  MOV R5,#1			; line numbers not offsets
  ORREQ R5,R5,#2<<16		; info
  ADD R5,R5,#1<<8		; a line of header info
  ADR R6,header$l
+ ORR R6,R6,#1<<31
  ADR R7,after$l
+ LDR R0,[R1,#20]		; line number
  BL process_entry		; add link and set R8/R9
  FNRTS
-info$l	 = "Information for file:  ",0
+info$l	 = "zap_tb_info",0
 after$l  = 0
-header$l = "    Line  Message",0
+header$l = "zap_tb_infl",0
  ALIGN
 
 
@@ -1234,13 +1239,18 @@ restore$l
 
 ;E R0=file offset or line number of line with info on it
 ;     set b31 to supress this being printed automatically.
+;     [THIS BREAKS WITH -VE OFFSETS/LINE NOS]
 ;  R1=filename (of the file that R0 is an offset in)
 ;  R2=information string to print after the line number (eg "Bad syntax")
+;     b31 set if tokenised
 ;  R3=string to precede filename  (eg "Errors in file:")
+;     b31 set if tokenised
 ;  R4=file offset of linked file / -1 if may not be loaded
 ;  R5=flags to use for the new entry (see f_links #12)
 ;  R6=string to precede new info block (eg "Line num  Error")
+;     b31 set if tokenised
 ;  R7=string to go after filename (eg 10,"Search string: fred") / 0 for none
+;     b31 set if tokenised
 ;  R8/R9=throwback window to add entry to
 ;X Throwback entry added and new title block given if file (or flags)
 ;  have changed KB #
@@ -1293,8 +1303,8 @@ add$l
 a$l
  ; TST R5,#2			; minus 1 = no linennumber...
  ; BNE b$l
- MOVVC R0,R3			; "Errors in file" (or similar text...)
- BLVC insert_string		; vc not needed...
+ MOV R0,R3			; "Errors in file" (or similar text...)
+ BL insert$l
  MOVVC R0,R1			; filename
  BLVC insert_string
  ;TST R5,#2
@@ -1302,7 +1312,7 @@ a$l
  MOVVC R0,R7
  ;CMP R0,#0
  ;BEQ b$l
- BLVC insert_string		; "Search string: fred"
+ BLVC insert$l			; "Search string: fred"
 ;b$l
  ;TST R5,#2
  ;BNE e$l
@@ -1312,7 +1322,7 @@ a$l
  MOVVC R0,R6
  ;CMP R0,#0
  ;BEQ c$l
- BLVC insert_string		; "Line num  Error"
+ BLVC insert$l			; "Line num  Error"
 ;d$l
  ;TST R5,#2
  ;BNE c$l
@@ -1331,7 +1341,7 @@ entry$l				; now ready to insert entry
  BLEQ insert_line_number
  ; BL mode11_insprepare
  MOVVC R0,R2			; error details
- BLVC insert_string
+ BLVC insert$l
  ADRVC R0,ret$l
  BLVC insert_string
 end$l				; may be at error here
@@ -1347,8 +1357,20 @@ enderror$l
  BL stop_operation
  MOV R0,R7			; error pointer again...
  FNRTV
+insert$l
+ TST R0,#1<<31
+ BEQ insert_string
+ FNJSR "R1-R3"
+ BIC R1,R0,#1<<31
+ FNLDR R2,wimp_data
+ MOV R3,#256
+ BL lookup_token_gs
+ MOVVC R0,R2
+ ADDVS R0,R0,#4
+ FNPULL
+ B insert_string
+ret2$l = 10
 ret$l = 10,0
-ret2$l = 10,10,0
  ALIGN
 
  LOCAL

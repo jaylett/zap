@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 1.2 1999/01/12 18:24:03 dj Exp $
+; $Id: ModeBits,fff,v 1.1.2.1 1999/01/06 21:06:47 dj Exp $
 
  GET h.ZapHeader
  GET h.Fonts
@@ -119,8 +119,8 @@ find$l				; find the module in the OS list
  STR R4,[R7,#4]			; module workspace
  LDR R0,[R9,#e_mode]		; mode it wanted to be + flags
  BIC R0,R0,#&FF
- ORR R0,R0,R10			; add mode actually is
- STR R0,[R7,#2*e_mode]		; actual mode number + flags
+ ORR R2,R0,R10			; add mode actually is
+ STR R2,[R7,#2*e_mode]		; actual mode number + flags
  LDR R0,[R9,#e_basemode]
  STR R0,[R7,#2*e_basemode]	; basemode number
  LDR R0,[R9,#e_title]
@@ -136,12 +136,16 @@ find$l				; find the module in the OS list
  LDR R0,[R9,#e_menu]
  TEQ R0,#0
  ADDNE R0,R0,R8
- STR R0,[R7,#2*e_menu]		; menu pointer /0
- MOV R2,R4			; save module workspace
- LDR R5,[R9,#e_len]		; length of valid data in table
- MOV R4,#&20			; start of subs
- LDR R0,[R9,#e_basemode]	; basemode
- BL read_mode			; R1=linked basemode table
+ TSTNE R2,#1<<12
+ MOVNE R1,#0
+ MOVNE R2,R8
+ BLNE expand_menu		; expand menu if internationalised
+ STRVC R0,[R7,#2*e_menu]	; menu pointer /0
+ MOVVC R2,R4			; save module workspace
+ LDRVC R5,[R9,#e_len]		; length of valid data in table
+ MOVVC R4,#&20			; start of subs
+ LDRVC R0,[R9,#e_basemode]	; basemode
+ BLVC read_mode			; R1=linked basemode table
  FNRTS VS
  MOV R3,R1			; linked table (may be invalid - mode 0)
 entry$l				; next entry loop
@@ -176,8 +180,8 @@ end$l				; table completed
  BL call_given_mode             ; OK...
  FNRTS
 ext1$l DCD mode_table_0
-err$l  ERR "Extension mode table corrupt"
-err2$l ERR "Base mode invalid"
+err$l  ERR "zap_e_badextntab"
+err2$l ERR "zap_e_badbase"
 
  LOCAL
 
@@ -283,6 +287,10 @@ init_mode_config
  MOV R0,#2			; mode block
  MOV R1,R10
  BL read_given_config_block	; read the block if it exists
+ FNRTS VS
+ CMN R0,#1
+ MOVEQ R0,#3
+ BLEQ read_given_config_block
  FNRTS VS
  FNLDR R0,opt_modedata
  LDR R0,[R0,R10,LSL#2]
@@ -662,7 +670,7 @@ mode_name
  BLLE err$l
  LDRVC R2,[R1,#e_title*2]	; mode name address
  FNRTS
-err$l ERR "Bad mode name"
+err$l ERR "zap_e_badmoden"
 
  LOCAL
 
@@ -750,7 +758,7 @@ next$l
 end$l				; R0=mode it is being assigned to
  STR R4,[R2,R0,LSL #3]		; new table pointer
  FNRTS
-err$l ERR "Too many edit modes"
+err$l ERR "zap_e_manymodes"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; read/write zap vars						  ;
@@ -802,7 +810,7 @@ co13
  ADRVC R14,var_list
  LDRVC R0,[R14,R1,LSL #2]
  FNRTS
-err$l ERR "Bad Zap variable number"
+err$l ERR "zap_e_badvarnum"
 
 var_list
  DCD scn_xos
@@ -1660,7 +1668,7 @@ a$l				; R0=24 bit palette entry to write
  STR R0,[R3]
  MOV R0,R2			; old value
  FNRTS
-err$l ERR "Bad Zap colour number"
+err$l ERR "zap_e_badcolrnum"
 d$l   DCD &F0F0F000
 
  LOCAL
@@ -1722,7 +1730,7 @@ c$l
  TEQ R14,#0
  BNE c$l
  B b$l
-err$l ERR "Bad colour block"
+err$l ERR "zap_e_badcolrblk"
 
  LOCAL
 
@@ -1797,6 +1805,7 @@ a$l
  STR R2,[R0],#4			; write length word
  MOV R2,R0			; dest
  ADR R1,default$l		; shadow source
+ PUSH "R2"
 b$l
  LDR R0,[R9]
  CMP R0,#-1
@@ -1806,6 +1815,14 @@ b$l
  STR R0,[R2],#4
  SUBS R3,R3,#4
  BGT b$l			; still more to do
+ PULL "R1"
+ LDR R0,[R1,#8]			; mode data variable 2
+ TST R0,#&FF000000		; number of colours == 0?
+ ANDEQ R0,R0,#&FF		; if so, set these defaults:
+ ORREQ R0,R0,#&10000		; display block = 0, printer block = 1
+ ORREQ R0,R0,R10,LSL #22	; number of colours exc. extra system colours
+ STREQ R0,[R1,#8]
+clrd$l
  ADD R1,R9,#4			; start of colour data
  MOV R3,R10			; length of colour dta
  SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy the block

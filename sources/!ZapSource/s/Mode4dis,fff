@@ -1,5 +1,5 @@
 ; This file deals with 'clever' disassembly
-; $Id: Mode4dis,fff,v 1.2 1999/01/12 18:24:02 dj Exp $
+; $Id: Mode4dis,fff,v 1.1.2.1 1999/01/06 21:06:46 dj Exp $
 ;
 ; ******************* THIS IS A RE-WRITE (MOSTLY) *********************
 ; *** IT WAS WRITTEN BY GERPH - TOUCH IT AND HE'LL GET CONFUSED :-) ***
@@ -232,13 +232,15 @@ dec_adr
    LDRVS   pc,[r13],#4                   ;            and return safely
    MOV     r2,#3                         ; it's a string in the file
    MOV     r6,#0                         ; it's got no indirection
-   ADR     r3,longadr$l                  ; the string
+   ADR     r0,longadr$l                  ; the string
+   BL      lookup_token_R0
+   MOV     r3,r0
    MOV     r4,#0                         ; no prefix
    LDR     r14,[r13],#4                  ; read link from stack
    B       copytoendofdebugger
 
 longadr$l
-   = "Long ADR",0
+   = "zap_d_longadr",0
    ALIGN
 
 ; usually I'd have :
@@ -348,11 +350,7 @@ iserror$l
    B       copytoendofdebugger
 
 error$l
-   [ NAMINGTYPE = SIMPLENAMES
-   = "! ",0
-   |
-   = "error: ",0
-   ]
+   = "zap_d_error ",0
    ALIGN
 
 orrsmask$l
@@ -445,7 +443,7 @@ isrecursing$l
    LDMFD   r13!,{pc}                     ; return
 
 roundandaround$l
-   = "recursion: at ",0
+   = "zap_d_recur",0
    ALIGN
 
 toodeep$l
@@ -456,7 +454,7 @@ toodeep$l
    LDMFD   r13!,{pc}                     ; Return from call
 
 toofarman$l
-   = "too deep: at ",0
+   = "zap_d_depth",0
    ALIGN
 
 ; it could be a number
@@ -516,11 +514,7 @@ string_done$l
    LDMFD   r13!,{pc}                     ; Return from call
 
 string$l
-   [ NAMINGTYPE = SIMPLENAMES
-   = "",0
-   |
-   = "string: ",0
-   ]
+   = "zap_d_str",0
    ALIGN
 
 ; hey, we just give up and say it's a number!
@@ -577,11 +571,11 @@ notincode$l
    LDMFD   r13!,{pc}                     ; return the value
 
 anumber$l
-   = "# ",0
+   = "zap_hash",0
 anoncode$l
-   = "code: at ",0
+   = "zap_d_codeat",0
 codename$l
-   = "code: ",0
+   = "zap_d_code",0
    ALIGN
 
 ; decode branches
@@ -620,7 +614,7 @@ notbranch$l
    LDMFD   R13 !,{PC}                    ; return from call
 
 call$l
-   = "call: ",0
+   = "zap_d_call",0
    ALIGN
 
 ; check that an offset contains a piece of code
@@ -813,7 +807,7 @@ notfunc$l
    LDMFD   R13 !,{PC}                    ; return from call
 
 funcdef$l
-   = "func: ",0
+   = "zap_d_func",0
    ALIGN
 
 
@@ -835,7 +829,7 @@ copystring$l
    B       copytoendofdebugger
 
 chunkfile$l
-   = "Chunk file (AOF or ALF)",0
+   = "zap_d_chunkf",0
    ALIGN
 
 ; decode AIF header
@@ -893,10 +887,10 @@ copytoendofdebugger
    ADD     R2,R2,#128
 copydebugger$l
    LDRB    R14,[R0],#1                   ; read and inc
-   TEQ     R14,#0                        ; was it 0 ?
-   TEQNE   R14,#';'                      ; or ; ?
-   STRNEB  R14,[R2],#1                   ; if not, store and inc
-   BNE     copydebugger$l                ; and continue
+   CMP     R14,#';'			 ; was it ';'
+   CMPNE   R14,#31			 ; or a ctrl char?
+   STRGTB  R14,[R2],#1			 ; if not, store and inc
+   BGT     copydebugger$l		 ; and continue
 
 ; now move back over the spaces
 skipspaces$l
@@ -940,13 +934,14 @@ indirection$l
    BPL     indirection$l
 
 ; copy the prefix string, if there is one
-   TEQ     r4,#0                         ; was there a prefix ?
+   MOVS    r0,r4			 ; was there a prefix ?
    BEQ     noprefix$l
+   BL      lookup_token_R0
 copyprefixstring
-   LDRB    R1,[R4],#1                    ; read and inc
-   CMP     R1,#0                         ; is that it ?
-   STRNEB  R1,[R2],#1                    ; if not, store and inc
-   BNE     copyprefixstring              ; and get some more
+   LDRB    R1,[R0],#1                    ; read and inc
+   CMP     R1,#32			 ; is that it ?
+   STRHSB  R1,[R2],#1			 ; if not, store and inc
+   BHS     copyprefixstring		 ; and get some more
 
 noprefix$l
 ; and finally, copy the string indicated by r2 (which comes from stack)
@@ -960,19 +955,21 @@ noprefix$l
    BEQ     apointer$l
    TEQ     r0,#3                         ; is it 3 ? (a literal)
    ADRNE   r3,invalid$l                  ; if not, make it <unknown>
+   MOV     r0,r3
+   BLNE	   lookup_token_R0
 
 ; literal string
 ; => r3 = offset
 ;    r2-> destination to copy to
 aliteral$l
-   LDRB    r0,[r3],#1                    ; read a byte and inc
-   STRB    r0,[r2],#1                    ; store back
-   TEQ     r0,#0                         ; done ?
-   BNE     aliteral$l                    ; no, so go for more
+   LDRB    r1,[r0],#1                    ; read a byte and inc
+   STRB    r1,[r2],#1                    ; store back
+   CMP     r1,#32			 ; done ?
+   BHS     aliteral$l                    ; no, so go for more
    B       return$l                      ; return safely
 
 invalid$l
-   = "<unknown>",0
+   = "zap_d_unknown",0
    ALIGN
 
 ; a string in the file
@@ -1275,7 +1272,7 @@ exitldr
    LDMFD   R13 !,{R3-R5,PC}              ; return from call
 
 ldr_string
-   = "; -> string: ",0
+   = "zap_d_pstr",0
    ALIGN
 
 ; NOTE:

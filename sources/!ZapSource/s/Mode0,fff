@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 1.1 1999/01/06 16:59:25 dj Exp $
+; $Id: Mode0,fff,v 1.1.2.1 1999/01/06 21:06:38 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -548,7 +548,7 @@ cln_phy_backward
 cln_phy_vs
  BLVC err$l
  LDMFD R13!,{R2-R11,PC}		; return with error
-err$l ERR "Internal error: cln_phy"
+err$l ERRlit "Internal error: cln_phy"
 
  LOCAL
 
@@ -596,7 +596,7 @@ cln_log_backward
 cln_log_vs
  BLVC err$l
  LDMFD R13!,{R2-R11,PC}		; return with error
-err$l ERR "Internal error: cln_log"
+err$l ERRlit "Internal error: cln_log"
 
 
 call_mode_clnoff		; call sw mode...
@@ -747,7 +747,7 @@ cln_BA_vs
  LDMFD R13!,{R0,R1}		; restore stack
  BL err$l			; internal error
  LDMFD R13!,{R10-R11,PC}	; ret with error
-err$l ERR "Internal error: cln_BACKWARD"
+err$l ERRlit "Internal error: cln_BACKWARD"
 
 ;;;;;;;;;;;;;;;; low level forward/backward subs ;;;;;;;;;;;;;;;;;;;
 
@@ -2020,6 +2020,10 @@ char_del_dispatch
 	STR	R0,local_wflags$l
 	LDR	R0,[R8,#w_format]
 	STR	R0,local_wformat$l
+	FNLDR	R0,opt_flags
+	STR	R0,local_oflags$l
+	BIC	R0,R0,#1<<22		; prevent selection auto-clear
+	FNSTR	R0,opt_flags
 
 ;	LDR	R0,[R8,#w_info]
 ;	STR	R0,local_winfo$l
@@ -2156,6 +2160,8 @@ err1$l	LDR	R4,local_wflags$l	; restore w_flags
 
 	LDR	R4,local_wformat$l	; restore w_format
 	STR	R4,[R8,#w_format]
+	LDR	R4,local_oflags$l
+	FNSTR	R4,opt_flags
 ;	LDR	R4,local_winfo$l	; restore w_info
 ;	STR	R4,[R8,#w_info]
 	FNRTS
@@ -2164,6 +2170,7 @@ call_r3	MOV	R0,#1
 
 local_wflags$l	& 0
 local_wformat$l	& 0
+local_oflags$l	& 0
 ;local_winfo$l	& 0
 placedmark$l	& 0
 local_sel$l	& 0,0
@@ -3205,7 +3212,7 @@ mode0_saveandrun
 	FNRTS
 nosaveandrunthanks$l
 	ADR	R0,warn$l
-	MOV	R1,#&80000000		; default + no beep...
+	MOV	R1,#5<<29
 	BL	warn_user
 	FNRTS
 
@@ -3244,7 +3251,7 @@ twstartstr
 twstartstr2
  = 34,32,34,"Run ",0
 warn$l
-	FNS ("This mode does not support running files.")
+	FNS ("zap_NoRunFile")
 
 ; *****************************************
 ; * More misc word start/end like subs... *

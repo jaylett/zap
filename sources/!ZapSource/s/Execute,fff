@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Execute,fff,v 1.1 1999/01/06 16:59:25 dj Exp $
+; $Id: Execute,fff,v 1.1.2.1 1999/01/06 21:06:28 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Template
@@ -447,15 +447,16 @@ string$l
 ; MOV R0,#-1
 ; FNRTS
 err$l
- FNJSR "R1"
+ FNJSR "R1,R4"
  TST R0,#2
  ADREQ R0,s$l
  ADRNE R0,f$l
+ BL lookup_token_R0
  MOV R1,R10
  BL generate_error
  FNRTS
-s$l = "Command not known",0
-f$l FNS ("Function not known")
+s$l = "zap_e_unkcmd",0
+f$l FNS ("zap_e_unkfn")
 
  LOCAL
 
@@ -570,8 +571,10 @@ no_arg$l			; end/LF/':'/';' -> no arg supplied (is OK)
  FNRTS EQ
 bad_arg$l			; non-arg-star character found
  TEQ R11,#0
- ADRNEL R0,badparam_fn
- BLEQ err41
+ ADR R14,bad_arg2$l
+ BNE badparam_fn
+ BEQ err41
+bad_arg2$l
  ADD R0,R0,#4
  LDR R1,cmdaddr$l
  BL generate_error
@@ -882,8 +885,8 @@ process_command
  MOV R6,R0			; save R0 value to send to command
  LDR R4,[R7,#-4]		; command flags
  TST R4,#1<<22			; command?
- ADRNE R0,notcommand$l
- FNRTV NE
+ BLNE notcommand$l
+ FNRTS VS
  MOV R5,R4,LSR#3
  AND R5,R5,#7			; command data type
  AND R3,R2,#&FF000000		; start info word with 0 + R2 flags
@@ -975,6 +978,15 @@ execlotswithinc$l		; R5=increment R4=b1 to free buffer
  BLNE start_operation		; start an operation on this file
 loop$l
  STMFD R13!,{R1-R12}		; stacking R12 for the first time...?
+ FNLDR R1,key_count
+ TEQ R1,#0
+ MOVEQ R1,#1
+ SUB R0,R1,R11
+ MOV R14,#100
+ MUL R0,R14,R0
+ SWI XZapRedraw_Divide
+ SWI XHourglass_Percentage
+ LDMIA R13,{R1-R3}
  MOV R4,#0			; (bug catcher)
  BL exec_command		; do the command corrupting registers
  LDMFD R13!,{R1-R12}		; stacking R12 for the first time...?
@@ -1030,8 +1042,7 @@ abort$l				; R0=abort type (1=total abort)
  FNRTS				; go home (R0=0 I hope??!)
 
 notcommand$l
- & 0
- FNS ("Not a command")
+ ERR "zap_e_notcmd"
 
 
 ;E as for process_command, except
@@ -1048,8 +1059,8 @@ process_function
 	BIC	R7,R7,#3
 	LDR	R4,[R7,#-4]	; command flags
 	TST	R4,#1<<23	; function?
-	ADREQ	R0,notfunction$l
-	FNRTV	EQ
+	BLEQ	notfunction$l
+	FNRTS	VS
 	MOV	R5,R4,LSR #24
 	AND	R5,R5,#7	; expected function data type
 	TEQ	R5,#3
@@ -1062,8 +1073,8 @@ process_function
 	TEQ	R3,#1<<24
 	TEQEQ	R5,#2		; cope with word masquerading as byte
 	TEQNE	R3,R5,LSL #24
-	ADRNE	R0,badparam_fn
-	FNRTV	NE
+	BLNE	badparam_fn
+	FNRTS	VS
 ok$l	TEQ	R8,#0
 	TEQNE	R9,#0
 	TEQNE	R10,#0
@@ -1075,11 +1086,9 @@ ok$l	TEQ	R8,#0
 	LDMFD	R13!,{R12}	; stacking R12 for the first time...?
 	FNRTS
 notfunction$l
-	&	0
-	FNS	("Not a function")
+	ERR	"zap_e_notfn"
 badparam_fn
-	&	0
-	FNS	("Function argument not of correct type")
+	ERR	"zap_e_fnarg"
 
 fake_minibuffer_command
  STMFD R13!,{R1,R7-R10,R14}
@@ -1258,7 +1267,7 @@ check_args
 err$l
  BL err2$l			; invalid parameters
  FNRTS
-err2$l ERR "Internal error: Bad command call"
+err2$l ERRlit "Internal error: Bad command call"
 
  LOCAL
 
@@ -1458,8 +1467,8 @@ eval$l	ADD	R10,R10,#1	; @=
 	ADDVC	R10,R0,R1
 	BLVC	make_varname
 	CMP	R13,#&8100
-	ADRLT	R0,noroom$l
-	BLT	error$l
+	BLLT	noroom$l
+	BVS	error$l
 	MOV	R0,#256
 	BL	heap_claim		; claim space for expression
 	MOVVS	R7,#0
@@ -1496,8 +1505,7 @@ eval_err$l
 	MOV	R0,R1
 	B	error$l
 noroom$l
-	&	0
-	FNS	("No room")
+	ERR	"zap_e_noroom"
 evaluate$l
 	LDR	R2,[R13,#4]		; max result len
 	MOVS	R0,R2

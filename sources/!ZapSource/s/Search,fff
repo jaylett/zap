@@ -1,5 +1,5 @@
 ; Contains Zap search/replace code and throwback generation
-; $Id: Search,fff,v 1.2 1999/01/12 18:24:08 dj Exp $
+; $Id: Search,fff,v 1.1.2.1 1999/01/06 21:06:52 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.Template
@@ -308,18 +308,17 @@ openthrowback$l
 
 enter_search_buffer
  FNJSR "R1-R9"
- FNLDR R1,wimp_kbdbuf
- MOV R0,#&0A
- STRB R0,[R1],#1
- ADR R2,search$l
- BL strcpy
- FNLDR R2,fnd_string2		; string we're looking for
- BL strcopy			; copy into buffer
+ ADR R1,search$l
+ FNLDR R2,wimp_kbdbuf
+ MOV R3,#256
+ FNLDR R4,fnd_string2
+ BL lookup_token_gs
  MOV R0,R6
  BL conv_wind_off		; set up R8/R9 of source window
  LDR R1,[R9,#f_name]
  ADR R2,null$l
  ADR R3,source$l
+ ORR R3,R3,#1<<31
  LDR R4,[R8,#w_file]		; file offset of search file
  SUB R0,R7,#&100		; window offset of throwback file
  BL conv_wind_off		; set up R8/R9 of throwback file
@@ -327,6 +326,7 @@ enter_search_buffer
  FNRTS VS
  MOV R5,#1<<8		; flags (Matches: heads the lines)
  ADR R6,match$l
+ ORR R6,R6,#1<<31
  FNLDR R7,wimp_kbdbuf
  ORR R0,R11,#1<<31		; offset of match (don't display)
  BL add_throwback_entry		; uses KB as well!
@@ -353,9 +353,9 @@ end$l
  BL stop_operation
  FNRTS
 null$l	 = 0
-source$l = "Source file  : ",0
-search$l = "Search string: ",0
-match$l  = "    Line  Match",0
+source$l = "zap_tb_srcf",0
+search$l = "zap_tb_srch",0
+match$l  = "zap_tb_srcm",0
  ALIGN
 
 ;E R0=file offset R8/R9=file
@@ -2266,13 +2266,13 @@ key$l
  CMP R4,#-2
  ADREQ R0,bfail$l
 p$l
- BL minibuffer_prompt
+ BL minibuffer_prompt_token
  FNRTS
 prompt$l			; starting search (init key_off)
  CMP R4,#0
  ADRPL R0,for$l
  ADRMI R0,bac$l
- BL minibuffer_prompt		; insert help string
+ BL minibuffer_prompt_token	; insert help string
  FNRTS VS
  FNLDR R1,key_off		; buffer
  LDR R0,[R10,#c_off]
@@ -2293,11 +2293,11 @@ ret$l
  BL new_search_string		; R2=1 return - install as current string
  MOVVC R0,#0			; close minibuffer
  FNRTS
-for$l	FNS ("Search forward: ")
-bac$l	FNS ("Reverse search: ")
-ffail$l FNS ("Search  (fail): ")
-bfail$l FNS ("Reverse (fail): ")
-err$l	FNS ("(Search error): ")
+for$l	FNS ("zap_p_srchfwd")
+bac$l	FNS ("zap_p_srchbwd")
+ffail$l FNS ("zap_p_srchfwf")
+bfail$l FNS ("zap_p_srchbwf")
+err$l	FNS ("zap_p_srcherr")
 
 ;E R0=file offset for base
 ;X key_off buffer reset to null string with this base

@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 1.2 1999/01/12 18:23:53 dj Exp $
+; $Id: Menus,fff,v 1.1.2.1 1999/01/06 21:06:33 dj Exp $
 
  GET h.ZapHeader
  GET h.Cursors
@@ -18,6 +18,7 @@
  GET h.ModuleBits
  GET h.StartCode
  GET h.TMTVars
+ GET h.Messages
 
  IMPORT create_ColourBox
  IMPORT conv_font_off
@@ -74,8 +75,8 @@ $la	LDR R0,[$a,#(28+24*$b)]
 	MACRO
 $la	FNnew_menu $t,$w,$c
 menu_num_off SETA 0		; reset the menu entry count
-$la	= "$t"				; title
-	% (12-:LEN:"$t")		; and add zero bytes to make 12
+$la	= "$t",0		; title
+	ALIGN
 	DCD ($w<<4)			; width in os coords
 	DCD $c
 	MEND
@@ -263,7 +264,7 @@ Fontlist
  TEQ R2,#16
  MOVNE PC,R14
  ADR R0,name$l
- ADR R1,build$l
+ ADR R1,build$l+1
  ADR R2,create$l
  FNLDR R3,wimp_version
  CMP R3,#300 ; good enough test ;-)
@@ -272,7 +273,7 @@ Fontlist
  MOV R4,#48			; max - was 40...
  MOV R8,#0			; count
  B build_menu
-name$l FNS ("Font")
+name$l FNS ("zap_m_font")
 build$l
  FNJSR "R1-R6"
 ; FNJSR "R1-R3"
@@ -387,51 +388,64 @@ Colourlist
  MOV R1,#6			; get colours menu
  BL call_given_mode		; R1=address of cols/6
  FNRTS VS
- MVN R8,#0			; current colour number (-1)
  MOV R9,R1			; pointer to extra colours/6
- ADR R10,data$l			; colours 0-8 current data
+ TEQ R8,#0
+ FNLDRB R0,opt_format,EQ
+ LDRNEB R0,[R8,#w_format]
+ BL read_mode
+ LDR R11,[R1,#2*e_mode]
+ MVN R8,#0			; current colour number (-1)
+ ADR R0,data$l			; colours 0-8 current data
+ BL lookup_token_R0
+ MOV R10,R0
  ADR R0,name$l
- ADR R1,build$l			; build menu sub
+ ADR R1,build$l+1		; build menu sub
  ADR R2,create$l		; put tick by all modes
  ADR R3,sub$l			; toggle all modes button
  MOV R4,#12
  BL build_menu			; create the menu
  FNRTS
-name$l FNS ("Colours")
-data$l
- = "All modes  ",0
- = "Background1",0
- = "Background2",0
- = "Foreground ",0
- = "Selection-B",0
- = "Selection-F",0
- = "Cursor-Bac ",0
- = "Cursor-For ",0
- = "Line numbs ",0
- = "Ctrl chars ",0
- = 0
+name$l = "zap_m_col",0
+data$l = "zap_m_cols",0
  ALIGN
 
 build$l				; R0=buffer R8=entry number R9=mode entries
- FNJSR "R1-R2"			; R10=current pos R7=start of menu entry
+ FNJSR "R1-R2,R11"		; R10=current pos R7=start of menu entry
  ;LDR R14,[R6,#8]		; possibly a flags problem...?
  ;BIC R14,R14,#&EE
  ;BIC R14,R14,#&E00
  ;STR R14,[R6,#8]		; possibly a flags problem...?
- TEQ R8,#9
- MOVEQ R10,R9			; hit the 9th entry
- CMP R10,#&100
+ CMP R8,#9
+ MVNLT R11,#0			; if doing the std entries, assume tokens...
+ BNE nothit9$l			; when we hit the 9th entry...
+ CMP R9,#&100
  MOVCC R0,#-1			; finish if invalid
  FNRTS CC
+ TST R11,#1<<12			; if using token for mode colours,
+ MOVEQ R10,R9
+ MOVNE R0,R9
+ BLNE lookup_token_R0		; expand it
+ MOVNE R10,R0
+nothit9$l
+ TST R11,#1<<12			; are we using a token?
  LDRB R0,[R10]
- TEQ R0,#0
- MOVEQ R0,#-1			; go home if reached end of list
- FNRTS EQ
+ ADDNE R10,R10,#1		; point past separator if so
+ MOVNE R11,R0			; and keep the separator for later
+ MOVEQ R11,#256
+ CMP R0,#32
+ MOVLO R0,#-1			; go home if reached end of list
+ FNRTS LO
  ADD R7,R7,#4			; add extra word for warning bit
  MOV R1,R7			; dest string
- MOV R2,R10			; name
- BL strcopy			; R2=char after term
- MOV R10,R2			; ready for next string
+c$l
+ LDRB R0,[R10],#1		; copy until separator or ctrl
+ CMP R0,R11
+ CMPNE R0,#31
+ MOVLS R0,#0			; ensure that we finish with a null
+ STRB R0,[R1],#1
+ BHI c$l
+ TEQ R11,#256			; if using tokens,
+ SUBNE R10,R10,#1		; point at separator/ctrl for next call
  CMP R8,#0
  BMI b$l			; on first entry (the all modes option)
  ADR R0,mw_collist		; sub to create colour menu
@@ -515,7 +529,7 @@ Newviewlist			; ensure it's a different address
 Removelist
  FNJSR "R1-R11"			; save registers as called by sub_filelist
  ADR R0,name$l
- ADR R1,mwf_sub
+ ADR R1,mwf_sub+1
  ADR R3,sub_filelist
  MOV R4,#13 ; was 12
  FNLDR R8,file_num
@@ -531,7 +545,7 @@ Removelist
  BLVC sort_menu
  MOVVC R0,R1			; restore menu pointer
  FNRTS
-name$l FNS ("File")
+name$l FNS ("zap_m_file")
 
 tick_filelist
  MOV R11,#0			; cntr
@@ -715,7 +729,7 @@ Getmodule
  TEQ R2,#16
  FNRTS NE
  ADR R0,name$l
- ADR R1,buildsub$l
+ ADR R1,buildsub$l+1
  MOV R2,#0
  ADR R3,execsub$l
  MOV R4,#22
@@ -726,7 +740,7 @@ Getmodule
  BLVC sort_menu
  MOVVC R0,R1			; menu pointer
  FNRTS
-name$l FNS ("Module")
+name$l FNS ("zap_m_module")
 buildsub$l
  FNJSR "R1-R5"
  MOV R11,R0			; save buffer pointer
@@ -806,7 +820,7 @@ Loadlist
  TEQ R2,#16
  FNRTS NE
  ADR R0,name$l
- ADR R1,buildsub$l
+ ADR R1,buildsub$l+1
  MOV R2,#0
  ADR R3,execsub$l
  MOV R4,#14
@@ -816,7 +830,7 @@ Loadlist
  BLVC sort_menu
  MOVVC R0,R1			; menu pointer
  FNRTS
-name$l FNS ("Load mode")
+name$l FNS ("zap_m_lmode")
 buildsub$l
  FNJSR "R1-R2,R5" ; "R1-R7" ;
  ;LDR R14,[R6,#8]		; possibly a flags problem...?
@@ -877,7 +891,7 @@ Getdynamicarea
  TEQ R2,#16			; create submenu?
  FNRTS NE
  ADR R0,name$l
- ADR R1,buildsub$l
+ ADR R1,buildsub$l+1
  MOV R2,#0
  ADR R3,execsub$l
  MOV R4,#22
@@ -893,7 +907,7 @@ shade$l				; shade item if pre RO 3.5
  MOVLE R0,#2			; yes
  MOVGT R0,#0
  FNRTS
-name$l FNS ("Area name")
+name$l FNS ("zap_m_aname")
 buildsub$l
  FNJSR "R1-R8"
  MOV R11,R0			; save buffer pointer
@@ -954,7 +968,7 @@ Bitmaplist
  TEQ R2,#16			; create submenu?
  FNRTS NE
  ADR R0,name$l
- ADR R1,buildsub$l
+ ADR R1,buildsub$l+1
  ADR R2,create$l
  ADR R3,execsub$l
 ; MOV R3,#0
@@ -973,7 +987,7 @@ shade$l
  MOVEQ R0,#2			; shade if on the options menu
  MOVNE R0,#0
  FNRTS
-name$l FNS ("Bitmap")
+name$l FNS ("zap_m_bitmap")
 buildsub$l			; uses WB
  FNJSR "R1-R6"			; NB Updating R7!!
  LDR R0,[R6]
@@ -1418,7 +1432,9 @@ copyitin$l
  CMP R6,#0
  ADRNE R2,plus$l
  BLNE strcpy
- MOV R2,R5
+ MOV R0,R5
+ BL lookup_token_R0
+ MOV R2,R0
  BL strcpy
  MOV R6,#1
  MOV R3,R1
@@ -1463,29 +1479,30 @@ plus$l
 shortenname
  FNJSR "R0-R1,R3-R6"
  ;FNLDR R4,wimp_data
+ MOV R1,R0
  ADR R4,local_verytemp
  MOV R6,R4
  MOV R3,R2
  MOV R5,#'U'
- ADR R1,underlinedlong$l
+ ADR R0,underlinedlong$l
  BL matched$l
  BL skipon$l
  BEQ enditnow$l
 
  MOV R5,#'S'
- ADR R1,strikethroughlong$l
+ ADR R0,strikethroughlong$l
  BL matched$l
  BL skipon$l
  BEQ enditnow$l
 
  MOV R5,#'I'
- ADR R1,italiclong$l
+ ADR R0,italiclong$l
  BL matched$l
  BL skipon$l
  BEQ enditnow$l
 
  MOV R5,#'B'
- ADR R1,boldlong$l
+ ADR R0,boldlong$l
  BL matched$l
  BL skipon$l
  ;BEQ enditnow$l
@@ -1504,10 +1521,11 @@ local_verytemp
 
 matched$l
  FNJSR
+ BL lookup_token_R0
  MOV R2,R3
  BL strcmpstr
  STREQB R5,[R4],#1
- MOVEQ R3,R0
+ MOVEQ R3,R1
  FNRTS
 
 ; EQ if end found.
@@ -1525,13 +1543,13 @@ threeloop$l
  FNRTS
 
 boldlong$l
- FNS ("Bold")
+ FNS ("zap_m_bold")
 italiclong$l
- FNS ("Italic")
+ FNS ("zap_m_italic")
 strikethroughlong$l
- FNS ("Strikethrough")
+ FNS ("zap_m_strkthru")
 underlinedlong$l
- FNS ("Underlined")
+ FNS ("zap_m_uline")
 
 ; List of possible file types to use
 
@@ -1543,7 +1561,7 @@ Typelist
  TEQ R2,#16
  FNRTS NE
  ADR R0,name$l
- ADR R1,build$l
+ ADR R1,build$l+1
  MOV R2,#0			; no creating sub (use Newtype command)
  FNADR R3,ext1$l		; new type command
  ORR R3,R3,#1<<31:OR:2<<27	; it's a command execute type
@@ -1554,7 +1572,7 @@ Typelist
  BLVC sort_menu
  MOVVC R0,R1
  FNRTS
-name$l FNS ("File type")
+name$l FNS ("zap_m_ftype")
 ext1$l DCD Newtype
 build$l
  FNJSR "R1-R4"
@@ -1589,7 +1607,7 @@ Basemaplist
 	TEQ	R2,#16
 	FNRTS	NE
 	ADR	R0,name$l
-	ADR	R1,build$l
+	ADR	R1,build$l+1
 	MOV	R2,#0		; no creating sub (use Basemap command)
 	FNADR	R3,cmd$l	; new type command
 	ORR	R3,R3,#1<<31:OR:2<<27 ; it's a command execute type
@@ -1600,7 +1618,7 @@ Basemaplist
 	BLVC	sort_menu
 	MOVVC	R0,R1
 	FNRTS
-name$l	FNS	("Basemap")
+name$l	FNS	("zap_m_basemap")
 cmd$l	DCD	Basemap
 build$l
 	FNJSR	"R1-R4"
@@ -1642,29 +1660,29 @@ mapn$l	MOV	R1,#'M'
 mf_warn * 8
 
 sm_curlist
- FNnew_menu "Type",11,cm_curlist
- FNnme "Block     ",0,0,0,sub_curlist
- FNnme "Square    ",0,0,0,sub_curlist
- FNnme "Underscore",0,0,0,sub_curlist
- FNnme "Bar       ",0,0,0,sub_curlist
- FNnme "None      ",0,0,0,sub_curlist
+ FNnew_menu "zap_m_ct",11,cm_curlist
+ FNnme "zap_m_ct0",0,0,0,sub_curlist
+ FNnme "zap_m_ct1",0,0,0,sub_curlist
+ FNnme "zap_m_ct2",0,0,0,sub_curlist
+ FNnme "zap_m_ct3",0,0,0,sub_curlist
+ FNnme "zap_m_ct4",0,0,0,sub_curlist
  FNend_menu
 
 sm_minibuffer
- FNnew_menu "Status",12,cm_minibuffer
- FNnme "Popup      ",0,0,0,sub_minibuffer,s_minipopup
- FNnme "Permanent  ",0,0,0,sub_minibuffer,s_miniperm
- FNnme "System font",0,0,0,sub_minifont,s_minifont
- FNnme "Foreground ",mf_warn,mw_collist_mini,0,0,s_minifor
- FNnme "Background ",mf_warn,mw_collist_mini,0,0,s_minibac
+ FNnew_menu "zap_m_mb",12,cm_minibuffer
+ FNnme "zap_m_mb0",0,0,0,sub_minibuffer,s_minipopup
+ FNnme "zap_m_mb1",0,0,0,sub_minibuffer,s_miniperm
+ FNnme "zap_m_mb2",0,0,0,sub_minifont,s_minifont
+ FNnme "zap_m_mb3",mf_warn,mw_collist_mini,0,0,s_minifor
+ FNnme "zap_m_mb4",mf_warn,mw_collist_mini,0,0,s_minibac
  FNend_menu
 
 sm_cursor
- FNnew_menu "Cursor",9,0
- FNnme "Normal  ",mf_warn,mw_curlist,0,0
- FNnme "Split 1 ",mf_warn,mw_curlist,0,0
- FNnme "Split 2 ",mf_warn,mw_curlist,0,0
- FNnme "Mark pos",mf_warn,mw_curlist,0,0
+ FNnew_menu "zap_m_cu",9,0
+ FNnme "zap_m_cu0",mf_warn,mw_curlist,0,0
+ FNnme "zap_m_cu1",mf_warn,mw_curlist,0,0
+ FNnme "zap_m_cu2",mf_warn,mw_curlist,0,0
+ FNnme "zap_m_cu3",mf_warn,mw_curlist,0,0
  FNend_menu
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1680,16 +1698,28 @@ sm_cursor
 init_menus
  FNJSR "R1-R2"
  FNLDR R2,menu_memory		; address of 16 word memory
- FNLDR R1,env_modstart		; base of offsets
  ADR R0,sm_curlist
- BL create_menu_structure
- STR R0,[R2,#8]
- ADR R0,sm_minibuffer
- BL create_menu_structure
- STR R0,[R2,#12]
- ADR R0,sm_cursor
- BL create_menu_structure
- STR R0,[R2,#16]
+ BL expand$l
+ STRVC R0,[R2,#8]
+ ADRVC R0,sm_minibuffer
+ BLVC expand$l
+ STRVC R0,[R2,#12]
+ ADRVC R0,sm_cursor
+ BLVC expand$l
+ STRVC R0,[R2,#16]
+ FNRTS
+expand$l
+ FNJSR "R2-R3"
+ MOV R1,#0
+ ADRL R2,Module_header
+ BL expand_menu
+ MOVVC R1,R2
+ MOVVC R2,R0
+ BLVC create_menu_structure
+ MOVVC R3,R0
+ MOVVC R0,R2
+ BLVC heap_free
+ MOVVC R0,R3
  FNRTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1783,7 +1813,7 @@ a$l
  ADD R1,R1,R0			; add room for the text of the entry
  ADD R1,R1,#12			; add room for the addresses
  B a$l
-err$l ERR "Mismatched quotes or control character in menu string"
+err$l ERR "zap_e_menustrprob"
 
  LOCAL
 
@@ -2121,8 +2151,8 @@ iconloop$l
  STR R0,[R2]			; save actual menu flags
  LDR R0,[R1,#4]			; get submenu pointer to source
  CMP R0,#0
- MOVLE R0,#-1
- BLE next$l			; no submenu
+ MOVEQ R0,#-1
+ BEQ next$l			; no submenu
  TST R4,#1<<3			; warned ?
  MOVNE R0,#1
  BNE next$l			; yes - invalid submenu pointer
@@ -2608,7 +2638,7 @@ a$l
  LOCAL
 
 ;E R0=menu name (max 12 chars)
-;  R1=address of sub to create the menu
+;  R1=address of sub to create the menu (b0 set if menu name is a token)
 ;  R2=address of cm_sub to update the menu /0
 ;  R3=address of interpret sub for each menu entry /0
 ;  R4=menu width in characters
@@ -2634,8 +2664,17 @@ build_menu
  MOV R0,#0
  STR R0,[R6],#4			; save count
  STR R2,[R6],#4			; save creation address
- LDMIA R5!,{R0,R2,R14}
- STMIA R6!,{R0,R2,R14}		; copy menu name
+ TST R1,#1			; menu name is a token?
+ MOVEQ R2,R5
+ MOVNE R0,R5
+ BLNE lookup_token_R0
+ MOVNE R2,R0
+ MOV R0,#12
+ MOV R1,R6
+ BL strbuf			; copy title
+ LDR R1,[R13]
+ LDR R3,[R13,#8]
+ ADD R6,R6,#12			; point past copied title
  LDR R0,cols$l
  MOV R2,R4,LSL #4
  MOV R14,#44

@@ -1,6 +1,6 @@
 ; Contains mode entry points for code mode.
 ; THIS IS A 1.39+ BETA 8+ Mode 4 - modified to work with Mode4dis
-; $Id: Mode4,fff,v 1.2 1999/01/12 18:24:01 dj Exp $
+; $Id: Mode4,fff,v 1.1.2.1 1999/01/06 21:06:44 dj Exp $
 
 	GET	h.ZapHeader
 	GET	h.AlterTxt
@@ -977,11 +977,11 @@ module$l
 ; => r0 = offset in file
 ; <= r0 = string pointer, or 0 if not known
 mode4_mod_headerstring
-        STMFD   r13!,{r1,r2,r14}
+	FNJSR	"R1-R3"
 	CMP	R0,#(end_mod_stab - mod_stab) ;&2C
 	MOV     r1,r0                   ; r1 = offset
 	MOVCS   r0,#0                   ; if too big, it's not known
-	LDMCSFD	r13!,{r1,r2,pc}         ; definitely not in header
+	FNRTS	CS			; definitely not in header
 	MOV	R2,#0			; check valid loop
 	PUSH	"R0"			; save the word
 checkoff$l			        ; check it is a valid module offset
@@ -991,7 +991,7 @@ checkoff$l			        ; check it is a valid module offset
 	BL	valid_off		; valid offset?
 	PULL	"R0",CS
 	MOVCS   r0,#0                   ; if too big, it's not known
-	LDMCSFD	r13!,{r1,r2,pc}	        ; definitely not in header
+	FNRTS	CS			; definitely not in header
 	CMP	R2,R1
 	ADDCC	R2,R2,#4
 	BCC	checkoff$l
@@ -999,8 +999,12 @@ checkoff$l			        ; check it is a valid module offset
 	ADR	R0,mod_stab
 	LDR	R14,[R0,R1]		; get string offset
 	FNLDR	R0,env_modstart		; base for indirected offsets
-	ADD	R0,R0,R14		; string address
-	LDMFD	r13!,{r1,r2,pc}	        ; return the string
+	ADD	R1,R0,R14		; string address
+	FNLDR	R2,wimp_data
+	MOV	R3,#256
+	BL	lookup_token
+	FNLDR	R0,wimp_data,VC
+	FNRTS				; return the string
 
 
 ldm$l
@@ -1255,18 +1259,18 @@ mod_stab
 	DCD	swideccode$l
 	DCD	msgdeccode$l
 end_mod_stab
-starto$l	= "Start offset",0
-inito$l		= "Initialisation offset",0
-fino$l		= "Finalisation offset",0
-serviceo$l	= "Service call handler offset",0
-titleo$l	= "Title string offset",0
-helpo$l		= "Help string offset",0
-commo$l		= "Help and command keyword table offset",0
-swichunk$l	= "SWI chunk base number",0
-swicode$l	= "SWI handler code offset",0
-switable$l	= "SWI decoding table offset",0
-swideccode$l	= "SWI decoding code offset",0
-msgdeccode$l	= "Messages filename offset",0
+starto$l	= "zap_d_starto",0
+inito$l		= "zap_d_inito",0
+fino$l		= "zap_d_fino",0
+serviceo$l	= "zap_d_serviceo",0
+titleo$l	= "zap_d_titleo",0
+helpo$l		= "zap_d_helpo",0
+commo$l		= "zap_d_commo",0
+swichunk$l	= "zap_d_swichunk",0
+swicode$l	= "zap_d_swicode",0
+switable$l	= "zap_d_switable",0
+swideccode$l	= "zap_d_swidecode",0
+msgdeccode$l	= "zap_d_msgdecode",0
 	ALIGN
 
 stored_blank_string
@@ -1342,7 +1346,7 @@ getpreviousinstrs
 ; <= r0= string to give it, or 0 if none
         LOCAL
 mode4_aif_headerstring
-        STMFD   r13!,{r14}
+	FNJSR	"R1-R3"
         CMP     r0,#&40                 ; is it < start of debugger ?
         BLO     topheader$l             ; if so, it's an explicit header
         MOV     r14,#-4*1               ; -1 string means 'unknown'
@@ -1356,8 +1360,13 @@ topheader$l
 	ADR	R14,abs_stab	        ; take address of offset table
 	LDR	R14,[R14,R0]		; get string offset
 	FNLDR	R0,env_modstart		; base for indirected offsets
-	ADD	R0,R0,R14		; string address
-        LDMFD   r13!,{pc}
+	ADD	R1,R0,R14		; string address
+	FNLDR	R2,wimp_data
+	MOV	R3,#256
+	BL	lookup_token
+	MOVVC	R0,R2
+	FNLDR	R0,wimp_data,VC
+	FNRTS
 
 	DCD	zeroe$l
 	DCD	zeros$l
@@ -1381,27 +1390,27 @@ abs_stab
 	DCD	abs_res1$l
 	DCD	abs_res2$l
 end_abs_stab
-zeroe$l         = "End of zero-initialisation code",0
-zeros$l         = "Start of zero-initialisation code",0
-debug$l         = "Debug initialisation instruction",0
-unknown$l       = "<unknown>",0
+zeroe$l         = "zap_d_zeroe",0
+zeros$l         = "zap_d_zeros",0
+debug$l         = "zap_d_debug",0
+unknown$l       = "zap_d_unknown",0
 ; before here are the 'special' -ve's
-decomp$l        = "Decompression code call",0
-selfreloc$l     = "Self relocation code call",0
-zeroinit$l      = "Zero initialisation code call",0
-entry$l         = "Main entry call",0
-foolish$l       = "Program exit instruction",0
-abs_readonly$l	= "Read-only area size",0
-abs_readwrite$l	= "Read-write area size",0
-abs_debug$l	= "Debug area size",0
-abs_zeroinit$l	= "Zero initialisation size",0
-abs_debugtype$l	= "Debug type",0
-abs_base$l	= "Current base of absolute",0
-abs_workspace$l	= "Workspace required",0
-abs_addrmode$l	= "Addressing mode and flags",0
-abs_database$l	= "Data base address when linked",0
-abs_res1$l	= "Reserved header word &38 (should be 0)",0
-abs_res2$l	= "Reserved header word &3C (should be 0)",0
+decomp$l        = "zap_d_decomp",0
+selfreloc$l     = "zap_d_selfreloc",0
+zeroinit$l      = "zap_d_zeroinit",0
+entry$l         = "zap_d_entry",0
+foolish$l       = "zap_d_foolish",0
+abs_readonly$l	= "zap_d_abs_readonly",0
+abs_readwrite$l	= "zap_d_abs_readwrite",0
+abs_debug$l	= "zap_d_abs_debug",0
+abs_zeroinit$l	= "zap_d_abs_zeroinit",0
+abs_debugtype$l	= "zap_d_abs_debugtype",0
+abs_base$l	= "zap_d_abs_base",0
+abs_workspace$l	= "zap_d_abs_workspace",0
+abs_addrmode$l	= "zap_d_abs_addrmode",0
+abs_database$l	= "zap_d_abs_database",0
+abs_res1$l	= "zap_d_abs_res1",0
+abs_res2$l	= "zap_d_abs_res2",0
 	ALIGN
 
 
@@ -1600,8 +1609,6 @@ a$l
 	MOV	R2,#&100
 	SWI	XOS_ConvertHex8		; start off with the address in hex
 	FNRTS	VS
-	ADR	R2,colons$l
-	BL	strcopy
 	FNLDR	R0,wimp_block
 	BL	minibuffer_prompt
 ; FNcall Zap_MiniPrompt			; prompt = address + colon
@@ -1609,7 +1616,7 @@ a$l
 	MOV	R1,#0
 	MOV	R0,#0			; address to assume instruction came from
 	SWI	XDebugger_Disassemble	; R1=buf R2=len
-	ADRVS	R1,stored_blank_string
+	ADRVSL	R1,stored_blank_string
 	ADR	R0,assemble$l
 	BL	find_key_command	; locate+load
 	FNRTS	VS
@@ -1618,7 +1625,6 @@ a$l
 	MOV	R7,R0			; command address
 	BL	minibuffer_start	; open the minibuffer
 	FNRTS
-colons$l = " : ",0
 assemble$l FNS ("ASSEMBLE")
 
 local_bgcol_please

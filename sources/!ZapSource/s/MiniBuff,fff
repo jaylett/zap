@@ -1,5 +1,5 @@
 ; Minibuffer code + filename completion + interactive help + line editor
-; $Id: MiniBuff,fff,v 1.2 1999/01/12 18:23:54 dj Exp $
+; $Id: MiniBuff,fff,v 1.1.2.1 1999/01/06 21:06:36 dj Exp $
 
  GET h.ZapHeader
  GET h.CreateFile
@@ -25,13 +25,16 @@
  IMPORT command_primative	; not *my* spelling (DS)
 
  EXPORT warn_user
+ EXPORT warn_user_token
  EXPORT minibuffer_open
  EXPORT minibuffer_ensure
  EXPORT minibuffer_ensure_open
  EXPORT minibuffer_start
  EXPORT minibuffer_writec
  EXPORT minibuffer_write
+ EXPORT minibuffer_write_token
  EXPORT minibuffer_prompt
+ EXPORT minibuffer_prompt_token
  EXPORT minibuffer_update
  EXPORT minibuffer_show
  EXPORT minibuffer_setcaret
@@ -271,8 +274,10 @@ ad24
  LOCAL
 
 ;E R0=message R1=delay or 0 for default +flags R8/R9
-;  b31 => don't beep
+;  b31 => don't beep  b30 => no prefix  b29 => R0->token
 
+warn_user_token
+ ORR R1,R1,#1<<29
 warn_user
  FNJSR "R1-R2,R10"
  MOV R10,R0			; save address of message
@@ -283,9 +288,16 @@ warn_user
  FNRTS VS
  TST R1,#1<<30
  ADREQ R0,s$l
- BLEQ minibuffer_write
- MOVVC R0,R10
- BLVC minibuffer_write
+ BLEQ minibuffer_write_token
+ FNRTS VS
+ MOV R0,R10
+ TST R1,#1<<29
+ BNE wt$l
+ BL minibuffer_write
+ B wn$l
+wt$l
+ BL minibuffer_write_token
+wn$l
  BLVC minibuffer_ensure_open
  FNRTS VS
  MOV R0,#1
@@ -303,7 +315,7 @@ warn_user
  BL call_back
  BL restore_carets		; input not lost any more...
  FNRTS
-s$l FNS ("Warning: ")
+s$l FNS ("zap_warning")
 sub$l
  LDR R0,local_callbacktime
  TEQ R0,R11
@@ -678,24 +690,53 @@ mi_paste$l
  ADD R1,R1,#1
  B mi_paste$l
 
+;E R0=pointer to token (GSTransed) R4-R7=parameters
+;X String written to minibuffer with codes as for minibuffer_write
+
+minibuffer_write_token
+	FNJSR	"R1-R7"
+	MOV	R1,R0
+	MOV	R4,R0
+	SUB	R13,R13,#256
+	MOV	R2,R13
+	MOV	R3,#256
+	BL	lookup_token_gs
+	MOVVC	R0,R2
+	MOVVS	R0,R4
+	BL	minibuffer_write
+	ADD	R13,R13,#256
+	FNRTS
+
 ;E R0=pointer to string of text only
 ;X Text replaces the text before mark, updating all offsets #
+;  ": " appended if necessary (unless b31 set)
 
 minibuffer_prompt
- STMFD R13!,{R1-R6,R14}
+ FNJSR "R1-R7"
  FNLDR R14,key_flags
  TST R14,#2			; are we in an execute strokes loop
- LDMNEFD R13!,{R1-R6,PC}
+ FNRTS NE
+ EOR R7,R0,#1<<31
+ BIC R0,R0,#1<<31
  MOV R4,R0			; save string
  BL str_len			; find length
  MOV R5,R0			; save length
+ ADD R0,R4,R5
+ LDRB R14,[R0,#-1]
+ TEQ R14,#' '
+ LDREQB R14,[R0,#-2]
+ TEQEQ R14,#':'			; ends in ": "?
+ TSTEQ R7,#1<<31
+ SUBEQ R5,R5,#2			; ...ignore
  FNLDR R0,mini_mark		; mark offset
  SUB R6,R5,R0			; signed change
  FNLDR R3,mini_len
+ TST R7,#1<<31
+ ADDNE R6,R6,#2			; allow for ": "
  ADD R2,R3,R6			; new length (after insert)
  FNLDR R1,mini_bufl
  CMP R2,R1			; will it fit?
- LDMGEFD R13!,{R1-R6,PC}
+ FNRTS GE
  FNSTR R2,mini_len		; update length
  ADD R2,R0,R6
  FNSTR R2,mini_mark		; update mark
@@ -713,7 +754,32 @@ minibuffer_prompt
  FNLDR R2,mini_ptr
  MOV R3,R5
  SWI XZapRedraw_MoveBytes ; BL move_bytes
- LDMFD R13!,{R1-R6,PC}
+ TST R7,#1<<31
+ FNLDR R1,mini_ptr,NE
+ MOVNE R0,#':'
+ STRNEB R0,[R1,R5]!
+ MOVNE R0,#' '
+ STRNEB R0,[R1,#1]		; append ": " to prompt
+ FNRTS
+
+;E R0=pointer to token R4-R7=parameters
+;X Text replaces the text before mark, updating all offsets #
+
+minibuffer_prompt_token
+	FNJSR	"R1-R7,R11"
+	AND	R11,R0,#1<<31
+	BIC	R0,R0,R11
+	MOV	R1,R0
+	MOV	R4,R0
+	SUB	R13,R13,#256
+	MOV	R2,R13
+	MOV	R3,#256
+	BL	lookup_token
+	ORRVC	R0,R2,R11
+	ORRVS	R0,R4,R11
+	BL	minibuffer_prompt
+	ADD	R13,R13,#256
+	FNRTS
 
 ;X Minibuffer updated on screen (if open) with scroll offsets
 ;  set to ensure cursor in view etc WB #
@@ -1553,6 +1619,7 @@ find_command_help
  ADREQ R0,com$l
  ADRNE R0,fn$l
 ; ADR R0,com$l
+ BL lookup_token_R0
  BL str$l
  BLVC insert$l
  FNRTS VS
@@ -1560,12 +1627,14 @@ find_command_help
  ANDS R4,R4,#7			; command type
  BEQ para$l			; no argument
  ADR R0,arg$l
+ BL lookup_token_R0
  BL str$l
  FNRTS VS
  CMP R4,#3
  BLT byte$l
  BEQ string$l
  ADR R0,block$l
+ BL lookup_token_R0
  BL str$l
  FNRTS VS
 done$l				; argument done
@@ -1578,10 +1647,10 @@ para$l				; do main para
  BL insert$l
  MOVVC R0,R7
  FNRTS
-com$l	= "Command : ",0
-fn$l	= "Function: ",0
-arg$l	= "Argument: ",0
-block$l = "Data block",0
+com$l	= "zap_h_cmd",0
+fn$l	= "zap_h_fn",0
+arg$l	= "zap_h_arg",0
+block$l = "zap_h_db",0
 bra$l	FNS (" (' ')")		; aligns...
 byte$l
  TST R11,#8
@@ -1686,12 +1755,12 @@ display_help
  BLVC create_window_block
  FNRTS
 help$l = "Help",0
-nohelpmsg$l = "No help text found.",0
+nohelpmsg$l = "zap_NoHelpText",0
  ALIGN
 text$l DCD &FFF
 nohelp$l
  ADR R0,nohelpmsg$l
- MOV R1,#3<<30
+ MOV R1,#7<<29
  BL warn_user
  FNRTS
 

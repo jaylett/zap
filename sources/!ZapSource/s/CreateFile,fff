@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install/saving file blocks.
-; $Id: CreateFile,fff,v 1.2 1999/01/12 18:23:42 dj Exp $
+; $Id: CreateFile,fff,v 1.1.2.1 1999/01/06 21:06:21 dj Exp $
 
 ; OPTIONS >>>
 USE_WRITE_FILES * 0
@@ -59,6 +59,7 @@ USE_WRITE_FILES * 0
  EXPORT save_file_buffer
  EXPORT save_file_date
  EXPORT find_current_directory
+ EXPORT find_current_directory_dde
  EXPORT new_switches
  EXPORT new_switches_set
  EXPORT save_to_file
@@ -106,7 +107,7 @@ older$l
  BLVC conv_wind_off		; set up R8/R9 for the newly loaded file
  ADRVC R0,s$l
  MOVVC R1,#600
- BLVC warn_user
+ BLVC warn_user_token
  MOVVC R0,R10
  FNRTS
 altered$l
@@ -119,7 +120,7 @@ load$l
  MOV R0,R10
  BL install_new_file
  FNRTS
-s$l FNS ("Multiple copies - copy on disc is newer")
+s$l FNS ("zap_MultipleCopies")
 
  LOCAL
 
@@ -1767,6 +1768,33 @@ b$l
 
  LOCAL
 
+;X R0=Wimp KB buffer containing current directory name (or 0)
+
+find_current_directory_dde
+	FNJSR	"R1-R2"
+	FNLDR	R0,wimp_kbdbuf
+	MOV	R1,#15
+	STRB	R1,[R0]
+	MOV	R11,#e_init
+	BL	call_mode
+	CMP	R0,#0
+	LDRHIB	R1,[R0]
+	CMPHI	R1,#32
+	BLS	fcd$l
+	FNLDR	R1,wimp_kbdbuf	; if dir name returned, copy it
+x$l	LDRB	R2,[R0],#1
+	CMP	R2,#32
+	MOVLS	R2,#0		; & fix the terminator
+	STRB	R2,[R1],#1
+	BHI	x$l
+	FNLDR	R0,wimp_kbdbuf
+	FNRTS
+fcd$l	TEQ	R0,#0		; if <>0 returned (ie. SWI failed),
+	MOVNE	R0,#0		;  return 0
+	FNRTS	NE		; else return the current directory
+	FNPULL
+	; fall through to find_current_directory
+
 ;X R0=Wimp KB buffer containing current directory name #
 
 find_current_directory
@@ -2169,6 +2197,7 @@ os_cli
  FNRTS
 prompt$l
  ADR R0,p$l
+ ORR R0,R0,#1<<31
  BL minibuffer_prompt
 ; FNcall Zap_MiniPrompt,R6
  FNRTS

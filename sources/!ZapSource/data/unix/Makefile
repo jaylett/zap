@@ -34,7 +34,7 @@
 # You'll need to change the following if you add additional compilation
 # units.
 
-OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Cursors \
+OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Messages o/Cursors \
 		  o/CreateWind o/AlterTxt o/Search o/Commands o/Execute \
 		  o/Update o/Mode0 o/Mode1 o/Mode2 o/Mode3 o/Mode4 o/Mode4dis \
 		  o/ModeBits o/Mode11 o/SoftWrap o/KeyBits o/Strings \
@@ -48,7 +48,7 @@ OBJECTS		= o/Dispatch o/ModuleBits o/Redraw o/Template o/Cursors \
 
 asm		= as_ro
 link		= link_ro
-asmflags	= -objasm -nolocal -upper -o $@
+asmflags	= -objasm -nolocal -o $@
 linkflags	= -o $@ -B 0 -bin
 
 # We need rm, but it's almost always the same. You may need to change

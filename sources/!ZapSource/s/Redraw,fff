@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 1.2 1999/01/12 18:24:06 dj Exp $
+; $Id: Redraw,fff,v 1.1.2.1 1999/01/06 21:06:50 dj Exp $
 
  GET h.ZapHeader
 
@@ -2612,7 +2612,7 @@ check_font_manager
  CMP R0,#242			; version number
  BLLT err$l
  LDMFD R13!,{R1-R3,PC}
-err$l ERR "Zap needs Font Manager 2.42 or later (outline fonts)"
+err$l ERR "zap_e_needFM242"
 
 ;X R0=font handle of font_name scaled font_size #
 
@@ -3400,9 +3400,8 @@ create_heading
  BL strstr			; clear buffer to spaces
  CMN R10,#1
  BEQ cr13			; no page heading
- MOV R1,R11
- ADR R2,cr_s0
- BL strcpy			; Page
+ ADR R0,cr_s0
+ BL cr_sc			; Page
  MOV R0,R10
  MOV R2,#12
  SWI XOS_ConvertCardinal4
@@ -3411,36 +3410,41 @@ create_heading
  STRB R0,[R1]			; remove null
  ADD R11,R11,#12		; move onto next column
 cr13
- MOV R1,R11
- ADR R2,cr_s1
- BL strcpy
+ ADR R0,cr_s1
+ BL cr_sc
  LDR R0,[R9,#f_name]
  BL find_leaf_name
  MOV R2,R0
  BL strcpy			; copy in filename
  ADD R11,R11,#18		; next col
- MOV R1,R11
- ADR R2,cr_s2
- BL strcpy
+ ADR R0,cr_s2
+ BL cr_sc
  FNLDR R0,wimp_dateformat
  BL read_date
  LDMVSFD R13!,{R1-R4,R10-R11,PC}
  FNLDR R2,wimp_kbdbuf
  BL strcpy
  ADD R11,R11,#32
- MOV R1,R11
- ADR R2,cr_s3
- BL strcpy
+ ADR R0,cr_s3
+ BL cr_sc
  FNLDR R0,wimp_timeformat
  BL read_date
  LDMVSFD R13!,{R1-R4,R10-R11,PC}
  FNLDR R2,wimp_kbdbuf
  BL strcpy			; no terminating 0 for cache lines
  LDMFD R13!,{R1-R4,R10-R11,PC}
-cr_s0 FNS ("Page: ")
-cr_s1 FNS ("File: ")
-cr_s2 FNS ("Date: ")
-cr_s3 FNS ("Time: ")
+cr_sc
+ MOV R2,R14
+ BL lookup_token_R0
+ MOV R14,R2
+ MOV R2,R0
+ MOV R1,R11
+ B strcpy
+cr_s0 = "zap_P_page",0
+cr_s1 = "zap_P_file",0
+cr_s2 = "zap_P_date",0
+cr_s3 = "zap_P_time",0
+ ALIGN
 
 ;E R0=pointer to string ending in 0A
 ;X string output to printer (inc 0A) #

@@ -1,5 +1,5 @@
 ; Contains code to create/delete/install window blocks + ww & sw code...
-; $Id: CreateWind,fff,v 1.2 1999/01/12 18:23:43 dj Exp $
+; $Id: CreateWind,fff,v 1.1.2.1 1999/01/06 21:06:22 dj Exp $
 
  GET h.ZapHeader
  GET h.Template
@@ -1286,16 +1286,27 @@ Openparent
  LDR R0,[R9,#f_name]
  ;B filer_open			; open the parent directory
 
+ LOCAL
+
 ;E R0=filename
 ;X filer window containing this filename opened WB #
 
 filer_open
- STMFD R13!,{R1-R3,R10,R14}
+ FNJSR "R1-R3,R10"
  MOV R10,R0			; save name
  BL find_leaf_name
  SUB R0,R0,#1			; pointer to '.'
  SUBS R3,R0,R10			; length of the main part of the name
- LDMMIFD R13!,{R1-R3,R10,PC}
+ BGT gotname$l
+ BL find_current_directory_dde
+ FNRTS VS
+ MOVS R10,R0
+ FNRTS EQ
+ BL str_len
+ MOVS R3,R0
+ FNRTS EQ
+ MOV R0,R10
+gotname$l
  FNLDR R1,wimp_block
  ADR R2,fo_s2
  BL strcpy			; copy in command
@@ -1307,7 +1318,7 @@ filer_open
  STRB R0,[R10]			; add terminator
  FNLDR R0,wimp_block
  SWI XOS_CLI
- LDMFD R13!,{R1-R3,R10,PC}
+ FNRTS
 
 fo_s2
  FNS ("%Filer_OpenDir ")
@@ -2994,6 +3005,7 @@ new_w_num_checked
 a$l
  TEQ R0,#0
  MOVEQ R0,R4			; address of title
+ BLEQ lookup_token_R0
  TEQ R0,#2
  MOVEQ R0,#10			; buffer length (may be hex)
  TEQ R0,#1
