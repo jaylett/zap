@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Execute,fff,v 2.10 2002/11/15 20:49:07 christian Exp $
+; $Id: Execute,fff,v 2.11 2002/11/15 23:33:17 christian Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -56,9 +56,12 @@
 	EXPORT	validate_varname
 	EXPORT	validate_varname_wild
 
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; KEY COMMAND TABLE SUBS					  ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 ;E,X as for read_command (plus validate_command)
 ; Returns R1=0 on read error (for block freeing purposes)
@@ -69,6 +72,7 @@ read_validate_command
 	MOVVS	R1,#0
 	BLVC	validate_command
 	FNRTS
+
 
 	LOCAL
 
@@ -85,6 +89,7 @@ find_key_command
 	BL	validate_command	; try to load the command
 	MOVVC	R0,R7
 	FNRTS
+
 
 	LOCAL
 
@@ -121,6 +126,7 @@ end$l					; R0=command address to return
 	SUBS	R7,R0,#0		; set new command address (set carry)
 	FNRTS
 
+
 	LOCAL
 
 ;E R7=command address / 0 / bit 0 set form
@@ -144,6 +150,7 @@ got$l	LDREQ	R0,[R0,#-4]
 	LDR	R0,flags_word
 	LDR	R0,[R14,R0]
 	FNRTS
+
 
 	LOCAL
 
@@ -212,6 +219,7 @@ notloaded$l
 	ORRCC	R0,R4,#1		; found
 	FNRTS
 
+
 	LOCAL
 
 ;E R4=pointer of 0 terminated list of <string><zero padding><word>
@@ -219,77 +227,80 @@ notloaded$l
 ;X R0=word if found CS if not |
 ;  R4=start of the matching string in the table (if found)
 ;  flags_word=offset into flags words table (for not-yet-loaded commands)
- FNAME search_command_table
+	FNAME	search_command_table
 search_command_table
- FNJSR "R1-R3,R11"		; don't push R4
- MOV R11,#4			; offset into flags words table
-next$l				; look at next entry in table
- LDRB R0,[R4]
- CMP R0,#0			; reached end of table ?
- FNRTS EQ			; return with carry set (not found)
- MOV R3,R5			; get command
- MOV R1,R4			; current point in table
-command$l			; check this one command
- LDR R0,[R1],#4			; get next word from table
- LDR R2,[R3],#4			; get next word from command
- TEQ R0,R2
- BNE fail$l			; fail
- TST R0,#&FF000000
- BNE command$l			; more to come
- LDR R0,[R1]			; word there
- STR R11,flags_word
- ADDS R0,R0,#0			; carry clear
- FNRTS
-fail$l				; this command didn't match
- TST R0,#&FF000000
- LDRNE R0,[R1],#4
- BNE fail$l			; skip to end of command in table
- ADD R11,R11,#4
- ADD R4,R1,#4			; skip past command offset
- B next$l			; try next one in list
+	FNJSR	"R1-R3,R11"		; don't push R4
+	MOV	R11,#4			; offset into flags words table
+next$l					; look at next entry in table
+	LDRB	R0,[R4]
+	CMP	R0,#0			; reached end of table ?
+	FNRTS	EQ			; return with carry set (not found)
+	MOV	R3,R5			; get command
+	MOV	R1,R4			; current point in table
+command$l				; check this one command
+	LDR	R0,[R1],#4		; get next word from table
+	LDR	R2,[R3],#4		; get next word from command
+	TEQ	R0,R2
+	BNE	fail$l			; fail
+	TST	R0,#&FF000000
+	BNE	command$l		; more to come
+	LDR	R0,[R1]			; word there
+	STR	R11,flags_word
+	ADDS	R0,R0,#0		; carry clear
+	FNRTS
+fail$l					; this command didn't match
+	TST	R0,#&FF000000
+	LDRNE	R0,[R1],#4
+	BNE	fail$l			; skip to end of command in table
+	ADD	R11,R11,#4
+	ADD	R4,R1,#4		; skip past command offset
+	B	next$l			; try next one in list
 
 flags_word & 0
 
- LOCAL
+
+	LOCAL
 
 ;E R0=command address
 ;X R0=address of command name (upper case)/0 if not found #
- FNAME find_command_fromkey
+	FNAME	find_command_fromkey
 find_command_fromkey
- FNJSR "R1-R7"
- MOV R5,R0			; save the command we're looking for
- FNADD R6,R12,command_store	; start of list of command tables
- FNLDR R7,com_number		; number of tables to look at
+	FNJSR	"R1-R7"
+	MOV	R5,R0			; save the command we're looking for
+	FNADD	R6,R12,command_store	; start of list of command tables
+	FNLDR	R7,com_number		; number of tables to look at
 table$l
- CMP R7,#0
- MOVLE R0,#0
- FNRTS LE
- LDR R4,[R6],#4
- SUB R7,R7,#1			; next table
- LDR R1,[R4]			; offset from module start
- SUB R1,R4,R1			; start of module
- ADD R4,R4,#8			; skip flags
- SUB R1,R5,R1			; offset of the command in this module
+	CMP	R7,#0
+	MOVLE	R0,#0
+	FNRTS	LE
+	LDR	R4,[R6],#4
+	SUB	R7,R7,#1		; next table
+	LDR	R1,[R4]			; offset from module start
+	SUB	R1,R4,R1		; start of module
+	ADD	R4,R4,#8		; skip flags
+	SUB	R1,R5,R1		; offset of the command in this module
 next$l
- LDRB R0,[R4]
- TEQ R0,#0
- BEQ table$l			; go to next table
- MOV R3,R4			; save address of command start
+	LDRB	R0,[R4]
+	TEQ	R0,#0
+	BEQ	table$l			; go to next table
+	MOV	R3,R4			; save address of command start
 com$l
- LDR R0,[R4],#4
- TST R0,#&FF000000
- BNE com$l			; set R4 to command offset posn
- LDR R0,[R4],#4			; command offset
- TEQ R0,R1
- BNE next$l
- MOV R0,R3			; start of command
- FNRTS
+	LDR	R0,[R4],#4
+	TST	R0,#&FF000000
+	BNE	com$l			; set R4 to command offset posn
+	LDR	R0,[R4],#4		; command offset
+	TEQ	R0,R1
+	BNE	next$l
+	MOV	R0,R3			; start of command
+	FNRTS
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Read command string					  ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+	LOCAL
 
 ;E R10=pointer to string terminated by <&20
 ;X R0=-1 => args invalid (only tested if command loaded)
@@ -303,84 +314,75 @@ com$l
 ;  (String of commands concatenated to a single Multicommand)
 ;  (:<return> skipped so can have multiple lines)
 ;  (See buffer_stroke for Mulicommand data format) #
- FNAME read_command
+	FNAME	read_command
 read_command
- FNJSR "R2-R5"
- BL read_one_command
- BLVC check_arg_valid
- FNRTS VS
- TST R10,#1<<31
- FNRTS NE			; if r10b31 set, only ever read one command
- LDRB R14,[R10]
- TEQ R14,#';'
- BLEQ comment$l
- TEQ R14,#':'
- FNRTS NE			; only one command
- TEQ R0,#0
- TEQNE R0,#2
- BLNE err41			; not allowed keynums and minibuf strings
- MOVVC R0,#16			;   for multiple commands
- BLVC heap_claim
- FNRTS VS
- MOV R4,R0			; start heap block of multicommand
- MOV R5,#0			; valid length
-add$l				; add the next command to the buffer
- TEQ R6,#1			; was data type number
- FNLDR R0,wimp_kbdbuf,EQ
- STREQ R1,[R0]			; save arg + assume it is a word to
- MOVEQ R6,#2			; buffer (it doesn't matter)
- MOVNE R0,R1			; arg
- MOV R1,#1			; only do once
- BL buffer_stroke		; enter this stroke
- FNRTS VS
- CMP R6,#3			; OK, we're not going to see arg type 4...
- BLHS heap_free			; free heap block (avoid memory leak)
- ADDS R14,R14,#0		; CLV because the heap not alloc'd if 1<<27
- LDRB R14,[R10]
- TEQ R14,#';'
- BLEQ comment$l
- TEQ R14,#':'
- BNE end$l			; finished
+	FNJSR	"R2-R5"
+	BL	read_one_command
+	BLVC	check_arg_valid
+	FNRTS	VS
+	TST	R10,#1<<31
+	FNRTS	NE			; if r10b31 set, only ever read one command
+	LDRB	R14,[R10]
+	TEQ	R14,#';'
+	BLEQ	comment$l
+	TEQ	R14,#':'
+	FNRTS	NE			; only one command
+	TEQ	R0,#0
+	TEQNE	R0,#2
+	BLNE	err41			; not allowed keynums and minibuf strings
+	MOVVC	R0,#16			;   for multiple commands
+	BLVC	heap_claim
+	FNRTS	VS
+	MOV	R4,R0			; start heap block of multicommand
+	MOV	R5,#0			; valid length
+add$l					; add the next command to the buffer
+	TEQ	R6,#1			; was data type number
+	FNLDR	R0,wimp_kbdbuf,EQ
+	STREQ	R1,[R0]			; save arg + assume it is a word to
+	MOVEQ	R6,#2			; buffer (it doesn't matter)
+	MOVNE	R0,R1			; arg
+	MOV	R1,#1			; only do once
+	BL	buffer_stroke		; enter this stroke
+	FNRTS	VS
+	CMP	R6,#3			; OK, we're not going to see arg type 4...
+	BLHS	heap_free		; free heap block (avoid memory leak)
+	ADDS	R14,R14,#0		; CLV because the heap not alloc'd if 1<<27
+	LDRB	R14,[R10]
+	TEQ	R14,#';'
+	BLEQ	comment$l
+	TEQ	R14,#':'
+	BNE	end$l			; finished
 skipcolon$l
- LDRB R14,[R10,#1]!
- TEQ R14,#' '
- TEQNE R14,#':'
- BEQ skipcolon$l
- ;FNRTS VS; RETURNS HERE!
- BLVC read_one_command		; get next command
- BLVC check_arg_valid
- FNRTS VS; RETURNS HERE!
-;	TEQ R0,#1
-;	BEQ checkmini$l
- TEQ R0,#0
- TEQNE R0,#2			; never error...
- BLNE err41
- BVC add$l			; buffer next command
- FNRTS
-;checkmini$l
-;	BL get_command_flags
-;	AND R0,R0,#1<<6:OR:1<<10
-;	TEQ R0,#1<<6:OR:1<<10
-;null$l	MOVEQ R0,#0
-;	ADREQ R1,null$l
-;	BEQ add$l
-;	BL err41
-;	FNRTS
+	LDRB	R14,[R10,#1]!
+	TEQ	R14,#' '
+	TEQNE	R14,#':'
+	BEQ	skipcolon$l
+	BLVC	read_one_command	; get next command
+	BLVC	check_arg_valid
+	FNRTS	VS
+	TEQ	R0,#0
+	TEQNE	R0,#2			; never error...
+	BLNE	err41
+	BVC	add$l			; buffer next command
+	FNRTS
+
 end$l
- ADRL R7,Multicommand		; command address
- MOV R1,R4			; block pointer
- MOV R6,#4			; data arg type
- MOV R0,#0			; arg is ok
- FNRTS
+	ADRL	R7,Multicommand		; command address
+	MOV	R1,R4			; block pointer
+	MOV	R6,#4			; data arg type
+	MOV	R0,#0			; arg is ok
+	FNRTS
+
 comment$l
 	FNJSR
-c$l	LDRB	R14,[R10,#1]!	; find ':' or end-of-string
+c$l	LDRB	R14,[R10,#1]!		; find ':' or end-of-string
 	CMP	R14,#':'
 	CMPNE	R14,#31
 	BHI	c$l
 	FNRTS
 
- LOCAL
+
+	LOCAL
 
 ;E R0=command addr (or 0 or 2 or b0/b1 form)
 ;     (b1 set if intending to call as function)
@@ -394,74 +396,66 @@ c$l	LDRB	R14,[R10,#1]!	; find ':' or end-of-string
 ;  R0=? *not* 2 if parameter is string and it's OK to ignore in multicommands
 ;  R0=-1 if parameter not valid
 ;  R7=command address #
- FNAME check_arg_valid
+	FNAME	check_arg_valid
 check_arg_valid
- FNJSR
- MOV R7,R0
- BICS R14,R0,#2
- BLEQ err$l			; command not known
-; TST R7,#1
-; BNE ok$l			; command isn't loaded so don't check!
-; LDR R0,[R7,#-4]		; get command flags
- BLVC get_command_flags
-; ADRVS R0,f$l
- FNRTS VS
- MOV R14,R0
- TST R7,#2
- MOVEQ R0,R0,LSR #3		; ...if calling as command
- MOVNE R0,R0,LSR #24		; ...if calling as function
- ANDS R0,R0,#7			; argument type
- BEQ noarg$l
- CMP R0,#3
- BEQ string$l			; string
- BGT nogood$l			; can't use data block
- TEQ R6,#1
- TEQNE R6,#8
- BEQ ok$l			; valid number
- TEQ R6,#2
- MOVNE R0,#-1			; not a number
- MOVEQ R0,#1
- FNRTS
+	FNJSR
+	MOV	R7,R0
+	BICS	R14,R0,#2
+	BLEQ	err$l			; command not known
+	BLVC	get_command_flags
+	FNRTS	VS
+	MOV	R14,R0
+	TST	R7,#2
+	MOVEQ	R0,R0,LSR #3		; ...if calling as command
+	MOVNE	R0,R0,LSR #24		; ...if calling as function
+	ANDS	R0,R0,#7		; argument type
+	BEQ	noarg$l
+	CMP	R0,#3
+	BEQ	string$l		; string
+	BGT	nogood$l		; can't use data block
+	TEQ	R6,#1
+	TEQNE	R6,#8
+	BEQ	ok$l			; valid number
+	TEQ	R6,#2
+	MOVNE	R0,#-1			; not a number
+	MOVEQ	R0,#1
+	FNRTS
 noarg$l
- TEQ R6,#0
- BNE nogood$l
+	TEQ	R6,#0
+	BNE	nogood$l
 ok$l
- MOV R0,#0
- FNRTS
+	MOV	R0,#0
+	FNRTS
 nogood$l
- MOV R0,#-1
- FNRTS
+	MOV	R0,#-1
+	FNRTS
 string$l
- TST R14,#1<<27			; new code here...
- BNE ok$l			; no checking...
- TEQ R6,#3
- TEQNE R6,#9
- BEQ ok$l			; valid string or expression
- TEQ R6,#0
- MOVNE R0,#-1
- MOVEQ R0,#1			; ...minibuffer?
-; ADRVS R0,f$l
- FNRTS
-;stringnotgood$l
-;; SWI &107
-; ;LDR R0,[R7,#-4]		; get command flags
-; ;TST R0,#1<<27		; OK to ignore in multi-commands?
-; ;MOVNE R0,#2
-; MOV R0,#-1
-; FNRTS
-err$l
- FNJSR "R1,R4"
- TST R0,#2
- ADREQ R0,s$l
- ADRNE R0,f$l
- BL lookup_token_R0
- MOV R1,R10
- BL generate_error
- FNRTS
-s$l = "zap_e_unkcmd",0
-f$l FNS ("zap_e_unkfn")
+	TST	R14,#1<<27		; new code here...
+	BNE	ok$l			; no checking...
+	TEQ	R6,#3
+	TEQNE	R6,#9
+	BEQ	ok$l			; valid string or expression
+	TEQ	R6,#0
+	MOVNE	R0,#-1
+	MOVEQ	R0,#1			; ...minibuffer?
+	FNRTS
 
- LOCAL
+err$l
+	FNJSR	"R1,R4"
+	TST	R0,#2
+	ADREQ	R0,s$l
+	ADRNE	R0,f$l
+	BL	lookup_token_R0
+	MOV	R1,R10
+	BL	generate_error
+	FNRTS
+
+s$l	= 	"zap_e_unkcmd",0
+f$l 	= 	"zap_e_unkfn",0
+	ALIGN
+
+
+	LOCAL
 
 ;E R10=pointer to string terminated by =<&20 or :&"
 ;      (top bit set if terminated by non-alphanumeric exc. '_') (fn call)
@@ -472,150 +466,144 @@ f$l FNS ("zap_e_unkfn")
 ;  R10 updated (eg to colon) (preserved if no command found) WB #
 ;      (top bit preserved regardless)
 ;  (command string is just read - no type checking is done)
- FNAME read_one_command
+	FNAME	read_one_command
 read_one_command
- FNJSR "R2-R3,R11"
- AND R11,R10,#1<<31
- BIC R10,R10,#1<<31
- BL str_skip			; skip spaces
- STR R10,cmdaddr$l
- MOV R6,#0			; no argument to start with
- MOV R1,#0			; no argument
- ORR R0,R10,R11			; start of command name
- BL look_key_command		; get entry in R0
-; ADRVS R0,aproblema$l;DEBUG...
- FNRTS VS
- MOVS R2,R0			; save key command address
- MOVEQ R0,R11,LSR #30
- FNRTS EQ			; not found
- TEQ R11,#0			; was top bit of R10 set?
- ADRNE R14,a$l
- BNE str_fnseparator
- BL str_separator		; move to next arg
+	FNJSR	"R2-R3,R11"
+	AND	R11,R10,#1<<31
+	BIC	R10,R10,#1<<31
+	BL	str_skip		; skip spaces
+	STR	R10,cmdaddr$l
+	MOV	R6,#0			; no argument to start with
+	MOV	R1,#0			; no argument
+	ORR	R0,R10,R11		; start of command name
+	BL	look_key_command	; get entry in R0
+	FNRTS	VS
+	MOVS	R2,R0			; save key command address
+	MOVEQ	R0,R11,LSR #30
+	FNRTS	EQ			; not found
+	TEQ	R11,#0			; was top bit of R10 set?
+	ADRNE	R14,a$l
+	BNE	str_fnseparator
+	BL	str_separator		; move to next arg
 a$l
- TST R2,#1			; get flags word
- FNLDR R14,ext_comm_flags,NE	; from table
- LDRNE R3,flags_word
- LDREQ R3,[R2,#-4]		; or from module
- LDRNE R3,[R14,R3]
- TEQ R11,#0
- MOVNE R3,R3,LSR #21		; if fn, shuffle parameter type bits along
- BL read_arg$l
- ORRVC R0,R2,R11,LSR #30	; command address
- ORRVC R10,R10,R11
-; ADRVS R0,aproblema$l;DEBUG...
- FNRTS
+	TST	R2,#1			; get flags word
+	FNLDR	R14,ext_comm_flags,NE	; from table
+	LDRNE	R3,flags_word
+	LDREQ	R3,[R2,#-4]		; or from module
+	LDRNE	R3,[R14,R3]
+	TEQ	R11,#0
+	MOVNE	R3,R3,LSR #21		; if fn, shuffle parameter type bits along
+	BL	read_arg$l
+	ORRVC	R0,R2,R11,LSR #30	; command address
+	ORRVC	R10,R10,R11
+	FNRTS
+
 cmdaddr$l & 0
 
-aproblema$l
- & 0
- FNS ("aproblema$l...")
-
 read_arg$l
- FNJSR "R2"
- LDRB R0,[R10]
- TEQ R0,#'>'			; menu stuff
- FNRTS EQ
- ANDS R14,R3,#7<<3
- BEQ null_arg$l
- CMP R14,#3<<3			; (never 0)
- BLO read_num_arg$l
- FNRTS HI			; return if can't handle
- TEQ R0,#'"'
- BEQ str$l			; string argument
- TEQ R0,#'('
- BEQ expr$l			; string argument
- TEQ R0,#'$'
- BEQ eval$l			; string expression argument
+	FNJSR	"R2"
+	LDRB	R0,[R10]
+	TEQ	R0,#'>'			; menu stuff
+	FNRTS	EQ
+	ANDS	R14,R3,#7<<3
+	BEQ	null_arg$l
+	CMP	R14,#3<<3		; (never 0)
+	BLO	read_num_arg$l
+	FNRTS	HI			; return if can't handle
+	TEQ	R0,#'"'
+	BEQ	str$l			; string argument
+	TEQ	R0,#'('
+	BEQ	expr$l			; string argument
+	TEQ	R0,#'$'
+	BEQ	eval$l			; string expression argument
 nullstr$l ; take advantage of zero byte in following instruction
- TEQ R0,#0
- TEQNE R0,#10
- TEQNE R0,#':'
- TEQNE R0,#';'
- BNE bad_arg$l
- TST R3,#1<<27			; no argument strictly necessary...?
- ADRNE R1,anullstr$l		; um, /where/ exactly !?!?
- MOVNE R6,#3			; string
- FNRTS
+	TEQ	R0,#0
+	TEQNE	R0,#10
+	TEQNE	R0,#':'
+	TEQNE	R0,#';'
+	BNE	bad_arg$l
+	TST	R3,#1<<27		; no argument strictly necessary...?
+	ADRNE	R1,anullstr$l		; um, /where/ exactly !?!?
+	MOVNE	R6,#3			; string
+	FNRTS
 anullstr$l
- DCD 0
+	DCD	0
 
 read_num_arg$l
- MOV R6,#1
- TEQ R0,#'('
- BEQ numbracketed$l
- TEQ R0,#'"'
- BEQ numquoted$l
- TEQ R0,#'&'
- TEQNE R0,#'-'
- BEQ num$l			; number argument
- TEQ R0,#'#'
- BEQ eval$l			; numeric expression argument
- TEQ R0,#'''
- BEQ asc$l			; single ascii byte
- CMP R0,#'0'
- BCC no_arg$l			; no arg supplied
- CMP R0,#'9'
- BLE num$l			; number argument
- TEQ R0,#'n'
- BNE no_arg$l			; no arg supplied
- MOV R6,#2			; current key is the argument
-endskip$l			; R2=command address
- BL str_separator		; get to the next arg
- FNRTS
-null_arg$l			; no argument expected
- MOV R6,#0
- TEQ R11,#0			; function? assume OK
- FNRTS NE
-no_arg$l			; end/LF/':'/';' -> no arg supplied (is OK)
- TEQ R0,#0
- TEQNE R0,#10
- TEQNE R0,#':'
- TEQNE R0,#';'
- MOVEQ R1,#0
- FNRTS EQ
-bad_arg$l			; non-arg-star character found
- TEQ R11,#0
- ADR R14,bad_arg2$l
- BNE badparam_fn
- BEQ err41
+	MOV	R6,#1
+	TEQ	R0,#'('
+	BEQ	numbracketed$l
+	TEQ	R0,#'"'
+	BEQ	numquoted$l
+	TEQ	R0,#'&'
+	TEQNE	R0,#'-'
+	BEQ	num$l			; number argument
+	TEQ	R0,#'#'
+	BEQ	eval$l			; numeric expression argument
+	TEQ	R0,#'''
+	BEQ	asc$l			; single ascii byte
+	CMP	R0,#'0'
+	BCC	no_arg$l		; no arg supplied
+	CMP	R0,#'9'
+	BLE	num$l			; number argument
+	TEQ	R0,#'n'
+	BNE	no_arg$l		; no arg supplied
+	MOV	R6,#2			; current key is the argument
+endskip$l				; R2=command address
+	BL	str_separator		; get to the next arg
+	FNRTS
+null_arg$l				; no argument expected
+	MOV	R6,#0
+	TEQ	R11,#0			; function? assume OK
+	FNRTS	NE
+no_arg$l				; end/LF/':'/';' -> no arg supplied (is OK)
+	TEQ	R0,#0
+	TEQNE	R0,#10
+	TEQNE	R0,#':'
+	TEQNE	R0,#';'
+	MOVEQ	R1,#0
+	FNRTS	EQ
+bad_arg$l				; non-arg-star character found
+	TEQ	R11,#0
+	ADR	R14,bad_arg2$l
+	BNE	badparam_fn
+	BEQ	err41
 bad_arg2$l
- ADD R0,R0,#4
- LDR R1,cmdaddr$l
- BL generate_error
- FNRTS
+	ADD	R0,R0,#4
+	LDR	R1,cmdaddr$l
+	BL	generate_error
+	FNRTS
 num$l
- BL str_readnum			; does a str_separator as well
- MOVVC R1,R0			; value
- MOVVC R6,#1
- FNRTS
-str$l				; string constant
- BL str_strlen			; find length of quoted argument
- CMP R0,#0
- FNRTS LT			; no argument
- ADD R0,R0,#1			; room for terminator
- BL heap_claim
- FNRTS VS
- MOV R1,R0			; buffer address
- MOV R3,R1			; save buffer address
- BL str_strcopy			; copy string argument into buffer
- MOV R6,#3			; string
- MOV R1,R3			; parameter address
- B endskip$l			; R2=command address
+	BL	str_readnum		; does a str_separator as well
+	MOVVC	R1,R0			; value
+	MOVVC	R6,#1
+	FNRTS
+str$l					; string constant
+	BL	str_strlen		; find length of quoted argument
+	CMP	R0,#0
+	FNRTS	LT			; no argument
+	ADD	R0,R0,#1		; room for terminator
+	BL	heap_claim
+	FNRTS	VS
+	MOV	R1,R0			; buffer address
+	MOV	R3,R1			; save buffer address
+	BL	str_strcopy		; copy string argument into buffer
+	MOV	R6,#3			; string
+	MOV	R1,R3			; parameter address
+	B	endskip$l		; R2=command address
 expr$l
- BL expr_strlen			; find length of quoted argument
- CMP R0,#0
- FNRTS LT			; no argument
-; BLT end$l			; no argument
- ADD R0,R0,#1			; room for terminator
- BL heap_claim
- FNRTS VS
- MOV R1,R0			; buffer address
- MOV R3,R1			; save buffer address
- BL expr_strcopy		; copy string argument into buffer
- MOV R6,#3			; string
- MOV R1,R3			; parameter address
- B endskip$l			; R2=command address
+	BL	expr_strlen		; find length of quoted argument
+	CMP	R0,#0
+	FNRTS	LT			; no argument
+	ADD	R0,R0,#1		; room for terminator
+	BL	heap_claim
+	FNRTS	VS
+	MOV	R1,R0			; buffer address
+	MOV	R3,R1			; save buffer address
+	BL	expr_strcopy		; copy string argument into buffer
+	MOV	R6,#3			; string
+	MOV	R1,R3			; parameter address
+	B	endskip$l		; R2=command address
 
 eval$l	MOV	R6,R0
 	LDRB	R0,[R10,#1]!
@@ -625,15 +613,15 @@ eval$l	MOV	R6,R0
 	TEQ	R0,#'='
 	BEQ	eval_expr$l
 	TEQ	R0,#'('
-	TEQNE	R0,#'"'		; not a string? must be a function
+	TEQNE	R0,#'"'			; not a string? must be a function
 	BNE	func$l
 	PUSH	"R6"
 	MOV	R3,#3<<3
-	BL	read_arg$l	; recursion!
+	BL	read_arg$l		; recursion!
 	PULL	"R2"
 	FNRTS	VS
 	TEQ	R6,#3
-	FNRTS	NE		; return if not a string
+	FNRTS	NE			; return if not a string
 	TEQ	R2,#'#'
 	MOVEQ	R6,#8
 	MOVNE	R6,#9
@@ -646,7 +634,7 @@ func$l	BL	function_string
 	BEQ	fnum$l
 	TEQ	R6,#3
 	FNRTS	EQ
-	MOV	R0,#12		; convert to string
+	MOV	R0,#12			; convert to string
 	BL	heap_claim
 	MOV	R2,R0
 	MOV	R0,R1
@@ -664,15 +652,15 @@ fnum$l	TEQ	R6,#3
 eval_expr$l
 	LDRB	R0,[R10,#1]!
 	TEQ	R0,#'('
-	TEQNE	R0,#'"'		; not a string? must be a function
-	BNE	func$l		; let's allow [$#]=func (I'm being lazy)
+	TEQNE	R0,#'"'			; not a string? must be a function
+	BNE	func$l			; let's allow [$#]=func (I'm being lazy)
 	PUSH	"R6"
 	MOV	R3,#3<<3
-	BL	read_arg$l	; recursion!
+	BL	read_arg$l		; recursion!
 	PULL	"R2"
 	FNRTS	VS
 	TEQ	R6,#3
-	FNRTS	NE		; return if not a string
+	FNRTS	NE			; return if not a string
 	MOV	R0,R1
 	PUSH	"R1"
 	MOV	R1,#256
@@ -680,7 +668,7 @@ eval_expr$l
 	BVS	eval_fail$l
 	TEQ	R0,#0
 	BEQ	eval_exprnum$l
-	MOV	R1,R0		; string ptr
+	MOV	R1,R0			; string ptr
 	TEQ	R2,#'$'
 	MOVEQ	R6,#3
 	BEQ	eval_gotexpr$l
@@ -706,17 +694,14 @@ eval_fail$l
 	PULL	"R0"
 	FNRTV
 
-;n$l
-; MOV R6,#2
-; B endskip$l
 asc$l
-	LDRB	R1,[R10,#1]!	; value
-	TEQ	R1,#0		; don't allow file end
-	ADDNE	R10,R10,#1	; closing quote
+	LDRB	R1,[R10,#1]!		; value
+	TEQ	R1,#0			; don't allow file end
+	ADDNE	R10,R10,#1		; closing quote
 	LDRB	R0,[R10]
 	TEQ	R0,#'''
-	ADDEQ	R10,R10,#1	; skip ending quote
-	MOV	R6,#1		; number
+	ADDEQ	R10,R10,#1		; skip ending quote
+	MOV	R6,#1			; number
 	B	endskip$l
 
 numbracketed$l
@@ -728,9 +713,9 @@ numquoted$l
 	TEQ	R0,#'('
 	TEQNE	R0,#'"'
 	BEQ	bad_arg$l
-	BL	str_readnum	; does a str_separator as well
+	BL	str_readnum		; does a str_separator as well
 	FNRTS	VS
-	MOV	R1,R0		; value
+	MOV	R1,R0			; value
 	LDRB	R0,[R10]
 	TEQ	R0,R6
 	BNE	bad_arg$l
@@ -746,11 +731,13 @@ numquoted$l
 ;E R0=universal arg value to set for next command
 	FNAME	universal_arg
 universal_arg
-	FNSTR	R0,key_count	; count number
+	FNSTR	R0,key_count		; count number
 	FNLDR	R0,key_flags
 	ORR	R0,R0,#1<<4		; set univ arg flag
 	FNSTR	R0,key_flags
 	MOV	PC,R14
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Learn key strokes					  ;
@@ -778,37 +765,37 @@ universal_arg
 ;	Block (4) Pointer to the block (data_length=4) (data_length=num)
 ;       Byte/word expression (5) as string
 ;       String expression (6) as string
- FNAME buffer_stroke
+	FNAME	buffer_stroke
 buffer_stroke
- FNJSR "R0-R3,R6-R8"
- MOV R2,R0			; save data (address)
- MOV R8,R1			; save number of times
- BL command_data
- MOVVC R3,R0			; length of data store (aligned)
- ADDVC R1,R3,#20		; entry size + -1 term + 4 luck
- MOVVC R0,R4			; heap block
- ADDVC R1,R5,R1			; new len
- BLVC heap_ensure		; make sure big enough
- BVS end$l
- SUB R5,R1,#8			; end of last entry (new length)
- MOV R4,R0			; save new addr of block
- MOV R14,#-1
- STR R14,[R0,R5]!		; add -1 terminator
- SUB R0,R0,R3			; beginning of data part
- STR R7,[R0,#-12]		; command address
- STR R6,[R0,#-8]
- STR R8,[R0,#-4]		; number of times pressed
- TEQ R6,#0
- BEQ end$l			; no data
- CMP R6,#4
- STREQ R2,[R0]
- BEQ end$l			; save pointer to data
- MOV R1,R2			; data start
- MOV R2,R0			; data dest
- SWI XZapRedraw_MoveBytes	; BL move_bytes			; copy in data
+	FNJSR	"R0-R3,R6-R8"
+	MOV	R2,R0			; save data (address)
+	MOV	R8,R1			; save number of times
+	BL	command_data
+	MOVVC	R3,R0			; length of data store (aligned)
+	ADDVC	R1,R3,#20		; entry size + -1 term + 4 luck
+	MOVVC	R0,R4			; heap block
+	ADDVC	R1,R5,R1		; new len
+	BLVC	heap_ensure		; make sure big enough
+	BVS	end$l
+	SUB	R5,R1,#8		; end of last entry (new length)
+	MOV	R4,R0			; save new addr of block
+	MOV	R14,#-1
+	STR	R14,[R0,R5]!		; add -1 terminator
+	SUB	R0,R0,R3		; beginning of data part
+	STR	R7,[R0,#-12]		; command address
+	STR	R6,[R0,#-8]
+	STR	R8,[R0,#-4]		; number of times pressed
+	TEQ	R6,#0
+	BEQ	end$l			; no data
+	CMP	R6,#4
+	STREQ	R2,[R0]
+	BEQ	end$l			; save pointer to data
+	MOV	R1,R2			; data start
+	MOV	R2,R0			; data dest
+	SWI	XZapRedraw_MoveBytes	; copy in data
 end$l
- STRVS R0,[R13]
- FNRTS
+	STRVS	R0,[R13]
+	FNRTS
 
 ;E R1=number of times
 ;  R3=process command internal flags
@@ -816,60 +803,57 @@ end$l
 ;  R7=command address (validated)
 ;X key stroke inserted into key_learn buffer
 ;  (and bungs a -1 on the end) #
- FNAME learn_stroke
+	FNAME	learn_stroke
 learn_stroke
- FNJSR "R4-R6"
- TST R3,#1<<31
- FNRTS NE			; don't learn this command
- ADRL R14,Learn
- TEQ R14,R7			; don't buffer any learn on/off
- FNRTS EQ
- ADRL R14,Execute
- TEQ R14,R7			; don't buffer any execute
- FNRTS EQ
- FNLDR R4,key_learn
- FNLDR R5,key_llen
- MOV R0,R6			; command data
- MOV R6,R3,LSR #24		; is this OK? Yes.
- AND R6,R6,#15
-; LDR R6,[R7,#-4]
-; MOV R6,R6,LSR#3
-; AND R6,R6,#7			; data type
- BL buffer_stroke		; buffer the stroke
- FNSTR R4,key_learn,VC
- FNSTR R5,key_llen,VC		; update (even on error)
- BLVC Beep			; beep to remind user
- FNRTS
+	FNJSR	"R4-R6"
+	TST	R3,#1<<31
+	FNRTS	NE			; don't learn this command
+	ADRL	R14,Learn
+	TEQ	R14,R7			; don't buffer any learn on/off
+	FNRTS	EQ
+	ADRL	R14,Execute
+	TEQ	R14,R7			; don't buffer any execute
+	FNRTS	EQ
+	FNLDR	R4,key_learn
+	FNLDR	R5,key_llen
+	MOV	R0,R6			; command data
+	MOV	R6,R3,LSR #24		; is this OK? Yes.
+	AND	R6,R6,#15
+	BL	buffer_stroke		; buffer the stroke
+	FNSTR	R4,key_learn,VC
+	FNSTR	R5,key_llen,VC		; update (even on error)
+	BLVC	Beep			; beep to remind user
+	FNRTS
 
- LOCAL
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Call a key command							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- LOCAL
+
+	LOCAL
 
 ;E R0=data => The byte/word if mode 1/2 and ptr to data if mode 3+
 ;  R2=call type with learn flag (usually 0) & supplied param type
 ;  R7=command address
 ;  R8-R10=window/file/cursor or 0
 ;X Command called once via process command with R1=1 #
- FNAME process_key_command
+	FNAME	process_key_command
 process_key_command
- FNJSR "R1,R13"	; R13 for workspace
-; TST R2,#1<<27			; bit of param type
-; BNE do$l
- ANDS R14,R2,#15<<24
- BEQ do$l
- CMP R14,#3<<24			; only use pointer if arg is byte or word
- STRCC R0,[R13,#4]
- ADDCC R0,R13,#4		; pointer to the argument
+	FNJSR	"R1,R13"		; R13 for workspace
+	ANDS	R14,R2,#15<<24
+	BEQ	do$l
+	CMP	R14,#3<<24		; only use pointer if arg is byte or word
+	STRCC	R0,[R13,#4]
+	ADDCC	R0,R13,#4		; pointer to the argument
 do$l
- MOV R1,#1			; 1 arg
- BL process_command
- PULL "R1,R14,PC"
+	MOV	R1,#1			; 1 arg
+	BL	process_command
+	PULL	"R1,R14,PC"
 
- LOCAL
+
+	LOCAL
 
 ;E R0=data => Pointer to the data whether it be word/byte or string
 ;  R1=num  => Number of time the key auto-repeated
@@ -884,174 +868,174 @@ do$l
 ;  they are executed multiple times if universal arg bit set.
 ;  If R2=0 on entry then returns R0=0 / -1 if minibuffer opened
 ;  If R2>0 on entry then R0=output of the command
- FNAME process_command
+	FNAME	process_command
 process_command
- FNJSR "R1-R11"
- MOV R6,R0			; save R0 value to send to command
- LDR R4,[R7,#-4]		; command flags
- TST R4,#1<<22			; command?
- BLNE notcommand$l
- FNRTS VS
- MOV R5,R4,LSR#3
- AND R5,R5,#7			; command data type
- AND R3,R2,#&FF000000		; start info word with 0 + R2 flags
- BIC R2,R2,R3			; clear those stored in R2
- CMP R8,#0			; also CLV
- TEQNE R9,#0
- TEQNE R10,#0
- BLEQ check_args		; check the arguments are valid
- FNRTS VS
- PUSH "R0"
- MOV R0,#0
- BL lineeditor_select		; use the default LineEditor buffer
- PULL "R0"
- CMP R2,#1
- BGT setup$l			; call to set parameters (not execute)
- TEQ R5,#3			; string command?
- TEQEQ R6,#0			; empty argument?
- BEQ mini$l			; open the minibuffer
- BL checklearn			; repeating a REPEAT/WHILE loop?
- BNE nolearn$l			; if so, don't learn command
- FNLDR R11,key_flags
- TST R11,#4
- BLNE learn_stroke		; learn this command (it's main)
- FNRTS VS
+	FNJSR	"R1-R11"
+	MOV	R6,R0			; save R0 value to send to command
+	LDR	R4,[R7,#-4]		; command flags
+	TST	R4,#1<<22		; command?
+	BLNE	notcommand$l
+	FNRTS	VS
+	MOV	R5,R4,LSR#3
+	AND	R5,R5,#7		; command data type
+	AND	R3,R2,#&FF000000	; start info word with 0 + R2 flags
+	BIC	R2,R2,R3		; clear those stored in R2
+	CMP	R8,#0			; also CLV
+	TEQNE	R9,#0
+	TEQNE	R10,#0
+	BLEQ	check_args		; check the arguments are valid
+	FNRTS	VS
+	PUSH	"R0"
+	MOV	R0,#0
+	BL	lineeditor_select	; use the default LineEditor buffer
+	PULL	"R0"
+	CMP	R2,#1
+	BGT	setup$l			; call to set parameters (not execute)
+	TEQ	R5,#3			; string command?
+	TEQEQ	R6,#0			; empty argument?
+	BEQ	mini$l			; open the minibuffer
+	BL	checklearn		; repeating a REPEAT/WHILE loop?
+	BNE	nolearn$l		; if so, don't learn command
+	FNLDR	R11,key_flags
+	TST	R11,#4
+	BLNE	learn_stroke		; learn this command (it's main)
+	FNRTS	VS
 nolearn$l
- TST R4,#1<<21			; execute regardless if b21 of cmd flags set
- BNE if_istrue$l
- BL checktrue   		; is condition true?
- MOV R0,#0
- FNRTS EQ			; no? don't execute
- FNLDR R14,if_skip		; are we skipping IFs?
- TEQ R14,#0
- FNRTS NE			; yes? don't execute
+	TST	R4,#1<<21		; execute regardless if b21 of cmd flags set
+	BNE	if_istrue$l
+	BL	checktrue   		; is condition true?
+	MOV	R0,#0
+	FNRTS	EQ			; no? don't execute
+	FNLDR	R14,if_skip		; are we skipping IFs?
+	TEQ	R14,#0
+	FNRTS	NE			; yes? don't execute
 if_istrue$l
- TST R11,#1<<4
- MOVEQ R11,#1			; none - universal arg rate =1
- BLNE get_uni_arg		; R11=universal arg (+state cleared)
- FNLDR R0,key_lastcom
- TEQ R0,R7
- ORREQ R3,R3,#1			; flag a repeat of the command
- AND R0,R3,#&F<<24
- TEQ R0,#8<<24
- TEQNE R0,#9<<24
- BEQ execeval$l
- TEQ R5,#1
- TEQNE R5,#2
- BEQ list$l			; argument is a list of bytes or words
+	TST	R11,#1<<4
+	MOVEQ	R11,#1			; none - universal arg rate =1
+	BLNE	get_uni_arg		; R11=universal arg (+state cleared)
+	FNLDR	R0,key_lastcom
+	TEQ	R0,R7
+	ORREQ	R3,R3,#1		; flag a repeat of the command
+	AND	R0,R3,#&F<<24
+	TEQ	R0,#8<<24
+	TEQNE	R0,#9<<24
+	BEQ	execeval$l
+	TEQ	R5,#1
+	TEQNE	R5,#2
+	BEQ	list$l			; argument is a list of bytes or words
 execeval$l
- ANDS R4,R4,#3<<12		; get argument details
- BLNE get_ptr_multiplicities	; sort out R1,R11 for this argument type
- TEQ R11,#1
- BNE execlots$l			; do lots of times
+	ANDS	R4,R4,#3<<12		; get argument details
+	BLNE	get_ptr_multiplicities	; sort out R1,R11 for this argument type
+	TEQ	R11,#1
+	BNE	execlots$l		; do lots of times
 execonce$l
- TST R3,#1<<30
- LDRNE R4,[R13,#20]		; get stacked R6
- MOVEQ R4,#0			; (if used, cmd may return a value in R4)
- PUSH "R2,R7,R12"		; stacking R12 for the first time...?
- BL exec_command		; low level
- PULL "R2,R7,R12"		; stacking R12 for the first time...?
- FNRTS VS
- MOV R11,R0			; preserve in case R3 b30 set
-end$l				; tidy up and go home
- TEQ R2,#0
- MOVEQ R0,#0			; minibuffer not opened
- FNSTR R7,key_lastcom		; last command called ; abort location?
- MOV R0,R11
- FNRTS
-list$l				; argument in list form
- ANDS R4,R4,#3<<12		; get argument details
- BLNE get_list_multiplicities	; sort out R1,R11,R4,R5,R6
- TEQ R11,#1
- BNE execlotswithinc$l
- TST R4,#1
- BEQ execonce$l			; don't need to worry about the buffer
- TST R3,#1<<30
- LDRNE R4,[R13,#20]		; get stacked R6
- MOVEQ R4,#0			; (if used, cmd may return a value in R4)
- PUSH "R2,R6-R7,R12"	; stacking R12 for the first time...?
- BL exec_command		; low level
- PULL "R2,R6-R7,R12"	; restore buffer pointer
- MOVVC R11,R0			; preserve in case R3 b30 set
- MOVVC R0,R6
- BLVC heap_free
- BVC end$l
- FNRTS
-execlots$l			; exec R11 (>1) times
- MOV R5,#0			; R6 increment between calls
-execlotswithinc$l		; R5=increment R4=b1 to free buffer
- TST R4,#1
- MOVEQ R4,#0			; no buffer
- MOVNE R4,R6			; buffer pointer
- TEQ R9,#0
- BLNE start_operation		; start an operation on this file
+	TST	R3,#1<<30
+	LDRNE	R4,[R13,#20]		; get stacked R6
+	MOVEQ	R4,#0			; (if used, cmd may return a value in R4)
+	PUSH	"R2,R7,R12"		; stacking R12 for the first time...?
+	BL	exec_command		; low level
+	PULL	"R2,R7,R12"		; stacking R12 for the first time...?
+	FNRTS	VS
+	MOV	R11,R0			; preserve in case R3 b30 set
+end$l					; tidy up and go home
+	TEQ	R2,#0
+	MOVEQ	R0,#0			; minibuffer not opened
+	FNSTR	R7,key_lastcom		; last command called ; abort location?
+	MOV	R0,R11
+	FNRTS
+list$l					; argument in list form
+	ANDS	R4,R4,#3<<12		; get argument details
+	BLNE	get_list_multiplicities	; sort out R1,R11,R4,R5,R6
+	TEQ	R11,#1
+	BNE	execlotswithinc$l
+	TST	R4,#1
+	BEQ	execonce$l		; don't need to worry about the buffer
+	TST	R3,#1<<30
+	LDRNE	R4,[R13,#20]		; get stacked R6
+	MOVEQ	R4,#0			; (if used, cmd may return a value in R4)
+	PUSH	"R2,R6-R7,R12"		; stacking R12 for the first time...?
+	BL	exec_command		; low level
+	PULL	"R2,R6-R7,R12"		; restore buffer pointer
+	MOVVC	R11,R0			; preserve in case R3 b30 set
+	MOVVC	R0,R6
+	BLVC	heap_free
+	BVC	end$l
+	FNRTS
+execlots$l				; exec R11 (>1) times
+	MOV	R5,#0			; R6 increment between calls
+execlotswithinc$l			; R5=increment R4=b1 to free buffer
+	TST	R4,#1
+	MOVEQ	R4,#0			; no buffer
+	MOVNE	R4,R6			; buffer pointer
+	TEQ	R9,#0
+	BLNE	start_operation		; start an operation on this file
 loop$l
- PUSH "R1-R12"		; stacking R12 for the first time...?
- FNLDR R1,key_count
- TEQ R1,#0
- MOVEQ R1,#1
- SUB R0,R1,R11
- MOV R14,#100
- MUL R0,R14,R0
- SWI XZapRedraw_Divide
- SWI XHourglass_Percentage
- LDMIA R13,{R1-R3}
- MOV R4,#0			; (bug catcher)
- BL exec_command		; do the command corrupting registers
- PULL "R1-R12"		; stacking R12 for the first time...?
- BVS exit$l
- ORR R3,R3,#1			; ensure the repeat flag now set
- FNSTR R7,key_lastcom		; last called command
- ADD R6,R6,R5			; increment list pointer
- SUBS R11,R11,#1		; decrement counter
- BGT loop$l
- MOV R0,#0
-exit$l				; error occurred with the command or exit
- MOVVC R11,R0			; new preseve... ; not needed?
- BL stop_operation		; handles zeros in R9
- FNRTS VS
- MOVS R0,R4			; buffer needs to be freed?
- BLNE heap_free
- MOVVC R0,R11			; new un-preseve... ; not needed?
- FNRTS
-setup$l				; just a simple setup call
- MOV R0,R6			; set up the data pointer
- MOVS R14,PC			; return address
- MOV PC,R7			; call command
- FNRTS				; return with any data in R0
-mini$l				; string with no parameter
- EOR R14,R4,#1<<10
- TST R14,#1<<6:OR:1<<10		; b6 clear, b10 set?
- BLEQ err41			; if so, not allowed to use minibuffer
- BLVC minibuffer_clear		; else get rid of old command
- FNRTS VS
- TST R4,#1<<6			; supports prompts?
- BEQ promptdone$l		; no
- FNSTR R7,mini_command		; set this up temp - done by start as well
- CMP R9,#0
- MOVEQ R0,#1			; abort flag...
- BEQ abort$l			; give up - no minibuffer on the IB.
- MOV R2,#6			; ask for prompt
- BL fake_minibuffer_command	; re-entrancy!!!
- FNRTS VS
- TST R4,#1<<10
- BEQ promptdone$l		; open minibuffer regardless
- TEQ R0,#0
- BNE abort$l			; abort opening
+	PUSH	"R1-R12"		; stacking R12 for the first time...?
+	FNLDR	R1,key_count
+	TEQ	R1,#0
+	MOVEQ	R1,#1
+	SUB	R0,R1,R11
+	MOV	R14,#100
+	MUL	R0,R14,R0
+	SWI	XZapRedraw_Divide
+	SWI	XHourglass_Percentage
+	LDMIA	R13,{R1-R3}
+	MOV	R4,#0			; (bug catcher)
+	BL	exec_command		; do the command corrupting registers
+	PULL	"R1-R12"		; stacking R12 for the first time...?
+	BVS	exit$l
+	ORR	R3,R3,#1		; ensure the repeat flag now set
+	FNSTR	R7,key_lastcom		; last called command
+	ADD	R6,R6,R5		; increment list pointer
+	SUBS	R11,R11,#1		; decrement counter
+	BGT	loop$l
+	MOV	R0,#0
+exit$l					; error occurred with the command or exit
+	MOVVC	R11,R0			; new preseve... ; not needed?
+	BL	stop_operation		; handles zeros in R9
+	FNRTS	VS
+	MOVS	R0,R4			; buffer needs to be freed?
+	BLNE	heap_free
+	MOVVC	R0,R11			; new un-preseve... ; not needed?
+	FNRTS
+setup$l					; just a simple setup call
+	MOV	R0,R6			; set up the data pointer
+	MOVS	R14,PC			; return address
+	MOV	PC,R7			; call command
+	FNRTS				; return with any data in R0
+mini$l					; string with no parameter
+	EOR	R14,R4,#1<<10
+	TST	R14,#1<<6:OR:1<<10	; b6 clear, b10 set?
+	BLEQ	err41			; if so, not allowed to use minibuffer
+	BLVC	minibuffer_clear	; else get rid of old command
+	FNRTS	VS
+	TST	R4,#1<<6		; supports prompts?
+	BEQ	promptdone$l		; no
+	FNSTR	R7,mini_command		; set this up temp - done by start as well
+	CMP	R9,#0
+	MOVEQ	R0,#1			; abort flag...
+	BEQ	abort$l			; give up - no minibuffer on the IB.
+	MOV	R2,#6			; ask for prompt
+	BL	fake_minibuffer_command	; re-entrancy!!!
+	FNRTS	VS
+	TST	R4,#1<<10
+	BEQ	promptdone$l		; open minibuffer regardless
+	TEQ	R0,#0
+	BNE	abort$l			; abort opening
 promptdone$l
- BL minibuffer_start		; start new command (and update)
- MOVVC R0,#-1			; minibuffer opened
- FNRTS
-abort$l				; R0=abort type (1=total abort)
- MOV R1,#1
- MOV R2,#0
- CMP R0,#1
- MOVLE R0,#0			; minibuffer not opened
- BLGT process_command		; do the operation instead if there is one.
- FNRTS				; go home (R0=0 I hope??!)
+	BL	minibuffer_start		; start new command (and update)
+	MOVVC	R0,#-1			; minibuffer opened
+	FNRTS
+abort$l					; R0=abort type (1=total abort)
+	MOV	R1,#1
+	MOV	R2,#0
+	CMP	R0,#1
+	MOVLE	R0,#0			; minibuffer not opened
+	BLGT	process_command		; do the operation instead if there is one.
+	FNRTS				; go home (R0=0 I hope??!)
 
 notcommand$l
- ERR "zap_e_notcmd"
+	ERR	"zap_e_notcmd"
 
 
 ;E as for process_command, except
@@ -1063,80 +1047,78 @@ notcommand$l
 process_function
 	FNJSR	"R2-R11"
 	MOV	R2,#23
-	MOV	R3,R6,LSL #24	; supplied data type
-	MOV	R6,R0		; save R0 value to send to command
+	MOV	R3,R6,LSL #24		; supplied data type
+	MOV	R6,R0			; save R0 value to send to command
 	BIC	R7,R7,#3
-	LDR	R4,[R7,#-4]	; command flags
-	TST	R4,#1<<23	; function?
+	LDR	R4,[R7,#-4]		; command flags
+	TST	R4,#1<<23		; function?
 	BLEQ	notfunction$l
 	FNRTS	VS
 	MOV	R5,R4,LSR #24
-	AND	R5,R5,#7	; expected function data type
+	AND	R5,R5,#7		; expected function data type
 	TEQ	R5,#3
-	TEQEQ	R3,#9<<24	; string expression
+	TEQEQ	R3,#9<<24		; string expression
 	BEQ	ok$l
 	TEQ	R5,#1
 	TEQNE	R5,#2
-	TEQEQ	R3,#8<<24	; int expression
+	TEQEQ	R3,#8<<24		; int expression
 	BEQ	ok$l
 	TEQ	R3,#1<<24
-	TEQEQ	R5,#2		; cope with word masquerading as byte
+	TEQEQ	R5,#2			; cope with word masquerading as byte
 	TEQNE	R3,R5,LSL #24
 	BLNE	badparam_fn
 	FNRTS	VS
 ok$l	TEQ	R8,#0
 	TEQNE	R9,#0
 	TEQNE	R10,#0
-	BLEQ	check_args	; check the arguments are valid
+	BLEQ	check_args		; check the arguments are valid
 	FNRTS	VS
-	PUSH	"R12"	; stacking R12 for the first time...?
+	PUSH	"R12"			; stacking R12 for the first time...?
 	ORR	R7,R7,#1
-	BL	exec_command	; low level
-	PULL	"R12"	; stacking R12 for the first time...?
+	BL	exec_command		; low level
+	PULL	"R12"			; stacking R12 for the first time...?
 	FNRTS
 notfunction$l
 	ERR	"zap_e_notfn"
 badparam_fn
 	ERR	"zap_e_fnarg"
 
- FNAME fake_minibuffer_command
+	FNAME	fake_minibuffer_command
 fake_minibuffer_command
- FNJSR "R1,R7-R10"
-; BL get_input_caret
-; BCS mi12			; no input caret
-; FNLDR R7,mini_command		; minibuffer command
- CMP R7,#0
- BLE mi12			; none
-; BL reclaim_caret		; reclaim caret for the duration
- FNLDR R0,mini_ptr
- FNLDR R1,mini_mark
- ADD R0,R0,R1			; minibuffer after mark
- MOV R1,#1			; only one time
- BL process_command
-; BLVC declaim_caret
- FNRTS
+	FNJSR	"R1,R7-R10"
+	CMP	R7,#0
+	BLE	mi12			; none
+	FNLDR	R0,mini_ptr
+	FNLDR	R1,mini_mark
+	ADD	R0,R0,R1		; minibuffer after mark
+	MOV	R1,#1			; only one time
+	BL	process_command
+	FNRTS
 mi12
- MOV R0,#0
- FNRTS
+	MOV	R0,#0
+	FNRTS
+
+
 
 ;E R1=number of times buffered R11=universal arg num of times
 ;  R4=1-3 in bits 12-13 (0 done)
 ;X R1=value to pass to command R11=number of times to call the command |
- FNAME get_ptr_multiplicities
+	FNAME	get_ptr_multiplicities
 get_ptr_multiplicities
- TEQ R4,#1<<12
- MULEQ R1,R11,R1
- MOVEQ R11,#1
- MOVEQ PC,R14
- TEQ R4,#2<<12
- MULEQ R11,R1,R11
- MOVEQ R1,#1
- MOVNE R0,R1
- MOVNE R1,R11
- MOVNE R11,R0
- MOV PC,R14
+	TEQ	R4,#1<<12
+	MULEQ	R1,R11,R1
+	MOVEQ	R11,#1
+	MOVEQ	PC,R14
+	TEQ	R4,#2<<12
+	MULEQ	R11,R1,R11
+	MOVEQ	R1,#1
+	MOVNE	R0,R1
+	MOVNE	R1,R11
+	MOVNE	R11,R0
+	MOV	PC,R14
 
- LOCAL
+
+	LOCAL
 
 ;E R1=number of times buffered R11=universal arg num of times
 ;  R4=1-3 in bits 12-13 (0 done) R5=command type R6=pointer to data list
@@ -1145,44 +1127,45 @@ get_ptr_multiplicities
 ;  R5=amount to increment buffer pointer by on each command call
 ;  R6=buffer to pass to command
 ;  R11=number of times to call the command
- FNAME get_list_multiplicities
+	FNAME	get_list_multiplicities
 get_list_multiplicities
- TEQ R5,#2
- MOVEQ R5,#4			; 4 bytes per arg
- MOVNE R5,#1			; 1 byte per arg
- TEQ R4,#3<<12
- MOVEQ R0,R1
- MOVEQ R1,R11
- MOVEQ R11,R0
- MOVEQ PC,R14
+	TEQ	R5,#2
+	MOVEQ	R5,#4			; 4 bytes per arg
+	MOVNE	R5,#1			; 1 byte per arg
+	TEQ	R4,#3<<12
+	MOVEQ	R0,R1
+	MOVEQ	R1,R11
+	MOVEQ	R11,R0
+	MOVEQ	PC,R14
 
- FNJSR				; we need to duplicate the list
- CMP R11,#1
- BLE a$l			; no need to duplicate
- BL duplicate_args		; duplicate to R0
- FNRTS VS
- MOV R6,R0			; new data pointer
- ORR R4,R4,#1			; needs to be freed
+	FNJSR				; we need to duplicate the list
+	CMP	R11,#1
+	BLE	a$l			; no need to duplicate
+	BL	duplicate_args		; duplicate to R0
+	FNRTS	VS
+	MOV	R6,R0			; new data pointer
+	ORR	R4,R4,#1		; needs to be freed
 a$l
- TST R4,#1<<12			; if set then only call once
- MULNE R1,R11,R1
- MOVNE R11,#1
- MULEQ R11,R1,R11
- MOVEQ R1,#1
- FNRTS
+	TST	R4,#1<<12		; if set then only call once
+	MULNE	R1,R11,R1
+	MOVNE	R11,#1
+	MULEQ	R11,R1,R11
+	MOVEQ	R1,#1
+	FNRTS
 
 ;E R11=keyflags
 ;X R11=universal argument rate for the command
- FNAME get_uni_arg
+	FNAME	get_uni_arg
 get_uni_arg
- BIC R11,R11,#1<<4
- FNSTR R11,key_flags		; clear universal state
- FNLDR R11,key_count		; number of times to call command
- CMP R11,#0			; any left?
- MOVLE R11,#1			; default to one call
- MOV PC,R14
+	BIC	R11,R11,#1<<4
+	FNSTR	R11,key_flags		; clear universal state
+	FNLDR	R11,key_count		; number of times to call command
+	CMP	R11,#0			; any left?
+	MOVLE	R11,#1			; default to one call
+	MOV	PC,R14
 
- LOCAL
+
+	LOCAL
 
 ;E R1=r1 value to pass to the command R2=0 or 1 (execute) R3=flags
 ;  R4=command block pointer (internal use)
@@ -1226,14 +1209,14 @@ execint$l
 	PULL	"R14,PC"
 
 execstr$l
-	MOV	R0,R6 ; LDR	R0,[R6]
+	MOV	R0,R6
 	PUSH	"R1,R2"
 	MOV	R1,#256
 	BL	evaluate_string
 	PULL	"R1,R2,PC",VS
 	TEQ	R0,#0
 	BNE	isstr$l
-	MOV	R0,#12		; convert to string
+	MOV	R0,#12			; convert to string
 	BL	heap_claim
 	PULL	"R1,R2,PC",VS
 	MOV	R2,R0
@@ -1256,111 +1239,112 @@ isstr$l	PULL	"R1,R2"
 	PULL	"R0,R1,R14,PC"
 
 
- LOCAL
+	LOCAL
 
 ;E R2=Command call type R4=command flags R8-R10=arguments
 ;X Arguments updated so valid or an error given #
- FNAME check_args
+	FNAME	check_args
 check_args
- FNJSR				; must check for window/file first
- TST R4,#2			; (eg called from options menu)
- TEQEQ R8,#0
- BEQ err$l			; it wanted window
- TST R4,#4
- TEQEQ R9,#0
- BEQ err$l			; it wanted file
- TEQ R2,#15
- FNRTS EQ			; menu setup calls don't require R10
- TST R4,#1			; does he need the cursor?
- TEQEQ R10,#0			; cursor given?
- FNRTS NE			; cursor given or not needed
- BL get_input_caret		; get it
- FNRTS CC			; R10 sorted out - can call command
+	FNJSR				; must check for window/file first
+	TST	R4,#2			; (eg called from options menu)
+	TEQEQ	R8,#0
+	BEQ	err$l			; it wanted window
+	TST	R4,#4
+	TEQEQ	R9,#0
+	BEQ	err$l			; it wanted file
+	TEQ	R2,#15
+	FNRTS	EQ			; menu setup calls don't require R10
+	TST	R4,#1			; does he need the cursor?
+	TEQEQ	R10,#0			; cursor given?
+	FNRTS	NE			; cursor given or not needed
+	BL	get_input_caret		; get it
+	FNRTS	CC			; R10 sorted out - can call command
 err$l
- BL err2$l			; invalid parameters
- FNRTS
-err2$l ERRlit "Internal error: Bad command call"
+	BL	err2$l			; invalid parameters
+	FNRTS
+err2$l	ERRlit "Internal error: Bad command call"
 
- LOCAL
+
+	LOCAL
 
 ;E R1=length of argument data (word/bytes) > 0
 ;  R5=length of data seqment (eg 1/4 for bytes/words)
 ;  R6=source data
 ;  R11=number of copies to have (>1)
 ;X R0=heap block pointer with data #
- FNAME duplicate_args
+	FNAME	duplicate_args
 duplicate_args
- FNJSR "R1-R11"
- MUL R1,R5,R1			; length of the argument data
- MUL R5,R1,R11			; length we want
- MOV R0,R5
- BL heap_claim			; claim the block
- FNRTS VS
- MOV R11,R0			; save the block pointer
- MOV R7,R1			; save the length of the source
- MOV R1,R6			; source
- MOV R2,R11			; dest
- MOV R3,R7
- SWI XZapRedraw_MoveBytes ; BL move_bytes			; copy the source block across
- ADD R4,R11,R7			; new dest
- SUB R5,R5,R7			; number of bytes left to do
+	FNJSR	"R1-R11"
+	MUL	R1,R5,R1		; length of the argument data
+	MUL	R5,R1,R11		; length we want
+	MOV	R0,R5
+	BL	heap_claim		; claim the block
+	FNRTS	VS
+	MOV	R11,R0			; save the block pointer
+	MOV	R7,R1			; save the length of the source
+	MOV	R1,R6			; source
+	MOV	R2,R11			; dest
+	MOV	R3,R7
+	SWI	XZapRedraw_MoveBytes 	; copy the source block across
+	ADD	R4,R11,R7		; new dest
+	SUB	R5,R5,R7		; number of bytes left to do
 a$l
- CMP R5,#0			; finished?
- MOVLE R0,R11			; return heap block
- FNRTS LE
- CMP R7,R5			; source bigger then dest?
- MOVLE R10,R7
- MOVGT R10,R5			; number of bytes to copy
- MOV R1,R11			; source
- MOV R2,R4			; dest
- MOV R3,R10
- SWI XZapRedraw_MoveBytes ; BL move_bytes
- ADD R4,R4,R10			; new dest
- ADD R7,R7,R10			; new source length
- SUB R5,R5,R10			; new number left
- B a$l
+	CMP	R5,#0			; finished?
+	MOVLE	R0,R11			; return heap block
+	FNRTS	LE
+	CMP	R7,R5			; source bigger then dest?
+	MOVLE	R10,R7
+	MOVGT	R10,R5			; number of bytes to copy
+	MOV	R1,R11			; source
+	MOV	R2,R4			; dest
+	MOV	R3,R10
+	SWI	XZapRedraw_MoveBytes
+	ADD	R4,R4,R10		; new dest
+	ADD	R7,R7,R10		; new source length
+	SUB	R5,R5,R10		; new number left
+	B	a$l
 
- LOCAL
+
+	LOCAL
 
 ;E R0=string + b31 if don't want commands learnt
 ;  R8-R10=input caret/0's (uses wimp_kbdbuf)
 ;X Command string executed R0=0/-1 if minibuf opened #
- FNAME command_string
+	FNAME	command_string
 command_string
- FNJSR "R1-R7"
- AND R2,R0,#1 << 31		; get the learn flag
- BIC R0,R0,R2
- PUSH "R10"			; save input caret
- MOV R10,R0			; string start
- BL read_validate_command	; R7=command address
-; BL read_command		; R7=command address / b0 set form
-; BLVC validate_command		; R7=command address (command now loaded)
- PULL "R10"			; restore caret pointer
- BVS err$l
- CMP R0,#0
- BLMI err41			; check command params ok
- MOVVC R0,R1			; parameter
- ORRVC R2,R2,R6,LSL #24
- BLVC process_key_command
+	FNJSR	"R1-R7"
+	AND	R2,R0,#1 << 31		; get the learn flag
+	BIC	R0,R0,R2
+	PUSH	"R10"			; save input caret
+	MOV	R10,R0			; string start
+	BL	read_validate_command	; R7=command address
+	PULL	"R10"			; restore caret pointer
+	BVS	err$l
+	CMP	R0,#0
+	BLMI	err41			; check command params ok
+	MOVVC	R0,R1			; parameter
+	ORRVC	R2,R2,R6,LSL #24
+	BLVC	process_key_command
 err$l
- MOVVC R2,#0
- ADDVSS R2,R0,#0		; keep error pointer and clv
- CMP R6,#3
- MOVGE R0,R1
- BLGE heap_free			; free arg, error or not, if string/block
- TEQ R2,#0
- FNRTS EQ
- MOV R0,R2
- FNRTV
+	MOVVC	R2,#0
+	ADDVSS	R2,R0,#0		; keep error pointer and clv
+	CMP	R6,#3
+	MOVGE	R0,R1
+	BLGE	heap_free		; free arg, error or not, if string/block
+	TEQ	R2,#0
+	FNRTS	EQ
+	MOV	R0,R2
+	FNRTV
 
- LOCAL
+
+	LOCAL
 
 ;E R0=string to be evaluated
 ;  R1=max length of result, if string; -ve for parse only
 ;X R0=0, or pointer to string (in Zap heap) [always string if R1 was -ve]
 ;  R1=integer, or length of string
 ;  Block containing string is 'just big enough'
- FNAME evaluate_string
+	FNAME	evaluate_string
 evaluate_string
 	FNJSR	"R0-R11"
 	BIC	R10,R0,#1<<31		; input expression
@@ -1425,7 +1409,6 @@ string$l
 	BEQ	str_bufferfull$l
 	TEQ	R0,#0			; trap null pointers :-)
 	BEQ	donestr$l
-;	BEQ	nostr$l
 cpstr$l	LDRB	R1,[R0],#1
 	CMP	R1,#127
 	CMPNE	R1,#31
@@ -1450,13 +1433,13 @@ donestr$l
 	MOV	R0,R7
 	BL	heap_free
 	B	parse$l
-var$l	ADD	R10,R10,#1	; @$, @#
+var$l	ADD	R10,R10,#1		; @$, @#
 	MOV	R0,R10
 	BL	validate_varname
 	BLEQ	bad_zap_variable
 	BVS	error$l
-	ADR	R1,var_prefix	; Cheat - put the var name in
-	MOV	R2,#8		; instead of evaluating it
+	ADRL	R1,var_prefix		; Cheat - put the var name in
+	MOV	R2,#8			; instead of evaluating it
 	SUBS	R5,R5,#8
 	BLE	bufferfull$l
 vp$l	LDRB	R14,[R1],#1
@@ -1471,7 +1454,7 @@ vn$l	LDRB	R14,[R10],#1
 	STRB	R14,[R11],#1
 	BNE	vn$l
 	B	parse$l
-eval$l	ADD	R10,R10,#1	; @=
+eval$l	ADD	R10,R10,#1		; @=
 	MOV	R0,R10
 	BL	validate_varname
 	BLEQ	bad_zap_variable
@@ -1532,7 +1515,7 @@ evaluate$l
 	MOV	R1,R0
 	LDR	R0,[R13,#4]		; parsed expr buffer
 	SWI	XOS_EvaluateExpression
-	PULL	"R3"		; result buffer
+	PULL	"R3"			; result buffer
 	BVC	done_eval$l
 	MOV	R1,R0			; if error...
 	MOVS	R0,R3
@@ -1591,14 +1574,14 @@ function_string
 	BL	read_validate_command	; well, function...
 	FNRTS	VS
 	BIC	R10,R10,#1<<31
-	PUSH	"R1,R6,R10"	; stack parameter & type
+	PUSH	"R1,R6,R10"		; stack parameter & type
 	MOV	R0,R1
 	MOV	R2,R6,LSL #24
 	MOV	R10,#0
 	BL	process_function
 	MOVVS	R2,#1
 	MOVVC	R2,#0
-	PULL	"R3,R4,R10"	; unstack them
+	PULL	"R3,R4,R10"		; unstack them
 	MOV	R7,R0			; result/error preservation
 	CMP	R4,#3
 	MOVHS	R0,R3
@@ -1613,8 +1596,8 @@ function_string
 	FNRTS	LS
 	BL	heap_free
 	ADR	R0,badreturnvalue$l
-error$l
-	FNRTV
+error$l	FNRTV
+
 noreturnvalue$l
 	&	0
 	=	"Function must have a return value",0
@@ -1624,6 +1607,7 @@ badreturnvalue$l
 	=	"Function must return byte, word or string",0
 	ALIGN
 
+
 	LOCAL
 
 ;E R0=pointer to the data
@@ -1631,45 +1615,45 @@ badreturnvalue$l
 ;  R6=data type (0=none ... 6=str expr)
 ;X R0=actual length of data block to be stored in a buffer_command
 ;  write (excluding first two words) length is word aligned |
- FNAME command_data
+	FNAME	command_data
 command_data
- FNJSR
- CMP R6,#10
- FNRTS HS
- LDR R14,[PC,R6,LSL #2]
- ADD PC,PC,R14
-cmd$l
- & type0$l-cmd$l-4 ; none
- & type1$l-cmd$l-4 ; byte list
- & type2$l-cmd$l-4 ; word list
- & type3$l-cmd$l-4 ; string
- & type4$l-cmd$l-4 ; block
- & typex$l-cmd$l-4
- & typex$l-cmd$l-4
- & typex$l-cmd$l-4
- & type3$l-cmd$l-4 ; byte/word expr
- & type3$l-cmd$l-4 ; string expr
-type0$l
- MOV R0,#0
-typex$l
- FNRTS
-type1$l
- ADD R0,R1,#3
- BIC R0,R0,#3
- FNRTS
-type2$l
- MOV R0,R1,LSL #2
- FNRTS
-type3$l
- BL str_len
- ADD R0,R0,#4
- BIC R0,R0,#3			; word align
- FNRTS
-type4$l
- MOV R0,#4
- FNRTS
+	FNJSR
+	CMP	R6,#10
+	FNRTS	HS
+	LDR	R14,[PC,R6,LSL #2]
+	ADD	PC,PC,R14
 
- LOCAL
+cmd$l	&	type0$l-cmd$l-4 	; none
+	&	type1$l-cmd$l-4 	; byte list
+	&	type2$l-cmd$l-4 	; word list
+	&	type3$l-cmd$l-4 	; string
+	&	type4$l-cmd$l-4 	; block
+	&	typex$l-cmd$l-4
+	&	typex$l-cmd$l-4
+	&	typex$l-cmd$l-4
+	&	type3$l-cmd$l-4 	; byte/word expr
+	&	type3$l-cmd$l-4 	; string expr
+
+type0$l	MOV	R0,#0
+typex$l	FNRTS
+
+type1$l	ADD	R0,R1,#3
+	BIC	R0,R0,#3
+	FNRTS
+
+type2$l	MOV	R0,R1,LSL #2
+	FNRTS
+
+type3$l	BL	str_len
+	ADD	R0,R0,#4
+	BIC	R0,R0,#3		; word align
+	FNRTS
+
+type4$l	MOV	R0,#4
+	FNRTS
+
+
+	LOCAL
 
 ;E R0->variable name
 ;X R0->char following var name
@@ -1700,7 +1684,8 @@ end$l	SUB	R0,R0,#1
 	TEQ	R0,R2
 	FNRTS
 
-var_prefix =	"Zap$Var_"	; 8 characters
+var_prefix =	"Zap$Var_"		; 8 characters
+
 
 	LOCAL
 
@@ -1761,99 +1746,6 @@ cp$l	LDRB	R14,[R2],#1
 	MOV	R14,#0
 	STRB	R14,[R3]
 	FNRTS
-
-
-;E R0->message string (for error box)
-;X EQ if OK/Continue pressed
-;  R0-R5 corrupt
-
-; DCD 1
-;Removelf
-; STMFD R13!,{R0-R6,R14}
-; LDR R0,[R9,#f_len]
-; TEQ R0,#0
-; LDMEQFD R13!,{R0-R6,PC}^
-; FNcall Zap_SaveWinStatus,R6
-; MOV R0,#0
-; MOV R1,#0
-; ;BL split_buffer
-; FNcall Zap_SplitBuffer         ; get the split out of the way
-; LDR R0,[R9,#f_ptr]
-; LDR R1,[R9,#f_bufl]		; f_len]
-; ADD R1,R1,R0
-; LDRB R2,[R8,#w_cr]
-;rlf_lp
-; LDRB R14,[R0],#1
-; TEQ R14,R2
-; BLEQ rlf_cr
-; CMP R0,R1
-; BCC rlf_lp
-; LDR R0,[R9,#f_flags]
-; ORR R0,R0,#1<<3
-; STR R0,[R9,#f_flags]
-; FNcall Zap_NewWinStatus,R6
-; LDMFD R13!,{R0-R6,PC}^
-;
-; DCD 1
-;Removelfsel
-; STMFD R13!,{R0-R6,R14}
-; LDR R0,[R9,#f_len]
-; TEQ R0,#0
-; LDMEQFD R13!,{R0-R6,PC}^
-; MOV R4,R9
-; BL get_selection
-; ;FNcall Zap_GetSel
-; LDMCSFD R13!,{R0-R6,PC}^
-; CMP R4,R9
-; LDMNEFD R13!,{R0-R6,PC}^
-; MOV R4,R1
-; FNcall Zap_SaveWinStatus,R6
-; ;BL split_buffer
-; FNcall Zap_SplitBuffer,R6         ; get the split out of the way
-; LDR R0,[R9,#f_ptr]
-; LDR R1,[R9,#f_splite]
-; ADD R0,R0,R1
-; ADD R0,R0,R4
-; ADD R1,R2,R0
-; LDRB R2,[R8,#w_cr]
-;rlf_lp2
-; LDRB R14,[R0],#1
-; TEQ R14,R2
-; BLEQ rlf_cr
-; CMP R0,R1
-; BCC rlf_lp2
-; LDR R0,[R9,#f_flags]
-; ORR R0,R0,#1<<3
-; STR R0,[R9,#f_flags]
-; FNcall Zap_NewWinStatus,R6
-; LDMFD R13!,{R0-R6,PC}^
-;
-;rlf_cr
-; CMP R0,R1
-; MOVCSS PC,R14
-; STMFD R13!,{R14}
-; LDRB R14,[R0],#1
-; TEQ R14,#9
-; TEQNE R14,#32
-; LDMEQFD R13!,{PC}^	; if followed by ;t or ' ' -> don't replace it
-; TEQ R14,R2
-; BNE rlf_rcr		; if not followed by ;t, ' ', or ;n -> replace it
-;rlf_skiplp
-; CMP R0,R1
-; LDMCSFD R13!,{PC}^
-; LDRB R14,[R0],#1
-; TEQ R14,R2
-; BEQ rlf_skiplp
-; LDMFD R13!,{PC}
-;
-;rlf_rcr
-; MOV R14,#32
-; STRB R14,[R0,#-2]
-; LDMFD R13!,{PC}^
-
-; DCD 0
-;Mcv
-; B make_cursor_visible
 
 
  END
