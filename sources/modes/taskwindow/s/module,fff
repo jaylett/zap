@@ -1,5 +1,5 @@
 ; Contains TaskWindow module header and non mode specific code.
-; $Id: module,fff,v 1.5 2003/03/14 03:00:29 christian Exp $
+; $Id: module,fff,v 1.6 2003/08/24 20:00:03 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapTWHdr
@@ -145,99 +145,61 @@ get_workspace
 
 	LOCAL
 
-;X modes have their opt_mode words set up if they were 0
-;  colours also set up
-
+; Set up initial mode words / options if necessary. Also set colours
+; E
+; X
 init_mode_word
 	FNJSR	"R1-R4,R8"
 	MOV	R8,#0			; default options
 
 	FNLDR	R1,mode_taskwindow,VC
-	ADRVC	R3,taskwind$l
-
-	LDR	R4,[R3],#4		; number of extra colours
-	PUSH	"R1"
-	ADD	R1,R1,#&100		; variable number
-	FNcall  Zap_ReadVar		; R0=mode word
-	PULL	"R1"
+	FNcall	Zap_GetModeWord
 	FNRTS	VS
+
 	TEQ	R0,#0
-	BNE	toinit_cols
-	PUSH	"R1"
-	LDR	R0,[R3]			; get width etc
-	ADD	R1,R1,#&100
-	FNcall  Zap_WriteVar		; width kept here
-	PULL	"R1"
-	LDRVC	R0,[R3]
-	MOVVC	R2,#0
-	FNcallc Zap_ModeData,VC		; set the width etc
-	ADDVC	R0,R3,#4
-	ADDVC	R4,R4,#9
-	BLVC	forcedocols		; setup initial colours
-	FNRTS
+	BNE	checkcols$l		; we already have options - check them
 
-toinit_cols
-	ADD	R0,R3,#4
-	ADD	R4,R4,#9
-	BL	init_cols		; setup initial colours
-	FNRTS
+	LDR	R0,def0$l               ; default mode data 0
+	MOV	R2,#0
+	FNcall	Zap_ModeData
+	LDRVC	R0,def1$l               ; default mode data 1
+	MOVVC	R2,#1
+	FNcallc	Zap_ModeData,VC
+	LDRVC	R0,defm$l		; default mode word
+	FNcallc	Zap_PutModeWord,VC
 
-taskwind$l
-	DCD	2
-	DCD	80			; 12=taskwindow
-	DCD	&97070077
-	DCD	&0000EBC9
+	MOV	R2,#9			; init all colours
+	B	cols$l
 
-	LOCAL
+checkcols$l
+	MOV	R0,#-1			; check number of colours
+	FNcall	Zap_ModeColourNum
+	TEQ	R0,#ncols
+	FNRTS	EQ
+	MOV	R2,R0
 
-forcedocols
-	FNJSR	"R1-R5"
-	MOV	R3,R0
-	MOV	R0,#0
-	B	thethickofthecols
-
-modbas_localraero
-	DCD	0
-
-;E R0=pointer to words of wimp colours R1=mode number R4=num of cols
-;  R8=window to set /0
-;X Default colours set up #
-
-init_cols
-	FNJSR	"R1-R5"
-	PUSH	"R0"
-	MVN	R0,#0
-	FNcall  Zap_ModeColourNum	; Read palette size
-	PULL	"R3"
-	CMP	R0,R4
-	FNRTS	"GE"			; why doesn't it work?
-					; SUB R0,R0,#9
-thethickofthecols
-	STR	R0,modbas_localraero
-	PUSH	"R3"
-	MOV	R0,R4
-	FNcall  Zap_ModeColourNum	; change palette size
-	PULL	"R3"
-	FNRTS	VS
-	MOV	R2,#0			; colour number
-a$l
-	TST	R2,#7			; 8 colour boundry?
-	LDREQ	R5,[R3],#4		; next bit of data
-	LDR	R0,modbas_localraero
-	CMP	R2,R0
-	BLT	postinitcolour		; Debugging - Why doesn't it work?
-	AND	R0,R5,#&F		; wimp colour
-	FNcall  Zap_ModeColour
-	FNRTS	VS
-postinitcolour
-	MOV	R5,R5,LSR#4		; next colour
+cols$l	MOV	R0,#ncols		; set number of colours
+	FNcall	Zap_ModeColourNum
+	ADR	R4,defc$l		; initialise default colours
+a$l	SUB	R3,R2,#9
+	LDR	R0,[R4,R3,LSL #2]
+	FNcall	Zap_ModeColour
 	ADD	R2,R2,#1
-	CMP	R2,R4
-	BCC	a$l
+	CMP	R2,#ncols
+	BLS	a$l
 	FNRTS
 
+def0$l	DCD	80			; width, etc
+def1$l	DCD	&F			; line numbers etc
+defm$l	DCD	1			; nice non-zero value. bracket matching, silent dying off
+
+defc$l	DCD	12			; *  cream
+	DCD	14			; >  orange
+
+ncols	*	9 + 2			; total number of colours
 
 	LOCAL
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Leaving/entering mode					       ;
