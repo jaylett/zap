@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.30 2002/11/20 04:16:27 christian Exp $
+; $Id: Menus,fff,v 2.31 2003/01/04 15:03:25 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -1071,6 +1071,7 @@ name$l  =	27,"zap_m_aname",0
 buildsub$l
 	FNJSR	"R1-R8"
 	MOV	R11,R0			; save buffer pointer
+	MOV	R10,R6			; and menu entry
 next$l					; get next dynamic area
 	MOV	R0,#3
 	MOV	R1,R9			; current area
@@ -1083,6 +1084,7 @@ next$l					; get next dynamic area
 	MOV	R0,#2
 	SWI	XOS_DynamicArea		; read information
 	FNRTS	VS
+	MOV	R7,R2			; keep area size
 	ADR	R1,pool$l
 	MOV	R2,R8			; dynamic area name
 	BL	strCMP
@@ -1092,6 +1094,10 @@ next$l					; get next dynamic area
 	MOV	R3,#46
 	MOV	R4,#&1F
 	BL	strmove			; copy in area name
+	TEQ	R7,#0
+	LDREQ	R0,[R10,#8]		; shade the entry if 0 length
+	ORREQ	R0,R0,#1<<22
+	STREQ	R0,[R10,#8]
 	MOV	R0,R9			; index = area number
 	FNRTS
 pool$l  =	"Free pool",0
@@ -2432,7 +2438,7 @@ a$l
 	FNAME	cms_icon
 cms_icon
 	FNJSR	"R1-R5"
-	MOV	R0,#0                   ; item flags
+	MOV	R0,#0			; item flags
 	STR	R0,[R6],#4		;
 	MOV	R4,R1			; R4=source
 	LDR	R1,[R4]			; R1=flags of source entry
@@ -3526,7 +3532,7 @@ none$l	ADD	R3,R3,#28+12		; menu items text buffer
 	ADD	R4,R4,R4,LSL #1
 	MOV	R4,R4,LSL #3
 	LDR	R11,[R3,R4]		; -> text buffer
-	LDR 	R5,[R11,#-16]		; menu entry flags
+	LDR	R5,[R11,#-16]		; menu entry flags
 	TST	R5,#mef_ExecCommand
 	MOVEQ	R0,#0
 	FNRTS	EQ			; not a command - no action
