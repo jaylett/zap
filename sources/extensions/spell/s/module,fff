@@ -1,5 +1,5 @@
 ; Spell - a Zap extension
-; $Id: module,fff,v 1.1 2004/01/03 15:53:32 christian Exp $
+; $Id: module,fff,v 1.2 2004/01/03 17:36:15 christian Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -90,6 +90,7 @@ command_table	DCD	command_table
 		FNcom	"SPELL",Spell
 		FNcom	"IMPRESSIONSPELL_BUF",	   ImpSpell_Buf
 		FNcom	"IMPRESSIONSPELL_SELBUF",  ImpSpell_SelBuf
+		FNcom	"IMPRESSIONSPELL_FILE",	   ImpSpell_File
 		FNcom	"IMPRESSIONSPELL_NEXT",	   ImpSpell_Next
 		FNcom	"IMPRESSIONSPELL_PREV",	   ImpSpell_Prev
 		FNcom	"IMPRESSIONSPELL_ADDWORD", ImpSpell_AddWord
@@ -145,12 +146,12 @@ started$l	LDR	R0,[R11,#w_spell]		; bug in Buttons called this entry point lots
 
 ; a window is closing
 closing$l	FNcall	Zap_GetWindOff,R1		;
-		LDR	R1,[R11,#current_window]        ;
-		TEQ	R0,R1                           ;
-		MOVEQ	R0,#-1                          ;
-		STREQ	R0,[R11,#current_window]        ;
+		LDR	R1,[R11,#current_window]	;
+		TEQ	R0,R1				;
+		MOVEQ	R0,#-1				;
+		STREQ	R0,[R11,#current_window]	;
 		BLEQ	close_spell_win			;
-		FNRTS                                   ;
+		FNRTS					;
 
 
 		LOCAL
@@ -165,7 +166,7 @@ wimp_message	FNJSR	"R1-R11"
 		BL	get_workspace
 
 		TEQ	R3,#17				; quick check for user messages
-		BEQ	user$l                          ;
+		BEQ	user$l				;
 
 		CMP	R3,#(end$l-start$l)/4
 		ADDLO	PC,PC,R3,LSL #2
@@ -247,7 +248,7 @@ user$l		LDR	R0,=&502			; HelpRequest
 		FNRTS	NE				;
 
 		MOV	R6,R1				; keep wimp block
-		MOV	R3,#0                           ;
+		MOV	R3,#0				;
 		LDR	R0,[R6,#32]			; window handle
 		LDR	R1,[R11,#w_spell]		; check for our windows
 		TEQ	R0,R1				;
@@ -453,6 +454,58 @@ ImpSpell_SelBuf	FNJSR
 		FNRTS
 
 nosel$l		BL	Beep
+		FNRTS
+
+
+		LOCAL
+
+
+; ---------------------------------
+; IMPRESSIONSPELL_FILE command
+
+		DCD	1
+ImpSpell_File	FNJSR
+		BL	get_workspace
+
+		SUB	R13,R13,#64			; open the window where it currently is
+		MOV	R1,R13				;
+		LDR	R0,[R11,#w_spell]		;
+		STR	R0,[R1]				;
+		SWI	XWimp_GetWindowState		;
+		BL	open_spell_win			;
+		ADD	R13,R13,#64			;
+
+		MOV	R0,#OP_FILE			;
+		BL	set_id				;
+
+		MOV	R2,#0				;
+		LDR	R3,[R9,#f_len]			;
+		BL	tell_mode			;
+
+		BL	next_bad_word			; find the start of the word
+		BCS	none$l				; no misspelled words at all
+		BL	get_word			;
+
+		PUSH	"R0"				;
+		ADD	R3,R2,R1			; select the word (but don't move the cursor)
+		FNcall	Zap_AlterSel,R4			;
+		PULL	"R0"				;
+
+		LDR	R2,[R11,#w_spell]		; copy it into the icons
+		MOV	R1,#i_spell_badword		;
+		BL	icon_settext			;
+		MOV	R1,#i_spell_newword		;
+		BL	icon_settext			;
+
+		BLVC	spell_suggest			; do the suggestions list
+		BLVC	wlist_set_extent		;
+		BLVC	wlist_home			;
+		BLVC	wlist_invalidate		;
+
+		BLVC	spell_caret			; give it the caret
+		FNRTS
+
+none$l		BL	Beep
 		FNRTS
 
 
@@ -1416,7 +1469,7 @@ wlist_click	FNJSR
 		MOV	R1,#i_spell_newword		;
 		BL	icon_settext			;
 
-		LDR	R0,[R5,#8]                      ;
+		LDR	R0,[R5,#8]			;
 		TST	R0,#4				; double-click select
 		BNE	double$l			;
 
@@ -1424,7 +1477,7 @@ wlist_click	FNJSR
 		FNRTS
 
 double$l	BL	spell_replace			; replace, and move onto next
-		FNRTS                                   ;
+		FNRTS					;
 
 
 		LOCAL
