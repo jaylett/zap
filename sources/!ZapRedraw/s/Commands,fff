@@ -1,5 +1,5 @@
 ; Contains the module command table
-; $Id: Commands,fff,v 1.1.2.1 2001/06/11 22:36:08 ds Exp $
+; $Id: Commands,fff,v 1.1.2.2 2001/07/02 20:15:42 ds Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -142,7 +142,7 @@ loop2$l		ADD	R11,R11,#1
 		FNLDR	R0,temp
 		ADD	R0,R0,#1
 		FNSTR	R0,temp
-		SWI	&178				; 'x'
+		SWI	&20178				; 'x'
 		LDRVC	R0,[R8,#fb_charh]
 		ADDVC	R1,R12,#buffer
 		MOVVC	R2,#256
@@ -262,7 +262,7 @@ writer		FNJSR	"R10,R11"
 		BL	strlen
 		SUB	R11,R11,R1
 		SUB	R11,R11,#1
-loopw$l		SWI	&120
+loopw$l		SWI	&20120
 		FNRTS	VS
 		SUBS	R11,R11,#1
 		BPL	loopw$l
@@ -347,9 +347,10 @@ loop$l		STR	R3,[R1],#4
 com_describe	FNJSR	"R1-R12"
 		LDR	R12,[R12]
 		; do the font handles & blocks
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= " Font blocks in cache:",10,13,0
 		ALIGN
+		FNRTS	VS
 		ADD	R1,R12,#font_handles
 		MOV	R2,#0
 loop$l		LDR	R0,[R1,R2,LSL #2]
@@ -364,88 +365,102 @@ loop$l		LDR	R0,[R1,R2,LSL #2]
 		MOV	R11,#0				; total free space
 		MOV	R10,#0				; largest block size
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= 10,13,10,13," Free list:",10,13,10,13,0
 		ALIGN
+		FNRTS	VS
 		FNLDR	R4,cache_freelist
 		TEQ	R4,#0
 		BNE	loop2$l
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   No free blocks",10,13,0
 		ALIGN
-		B	other$l
+		BVC	other$l
+		FNRTS
 
-loop2$l		SWI	OS_WriteS
+loop2$l		SWI	XOS_WriteS
 		= "   Address: ",0
 		ALIGN
-		MOV	R0,R4
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		MOVVC	R0,R4
+		BLVC	hex8
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "      Size: ",0
 		ALIGN
+		FNRTS	VS
 		LDR	R0,[R4]
 		ADD	R11,R11,R0
 		CMP	R0,R10
 		MOVHS	R10,R0
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		BL	hex8
 
 		LDR	R4,[R4,#4]
 		TEQ	R4,#0
 		BNE	loop2$l
 
 		; other info
-other$l		SWI	OS_WriteS
+other$l		SWI	XOS_WriteS
 		= 10,13,"        Total size: ",0
 		ALIGN
-		FNLDR	R0,cache_size
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertFileSize
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		FNLDR	R0,cache_size,VC
+		BLVC	filesize
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "       Area number: ",0
 		ALIGN
-		FNLDR	R0,cache_areanum
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		FNLDR	R0,cache_areanum,VC
+		BLVC	cardinal4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "  Total free space: ",0
 		ALIGN
-		MOV	R0,R11
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertFileSize
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		MOVVC	R0,R11
+		BLVC	filesize
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "     Largest block: ",0
 		ALIGN
-		MOV	R0,R10
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertFileSize
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		MOVVC	R0,R10
+		BLVC	filesize
 
 		FNRTS
 
+hex8		FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+filesize	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertFileSize
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+cardinal4	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertCardinal4
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
+
+integer4	FNJSR
+		ADD	R1,R12,#buffer
+		MOV	R2,#256
+		SWI	XOS_ConvertInteger4
+		SWIVC	XOS_Write0
+		SWIVC	XOS_NewLine
+		FNRTS
 
 
 ; describe a font block
@@ -454,93 +469,74 @@ other$l		SWI	OS_WriteS
 describe_font_block
 		FNJSR	"R1-R2,R11"
 		MOV	R11,R0
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= 10,13,"   Handle:  ",0
 		ALIGN
-		ADD	R0,R2,#1
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		ADDVC	R0,R2,#1
+		BLVC	cardinal4
+		FNTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Address: ",0
 		ALIGN
-		MOV	R0,R11
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		MOVVC	R0,R11
+		BLVC	hex8
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Name:    ",0
 		ALIGN
+		FNRTS	VS
 		LDR	R0,[R11,#fb_name]
 		TEQ	R0,#0
 		ADREQ	R0,syst$l
 		SWI	XOS_Write0
-		SWI	&120
-		SWI	&120
-		SWI	&128
-		LDR	R0,[R11,#fb_name]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	&129
-		SWI	XOS_NewLine
+		SWIVC	&20120
+		SWIVC	&20120
+		SWIVC	&20128
+		LDRVC	R0,[R11,#fb_name]
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Width:   ",0
 		ALIGN
-		LDR	R0,[R11,#fb_charw]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_charw]
+		BLVC	cardinal4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Height:  ",0
 		ALIGN
-		LDR	R0,[R11,#fb_charh]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_charh]
+		BLVC	cardinal4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Usage:   ",0
 		ALIGN
-		LDR	R0,[R11,#fb_usage]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_usage]
+		BLVC	cardinal4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   cbpl:    ",0
 		ALIGN
-		LDR	R0,[R11,#fb_cbpl]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_cbpl]
+		BLVC	cardinal4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   cbpc:    ",0
 		ALIGN
-		LDR	R0,[R11,#fb_cbpc]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_cbpc]
+		BLVC	cardinal4
+		FNRTS	VS
 
 		BL	do_flags
 
@@ -548,9 +544,10 @@ describe_font_block
 		TST	R0,#ff_vdu
 		BNE	vdu$l
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Styles cached:  ",10,13,0
 		ALIGN
+		FNRTS	VS
 		MOV	R10,#0
 		ADD	R11,R11,#fb_data
 sloop$l		LDR	R0,[R11,R10,LSL #2]
@@ -565,190 +562,172 @@ sloop$l		LDR	R0,[R11,R10,LSL #2]
 syst$l		= " (system)",0
 		ALIGN
 
-vdu$l		SWI	OS_WriteS
+vdu$l		SWI	XOS_WriteS
 		= "   workarea: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_spritesize]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertFileSize
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_spritesize]
+		BLVC	filesize
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "      width: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_xsize]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_xsize]
+		BLVC	integer4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "     aspect: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_aspect]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_aspect]
+		BLVC	integer4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "    handles: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_handles]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_handles]
+		BLVC	hex8
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "    shaving block:",10,13,"        Left: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_shavel]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_shavel]
+		BLVC	integer4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "       Right: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_shaver]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_shaver]
+		BLVC	integer4
+		FNRTS	VS
 
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "         Top: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_shavet]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_shavet]
+		BLVC	integer4
+		FNRTS	VS
 
 		SWI	OS_WriteS
 		= "      Bottom: ",0
 		ALIGN
-		LDR	R0,[R11,#fb_shaveb]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertInteger4
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		LDRVC	R0,[R11,#fb_shaveb]
+		BLVC	integer4
 
 		FNRTS
 
 
 ss$l		FNJSR
 		MOV	R9,#38
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "       ",0
+		FNRTS	VS
 		TEQ	R10,#0
 		BNE	not0$l
 
 		SUB	R9,R9,#5
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "base ",0
 		ALIGN
+		FNRTS	VS
 saddr$l		MOV	R0,#' '
 saloop$l	SWI	XOS_WriteC
+		FNRTS	VS
 		SUBS	R9,R9,#1
 		BNE	saloop$l
 		LDR	R0,[R11,R10,LSL #2]
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	XOS_NewLine
+		BL	hex8
 		FNRTS
 
 not0$l		TST	R10,#1<<1
 		BEQ	not5$l
 		SUB	R9,R9,#5
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "bold ",0
 		ALIGN
+		FNRTS	VS
 not5$l		TST	R10,#1<<2
 		BEQ	not6$l
 		SUB	R9,R9,#7
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "italic ",0
 		ALIGN
+		FNRTS	VS
 not6$l		TST	R10,#1<<3
 		BEQ	not7$l
 		SUB	R9,R9,#11
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "underlined ",0
 		ALIGN
+		FNRTS	VS
 not7$l		TST	R10,#1<<0
 		BEQ	saddr$l
 		SUB	R9,R9,#14
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "strikethrough ",0
 		ALIGN
-		B	saddr$l
+		BVC	saddr$l
+		FNRTS
 
 
 
 		LOCAL
 
 do_flags	FNJSR	"R10"
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= "   Flags:   ",0
 		ALIGN
+		FNRTS	VS
 		LDR	R10,[R11,#fb_flags]
 		TST	R10,#ff_ssallowed
 		BEQ	noss$l
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= " substyles ",0
 		ALIGN
+		FNRTS	VS
 
 noss$l		TST	R10,#ff_vdu
 		BEQ	notvdu$l
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= " vdu  ",0
 		ALIGN
+		FNRTS	VS
 
-notvdu$l	SWI	&128
-		MOV	R0,R10
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	&129
-		SWI	XOS_NewLine
+notvdu$l	SWI	&20128
+		MOVVC	R0,R10
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertHex8
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
 		FNRTS
 
 
 
 com_debug	FNJSR
 		LDR	R12,[R12]
-		SWI	OS_WriteS
+		SWI	XOS_WriteS
 		= " Value of debug: ",0
 		ALIGN
+		FNRTS	VS
 		FNLDR	R0,debug
 		ADD	R1,R12,#buffer
 		MOV	R2,#256
 		SWI	XOS_ConvertHex8
-		SWI	XOS_Write0
-		SWI	&120
-		SWI	&128
-		FNLDR	R0,debug
-		ADD	R1,R12,#buffer
-		MOV	R2,#256
-		SWI	XOS_ConvertCardinal4
-		SWI	XOS_Write0
-		SWI	&129
-		SWI	XOS_NewLine
+		SWIVC	XOS_Write0
+		SWIVC	&20120
+		SWIVC	&20128
+		FNLDR	R0,debug,VC
+		ADDVC	R1,R12,#buffer
+		MOVVC	R2,#256
+		SWIVC	XOS_ConvertCardinal4
+		SWIVC	XOS_Write0
+		SWIVC	&20129
+		SWIVC	XOS_NewLine
 		FNRTS
 
 		]
