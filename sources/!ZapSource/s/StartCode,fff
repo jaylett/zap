@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 1.1.2.20 1999/03/10 11:28:10 james Exp $
+; $Id: StartCode,fff,v 1.1.2.21 1999/03/11 10:26:16 james Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1434,6 +1434,7 @@ list$l
 ;		 R9=size of the data to save
 ;		 b16-b31 of R10=filetype of data to save.
 ;      b2 set => use R1 as the WIMP message reply field...
+;      b3 set => untyped file (if b1 set)
 ;      b16-b31 = extra data (see b1)
 ;  R11=data to pass to routine in R7 (if used).
 ;X Data transfer protocol initiated.
@@ -1502,14 +1503,16 @@ send$l				; R0=offset (&C) R2=length (&14)
 
  LDR R0,[R9,#f_load]		; file/selection R9
  BL calc_ftype			; get filetype
- MOVCC R0,#&F00
- ADDCC R0,R0,#&0FD		; data
+ ORRCC R10,R10,#1:SHL:3		; untyped
  MOV R10,R10,LSL#16
- MOV R10,R10,LSR#16
- ORR R10,R10,R0,LSL#16
+ MOV R10,R10,LSR#16		; either way, clear the filetype field
+ ORRCS R10,R10,R0,LSL#16
+ BICCS R10,R10,#1:SHL:3
 type$l				; file type installed in R10
  STR R10,[R11,#8]		; save updated flags
- MOV R0,R10,LSR #16
+ TST R10,#1:SHL:3		; is it untyped?
+ MOVNE R0,#-1			; if so, use -1 as the filetype ...
+ MOVEQ R0,R10,LSR #16		; else use whatever was supplied / calculated
  STR R0,[R1,#40]		; save the file type
  MOVS R0,R7			; path name
  LDREQ R0,[R9,#f_name]
