@@ -1,5 +1,5 @@
 ; Macros used in Zap assembly
-; $Id: Macros,fff,v 2.4 2001/11/12 01:30:39 christian Exp $
+; $Id: Macros,fff,v 2.5 2002/11/10 19:25:56 christian Exp $
 
 ; count in-core storage
 	GBLA InCoreTotal
@@ -89,16 +89,12 @@ $la
 	|
 	 LDM$cc.FD R13!,{$StackedRegs,R14}
 	]
-	[ :DEF: ARM32
-	 [ "$cc" = ""
-	  CMPVC R0,#1<<31
-	  CMNVC R0,#1<<31
- 	  MOV	PC,R14
-	 |
-	  ! 1,"Can't use FNRTV with a condition in 32bit safe mode"
-	 ]
+	[ "$cc" = ""
+	  SEV
+	  MOV	PC,R14
 	|
-	 ORR$cc.S PC,R14,#Vbit
+	  IMPORT ARM32_VSRet
+	  B$cc	ARM32_VSRet
 	]
 	MEND
 
@@ -112,15 +108,66 @@ $la
 	|
 	LDM$cc.FD R13!,{$StackedRegs,R14}
 	]
-	BIC$cc.S PC,R14,#Vbit
+	[ "$cc" = ""
+	  CLV
+	  MOV	PC,R14
+	|
+	  IMPORT ARM32_VCRet
+	  B$cc	ARM32_VCRet
+	]
 	MEND
+
+; end sub and set C
+
+	MACRO
+$la	FNRTCS	$cc
+$la
+	[ StackedRegs=""
+	LDM$cc.FD R13!,{R14}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,R14}
+	]
+	[ "$cc" = ""
+	SEC
+	MOV	PC,R14
+	|
+	IMPORT ARM32_CSRet
+	B$cc	ARM32_CSRet
+	]
+	MEND
+
+; end sub and clear C
+
+	MACRO
+$la	FNRTCC	$cc
+$la
+	[ StackedRegs=""
+	LDM$cc.FD R13!,{R14}
+	|
+	LDM$cc.FD R13!,{$StackedRegs,R14}
+	]
+	[ "$cc" = ""
+	CLC
+	MOV	PC,R14
+	|
+	IMPORT ARM32_CCRet
+	B$cc	ARM32_CCRet
+	]
+	MEND
+
 
 ; set V flag and return (lr)
 
 	MACRO
 $la	RTV	$cc
 $la
-	ORR$cc.S PC,R14,#Vbit
+	[ "$cc" = ""
+	SEV
+	MOV	PC,R14
+	|
+	IMPORT	ARM32_VSRet
+	B$cc	ARM32_VSRet
+	]
 	MEND
 
 ; clear V flag and return (lr)
@@ -128,7 +175,13 @@ $la
 	MACRO
 $la	RTVC	$cc
 $la
-	BIC$cc.S PC,R14,#Vbit
+	[ "$cc" = ""
+	CLV
+	MOV	PC,R14
+	|
+	IMPORT	ARM32_VCRet
+	B$cc	ARM32_VCRet
+	]
 	MEND
 
 ; define a zero terminated string
@@ -216,8 +269,10 @@ $la	ADD R0,PC,#0			; address of the error message
 
 	MACRO
 $la	ERRlit $a
-$la	ADD R0,PC,#0			; address of the error message
-	ORRS PC,R14,#1<<28		; return with an error
+$la	ADD R0,PC,#8			; address of the error message
+	CMPVC PC,#1<<31  		; don't use SEV so we know how
+	CMNVC PC,#1<<31			;  long the sequence is
+	MOV PC,R14
 	DCD ENUM			; error number
 	= "$a",0			; error message
 	ALIGN
@@ -278,6 +333,51 @@ div2A$l CMP     $a,$b
 
 	MEND
 
+;-----------------------------------------
+;   manupilation of PSR flags
+;
+
+; set C.  sets    N:?  Z:?  C:1  V:0
+		MACRO
+$la		SEC
+$la		SUBS	R0,R0,#0
+		MEND
+
+; clear C. sets   N:?  Z:?  C:0  V:0
+		MACRO
+$la		CLC
+$la		ADDS	R0,R0,#0
+		MEND
+
+; set V.  sets    N:?  Z:0  C:?  V:1
+		MACRO
+$la		SEV
+$la		CMPVC	PC,#1<<31
+		CMNVC	PC,#1<<31
+		MEND
+
+; clear V. sets   N:?  Z:?  C:0  V:0
+		MACRO
+$la		CLV
+$la		ADDS	R0,R0,#0
+		MEND
+
+; set Z.   sets:  N:?  Z:1  C:-  V:-
+		MACRO
+$la		SEZ
+$la		TEQ	R0,R0
+		MEND
+
+; clear Z. sets:  N:?  Z:0  C:?  V:?
+; I don't like this because it could inadvertantly set V
+;		MACRO
+;$la		CLZ
+;$la		CMN	R0,R0
+;		MEND
+
+
+
+;-----------------------------------------
 ; Logging information
 ;
 ; Tim liked to use Zephyr - however this is really only useful for immediate debugging
