@@ -1,6 +1,6 @@
 ; Contains code to handle the font cache
 ; also handles code to read info, install and find font blocks
-; $Id: Cache,fff,v 1.27 2004/11/14 22:33:21 christian Exp $
+; $Id: Cache,fff,v 1.28 2004/11/18 12:54:45 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -187,6 +187,7 @@ kill_cache	FNJSR					; svc mode
 		FNLDR	R1,cache_areanum
 		TEQ	R1,#0
 		SWINE	XOS_DynamicArea
+		BL	free_encodings
 		FNRTS
 
 
@@ -2383,16 +2384,17 @@ loop$l		LDR	R0,[R4,#4]!			; must leave r4 pointing to pointer
 		SUBS	R5,R5,#1
 		BNE	loop$l
 
-		ADD	R4,R12,#encodings		; fix the encodings list
-		LDR	R0,[R4]				;
-		BL	check_pointer			;
+		;ADD	R4,R12,#encodings		; fix the encodings list
+		;LDR	R0,[R4]				;
+		;BL	check_pointer			;
 							;
-encs$l		TEQ	R0,#0				;
-		FNRTS	EQ				;
-		LDR	R4,[R0,#enc_next]		;
-		BL	correct_encoding		;
-		MOV	R0,R4				;
-		B	encs$l				;
+encs$l		;TEQ	R0,#0				;
+		;FNRTS	EQ				;
+		;LDR	R4,[R0,#enc_next]		;
+		;BL	correct_encoding		;
+		;MOV	R0,R4				;
+		;B	encs$l				;
+		FNRTS
 
 		LOCAL
 
@@ -2447,13 +2449,13 @@ loop$l		LDR	R4,[R0],#cde_len
 ; check pointers in an encoding block
 ; E r0 -> block  r1-r3 as above
 ; X pointers corrected
-correct_encoding
-		FNJSR	"R0,R4"
-		ADD	R4,R0,#enc_name
-		BL	check_pointer
-		MOV	R4,R0
-		BL	check_pointer
-		FNRTS
+;correct_encoding
+;		FNJSR	"R0,R4"
+;		ADD	R4,R0,#enc_name
+;		BL	check_pointer
+;		MOV	R4,R0
+;		BL	check_pointer
+;		FNRTS
 
 
 		LOCAL
@@ -2853,6 +2855,25 @@ badindex$l	FNPULL
 
 		LOCAL
 
+; allocate a block from the RMA
+; E r0 = size
+; X ro -> block
+rma_alloc	FNJSR	"R1-R3"
+		MOV	R3,R0
+		MOV	R0,#6
+		SWI	XOS_Module
+		MOVVC	R0,R2
+		FNRTS
+
+
+; free a block from the RMA
+; E r0 -> block
+rma_free	FNJSR	"R1-R3"
+		MOV	R2,R0
+		MOV	R0,#7
+		SWI	XOS_Module
+		FNRTS
+
 
 ; return the data for a given encoding
 ; E r0 -> encoding name
@@ -2895,7 +2916,7 @@ find$l		TEQ	R3,#0
 		FNRTS
 
 none$l		BL	load_encoding
-		ADDVC	R0,R3,#enc_data
+		ADDVC	R0,R0,#enc_data
 		FNRTS
 
 
@@ -2903,7 +2924,7 @@ none$l		BL	load_encoding
 
 ; encoding header
 ;   0 'ZENC'   magic word
-;   4  }
+;   4  file format version - must be 2
 ;   8  } reserved must be 0
 ;  12  }
 
@@ -2915,7 +2936,7 @@ load_encoding	FNJSR	"R9-R11"
 		MOV	R9,#0
 
 		MOV	R0,#enc_length+8		; alloc the encoding block
-		BL	cache_alloc			;
+		BL	rma_alloc			;
 		FNRTS	VS				;
 							;
 		MOV	R10,R0				;
@@ -2923,7 +2944,7 @@ load_encoding	FNJSR	"R9-R11"
 		MOV	R0,R11				; deal with the name
 		BL	strlen				;
 		ADD	R0,R1,#1			;
-		BL	cache_alloc			;
+		BL	rma_alloc			;
 		BVS	err$l				;
 		STR	R0,[R10,#enc_name]		;
 		MOV	R2,R11				;
@@ -2951,7 +2972,7 @@ load_encoding	FNJSR	"R9-R11"
 		LDR	R0,[R1],#4			;
 		TEQ	R0,R2				;
 		LDREQ	R0,[R1],#4			;
-		TEQEQ	R0,#0				;
+		TEQEQ	R0,#2				;
 		LDREQ	R0,[R1],#4			;
 		TEQEQ	R0,#0				;
 		LDREQ	R0,[R1],#4			;
@@ -2962,7 +2983,7 @@ load_encoding	FNJSR	"R9-R11"
 		MOVVC	R0,#4				; load the data
 		MOVVC	R1,R9				;
 		ADDVC	R2,R10,#enc_data		;
-		MOVVC	R3,#256				;
+		MOVVC	R3,#enc_length-enc_data		;
 		SWIVC	XOS_GBPB			;
 		BVS	err$l				;
 
@@ -2988,7 +3009,7 @@ err$l		MOV	R11,R0				; keep the error
 		SWINE	XOS_Find			;
 							;
 		MOVS	R0,R10				; free the block
-		BLNE	cache_free			;
+		BLNE	rma_free			;
 							;
 		MOV	R0,R11				; return the error
 		FNRTV					;
@@ -3006,9 +3027,9 @@ notenc$l	ERRTOK	err_notfont,"NotEnc"
 free_encoding	FNJSR	"R11"
 		MOV	R11,R0
 		LDR	R0,[R0,#enc_name]
-		BL	cache_free
+		BL	rma_free
 		MOV	R0,R11
-		BL	cache_free
+		BL	rma_free
 		FNRTS
 
 
