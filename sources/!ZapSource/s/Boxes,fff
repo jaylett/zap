@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.14 1999/04/25 19:58:33 ds Exp $
+; $Id: Boxes,fff,v 1.1.2.15 1999/04/27 09:31:19 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -1890,6 +1890,7 @@ lc_Mini_histmenu
  MOV R2,#0
  ADR R3,histclick_m$l
 lc_build_menu
+ ORR R1,R1,#1
  BL build_menu
 lc_open_menu
  MOV R7,R0
@@ -1933,8 +1934,6 @@ lc_Replace_histmenu
  ADREQ R1,histmake_r$l
  ADRNE R1,histmake$l
  MOV R2,#0
- ;TST R8,#1
- ;ADREQ R3,histclick_$l
  ADR R3,histclick_r$l
  B lc_build_menu
 
@@ -1961,8 +1960,8 @@ lc_Search_histmenu
 
  ADR R0,histnom$l
  TST R8,#1
- ADRNE R1,histmake_r$l+1
- ADREQ R1,histmake$l+1
+ ADRNE R1,histmake_r$l
+ ADREQ R1,histmake$l
  MOV R2,#0
  ADR R3,histclick$l
  B lc_build_menu
@@ -4267,20 +4266,13 @@ WCOutput
 	MOV	R0,#' '
 	STRB	R0,[R1],#1
 
+	ADD	R3,R2,#WCString_End-WCString-16
+	MOV	R2,R1
 	CMP	R11,#0
-	BLEQ	wordsone$l
+	BLEQ	words$l
 	CMP	R11,#1
-	BLEQ	matchesone$l
-
-	; Catenate "s" if word count not 1.
-	TEQ	R5,#1
-	TEQNE	R11,#2		; Total...?
-	MOVNE	R0,#'s'
-	STRNEB	R0,[R1],#1
-
-	; NUL terminator.
-	MOV	R0,#0
-	STRB	R0,[R1],#1
+	BLEQ	matches$l
+	BL	lookup_token
 
 	; If Zap just wants a window handle, return.
 	; If not, close the menu now ...
@@ -4325,32 +4317,23 @@ dontclose$l
 	; Return.
 	LDMFD	R13!,{PC}
 
-wordsone$l
-	MOV	R0,#'w'
-	STRB	R0,[R1],#1
-	MOV	R0,#'o'
-	STRB	R0,[R1],#1
-	MOV	R0,#'r'
-	STRB	R0,[R1],#1
-	MOV	R0,#'d'
-	STRB	R0,[R1],#1
+words$l
+	TEQ	R5,#1
+	ADREQ	R1,wordone_text$l
+	ADRNE	R1,wordmany_text$l
 	MOV	PC,R14
 
-matchesone$l
-	MOV	R0,#'m'
-	STRB	R0,[R1],#1
-	MOV	R0,#'a'
-	STRB	R0,[R1],#1
-	MOV	R0,#'t'
-	STRB	R0,[R1],#1
-	MOV	R0,#'c'
-	STRB	R0,[R1],#1
-	MOV	R0,#'h'
-	STRB	R0,[R1],#1
+matches$l
 	TEQ	R5,#1
-	MOVNE	R0,#'e'
-	STRNEB	R0,[R1],#1
+	ADREQ	R1,matchone_text$l
+	ADRNE	R1,matchmany_text$l
 	MOV	PC,R14
+
+wordone_text$l		= "zap_wc_word",0
+wordmany_text$l		= "zap_wc_words",0
+matchone_text$l		= "zap_wc_match",0
+matchmany_text$l	= "zap_wc_matches",0
+	ALIGN
 
 adjusttitledata
 	FNJSR	"R0,R1,R2"
@@ -4392,6 +4375,7 @@ WCError
 WCString
 ;	=	"-- Nathalie L. Foster --"
 	=	10,"-- Sorry Elliot --",10
+WCString_End
 	ALIGN
 
 cw_WCBox
@@ -5087,7 +5071,7 @@ lc_CloneBox_menu
 	BL	recreate_the_leaf_window
 	BVS	c_ret
 	ADR	R0,clone$l
-	ADR	R1,build$l+1
+	ADR	R1,build$l
 	MOV	R2,#0
 	ADR	R3,click$l
 	MOV	R4,#16
@@ -5271,7 +5255,7 @@ keys$l	=	13,6,0
 
 lc_CloneCrBox_menu
 	ADR	R0,title$l
-	ADR	R1,build$l+1
+	ADR	R1,build$l
 	MOV	R2,#0
 	ADR	R3,click$l
 	MOV	R4,#16
