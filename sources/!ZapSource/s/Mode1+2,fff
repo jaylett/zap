@@ -1,5 +1,5 @@
 ; Contains mode entry points for word and similar modes.
-; $Id: Mode1+2,fff,v 1.1.2.3 1999/05/01 01:00:15 ds Exp $
+; $Id: Mode1+2,fff,v 1.1.2.4 1999/05/12 23:54:38 ds Exp $
 
 	GET	h.ZapHeader
 	GET	h.Commands
@@ -661,8 +661,7 @@ red_c2_l1_afterwrite
 	ANDS	R14,R14,#mode1_Type
 	MOVEQ	R14,#3			; word align
 	TEQ	R14,#mode1_Type_Byte
-	ADDEQ	R6,R6,#1		; byte mode: no endianness problems
-	BEQ	red_c2_l6		; - so skip it :-)
+	MOVEQ	R14,#0			; byte align ;-)
 	TEQ	R14,#mode1_Type_HalfWord
 	MOVEQ	R14,#1			; half word align
 	TST	R0,R14			; is next byte at start of a word?
@@ -672,15 +671,17 @@ red_c2_l1_afterwrite
 	; little endian, so have to move backwards
 	LDR	R14,localmodeword
 	ANDS	R14,R14,#mode1_Type
-	BNE	red_c2_l1_afterwrite_halfword
-red_c2_l1_afterwrite_word
-	TST	R0,#3
-	MOVEQ	R0,#12			; next word (->end; little endian)
-	MOVNE	R0,#-4			; still in current, so move backwards
-	B	red_c2_l1_afterwrite_gotmove
+	BEQ	red_c2_l1_afterwrite_word
+	TEQ	R14,#mode1_Type_HalfWord
+	BNE	red_c2_l6
 red_c2_l1_afterwrite_halfword
 	TST	R0,#1
 	MOVEQ	R0,#4			; next word (->end; little endian)
+	MOVNE	R0,#-4			; still in current, so move backwards
+	B	red_c2_l1_afterwrite_gotmove
+red_c2_l1_afterwrite_word
+	TST	R0,#3
+	MOVEQ	R0,#12			; next word (->end; little endian)
 	MOVNE	R0,#-4			; still in current, so move backwards
 
 red_c2_l1_afterwrite_gotmove
@@ -1163,22 +1164,20 @@ co30	PULL	"R14"
 	BL	reflect_caret
 	FNRTS
 
-	LOCAL
-
 ; R4=w_flags R5=num bytes R6=w_format R7=data R8/R9/R10=input caret
 
 mode1_char
 	FNJSR
+	TST	R4,#flags_HexEntry
+	FNRTS	EQ
+	FNLDR	R0,car_hexold
+	FNSTR	R0,car_hex
 	LDRB	R6,[R8,#w_format]
 	ADD	R6,R8,R6,LSL #2
 	LDR	R6,[R6,#w_mode0]
-	TST	R4,#flags_HexEntry
-	BEQ	nothex$l
-	FNLDR	R0,car_hexold
-	FNSTR	R0,car_hex
 in30	TST	R6,#mode1_BinaryNumberDump
 	BNE	in34			; binary
-	LDRB	R0,[R7],#1
+	LDRB	R0,[R7]
 	BL	hex_char
 	BCS	in31			; char no good
 	ADR	R14,k_char_w1
@@ -1292,6 +1291,7 @@ in36					; update caret
 	BL	reflect_caret
 	FNRTS	VS
 in31					; go on to next character
+	ADD	R7,R7,#1
 	SUBS	R5,R5,#1
 	BGT	in30			; do next char
 	BL	make_cursor_visible
@@ -1330,13 +1330,6 @@ in35					; rotate and add new bit
 	B	in33
 
 k_char_w1	DCD	0
-
-nothex$l
-	AND	R14,R6,#mode1_Type
-	TEQ	R14,#mode1_Type_Byte
-	FNRTS	NE
-	FNPULL
-	B	mode3_char
 
 	LOCAL
 
