@@ -1,5 +1,5 @@
 ; Contains main module entry start code and wimp poll dispatches.
-; $Id: StartCode,fff,v 2.20 2003/01/19 23:03:43 christian Exp $
+; $Id: StartCode,fff,v 2.21 2003/01/19 23:50:03 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -368,19 +368,19 @@ a$l
 	MOV	R0,#-1
 	; FALL THROUGH !!!
 
-;E R0-R3=block to log
-;X Block logged.
-;  R0=0 => Terminator block (for internal use)
-;  R0>0 => Reference of message that was sent expecting a reply
-;	   R1=time message sent R2=reply sub (b31 set if wants bounces)
-;	   R3=reply sub data
-; R0=-1 => Call routine at a given time
-;	   R1=earliest (monotonic) time to call the routine
-;	   R2=sub to call R3=sub data
-; R0=-2 => Interested in this message number...
-;	   R1=message number
-;	   R2=sub to call R3=sub data
 
+;E R0-R3 = block to log
+;X Block logged.
+;  R0 = 0  => Terminator block (for internal use)
+;  R0 > 0  => Reference of message that was sent expecting a reply
+;	      R1 = time message sent  R2 = reply sub (+flags)
+;	      R3 = reply sub data
+;  R0 = -1 => Call routine at a given time
+;	      R1 = earliest (monotonic) time to call the routine
+;	      R2 = sub to call  R3 = sub data
+;  R0 = -2 => Interested in this message number...
+;	      R1 = message number
+;	      R2 = sub to call  R3 = sub data
 wimp_log
 	FNJSR	"R6-R7"
 	MOV	R6,R0
@@ -487,7 +487,7 @@ b$l	SUBS	R4,R4,#16
 	FNLDR	R0,wimp_loglist,VC
 	SUBVC	R2,R2,R0		; offset in log list
 	FNRTS	VS
-	MOVS	R14,PC
+	MOV	R14,PC
 	MOV	PC,R3			; call (may change log list posn
 	FNRTS	VS
 	FNLDR	R0,wimp_loglist		; (which we don't want to reexamine!!)
@@ -498,15 +498,16 @@ m$l	LDR	R0,[R2,#4]		; time message sent
 	SUB	R0,R1,R0		; time since message sent
 	CMP	R0,#1*&1800		; 1 minute (&8100cs is about 61 secs)
 	BLT	a$l			; keep
+
 	LDR	R3,[R2,#8]		; address
 	LDR	R11,[R2,#12]		; private word
 	BL	wimp_removelog		; too old
 	FNRTS	VS
-	TST	R3,#1<<30
+	TST	R3,#1<<0
 	BEQ	b$l			; doesn't want to know about it
 	MOV	R0,#0
-	MOVS	R14,PC
-	BIC	PC,R3,#3<<30		; call the sub
+	MOV	R14,PC
+	BIC	PC,R3,#3		; call the sub
 	BVC	b$l			; new next block has been shifted in
 	FNRTS
 
@@ -522,7 +523,8 @@ user_message
 	MOV	R0,#17
 	; fall through...
 
-;E R0=17/19 if bounced R1=message block of a replied message
+;E R0 = 17/19 if bounced
+;  R1 = message block of a replied message
 ;X message reply code called if in the list. o/w passed on #
 user_message_reply
 	FNJSR	"R1-R11"
@@ -544,11 +546,11 @@ b$l	LDR	R3,[R2]
 	LDR	R2,[R1,#16]		; message 'number'
 	TEQ	R4,#17			; (don't delete incase of repeat replies)
 	BEQ	c$l
-	TST	R3,#1<<31
+	TST	R3,#1<<1
 	FNRTS	EQ			; not interested in bounces
 
 c$l					; call
-	BICS	R3,R3,#3<<30		; address of the sub to call
+	BICS	R3,R3,#3		; address of the sub to call
 	BEQ	d$l
 	MOV	R0,R4			; call type (17/19)
 	MOVS	R14,PC
@@ -2567,34 +2569,37 @@ message_interested
 	B	wimp_log
 
 
-;E R0=message action number (b0-b27) +flags (b28-b31)
-;  R5=reply routine (if b28) R6=reply private word (if b28)
-;X R0=message action number with flags clear
-;  R3=send code (b31 set then R3=18, b30 set then R3=19, else R3=17)
-;  R5=reply routine (if b28) with b31 set if interested in bounces
-;     b30 set if want to know when it's deletd or -1 if b28 clear
+;E R0 = message action number (b0-b27) +flags (b28-b31)
+;  R5 = reply routine (if b28)
+;  R6 = reply private word (if b28)
+;X R0 = message action number with flags clear
+;  R3 = send code (b31 set then R3 = 18, b30 set then R3 = 19, else R3 = 17)
+;  R5 = reply routine (if b28) with
+;       b1 set if interested in bounces
+;       b0 set if want to know when it's deleted or -1 if b28 clear
 	FNAME	message_setup
 message_setup
 	MOV	R3,R0,LSR#30
 	TEQ	R3,#3
-	ORREQ	R5,R5,#1<<31		; it is interested in bounces
+	ORREQ	R5,R5,#1<<1		; it is interested in bounces
 	MOV	R3,#17			; all clear
 	TST	R0,#1<<30
 	MOVNE	R3,#19			; bit 30 set
 	TST	R0,#1<<31
 	MOVNE	R3,#18			; bit 31 set and b30 arbitrary
 	TST	R0,#1<<29
-	ORRNE	R5,R5,#1<<30		; wants to be called when message deleted
+	ORRNE	R5,R5,#1<<0		; wants to be called when message deleted
 	TST	R0,#1<<28
 	MOVEQ	R5,#-1			; no reply routine
 	BIC	R0,R0,#&F0000000	; clear flags
 	MOV	PC,R14
 
 
-;E R1=message block after Wimp_SendMessage has been called
-;  R5=address of routine to call on a reply or 0 if none
-;     b31 set of wants bounces b30 set if wants to know when being deleted
-;  R6=private word to use on reply (if R5<>0)
+;E R1 = message block after Wimp_SendMessage has been called
+;  R5 = address of routine to call on a reply or 0 if none
+;       b1 set of wants bounces
+;       b0 set if wants to know when being deleted
+;  R6 = private word to use on reply (if R5<>0)
 ;X Message logged so replies can be dealt with.
 	FNAME	message_log
 message_log
