@@ -1,6 +1,6 @@
 ; Contains code for creating and dealing with clicks and key presses in
 ; specific template boxes.
-; $Id: Boxes,fff,v 1.1.2.7 1999/03/04 00:22:49 ds Exp $
+; $Id: Boxes,fff,v 1.1.2.8 1999/03/04 16:08:53 james Exp $
 
 	GET	h.ZapHeader
 	GET	h.Messages
@@ -4253,7 +4253,21 @@ WCOutput
 	STRB	R0,[R1],#1
 
 	; If Zap just wants a window handle, return.
+	; If not, close the menu now ...
+	CMP	R7,#16
+	BEQ	dontclose$l
+	MOV	R1,#-1
+	SWI	XWimp_CreateMenu
+	LDMVSFD	R13!,{PC}
+	; This isn't necessary, because we call Wimp_CreateMenu below
+	; which will do this job for us if necessary. However doing this
+	; now fails if the last menu was this window - because we've
+	; already deleted this window, and a bug in the wimp blows up
+	; when it tries to close a deleted window (I think it's just
+	; failing to track the delete window through the menu phase.)
+	; - sja
 
+dontclose$l
 	MOV	R0,#t_WCBox
 	MOV	R2,#16
 	BL	open_leaf_com ; returns handle in R0...
@@ -4264,18 +4278,6 @@ WCOutput
 	LDMEQFD	R13!,{PC}
 
 	MOV R7,R0
-
-	; We're on our own...
-;	MOV	R1,#-1			; Remove any open menu.
-;	SWI	XWimp_CreateMenu
-;	LDMVSFD	R13!,{PC}		; Return on error.
-	; This isn't necessary, because we call Wimp_CreateMenu below
-	; which will do this job for us if necessary. However doing this
-	; now fails if the last menu was this window - because we've
-	; already deleted this window, and a bug in the wimp blows up
-	; when it tries to close a deleted window (I think it's just
-	; failing to track the delete window through the menu phase.)
-	; - sja
 
 	; what about adjust clicks on a menu entry...?
 	MOV R0,#4
