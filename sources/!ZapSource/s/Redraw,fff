@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.13 2005/02/14 11:58:20 christian Exp $
+; $Id: Redraw,fff,v 2.14 2005/02/21 14:29:03 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -65,7 +65,7 @@
  EXPORT update_window
  EXPORT update_whole_window
  EXPORT update_whole_window_bar_title
-
+ EXPORT redraw_print_line_number
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1462,6 +1462,23 @@ ge14	LDR	R2,[R8,#w_stline]	; first line number
 	FNRTS				; and return
 
 
+; print line numbers to a buffer
+; E R0 -> cache line  R1= output buffer  R8
+; X line number printed, R1 updated
+	FNAME	redraw_print_line_number
+redraw_print_line_number
+	FNJSR	"R2,R6"
+	LDR	R2,[R8,#w_format]	; check whether to show them at all
+	TST	R0,#format_ShowLineNumbers
+	FNRTS	EQ
+
+	MOV	R6,R1
+	LDRB	R1,[R0,#4]              ; presence flag
+	LDR	R0,[R0]			; number
+	BL	print_line_numbers	; stick them in
+	MOV	R1,R6
+	FNRTS
+
 
 ; E R0 = number  R1 = 0 to plot spaces / 1 to plot number  R6 -> line  R8
 ; X R6 updated
@@ -2509,7 +2526,8 @@ quick_print_sub
 	BL	create_heading
 	MOVVC	R2,R1			; cache width
 	FNLDR	R1,wimp_data,VC
-	MOVVC	R0,#3			; leave in ff (12)
+	MOVVC	R0,#2_1111		; leave in ff (12)
+	MOVVC	R3,#0			; fake w_info: not wide, not UTF-8
 	BLVC	tidy_cache_line
 	MOVVC	R0,R1
 	BLVC	printer_string		; output title
@@ -2546,7 +2564,8 @@ printer_cache_line
 	BL	update_cache		; saves R8/R9 R0=cached data
 	MOVVC	R1,R0			; cached data
 	LDRVC	R2,[R8,#w_txtw]		; cache width
-	MOVVC	R0,#3
+	MOVVC	R0,#7
+	LDRVC	R3,[R8,#w_info]
 	BLVC	tidy_cache_line		; to buffer
 	MOVVC	R0,R1
 	BLVC	printer_string
@@ -2690,14 +2709,20 @@ preoflp$l
 
 ;E R0=flags   b0 => leave form feeds (asc 12) in
 ;	      b1 => don't allow &80-&9F (for printers)
+;	      b2 => don't allow conversion to UTF-8
+;	      b3 => don't skip cache line number
 ;  R1=address of cache line
-;  R2=length of cache lines
+;  R2=length of cache lines (w_txtw)
+;  R3=w_info (for WideRedraw and UTF8 flags)
 ;X R1=wimp_cacheline R2=length (exc 0A)
 ;  ctrl/end spaces gone 0A added #
 	FNAME	tidy_cache_line
 tidy_cache_line
-	FNJSR	"R3-R4"
-	MOV	R4,R0			; save the flags
+	FNJSR	"R3-R5"
+	MOV	R5,R3			; keep w_info flags
+	EOR	R4,R0,#1<<2		; save the flags & invert UT8 flag
+	TST	R4,#1<<3
+	ADDEQ	R1,R1,#8		; skip the line number
 	BL	get_cache_line
 	MOV	R3,R1			; source
 	MOV	R2,R0			; line length
@@ -2707,9 +2732,12 @@ tidy_cache_line
 	FNRTS	VS
 	FNSTR	R0,wimp_cacheline
 	MOV	R1,R0			; destination
-ge11	SUBS	R2,R2,#1
-	BLT	ge12			; none left
-	LDRB	R0,[R3],#1
+	ADD	R2,R2,R3		; end
+ge11	CMP	R3,R2
+	BHS	ge12			; none left
+	TST	R5,#info_WideRedraw
+	LDREQB	R0,[R3],#1
+	LDRNE	R0,[R3],#4
 	CMP	R0,#&A0
 	BCS	ge19
 	TST	R0,#1<<8
@@ -2723,7 +2751,16 @@ ge11	SUBS	R2,R2,#1
 	BEQ	ge18
 	TEQ	R0,#12
 	BNE	ge18
-ge19	STRB	R0,[R1],#1		; output
+ge19	TST	R5,#info_UTF8
+	TSTNE	R4,#1<<2
+	BNE	utf$l
+	TST	R5,#info_UTF8		; clears C
+	CMPNE	R0,#&7F
+	MOVHS	R0,#'.'
+	STRB	R0,[R1],#1		; output
+	B	ge11
+
+utf$l	BL	ucs4_to_utf8
 	B	ge11
 
 ge18	MOV	R0,#'.'
@@ -2738,11 +2775,13 @@ ge12	MOV	R0,#&0A
 	FNRTS
 
 
-;E R1=address of cache line R2=length of cache lines
+;E R1=address of cache line (past line number)  R2=length of cache lines (w_txtw)  R3 = w_info
 ;X R0=actual length with end spaces removed |
 	FNAME	get_cache_line
 get_cache_line
 	FNJSR
+	TST	R3,#info_WideRedraw
+	BNE	wide$l
 	ADD	R14,R1,R2
 ge10	CMP	R14,R1
 	MOVLE	R0,#0
@@ -2751,6 +2790,17 @@ ge10	CMP	R14,R1
 	TEQ	R0,#&20
 	BEQ	ge10
 	ADD	R14,R14,#1
+	SUB	R0,R14,R1
+	FNRTS
+
+wide$l	ADD	R14,R1,R2,LSL #2
+wl$l	CMP	R14,R1
+	MOVLE	R0,#0
+	FNRTS	LE
+	LDR	R0,[R14,#-4]!
+	TEQ	R0,#' '
+	BEQ	wl$l
+	ADD	R14,R14,#4
 	SUB	R0,R14,R1
 	FNRTS
 
