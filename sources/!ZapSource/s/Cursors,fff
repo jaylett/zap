@@ -1,5 +1,5 @@
 ; Contains cursor/selection/marker/point handling code.
-; $Id: Cursors,fff,v 1.1.2.2 1999/01/10 01:16:21 ds Exp $
+; $Id: Cursors,fff,v 1.1.2.4 1999/01/21 14:04:51 dj Exp $
 
 	GET h.ZapHeader
 	GET h.Heap
@@ -339,6 +339,20 @@ mouse_click
 	FNSTR R11,car_column		; trash column preferred by cursor
 	MOV R11,#0			; count this as a command - consider
 	FNSTR R11,key_lastcom		; multiple ctrl K's
+
+	; new code: perform StopOps if necessary to return nested depth to 0
+	; this is valid because mouse clicks can only happen when nothing's
+	; going on in a file. (sja)
+stopop_loop$l
+	LDR R0,[R9,#f_depth]
+	CMP R0,#0
+	BLE stopop_end$l		; if f_depth < 0, something's wrong - but
+					; we really don't want an infinite loop
+	BL stop_operation
+	B stopop_loop$l
+stopop_end$l
+	; end of new code
+
 	TEQ R4,#1
 	TEQNE R4,#4
 	TEQEQ R1,#2

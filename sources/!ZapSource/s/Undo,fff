@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 1.2 1999/01/12 18:24:14 dj Exp $
+; $Id: Undo,fff,v 1.1.2.3 1999/01/21 14:04:53 dj Exp $
 
  GET h.ZapHeader
  GET h.TMTVars
@@ -80,6 +80,23 @@ udata			* &07		; undo data block increment mask
 ; &07:	Start of a multiple operation marker. (see Zap_StartOp) No data.
 ; &17:	End of a muliple operation marker. (see Zap_StopOp) No data.
 
+			^	0
+undo_Length		#	4
+undo_Type		#	1
+undo_Offset		#	4	; used by everything that has data
+undo_Data		#	0	; most have one (or two same-sized) data area(s)
+
+undo_Type_fastundo	*	0x00
+undo_Type_fastredo	*	0x10
+undo_Type_insert	*	0x01
+undo_Type_delete	*	0x02
+undo_Type_replace_fwd	*	0x03
+undo_Type_replace_bwd	*	0x04
+undo_Type_delete_CAS	*	0x05
+undo_Type_insert_CAS	*	0x06
+undo_Type_startop	*	0x07
+undo_Type_stopop	*	0x17
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Undo and redo							;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -94,9 +111,9 @@ pre_undo
  BL pre_input
  FNRTS VS
  LDR R0,[R9,#f_flags]
- AND R0,R0,#1
- EOR R0,R0,#1			; 0 undo 1 no undo
- CMP R0,#1
+ AND R0,R0,#flags_UndoSupported
+ EOR R0,R0,#flags_UndoSupported		; 0 undo 1 no undo
+ CMP R0,#flags_UndoSupported
  FNRTS				; CS if no undo
 
 ;E R0=suggested num of chars R1=0 fast undo/1 full undo R9=file
