@@ -1,6 +1,6 @@
 ; Contains startup code including read/writing config file etc.
 ; Also contains some misc error code
-; $Id: StartUp,fff,v 2.2 2000/10/05 00:13:14 ds Exp $
+; $Id: StartUp,fff,v 2.3 2001/04/30 21:57:11 ds Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -1043,6 +1043,29 @@ copy$l	LDR	R1,[R6],#4
 	BL	move_bytes
 	B	copy$l
 copied$l
+	MOV	R0,#17
+	ADR	R1,file$l
+	SWI	XOS_File		; existing config file?
+	MOVVS	R0,#0
+	CMP	R0,#1
+	BNE	dontbackup$l
+	MOV	R0,#6
+	ADR	R1,backup$l
+	SWI	XOS_File		; try to delete the old backup
+	BVC	dobackup$l
+	LDR	R1,[R0]
+	BIC	R1,R1,#&FF00
+	SUB	R1,R1,#&10000
+	TEQ	R1,#&C3			; if it's locked (error &1xxC3)
+	BEQ	dontbackup$l		; then leave it and don't backup
+	B	free$l			; else report the error
+dobackup$l
+	MOV	R0,#25
+	ADR	R1,file$l
+	ADR	R2,backup$l
+	SWI	XOS_FSControl		; create the backup (by renaming)
+	BVS	free$l
+dontbackup$l
 	MOV	R0,#&0A
 	ADR	R1,file$l
 	MOV	R2,   #&F00
@@ -1070,6 +1093,7 @@ ret$l	MOV	R13,R10
 	FNRTV
 prefix$l =	"Conf"
 file$l	=	"<",|zap$|,"$Options>",0
+backup$l =	"<",|zap$|,"$Options>~",0
 	ALIGN
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
