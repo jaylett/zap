@@ -1,5 +1,5 @@
 ; Contains code to buffer undo data and act on it.
-; $Id: Undo,fff,v 2.9 2002/11/22 13:22:48 christian Exp $
+; $Id: Undo,fff,v 2.10 2002/11/25 23:52:39 christian Exp $
 
 ; *** Important notes on symbolisation ***
 ;
@@ -463,11 +463,11 @@ yank_paste_command
 un17		SUBS	R6,R6,#8			; move back one
 		BMI	un30				; run out of data
 		ADD	R1,R7,R6			; block address
-		LDR	R5,[R1]				; get the file/address
-		CMN	R5,#1
+		LDR	R0,[R1]				; get the file/address
+		CMN	R0,#1
 		BEQ	un17				; -1 => entry is dead
-		BIC	R0,R5,#3<<30			; actual address/offset
-		LDR	R2,[R1,#4]			; paramter (off/len)
+		LDR	R5,[R1,#4]			; paramter (off/len)
+		BIC	R2,R5,#3<<30			; actual address/offset
 		TST	R5,#1<<31
 		BNE	un28				; actual block
 		PUSH	"R9"
@@ -634,12 +634,12 @@ dr1		SUBS	r6,r6,#8			; back one
 		BMI	pullr1andreturn
 		ADD	r1,r6,r7			; block address
 
-		LDR	r5,[r1]				; file/address
-		CMN	r5,#1
+		LDR	r0,[r1]				; file/address
+		CMN	r0,#1
 		BEQ	dr1				; -1 => entry is dead
 
-		BIC	r0,r5,#(3:SHL:30)		; discard flags
-		LDR	r9,[r1,#4]			; parameter (f_undo offset / data length)
+		LDR	r5,[r1,#4]			; parameter (f_undo offset / data length)
+		BIC	r9,r5,#(3:SHL:30)		; discard flags
 		TST	r5,#(1:SHL:31)
 		BNE	dr2				; actual block - so r9, r0 are set up
 
@@ -697,17 +697,17 @@ gc_claimclip	FNJSR
 ; New yank handling subs				   ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;E If b30 of R0 set then it's next in a kill sequence.
-;  R0 BIC b30=0 => R8/R9=file, add last delete undo entry
-;  R0 BIC b30<>0 => =address of region data blk R1=block length
+;E If b30 of R1 set then it's next in a kill sequence.
+;  R1 BIC b30=0  => R8/R9 = file, add last delete undo entry
+;  R1 BIC b30<>0 => R0 = address of region data blk  R1 = block length
 ;X Length added to yank_ptr buffer #
 		FNAME	add_yank_region
 add_yank_region	FNJSR	"R1-R7"
-		MOV	R2,R0				; data pos start
-		BICS	R0,R2,#addyank_In_KillSequence
+		MOV	R3,R1				; keep flags
+		BICS	R1,R1,#addyank_In_KillSequence
 		BNE	ad17				; actual block
 		BL	get_file_off			; R0=file offset
-		ADDVC	R2,R2,R0			; data pos
+		MOVVC	R2,R0
 		LDRVC	R7,[R9,#f_uptr]
 		LDRVC	R0,[R9,#f_ulen]			; last entry
 
@@ -719,11 +719,11 @@ ad18		BLVC	un_backward
 		TEQ	R1,#command_Delete
 		TEQNE	R1,#command_Delete_MaintainCursor
 		BNE	ad18				; not yet found it
-		MOV	R3,R0				; offset in undo buffer
+		ORR	R3,R3,R0			; offset in undo buffer
 		B	ad19
 
-ad17		ORR	R2,R2,#1<<31
-		MOV	R3,R1
+ad17		MOV	R2,R0				; block address
+		ORR	R3,R3,#1<<31                    ; it's an address
 
 ad19		FNLDR	R4,yank_len			; buffer length
 		ADD	R5,R4,#8			; new length after adding entry
