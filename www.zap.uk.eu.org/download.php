@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.8 2002/09/11 10:23:43 james Exp $
+  // $Id: download.php,v 1.9 2002/11/06 12:42:22 james Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -45,8 +45,8 @@ Development release sites
 <h2><a name="144">v1.44</a></H2>
 <?php
   $release='1.44';
-  $beta=9;
-  $betadir='test10';
+  $beta=11;
+  $betadir='test11';
 
   function href ($leaf)
   {
@@ -104,8 +104,9 @@ Development release sites
   zapfile ($release.'/'.$betadir.'/devel+mods.zip', 'Second devel modules group', 'sja', '');
   zapfile ($release.'/'.$betadir.'/riscosmods.zip', 'RISC OS modules group', 'sja', '');
   zapfile ($release.'/'.$betadir.'/webmods.zip', 'Web modules group', 'sja', '');
-  zapfile ($release.'/'.$betadir.'/descmods.zip', 'Desc modules group', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/allmods.zip', 'All modules at once', 'sja', '');
   zapfile ($release.'/'.$betadir.'/zapfonts.zip', 'ZapFonts', 'sja', '');
+  zapfile ($release.'/'.$betadir.'/everything.zip', 'Entire Zap binary distribution', 'sja', '');
   zapdir ($release.'/'.$betadir.'/updates', 'Updates from previous beta releases');
   zapdir ($release.'/'.$betadir, 'Directory');
   zapdir ($release, 'Previous beta releases and other related archives');
@@ -256,5 +257,5 @@ Development release sites
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2002/09/11 10:23:43 $');
+  zap_body_end ('$Date: 2002/11/06 12:42:22 $');
 ?>
