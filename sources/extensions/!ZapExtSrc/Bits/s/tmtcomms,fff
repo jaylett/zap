@@ -1,6 +1,6 @@
 ; Zap Bits Command Extension
-; $Id: tmtcomms,fff,v 1.4 1999/03/02 14:12:11 james Exp $
-; Copyright (C) 1999 Zap Developers
+; $Id: tmtcomms,fff,v 1.5 2000/10/08 22:22:10 ds Exp $
+; Copyright (C) 1999, 2000 Zap Developers
 ;
 ; This program is free software; you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
@@ -105,19 +105,11 @@ incomingdata	&	0
 strstrstr4	StrZA	"zapbits_p_if","If: "
 		ALIGN
 
-supplystring4
-	ADR	r0,strstrstr4
- [ INTL=""
-	FNjump	Zap_MiniPromptToken
- |
-	FNjump	Zap_MiniPrompt
- ]
-
 	&	&58
 tmt_if	ROUT
+	FNJSR	"r0-r12"
 	CMP	r2,#6
 	BEQ	supplystring4
-	FNJSR	"r0-r12"
 	MOV	r5,r0
 	MOV	r1,#0
 0	LDRB	r2,[r5,r1]
@@ -171,7 +163,7 @@ executeelse
 	PUSH	"r0-r12"
 	LDR	r0,addressofanyelse
 	CMP	r0,#0
-	FNcallc	Zap_CommandString,NE
+	FNcallc	Zap_CommandString,NE,R2
 	PULL	"r0-r12"
 	B	freeherup
 aquickreport
@@ -179,6 +171,19 @@ aquickreport
 	ADD	r0,r0,#4
 	FNcall	Zap_Warning
 	B	freeherup
+
+supplystring4
+	ADR	r0,strstrstr4
+ [ INTL=""
+	FNcall	Zap_MiniPromptToken, R2
+ |
+	FNcall	Zap_MiniPrompt, R2
+ ]
+ [ HIST=""
+	ADRVC	r0,tmt_if
+	FNcallc	Zap_SelectHistoryBuffer, VC, R2
+ ]
+	FNRTS
 
 NoThenError
  [ INTL=""
@@ -731,7 +736,11 @@ problemreportB
 	B	endofentcmdU
 supplyastring
 	ADR	r0,utilprstr
-	FNcall	Zap_MiniPrompt
+	FNcall	Zap_MiniPrompt, R2
+ [ HIST=""
+	ADRVC	r0,tmt_powersearch
+	FNcallc	Zap_SelectHistoryBuffer, VC, R2
+ ]
 	FNRTS
 
 getcharatoffset
@@ -963,9 +972,13 @@ tmt_commandib
 ibcprompt
 	ADR	r0,ibcmdprompt
  [ INTL=""
-	FNcall	Zap_MiniPromptToken
+	FNcall	Zap_MiniPromptToken, R2
  |
-	FNcall	Zap_MiniPrompt
+	FNcall	Zap_MiniPrompt, R2
+ ]
+ [ HIST=""
+	MOVVC	r0,#lineed_buf_zapcommand
+	FNcallc	Zap_SelectHistoryBuffer, VC, R2
  ]
 	FNRTS
 
