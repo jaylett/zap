@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.13 2003/05/22 08:34:38 james Exp $
+  // $Id: download.php,v 1.14 2003/06/03 18:53:45 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -59,7 +59,7 @@ Development release sites
   }
 ?>
 
-<p>Downloading is much as for v1.45.</p>
+<p>Downloading is much as for v1.45; here's the <a href="/ftp/pub/1.46/" class="dir">release area</a> and the <? href ('', 'class="dir"'); ?>current test release</a>.</p>
 
 <hr>
 
@@ -276,5 +276,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2003/05/22 08:34:38 $');
+  zap_body_end ('$Date: 2003/06/03 18:53:45 $');
 ?>
