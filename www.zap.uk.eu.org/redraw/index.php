@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.4 2002/02/03 17:17:39 ds Exp $
+  // $Id: index.php,v 1.5 2002/02/04 00:17:12 christian Exp $
   include "../.php/zap-std.inc";
   setroot ('redraw/index');
   zap_header ("ZapRedraw", "ZR", 'up:../', 'first:viewfinder');
@@ -188,7 +188,7 @@ slightly more detailed.
  <ul>
   <li><a href="redraw.txt">Plain text version</a> (<a href="t2h.php/redraw.txt">as HTML</a>)</li>
   <li>
-   <a href="http://sudden.recoil.org/stronghelp/manuals/zapredraw40.zip">StrongHelp version</a>
+   <a href="http://sudden.recoil.org/stronghelp/manuals/zapredraw42.zip">StrongHelp version</a>
   </li>
  </ul>
 
@@ -201,5 +201,5 @@ developers directly. For more details, see <a href="../contact">Zap's
 contacts page</a>.</p>
 
 <?php
-  zap_body_end ('$Date: 2002/02/03 17:17:39 $');
+  zap_body_end ('$Date: 2002/02/04 00:17:12 $');
 ?>
