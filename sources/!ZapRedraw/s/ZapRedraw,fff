@@ -1,5 +1,5 @@
 ; ZapRedraw
-; $Id: ZapRedraw,fff,v 1.30 2004/11/21 14:24:40 christian Exp $
+; $Id: ZapRedraw,fff,v 1.31 2005/02/14 14:30:08 christian Exp $
 ;
 ; (C) D.H.Symes 1993-1996, Zap Developers 1997-1999
 
@@ -1222,9 +1222,10 @@ prepare_data_line
 		MOVEQ	R0,#0				;
 		LDRNE	R0,[R1,#r_length]		;
 		CMP	R0,#r_encoding			;
-		MOVLO	R1,#0				;
-		LDRHS	R1,[R1,#r_encoding]		;
-		TEQ	R1,#0				;
+		MOVLO	R0,#0				;
+		LDRHS	R0,[R1,#r_encoding]		;
+		TEQ	R0,#0				;
+		MOVNE	R1,R0				;
 		BLNE	get_encoding			;
 		FNRTS	VS				;
 		MOV	R1,R0				;
@@ -1233,20 +1234,21 @@ prepare_data_line
 		MOVEQ	R0,#0				;
 		STR	R0,[R12,#pdlws_enc]		;
 
-		BNE	notutf$l			; sort out get char code in UTF mode
-		TEQ	R1,#1				;
-		ADREQ	R0,getchar8_utf$l		;
-		ADRNEL	R0,getchar16_utf$l		;
-		TST	R10,#rf_char32			;
-		ADRNE	R0,getchar32$l			;
-		STR	R0,[R12,#pdlws_getchar]		;
-		B	ok$l				;
-
-notutf$l	ADR	R0,getchar8$l			; sort out get char code in non-UTF mode
+		; sort out the get char routine
+		MOVNE	R0,#0				; normal mode
+		MOVEQ	R0,#6				; UTF mode
+							;
 		TST	R10,#rf_char16			;
-		ADRNE	R0,getchar16$l			;
+		ADDNE	R0,R0,#2			;
 		TST	R10,#rf_char32			;
-		ADRNE	R0,getchar32$l			;
+		ADDNE	R0,R0,#4			;
+		TST	R10,#rf_smallcolours		;
+		ADDNE	R0,R0,#1			;
+							;
+		ADR	R1,codetable$l			;
+		LDR	R0,[R1,R0,LSL #2]		;
+		ADRL	R1,Module_header		; relocate it
+		ADD	R0,R0,R1			;
 		STR	R0,[R12,#pdlws_getchar]		;
 
 ok$l		TST	R10,#rf_substyles		; add initial style if present
@@ -1286,9 +1288,10 @@ chunk$l		LDR	R0,[R12,#pdlws_chunk]		; see if we've changed chunk
 		STRHSB	R14,[R6],#1			;
 		STR	R6,[R12,#pdlws_last_ctl]	;
 
-gotchar$l	CMP	R1,#&20
-		BHS	nocc$l
-		LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32
+gotchar$l	CMP	R1,#&1F
+		TEQHS	R1,#&7F
+		BHI	nocc$l
+		LDR	R0,[R12,#pdlws_ctl_col]		; use ctl colour if < 32 or = 7f
 		CMN	R0,#1				; and ctl colour > -1
 		BNE	cc$l
 nocc$l		TEQ	R3,#0
@@ -1420,37 +1423,58 @@ aftercode$l	STR	R6,[R12,#pdlws_last_ctl]
 		B	storechar$l			; store the actual character
 
 
+; table of getchar code
+codetable$l	DCD	getchar8$l			; 8 bit
+		DCD	getchar8$l			; 8 bit narrow colours
+		DCD	getchar16$l			; 16 bit
+		DCD	getchar16_2$l			; 16 bit narrow colours
+		DCD	getchar32$l			; 32 bit
+		DCD	getchar32_2$l			; 32 bit narrow colours
+
+		DCD	getchar8_utf$l			; ditto in UTF mode
+		DCD	getchar8_utf_2$l		;
+		DCD	getchar16$l			; TODO: implement UTF-16 properly
+		DCD	getchar16_2$l			;
+		DCD	getchar32$l			;
+		DCD	getchar32_2$l			;
+
+
 ; get a character from 8 bit input
 getchar8$l	LDRB	R1,[R2],#1			; get the character
 		SUB	R5,R5,#1			;
 		MOV	PC,R14				;
 
 ; get a character from 16 bit input
-getchar16$l	LDRB	R1,[R2],#1			; get the character
+getchar16$l	TEQ	R4,#0				; advance the colour / style pointers
+		ADDNE	R4,R4,#1			;
+		TEQ	R3,#0				;
+		ADDNE	R3,R3,#1			;
+		TEQ	R7,#0				;
+		ADDNE	R7,R7,#1			;
+							;
+getchar16_2$l	LDRB	R1,[R2],#1			; get the character
 		LDRB	R0,[R2],#1			;
 		ORR	R1,R1,R0,LSL #8			;
 		SUB	R5,R5,#2			;
-
-		ADD	R4,R4,#1			; advance the colour / style pointers
-		ADD	R3,R3,#1			;
-		TEQ	R7,#0				;
-		ADDNE	R7,R7,#1			;
 		MOV	PC,R14
 
 ; get a character from 32 bit input
-getchar32$l	LDRB	R1,[R2],#1			; get the character
-		LDRB	R0,[R2],#1			;
-		ORR	R1,R1,R0,LSL #8			;
-		LDRB	R0,[R2],#1			;
-		ORR	R1,R1,R0,LSL #16		;
-		LDRB	R0,[R2],#1			;
-		ORR	R1,R1,R0,LSL #24		;
-		SUB	R5,R5,#4			;
-
-		ADD	R4,R4,#3			; advance the colour / style pointers
-		ADD	R3,R3,#3			;
+getchar32$l	TEQ	R4,#0				; advance the colour / style pointers
+		ADDNE	R4,R4,#3			;
+		TEQ	R3,#0				;
+		ADDNE	R3,R3,#3			;
 		TEQ	R7,#0				;
 		ADDNE	R7,R7,#3			;
+							;
+getchar32_2$l	;LDRB	R1,[R2],#1			; get the character
+		;LDRB	R0,[R2],#1			;
+		;ORR	R1,R1,R0,LSL #8			;
+		;LDRB	R0,[R2],#1			;
+		;ORR	R1,R1,R0,LSL #16		;
+		;LDRB	R0,[R2],#1			;
+		;ORR	R1,R1,R0,LSL #24		;
+		LDR	R1,[R2],#4
+		SUB	R5,R5,#4			;
 		MOV	PC,R14
 
 
@@ -1460,8 +1484,20 @@ getchar8_utf$l	LDRB	R1,[R2],#1			; get the character
 		CMP	R1,#&80				;
 		MOVLO	PC,R14				; ascii
 
-		FNJSR	"R10,R11"
-		SUBS	R14,R1,#&C0
+		FNJSR	"R9-R11"
+		MOV	R9,#0
+		B	common_utf8$l
+
+getchar8_utf_2$l
+		LDRB	R1,[R2],#1			; get the character
+		SUB	R5,R5,#1			;
+		CMP	R1,#&80				;
+		MOVLO	PC,R14				; ascii
+
+		FNJSR	"R9-R11"
+		MOV	R9,#1
+
+common_utf8$l	SUBS	R14,R1,#&C0
 		BMI	err$l
 
 		ADR	R0,table$l			; get count of bytes
@@ -1483,6 +1519,8 @@ gc8loop$l	LDRB	R0,[R2],#1			; get next byte
 		BNE	err$l				;
 
 		SUB	R5,R5,#1			;
+		TEQ	R9,#1				;
+		BEQ	noinc$l				;
 		TEQ	R4,#0				; advance the colour / style pointers
 		ADDNE	R4,R4,#1			;
 		TEQ	R3,#0				;
@@ -1490,7 +1528,7 @@ gc8loop$l	LDRB	R0,[R2],#1			; get next byte
 		TEQ	R7,#0				;
 		ADDNE	R7,R7,#1			;
 
-		BIC	R0,R0,#&C0			; add in
+noinc$l		BIC	R0,R0,#&C0			; add in
 		ORR	R1,R0,R1,LSL #6			;
 
 		SUBS	R10,R10,#1			; loop
@@ -1540,18 +1578,6 @@ max$l		DCD	&00000080
 		DCD	&04000000
 
 ; get a character from UTF16 input - TODO
-getchar16_utf$l	LDRB	R1,[R2],#1			; get the character
-		LDRB	R0,[R2],#1			;
-		ORR	R1,R1,R0,LSL #8			;
-		SUB	R5,R5,#2			;
-
-		TEQ	R4,#0				; advance the colour / style pointers
-		ADDNE	R4,R4,#1			;
-		TEQ	R3,#0				;
-		ADDNE	R3,R3,#1			;
-		TEQ	R7,#0				;
-		ADDNE	R7,R7,#1			;
-		MOV	PC,R14				;
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
