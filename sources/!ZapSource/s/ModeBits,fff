@@ -1,5 +1,5 @@
 ; Contains code for handling extension modes.
-; $Id: ModeBits,fff,v 2.13 2002/11/20 04:59:00 christian Exp $
+; $Id: ModeBits,fff,v 2.14 2003/01/22 21:40:16 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -17,6 +17,7 @@
  GET h.Mode4
  GET h.Version
  GET h.StartUp
+ GET h.Menus
 
  IMPORT err23
  IMPORT read_given_config_block
@@ -145,14 +146,21 @@ find$l					; find the module in the OS list
 	ADD	R0,R0,R8
 	STR	R0,[R7,#2*e_init]	; initialise sub
 	STR	R4,[R7,#2*e_init+4]	; workspace
+
 	LDR	R0,[R9,#e_menu]
 	TEQ	R0,#0
-	ADDNE	R0,R0,R8
-	TSTNE	R2,#1<<12
+	BEQ	mok$l
+	ADD	R0,R0,R8
+	TST	R2,#emode_MenuFile
+	BNE	mok$l
+	TST	R2,#emode_UsesMessageTrans
 	MOVNE	R1,#0
 	MOVNE	R2,R8
 	BLNE	expand_menu		; expand menu if internationalised
-	STRVC	R0,[R7,#2*e_menu]	; menu pointer /0
+mok$l	STRVC	R0,[R7,#2*e_menu]	; menu pointer /0
+	MOVVS	R2,#0
+	STRVS	R2,[R7,#2*e_menu]
+
 	MOVVC	R2,R4			; save module workspace
 	LDRVC	R5,[R9,#e_len]		; length of valid data in table
 	MOVVC	R4,#&20			; start of subs
@@ -378,18 +386,27 @@ loop$l
 	BL	read_mode		; R1=linked address
 	TEQ	R2,#7
 	BNE	got$l
+	LDR	R0,[R0,#e_mode]		; see if it's a filename
+	TST	R0,#emode_MenuFile
+	BNE	file$l
 	LDR	R0,[R1,#2 * e_menu]	; get pointer to menu
 	CMP	R0,#0
-	MOVLE	R2,#0
-	BLE	got$l			; none!
+	BEQ	loop$l			; none!
 	PUSH	"R1"
 	LDR	R1,[R1]			; module address (base for offsets)
 	BL	create_menu_structure
 	PULL	"R1"
 	FNRTS	VS
 	MOV	R2,R0
-got$l					; R2=new menu pointer
-	STR	R2,[R1,#2 * e_menu]	; fix new menu pointer
+	B	got$l
+
+file$l	LDR	R0,[R1,#2 * e_menu]
+	SYSLOGF	"calling load_file with %0s",0
+	BL	load_menu
+	LDR	R2,[R0,#4]		; handle 0
+	BL	heap_free
+
+got$l	STR	R2,[R1,#2 * e_menu]	; fix new menu pointer
 	B	loop$l			; next mode
 
 
