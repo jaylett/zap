@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.4 2002/02/01 13:47:49 james Exp $
+  // $Id: zap-std.inc,v 1.5 2002/02/04 19:21:46 ds Exp $
 
   $stable = 'zr-0.39';
   $ftproot = '/usr/data/ftp/zap/pub/';
@@ -44,6 +44,7 @@
 
     // DTD declaration, HTML preamble.
     // $subdtd defines which HTML 4.01 DTD is used (default Transitional)
+    global $subdtd;
     echo '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ', ($subdtd == '' ? 'Transitional' : $subdtd), "//EN\">\n<html>\n";
   }
 
@@ -231,31 +232,34 @@ EOF;
   // zap_body_end: write out the end of the body element, along with the
   //		   standard footer content.
   // $date == the last-modified date (CVS-format 'date').
-  function zap_body_end ($date)
+  function zap_body_end ($date='')
   {
     global $root;
-    echo <<<EOF
-<hr class=wide size=4>
-<table width="100%" cellspacing=0 cellpadding=0 border=0>
+    echo "<hr class=wide size=4>\n";
+    if ($date > '')
+      echo '<table width="100%" cellspacing=0 cellpadding=0 border=0>
 <tr>
 <td>
-<address>
-<a href="${root}copyright">&copy; Copyright Zap Developers 1992-2002. All rights reserved.</a>
-EOF;
-    $date = ereg_replace ('^\$Date\: ', '', $date);
-    $date = ereg_replace (' \$$', '', $date);
-    print '<br>Updated: '.$date;
-    echo <<<EOF
-. <a href="mailto:webmaster@zap.tartarus.org">webmaster@zap.tartarus.org</a>
+';
+    echo "<address>\n";
+    if ($date > '')
+    {
+      $date = ereg_replace ('^\$Date\: ', '', $date);
+      $date = ereg_replace (' \$$', '', $date);
+      print '<a href="${root}copyright">&copy; Copyright Zap Developers 1992-2002. All rights reserved.</a><br>Updated: '.$date.'. ';
+    }
+    echo '<a href="mailto:webmaster@zap.tartarus.org">webmaster@zap.tartarus.org</a>
 </address>
 </td>
-<td><a href="http://validator.w3.org/check/referer"><img border=0 src="${root}img/valid-html401.png" alt="Valid HTML 4.01!" height=31 width=89></a></td>
+';
+    if ($date > '')
+      echo '<td><a href="http://validator.w3.org/check/referer"><img border=0 src="${root}img/valid-html401.png" alt="Valid HTML 4.01!" height=31 width=89></a></td>
 </tr>
 </table>
 
 </body>
 </html>
-EOF;
+';
     exit;
   }
 
