@@ -1,5 +1,5 @@
 ; Contains processing command code and Zap command table.
-; $Id: Commands,fff,v 2.4 2000/09/15 17:31:12 ds Exp $
+; $Id: Commands,fff,v 2.5 2000/09/24 22:01:32 ds Exp $
 ; -*- armasm -*-
 
 c_Conditional	* (1<<21)
@@ -3584,7 +3584,7 @@ Mode
  BEQ Mode_fn
  FNJSR
  LDR R0,[R0]			; mode number
- CMP R0,#255
+ TEQ R0,#255
  BLEQ to_get_mode$l
  TEQ R2,#18
  BEQ a$l
@@ -3650,8 +3650,17 @@ Moden
  FNJSR
  ADR R14,ret$l
  CMP R2,#1
- BLS find_mode_number		; find mode + load module
- B test_mode_name		; find mode, don't load
+ BHI test_mode_name		; find mode, don't load
+ LDRB R2,[R0]
+ TEQ R2,#'*'
+ LDREQB R2,[R0,#1]
+ TEQEQ R2,#0			; if not "*",
+ BNE find_mode_number		; find mode + load module
+ TEQ R9,#0
+ FNRTS EQ
+ BL find_file_mode_R9		; let Zap suggest which mode to use
+ MOVVC R0,R10
+ BLVC find_mode_number
 ret$l
  FNRTS VS
  CMP R0,#0
@@ -3661,6 +3670,15 @@ ret$l
 s$l
  = "zap_p_moden",0
  ALIGN
+
+;E R9=file
+;X as for find_file_mode (with R1b31 set)
+;  R1 corrupt
+find_file_mode_R9
+ LDR R0,[R9,#f_load]
+ LDR R1,[R9,#f_name]
+ ORR R1,R1,#1<<31
+ B find_file_mode		; let Zap suggest which mode to use
 
  LOCAL
 
