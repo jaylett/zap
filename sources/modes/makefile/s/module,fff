@@ -1,6 +1,6 @@
 ; makefile.s
 ; converted from makefile.bas by bas2asm.pl
-; $Id: module,fff,v 1.10 2002/02/24 19:15:36 christian Exp $
+; $Id: module,fff,v 1.11 2002/02/25 13:57:48 christian Exp $
 
 	GET	h.Makefile
 
@@ -159,7 +159,7 @@ Initialisation
 	STMFD	sp!, {r1, r7, r8, lr}
 		;  REM here? yes!
 	STMFD	sp!, {r0, r1, r7}	; this code overwrites the
-	MOV	r8, #'A'		; "greetings..." text with
+	MOV	r8, #'a'		; "greetings..." text with
 	ADRL	r1, TableHere		; the offset into TableHere
 loop2					; of each alpha char
 	LDRB	r0, [r1]		; ...this is why we need "Yum"
@@ -172,10 +172,13 @@ loop
 	LDRB	r0, [r1]
 	CMP	r0, #'*'
 	BNE	loop2
+	B	done$l
 backinaction
 	ADD	r8, r8, #1
-	CMP	r8, #'Z'
+	CMP	r8, #'z'
 	BLE	loop2
+
+done$l
 	LDMFD	sp!, {r0, r1, r7}
 	MOV	r8, #0
 	BL	ZapModeWord
@@ -260,7 +263,7 @@ startupformatwd
 
 GtIt
 	ADRL	r0, AlphaIndex
-	SUB	r7, r8, #'A'
+	SUB	r7, r8, #'a'
 	ADD	r0, r0, r7, LSL #2
 	ADRL	r7, TableHere
 	SUB	r7, r1, r7
@@ -1352,7 +1355,7 @@ lpa1					; main loop per table char
 	ADDCC	r5, r5, r1              ;
 inbothalfTC4
 	LDRB	r1, [r5]		; load char from file
-	FNupper	r1			; case insensitive
+	FNlower	r1			; case insensitive
 	CMP	R1,#' '			; allow any ctrls as the command terminator
 	MOVLO	R1,#' '                 ;
 tabovr1
@@ -1554,7 +1557,7 @@ D2	=	27,0," provides support for",27,2,"Zap editor.",13
 	ALIGN
 
 ModHelpString
-	=	"ZapMakeFile",9,"0.07 (00 Jan 0000) © Tim Tyler",0
+	=	"ZapMakeFile",9,"0.08 (00 Jan 0000) © Tim Tyler",0
 	ALIGN
 
 lp1	=	"Tim Tyler",0
@@ -1638,20 +1641,23 @@ FromMJE10C
 	MOV	r9, #Zap_CallMode
 	BL	FromMJE27
 	LDMFD	sp!, {r1-r10, pc}
+
+
+; command abbrrviation
 Abbreviation
 	STMFD	sp!, {r0-r12, lr}
-	MOV	r0, #0x81
-	MOV	r1, #0x8F
-	MOV	r2, #0xFF
-	SWI	XOS_Byte
+	MOV	r0, #0x81		; check for escape?
+	MOV	r1, #0x8F               ;
+	MOV	r2, #0xFF               ;
+	SWI	XOS_Byte                ;
 	BCS	asnormaldot
-	ADRL	r0, w_formmb
-	LDR	r0, [r0, #0x08]
-	TST	r0, #(1 << 25)
-	BEQ	asnormaldot
+	ADRL	r0, w_formmb		; check Complete is ticked
+	LDR	r0, [r0, #0x08]         ;
+	TST	r0, #(1 << 25)          ;
+	BEQ	asnormaldot             ;
 	MOV	r0, #0
 	STR	r0, startslash
-	STR	r0, isentity
+	;STR	r0, isentity
 	LDR	r0, [r10, #12]
 	SUB	lr, r0, #1
 	STR	lr, storedofsofeow
@@ -1732,6 +1738,8 @@ deldatahere
 insstrtst
 	=	"...."
 
+; table lookup for abbreviations
+; E r0 -> table  r2 = length of word?  r3 -> table index
 getadrofabrcmd
 	STMFD	sp!, {r8-r12, lr}
 	MOV	r6, r3
@@ -1739,44 +1747,39 @@ getadrofabrcmd
 	MOV	r4, r1
 	MOV	r5, r2
 	MOV	r0, r4
-	BL	FromMJE29
+	BL	FromMJE29		; get a char
 	FNupper	r0
 	CMP	r0, #'A'
 	BLT	rapidleaving
 	CMP	r0, #'Z'
 	BGT	rapidleaving
-	SUB	r0, r0, #'A'
+	SUB	r0, r0, #'A'		; get table offset of 1st table entry
 	ADD	r11, r6, r0, ASL #2
 	LDR	r11, [r11]
-	ADD	r11, r11, r3
-_altered_3
+	ADD	r11, r11, r3		; get address of 1st entry
+
+_altered_3				; loop per
 	MVN	r12, #0
 _altered_4
 	ADD	r12, r12, #1
 	ADD	r0, r4, r12
 	BL	FromMJE29
-	LDR	r7, isentity
-	TST	r7, #0x100
-	BLEQ	maker0upper
+	FNlower	R0
 	MOV	r2, r0
 findnextincc
 	LDRB	r1, [r11, r12]
-	CMP	r1, #'#'
-	ADDEQ	r11, r11, #1
-	BEQ	findnextincc
-	CMP	r1, #'{'
+	CMP	r1, #'{'		; found it
 	BCS	fndcmdend2
-	LDR	r7, isentity
-	TST	r7, #0x100
-	BLEQ	maker1upper
+	FNlower	R1
 	CMP	r1, r2
 	BNE	fndcmdend
 dontcomparejn
-	CMP	r12, r5
+	CMP	r12, r5			; got as far as the .?
 	BLT	_altered_4
 	STR	r12, delhash
 	MOV	r7, r11
 	MOV	r12, #0
+
 loop4
 	ADD	r12, r12, #1
 	LDRB	r1, [r11, r12]
@@ -1790,19 +1793,22 @@ loop4
 	STR	r12, inshash
 	MOVS	r5, #8
 	LDMFD	sp!, {r8-r12, pc}
+
 fndcmdend
 	MOV	r0, r2
-	BL	maker0upper
-	BL	maker1upper
+	FNlower	R0
+	FNlower	R1
 	CMP	r0, r1
 	BEQ	loop3
 	CMP	r12, #0
 	BEQ	rapidleaving
-loop3
+
+loop3					; find next entry
 	ADD	r12, r12, #1
 	LDRB	r1, [r11, r12]
 	CMP	r1, #'{'
 	BCC	loop3
+
 fndcmdend2
 	ADD	r12, r12, #1
 	ADD	r11, r11, r12
@@ -1810,6 +1816,9 @@ fndcmdend2
 rapidleaving
 	MOVS	r5, #0
 	LDMFD	sp!, {r8-r12, pc}
+
+
+; cursor bracket matching
 FromMJE11
 	STMFD	sp!, {r0-r7, lr}
 	LDR	r4, [r10, #12]
@@ -1879,8 +1888,11 @@ endtermhere
 	DCD	0
 startslash
 	DCD	0
-isentity
-	DCD	0
+;isentity
+;	DCD	0
+
+
+
 checkbackone
 	STMFD	sp!, {r3, r4, lr}
 	SUB	r3, r0, #1
@@ -2095,21 +2107,6 @@ FromMJE35
 	MOV	lr, pc
 	MOV	pc, r2
 	LDMFD	sp!, {r0-r2, pc}
-maker9lower
-	FNlower	r9
-	MOV	pc, lr
-maker9upper
-	FNupper	r9
-	MOV	pc, lr
-maker1lower
-	FNlower	r1
-	MOV	pc, lr
-maker1upper
-	FNupper	r1
-	MOV	pc, lr
-maker0upper
-	FNupper	r0
-	MOV	pc, lr
 
 
 		; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2601,51 +2598,51 @@ AlphaIndex
 
 	DCD	0x2A2A0A2E
 TableHere
-	=	"AS ",		com_commands
-	=	"AUTOINDENT ",	com_commands
-	=	"AUX ",		com_commands
-	=	"BISON ",	com_commands
-	=	"BLOCKID ",	com_commands
-	=	"C++ ",		com_commands
-	=	"C++.",		com_cfile
-	=	"C.",		com_cfile
-	=	"CC ",		com_commands
-	=	"CDIR ",	com_commands
-	=	"CFRONT ",	com_commands
-	=	"CMHG ",	com_commands
-	=	"CMUNGE ",	com_commands ; new 0.07
-	=	"COPY ",	com_morecmds
-	=	"CPP.",		com_cfile
-	=	"CREATE ",	com_morecmds
-	=	"DECAOF ",	com_commands
-	=	"DELETE ",	com_morecmds
-	=	"DIFF ",	com_commands
-	=	"DRLINK ",	com_commands
-	=	"ECHO ",	com_morecmds
-	=	"FIND ",	com_commands
-	=	"GCC ",		com_commands
-	=	"H.",		com_header
-        =	"IFTHERE ",	com_morecmds ; new 0.07
-	=	"LIBFILE ",	com_commands
-	=	"LINK ",	com_commands
-	=	"MV ",		com_morecmds
-	=	"O.",		com_object
-	=	"OBJASM ",	com_commands
-	=	"OBJSIZE ",	com_commands
-	=	"REMOVE ",	com_commands
-	=	"RM ",		com_morecmds
-	=	"RUN ",		com_morecmds
-	=	"S.",		com_assembler
-	=	"SED ",		com_commands
-	=	"SETTYPE ",	com_morecmds
-	=	"SQUEEZE ",	com_commands
-	=	"STOH ",	com_morecmds
+	=	"as ",		com_commands
+	=	"autoindent ",	com_commands
+	=	"aux ",		com_commands
+	=	"bison ",	com_commands
+	=	"blockid ",	com_commands
+	=	"c++ ",		com_commands
+	=	"c++.",		com_cfile
+	=	"c.",		com_cfile
+	=	"cc ",		com_commands
+	=	"cdir ",	com_commands
+	=	"cfront ",	com_commands
+	=	"cmhg ",	com_commands
+	=	"cmunge ",	com_commands ; new 0.07
+	=	"copy ",	com_morecmds
+	=	"cpp.",		com_cfile
+	=	"create ",	com_morecmds
+	=	"decaof ",	com_commands
+	=	"delete ",	com_morecmds
+	=	"diff ",	com_commands
+	=	"drlink ",	com_commands
+	=	"echo ",	com_morecmds
+	=	"find ",	com_commands
+	=	"gcc ",		com_commands
+	=	"h.",		com_header
+        =	"ifthere ",	com_morecmds ; new 0.07
+	=	"libfile ",	com_commands
+	=	"link ",	com_commands
+	=	"mv ",		com_morecmds
+	=	"o.",		com_object
+	=	"objasm ",	com_commands
+	=	"objsize ",	com_commands
+	=	"remove ",	com_commands
+	=	"rm ",		com_morecmds
+	=	"run ",		com_morecmds
+	=	"s.",		com_assembler
+	=	"sed ",		com_commands
+	=	"settype ",	com_morecmds
+	=	"squeeze ",	com_commands
+	=	"stoh ",	com_morecmds
 	;=	"TOANSI ",	com_commands ; removed 0.07
 	;=	"TOPCC ",	com_commands ;
-	=	"WIPE ",	com_morecmds ; new 0.07
-	=	"WORDSTR ",	com_commands
-	=	"Yum ",		com_commands ; these are never matched because we search for an
-	=	"Zen ",		com_commands ; upper case command
+	=	"wipe ",	com_morecmds ; new 0.07
+	=	"wordstr ",	com_commands
+	=	"yUm ",		com_commands ; these are never matched because we search for a
+	=	"zEn ",		com_commands ; lower case command
 	=	"**", 10
 
 	END
