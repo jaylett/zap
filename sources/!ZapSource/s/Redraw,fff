@@ -1,5 +1,5 @@
 ; Contains redraw related code.
-; $Id: Redraw,fff,v 2.14 2005/02/21 14:29:03 christian Exp $
+; $Id: Redraw,fff,v 2.15 2005/04/15 19:10:26 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -966,19 +966,34 @@ cr17	SUB	R0,R6,R11		; current offset
 	TST	R0,#format_ShowLineNumbers
 	BEQ	nonum$l
 
-	LDR	R0,[R2]
-	MOV	R1,#0			; set the colour
-	STRB	R1,[R6],#1		;
-	MOV	R1,#10			;
-	STRB	R1,[R6],#1		;
-	MOV	R1,#syscol_Linenums	; FIXME - check for selection
-	STRB	R1,[R6],#1		;
-	MOV	R1,#syscol_BgEditable	;
-	STRB	R1,[R6],#1		;
-	MOV	R1,#0			; FIXME - use line number style
-	STRB	R1,[R6],#1		;
+	MOV	R0,#syscol_Linenums	; use line number style
+	BL	get_style		;
+	MOV	R4,R0			;
 
+	ADD	R1,R2,#8		;
+	LDRB	R1,[R1,R5]		; pick up first fg colour
+	TEQ	R1,#syscol_SelFg	; use sel colour if in selection
+	MOVEQ	R3,#syscol_SelBg	;
+	BEQ	doit$l			;
+
+	TST	R4,#1<<3		; inverse
+	MOVEQ	R1,#syscol_Linenums	;
+	MOVEQ	R3,#syscol_BgEditable	;
+	MOVNE	R3,#syscol_Linenums	;
+	MOVNE	R1,#syscol_BgEditable	;
+
+doit$l	MOV	R0,#0			; set the colour
+	STRB	R0,[R6],#1		;
+	MOV	R0,#10			;
+	STRB	R0,[R6],#1		;
+	STRB	R1,[R6],#1		;
+	STRB	R3,[R6],#1		;
+	STRB	R4,[R6],#1		;
+
+	TEQ	R1,#syscol_SelFg
+	LDR	R0,[R2]
 	LDRB	R1,[R2,#4]
+	ORREQ	R1,R1,#1<<1		; selection, so don't change colour
 	BL	print_line_numbers
 
 nonum$l	LDR	R0,[R8,#w_mwidth]
@@ -1274,6 +1289,19 @@ red_cl_11
 	FNRTV				; escape
 
 
+; E r0 = colour number  R8
+; X r0 = substyle byte
+	FNAME	get_style
+get_style
+	FNJSR	"R6,R7"
+	BL	get_mode_colours_ptr
+	CMP	R0,R6,LSR #2
+	LDRLOB  R0,[R7,R0,LSL #2]
+	ANDLO	R0,R0,#&E9
+	MOVHS	R0,#0
+	FNRTS
+
+
 ; E R6 -> cache line
 	FNAME	generate_cache_font_data
 generate_cache_font_data
@@ -1463,40 +1491,53 @@ ge14	LDR	R2,[R8,#w_stline]	; first line number
 
 
 ; print line numbers to a buffer
-; E R0 -> cache line  R1= output buffer  R8
+; E R0 -> cache line  R1 = output buffer  R8
 ; X line number printed, R1 updated
 	FNAME	redraw_print_line_number
 redraw_print_line_number
-	FNJSR	"R2,R6"
+	FNJSR	"R0,R2,R6"
 	LDR	R2,[R8,#w_format]	; check whether to show them at all
-	TST	R0,#format_ShowLineNumbers
+	TST	R2,#format_ShowLineNumbers
 	FNRTS	EQ
 
 	MOV	R6,R1
-	LDRB	R1,[R0,#4]              ; presence flag
+	LDRB	R1,[R0,#4]		; presence flag
 	LDR	R0,[R0]			; number
+	ORR	R1,R1,#1<<1		; no colours
 	BL	print_line_numbers	; stick them in
+
+nonum$l	LDR	R0,[R8,#w_mwidth]
+	MOV	R14,#' '
+nloop$l	SUBS	R0,R0,#1
+	STRPLB	R14,[R6],#1
+	BPL	nloop$l
+
 	MOV	R1,R6
 	FNRTS
 
 
-; E R0 = number  R1 = 0 to plot spaces / 1 to plot number  R6 -> line  R8
+; E R0 = number  R1 = b0 0 to plot spaces / 1 to plot number  b1=>no colour  R6 -> line  R8
 ; X R6 updated
 print_line_numbers
-	TEQ	R1,#0
+	TST	R1,#1
 	BEQ	line_number_spaces
+	FNJSR	"R1"
+	ADR	R14,back$l
 	LDR	R1,[R8,#w_format]
 	TST	R1,#format_LinesBase
 	BEQ	print_decimal
-	;B	print_hex
+	B	print_hex
 
-	; FALL THROUGH
+back$l	FNPULL
+	TST	R1,#1<<1
+	BEQ	linenumbercolons
+	B	linenumbercolons_no_colour
 
 
 ;E R0=line number R6=cache line
 ;X Hex number written R0-R1 corrupted  R6 updated
 print_hex
-	FNJSR	"R2-R4,R11"
+	FNJSR	"R1-R4,R11"
 	MOV	R11,R6
 	ADR	R6,linenumberbuffer	; print hex into temp buffer
 	BL	hex8
@@ -1504,8 +1545,8 @@ print_hex
 	ADR	R2,linenumberbuffer
 	LDR	R14,[R8,#w_info]	; check for zero width
 	ANDS	R0,R14,#info_LineNumberWidth
-	MOVEQ	R2,#'>'                 ;
-	STREQB  R2,[R6],#1              ;
+	MOVEQ	R2,#'>'			;
+	STREQB  R2,[R6],#1		;
 	BEQ	zero$l			;
 	ADD	R2,R2,#7
 	SUB	R2,R2,R0
@@ -1514,14 +1555,13 @@ lnloop$l				; copy into line buffer
 	STRB	R1,[R6],#1
 	SUBS	R0,R0,#1
 	BPL	lnloop$l
-zero$l	BL	linenumbercolons	; add _:_
-	FNRTS
+zero$l	FNRTS
 
 
 ; As for print_hex
 	FNAME	print_decimal
 print_decimal
-	FNJSR	"R2-R4,R10,R11"
+	FNJSR	"R1-R4,R10,R11"
 	MOV	R11,R6
 	MOV	R10,R0			; save number
 	BL	print_nulls		; print spaces and right align
@@ -1532,7 +1572,6 @@ print_decimal
 	ADD	R6,R6,R14
 	ADD	R6,R6,#1
 	MOV	R4,R6			; end of digits
-	BL	linenumbercolons	; add _:_
 	MOVS	R10,R10
 	MOVPL	R3,#0
 	MOVMI	R3,#'-'
@@ -1576,7 +1615,6 @@ exitlinenumberloop
 
 one$l	MOV	R0,#'*'
 	STRB	R0,[R6],#1
-	BL	linenumbercolons
 	FNRTS
 
 
@@ -1586,8 +1624,11 @@ linenumberbuffer
 	DCD	0
 
 line_number_spaces
-	FNJSR
+	FNJSR	"R1"
 	BL	print_nulls
+	FNPULL
+	TST	R1,#1<<1
+	MOVNE	PC,R14
 	MOV	R0,#0			; set the colour
 	STRB	R0,[R6],#1		;
 	MOV	R0,#10			;
@@ -1596,9 +1637,10 @@ line_number_spaces
 	STRB	R0,[R6],#1		;
 	MOV	R0,#syscol_BgEditable	;
 	STRB	R0,[R6],#1		;
-	MOV	R0,#0			; FIXME
+	MOV	R0,#syscol_Fg		;
+	BL	get_style		;
 	STRB	R0,[R6],#1		;
-	FNRTS
+	MOV	PC,R14
 
 
 	FNAME	print_nulls
@@ -1778,6 +1820,7 @@ colon	MOV	R0,#':'
 	MOV	PC,R14
 
 linenumbercolons
+	FNJSR
 	MOV	R0,#0			; set the colour
 	STRB	R0,[R6],#1		;
 	MOV	R0,#10			;
@@ -1786,18 +1829,20 @@ linenumbercolons
 	STRB	R0,[R6],#1		;
 	MOV	R0,#syscol_BgEditable	;
 	STRB	R0,[R6],#1		;
-	MOV	R0,#0			; FIXME
+	MOV	R0,#syscol_Fg		;
+	BL	get_style		;
 	STRB	R0,[R6],#1		;
+	FNPULL
 
-	MOV	R0,#' '
-	STRB	R0,[R6],#1
-	STRB	R0,[R6,#1]
+linenumbercolons_no_colour
 	LDR	R0,[R8,#w_info]
 	TST	R0,#info_LineNumberColons
-	MOV	R0,#':'
-	STRNEB  R0,[R6],#2
+	MOV	R0,#' '
+	STRB	R0,[R6],#1
+	STRNEB	R0,[R6,#1]
+	MOVNE	R0,#':'
+	STRNEB	R0,[R6],#2
 	MOV	PC,R14
-
 
 ;E R1=window blk of area in chars (handle ...) R8/R9
 ;X the coords changed to os and area redrawn (using update window) #
@@ -2711,6 +2756,7 @@ preoflp$l
 ;	      b1 => don't allow &80-&9F (for printers)
 ;	      b2 => don't allow conversion to UTF-8
 ;	      b3 => don't skip cache line number
+;	      b4 => add line numbers
 ;  R1=address of cache line
 ;  R2=length of cache lines (w_txtw)
 ;  R3=w_info (for WideRedraw and UTF8 flags)
@@ -2721,17 +2767,21 @@ tidy_cache_line
 	FNJSR	"R3-R5"
 	MOV	R5,R3			; keep w_info flags
 	EOR	R4,R0,#1<<2		; save the flags & invert UT8 flag
-	TST	R4,#1<<3
-	ADDEQ	R1,R1,#8		; skip the line number
 	BL	get_cache_line
 	MOV	R3,R1			; source
 	MOV	R2,R0			; line length
 	FNLDR	R0,wimp_cacheline
-	ADD	R1,R2,#4
+	ADD	R1,R2,#20
 	BL	heap_ensure
 	FNRTS	VS
 	FNSTR	R0,wimp_cacheline
 	MOV	R1,R0			; destination
+	TST	R4,#1<<4
+	MOVNE	R0,R3
+	BLNE	redraw_print_line_number
+	TST	R4,#(1<<3)
+	ADDEQ	R3,R3,#8		; skip the line number
+	SUBEQ	R2,R2,#8
 	ADD	R2,R2,R3		; end
 ge11	CMP	R3,R2
 	BHS	ge12			; none left
