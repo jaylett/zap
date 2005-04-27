@@ -1,5 +1,5 @@
 ; Contains code to handle font enumeration / menus
-; $Id: ListFonts,fff,v 1.6 2004/11/08 11:55:40 christian Exp $
+; $Id: ListFonts,fff,v 1.7 2005/04/27 16:28:47 christian Exp $
 
  GET h.ZapRedHdr
  GET h.ZapRedraw
@@ -742,6 +742,7 @@ a$l		LDRB	R9,[R0],#1			; compare portion
 decode_menu	FNJSR	"R1-R3,R5-R11"
 		MOV	R11,R0
 		MOV	R10,R3
+		MOV	R9,R4
 
 		BICS	R14,R0,#3			; validate parameters
 		BLNE	bad_parms			;
@@ -783,9 +784,10 @@ ok$l		TST	R11,#dff_encodings		; find the font block
 		MOVEQ	R4,R3				;
 		BEQ	notfound$l			;
 
-		LDR	R4,[R7,#fe_idfn]		; ensure output buffer space / return length
-		LDR	R0,[R7,#fe_name]		;
+		LDR	R0,[R7,#fe_idfn]		; ensure output buffer space / return length
+		LDR	R4,[R7,#fe_name]		;
 		TEQ	R0,R4				;
+		MOVEQ	R5,#0				;
 		BEQ	cidfn$l				;
 							;
 		LDR	R1,[R7,#fe_flags]		;
@@ -801,18 +803,17 @@ ok$l		TST	R11,#dff_encodings		; find the font block
 							;
 cidfn$l		LDR	R0,[R7,#fe_name]		; identifier
 		BL	strlen				;
-		ADD	R5,R5,R1			;
+		ADD	R4,R5,R1			;
+		ADD	R4,R4,#3			; terminator, \F
 							;
-		TEQ	R3,#0				;
-		ADDEQ	R4,R5,#3			; terminator, \F
+		TEQ	R10,#0				;
 		FNRTS	EQ				;
 							;
-		CMP	R5,R4				;
+		CMP	R4,R9				;
 		BLHI	buffer_overflow			;
 		FNRTS	VS				;
 
-		ADD	R4,R5,#1			; copy it in
-		MOV	R1,R10				;
+		MOV	R1,R10				; copy it in
 
 		MOV	R0,#'\'				;
 		STRB	R0,[R1],#1			;
@@ -836,10 +837,10 @@ cidfn$l		LDR	R0,[R7,#fe_name]		; identifier
 		MOVNE	R0,#'e'				;
 		STRB	R0,[R1],#1			;
 
-		LDR	R0,[R7,#fe_flags]
-		MOV	R0,R0,LSR #24
-		MOV	R2,#10
-		SWI	XOS_ConvertCardinal1
+		LDR	R0,[R7,#fe_flags]		;
+		MOV	R0,R0,LSR #24			;
+		MOV	R2,#10				;
+		SWI	XOS_ConvertCardinal1		;
 
 		MOV	R0,#' '				;
 		STRB	R0,[R1],#1			;
@@ -848,7 +849,7 @@ cidfn$l		LDR	R0,[R7,#fe_name]		; identifier
 		BL	strcpy
 
 done$l		TST	R11,#dff_cr			; sort out terminator
-		MOVEQ	R14,#10				;
+		MOVEQ	R14,#0				;
 		MOVNE	R14,#13				;
 		STRB	R14,[R1]			;
 		FNRTS					; done
