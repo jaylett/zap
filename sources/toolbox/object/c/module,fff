@@ -1,0 +1,126 @@
+////////////////////////////////////////////////
+//
+// module bits
+//
+// $Id: module,fff,v 1.1 2005/04/28 19:08:52 christian Exp $
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "oslib/toolbox.h"
+#include "oslib/zapfontmenu.h"
+
+#include "mh.h"
+#include "module.h"
+#include "utils.h"
+#include "fontmenu.h"
+
+extern ZapFontMenu *font_menus;
+
+os_error *final(int fatal, int podule, void *pw)
+{
+    debugf("<<< Module about to exit");
+
+    if (font_menus)
+        return messages_error(error_ZAP_FONT_MENU_TASKS_ACTIVE, NULL);
+
+    xtoolbox_de_register_object_module(0, ZapRObject_00);
+    messages_kill();
+    resources_kill();
+
+    return NULL;
+}
+
+
+/* ++++++++++++++++++++++++++++++++ initialisation code +++++++++++++++++++++++++++++++ */
+
+os_error *init(const char *cmd_tail, int podule_base, void *pw)
+{
+    os_error *e;
+
+    debugf(">>> ZapFontMenu initialising");
+
+    // check the toolbox is there
+    if ((e = rmensure("Toolbox", "System:Modules.Toolbox.Toolbox", "0.00")) != NULL)
+        return e;
+
+    if ((e = rmensure("Menu", "System:Modules.Toolbox.Menu", "0.30")) != NULL)
+        return e;
+
+    if ((e = rmensure("ZapRedraw", "<Zap$Redraw>", "0.48")) != NULL)
+        return e;
+
+    e = xtoolbox_register_object_module(0, (toolbox_class) ZapRObject_00, ZapRObject_00, NULL);
+
+    if (e == NULL)
+    {
+        e = resources_init();
+
+        if (e == NULL)
+        {
+            e = messages_init();
+
+            if (e == NULL)
+            {
+                zapfontmenu_init();
+            }
+        }
+    }
+
+    if (e)
+        final(1, 0, 0);
+
+    return e;
+}
+
+
+/* +++++++++++++++++++++++++++++++++ service handler code ++++++++++++++++++++++++++++++ */
+
+void service(int service_number, _kernel_swi_regs *r, void *pw)
+{
+    debugf("service %x", service_number);
+
+    switch (service_number)
+    {
+    case Service_ToolboxTaskDied:
+        task_died((wimp_t) r->r[0]);
+        break;
+
+    case Service_ToolboxStarting:
+        xtoolbox_register_object_module(0, (toolbox_class) ZapRObject_00, ZapRObject_00, NULL);
+        break;
+    }
+}
+
+
+/* ++++++++++++++++++++++++++++++++++++++ SWI code +++++++++++++++++++++++++++++++++++++ */
+
+os_error *swi(int swi_no, _kernel_swi_regs *r, void *pw)
+{
+    os_error *e = NULL;
+
+    debugf("SWI %x", swi_no);
+
+    switch (swi_no)
+    {
+    case (ZapFontMenu_ClassSWI & 0x3f):
+        e = zapfontmenu_class_swi(r);
+        break;
+
+    case (ZapFontMenu_PostFilter & 0x3f):
+        e = zapfontmenu_post_filter((wimp_event_no) r->r[0], (wimp_block *) r->r[1], (toolbox_block *) r->r[3], &r->r[0]);
+        break;
+
+    case (ZapFontMenu_PreFilter & 0x3f):
+        e = zapfontmenu_pre_filter((ZapFontMenu *) r->r[2]);
+        break;
+
+    default:
+        e = error_BAD_SWI;
+    }
+
+    return e;
+}
+

@@ -1,0 +1,87 @@
+////////////////////////////////////////////////
+//
+// other utils
+//
+// $Id: utils,fff,v 1.1 2005/04/28 19:08:52 christian Exp $
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include "kernel.h"
+
+#include "oslib/messagetrans.h"
+
+#define ERROR_MASK 0x3f
+
+
+static messagetrans_control_block cb;
+
+
+// lookup an error message
+os_error *messages_error(int number, const char *param)
+{
+    os_error eb;
+
+    eb.errnum = number;
+    sprintf(eb.errmess, "E%02x", number & ERROR_MASK);
+
+    return xmessagetrans_error_lookup(&eb, &cb, NULL, 0, param, NULL, NULL, NULL);
+}
+
+
+os_error *messages_error_hex(int number, int param)
+{
+    char buf[16];
+
+    sprintf(buf, "&%08x", param);
+
+    return messages_error(number, buf);
+}
+
+
+// lookup a message. returns the token if error.
+// buf must be long enough for the token (because we don't have
+// snprintf on 26 bit C libraries
+void messages_lookup(char *buf, int len, const char *token, const char *param)
+{
+    os_error *e;
+
+    e = xmessagetrans_lookup(&cb, token, buf, len, param, NULL, NULL, NULL, NULL, NULL);
+
+    if (e)
+        strcpy(buf, token);
+}
+
+
+os_error *messages_init(void)
+{
+    if (getenv("ZapRObject$Path"))
+        return xmessagetrans_open_file(&cb, "ZapRObject:Messages", NULL);
+    else
+        return xmessagetrans_open_file(&cb, "Resources:ThirdParty.ZapRObject.Messages", NULL);
+}
+
+
+os_error *messages_kill(void)
+{
+    return xmessagetrans_close_file(&cb);
+}
+
+
+os_error *rmensure(char *module_name, char *file_name, char *module_version)
+{
+    os_error *e;
+    char command[256];
+
+    sprintf(command, "RMEnsure %s %s RMLoad %s", module_name, module_version, file_name);
+
+    if ((e = xos_cli(command)) != NULL)
+        return e;
+
+    sprintf(command, "RMEnsure %s %s", module_name, module_version);
+
+    return xos_cli(command);
+}
+

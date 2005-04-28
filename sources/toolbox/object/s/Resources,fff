@@ -1,0 +1,53 @@
+; Contains code to add our messages file to ResourceFS
+; $Id: Resources,fff,v 1.1 2005/04/28 19:08:53 christian Exp $
+
+ GET <ZapSource$Dir>.h.Macros
+ GET <ZapSource$Dir>.h.System
+
+		AREA	|Asm$$Code|, CODE, READONLY
+
+ EXPORT resources_init
+ EXPORT resources_kill
+
+        MACRO
+$Start  File  $InFile, $OutFile
+$Start  DCD     %FT60 - .         ; Offset from here to the next file
+        DCD     :FLOAD:"$InFile"  ; Load address of file
+        DCD     :FEXEC:"$InFile"  ; Exec address of file
+        DCD     :FSIZE:"$InFile"  ; The length of the file
+        DCD     3                 ; Access bits (always WR/)
+        DCB     "$OutFile",0      ; The ResourceFS filename
+        ALIGN
+        DCD     %FT40-%FT20+4     ; The file length plus four
+20
+        BIN     $InFile           ; The file itself
+40
+        ALIGN
+60
+        MEND
+
+
+; initialise the messages structure
+; E
+; X
+resources_init	MOV	R12,R14				; svc mode
+		ADR	R0,files
+		SWI	XResourceFS_RegisterFiles
+		MOVVC	R0,#0
+		MOV	PC,R12
+
+
+; close the messagetrans file
+; E
+; X
+resources_kill	MOV	R12,R14				; svc mode
+		ADR	R0,files
+		SWI	XResourceFS_DeregisterFiles
+		MOV	PC,R12
+
+
+files		File	"data.Messages", "ThirdParty.ZapRObject.Messages"
+
+		DCD 	0
+
+ END

@@ -1,0 +1,771 @@
+//////////////////////////////////////////////////////
+//
+//  fontmenu.c: implements the ZapFontMenu object
+//
+//  $Id: fontmenu,fff,v 1.1 2005/04/28 19:08:52 christian Exp $
+//
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/wimpspriteop.h"
+#include "oslib/wimpextend.h"
+#include "oslib/colourtrans.h"
+#include "oslib/zapredraw.h"
+#include "oslib/zapfontmenu.h"
+#include "oslib/help.h"
+#include "oslib/menu.h"
+
+#include "oslib/toolbox.h"
+#include "oslib/window.h"
+#include "oslib/windowsupportexternal.h"
+
+#include "mh.h"
+#include "module.h"
+#include "string32.h"
+#include "utils.h"
+
+#define E(a) if ((e = (a)) != NULL) {debugf("error! %d %p %s", __LINE__, e, e->errmess); return e; }
+
+#define zapfontmenu_SUB_MENU ((zapfontmenu_flags) (1ul<<31))  // it's showing as a sub menu
+
+// we can have numerous created objects, but only one can be on screen at a time
+struct ZapFontMenu
+{
+    ZapFontMenu *next;
+
+    wimp_t    task;
+    toolbox_o obj;
+    os_coord  coords;
+
+    zapfontmenu_flags flags;
+    char *font;
+};
+
+ZapFontMenu *font_menus   = NULL;  // list of all objects we know about
+ZapFontMenu *current_menu = NULL;  // object currently showing
+
+static byte *buffer1 = NULL;       // buffer for font menu
+static byte *buffer2 = NULL;       // buffer for indirected data
+static int bufsize1 = 0;
+static int bufsize2 = 0;
+
+static wimp_selection menu_selections;  // menu selections at the time the menu was shown
+
+static toolbox_event_pair_list interesting_events[] =
+{
+    { wimp_MENU_SELECTION, 0},
+    {-1, -1}
+};
+
+static toolbox_message_pair_list interesting_messages[] =
+{
+    { message_HELP_REQUEST,  0},
+    { message_MENUS_DELETED, 0},
+    {-1, -1}
+};
+
+static toolbox_message_pair_list interesting_actions[] =
+{
+    { action_ZAP_FONT_MENU_ABOUT_TO_BE_SHOWN, class_ZAP_FONT_MENU},
+    {-1, -1}
+};
+
+// interactive help message
+static char help_message[64];
+static int help_len;
+
+// a couple of declarations
+static int find_menu_selection(ZapFontMenu *menu, wimp_selection *selections);
+
+
+// -------------------------------- manage the font menu --------------------------------
+
+// initialise
+void zapfontmenu_init(void)
+{
+    // get the help message
+    messages_lookup(help_message, sizeof(help_message), "FMHelp", NULL);
+    help_len = (strlen(help_message) + 3) & ~3;
+}
+
+
+// duplicate a string
+static os_error *stringdup(const char *s, char **dest)
+{
+    os_error *e;
+
+    if (s == NULL)
+        s = "";
+
+    debugf("duplicate (%s) to %p", s, dest);
+
+    e = xtoolboxmemory_allocate(string_len(s) + 1, (void **) dest);
+
+    if (e == NULL)
+        string_cpy(*dest, s);
+
+    debugf("strign at %p", *dest);
+
+    return e;
+}
+
+
+// make sure a buffer has enough memory
+//        mem: pointer to pointer to memory
+//       size: pointer to current size of block
+//   required: size desired
+//
+static os_error *ensure(byte **mem, int *size, int required)
+{
+    os_error *e = NULL;
+
+    if (*mem == NULL)
+    {
+        e = xtoolboxmemory_allocate(required + 256, (void **) mem);
+        if (e == NULL)
+            *size = required + 256;
+    }
+    else if (*size < required)
+    {
+        e = xtoolboxmemory_extend(*mem, (required - *size) + 256, (void **) mem);
+        if (e == NULL)
+            *size = required + 256;
+    }
+
+    return e;
+}
+
+
+// build / update the font menu
+static os_error *build_font_menu(ZapFontMenu *menu)
+{
+    os_error *e;
+    font_list_context context;
+
+    int size1;
+    int size2;
+
+    char *tick;
+
+    if (strcmp(menu->font, "SystemFont") == 0)
+        tick = (char *) 1;
+    else
+        tick = menu->font;
+
+    context = font_RETURN_FONT_MENU | font_GIVEN_TICK;
+    if (menu->flags & zapfontmenu_ENCODING_MENU)
+        context |= font_RETURN_ENCODING_MENU;
+    if (menu->flags & zapfontmenu_INCLUDE_SYSTEM_FONT)
+        context |= font_ALLOW_SYSTEM_FONT;
+
+    E(xzapredraw_list_fonts(NULL, context, 0, NULL, 0, tick, NULL, &size1, &size2));
+
+    E(ensure(&buffer1, &bufsize1, size1));
+    E(ensure(&buffer2, &bufsize2, size2));
+
+    E(xzapredraw_list_fonts(buffer1, context, bufsize1, buffer2, bufsize2, tick, NULL, &size1, &size2));
+
+    return e;
+}
+
+
+// put the menu on the screen
+static os_error *actually_show_menu(ZapFontMenu *menu)
+{
+    os_error *e = NULL;
+
+    E(build_font_menu(menu));
+
+    if (menu->flags & zapfontmenu_SUB_MENU)
+    {
+        E(xwimp_create_sub_menu((wimp_menu *) buffer1, menu->coords.x, menu->coords.y));
+    }
+    else
+    {
+        E(xwimp_create_menu((wimp_menu *) buffer1, menu->coords.x, menu->coords.y));
+    }
+
+    return NULL;
+}
+
+// -------------------------------- Toolbox events --------------------------------
+
+// generate a HasBeenHidden event
+static os_error *has_been_hidden(ZapFontMenu *menu)
+{
+    zapfontmenu_action_has_been_hidden_block block;
+    os_error *e = NULL;
+
+    if (menu)
+    {
+        E(xtoolbox_register_post_filter(toolbox_DE_REGISTER_FILTER, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_EVENT_FILTER,
+                                        (toolbox_pair_list *) interesting_events));
+
+        E(xtoolbox_register_post_filter(toolbox_DE_REGISTER_FILTER, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_MESSAGE_FILTER,
+                                        (toolbox_pair_list *) interesting_messages));
+
+        E(xtoolbox_register_post_filter(toolbox_DE_REGISTER_FILTER, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_ACTION_FILTER,
+                                        (toolbox_pair_list *) interesting_actions));
+
+        if (menu && (menu->flags & zapfontmenu_GENERATE_HAS_BEEN_HIDDEN))
+        {
+            block.size      = sizeof(block);
+            block.action_no = action_ZAP_FONT_MENU_HAS_BEEN_HIDDEN;
+            block.flags     = 0;
+
+            e = xtoolbox_raise_toolbox_event(0, menu->obj, toolbox_NULL_COMPONENT, (toolbox_action *) &block);
+        }
+    }
+
+    return e;
+}
+
+
+// generate an AboutToBeShown event or show the menu if no event is requested
+static os_error *atbs(ZapFontMenu *menu, toolbox_position_tag tag, os_coord coords)
+{
+    zapfontmenu_action_about_to_be_shown_block block;
+    os_error *e = NULL;
+
+    E(xtoolbox_register_post_filter(0, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_EVENT_FILTER,   (toolbox_pair_list *) interesting_events));
+    E(xtoolbox_register_post_filter(0, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_MESSAGE_FILTER, (toolbox_pair_list *) interesting_messages));
+    E(xtoolbox_register_post_filter(0, ZapFontMenu_PostFilter, menu, toolbox_REGISTER_ACTION_FILTER,  (toolbox_pair_list *) interesting_actions));
+
+    if (menu && (menu->flags & zapfontmenu_GENERATE_ABOUT_TO_BE_SHOWN))
+    {
+        debugf("raising atbs event");
+
+        block.size          = sizeof(block);
+        block.action_no     = action_ZAP_FONT_MENU_ABOUT_TO_BE_SHOWN;
+        block.flags         = 0;
+        block.tag           = tag;
+        block.position.full = coords;
+
+        e = xtoolbox_raise_toolbox_event(0, menu->obj, toolbox_NULL_COMPONENT, (toolbox_action *) &block);
+    }
+    else
+    {
+        e = actually_show_menu(menu);
+    }
+
+    return e;
+}
+
+
+// -------------------------------- methods --------------------------------
+
+// set font
+static os_error *set_font(ZapFontMenu *menu, const char *font)
+{
+    os_error *e = NULL;
+    char *newfont;
+
+    // duplicate it first in case of no memory error
+    E(stringdup(font, &newfont));
+
+    E(xtoolboxmemory_free(menu->font));
+    menu->font = newfont;
+
+    return NULL;
+}
+
+
+// get font method
+static os_error *get_font(ZapFontMenu *menu, char *buf, int *buflen)
+{
+    int len = strlen(menu->font) + 1;
+
+    if (buf)
+    {
+        if (*buflen < len)
+            return messages_error(error_ZAP_FONT_MENU_SHORT_BUFFER, NULL);
+
+        strcpy(buf, menu->font);
+    }
+
+    *buflen = len;
+
+    return NULL;
+}
+
+
+// -------------------------------- Toolbox handlers --------------------------------
+
+// create a menu object
+//        tem: the template to use
+//       task: the owning task
+//   menu_out: the internal handle
+//
+static os_error *create_object(zapfontmenu_object_template *tem, toolbox_o obj, wimp_t task, ZapFontMenu **menu_out)
+{
+    os_error *e;
+
+    ZapFontMenu *menu;
+
+    debugf("create");
+
+    e = xtoolboxmemory_allocate(sizeof(ZapFontMenu), (void **) &menu);
+
+    if (e == NULL)
+    {
+        debugf("menu at %p, task %p", menu, task);
+        menu->flags = tem->objectflags;
+        menu->task  = task;
+        menu->obj   = obj;
+
+        e = stringdup(tem->ticked_font, &menu->font);
+
+        if (e == NULL)
+        {
+            // keep track of it
+            menu->next = font_menus;
+            font_menus = menu;
+
+            *menu_out = menu;
+
+            // make sure we hve memory for it
+            e = build_font_menu(menu);
+        }
+        else
+        {
+            xtoolboxmemory_free(menu);
+        }
+    }
+
+
+    return e;
+}
+
+
+// delete a menu object
+//   menu: the internal handle
+//
+static os_error *delete_object(ZapFontMenu *menu)
+{
+    ZapFontMenu **pmenu;
+
+    debugf("delete %p", menu);
+
+    // unlink it
+    for (pmenu = &font_menus; *pmenu && *pmenu != menu; pmenu = &(*pmenu)->next)
+        ;
+
+    if (*pmenu)
+    {
+        *pmenu = menu->next;
+
+        // free it
+        xtoolboxmemory_free(menu->font);
+        xtoolboxmemory_free(menu);
+    }
+
+    return NULL;
+}
+
+
+// show an object on the screen
+//   menu: the object
+//   flags: flags passed to Toolbox_ShowObject
+//     tag: position tag
+//     pos: block describing position
+//     out: pointer suitable for passing to Wimp_CreateMenu
+//
+static os_error *show_object(ZapFontMenu *menu, toolbox_show_flags flags, toolbox_position_tag tag, toolbox_position *pos, wimp_menu **out)
+{
+    os_error    *e;
+    wimp_pointer ptr;
+
+    debugf("show, flags %x  tag %d", flags, tag);
+
+    E(has_been_hidden(current_menu));
+
+    // get a list of current menu selections
+    E(xwimp_get_menu_state(0, &menu_selections, 0, 0));
+
+//     debugf("current menu selections: %d %d %d %d %d %d %d %d",
+//            menu_selections.items[0], menu_selections.items[1], menu_selections.items[2], menu_selections.items[3],
+//            menu_selections.items[4], menu_selections.items[5], menu_selections.items[6], menu_selections.items[7]);
+
+    current_menu = menu;
+
+    if (tag == toolbox_POSITION_FULL || tag == toolbox_POSITION_TOP_LEFT)
+        menu->coords = pos->top_left;
+    else
+    {
+        E(xwimp_get_pointer_info(&ptr));
+        menu->coords.x = ptr.pos.x - 64;
+        menu->coords.y = ptr.pos.y;
+    }
+
+    if (flags & toolbox_SHOW_AS_SUB_MENU)
+        menu->flags |= zapfontmenu_SUB_MENU;
+    else
+        menu->flags &= ~zapfontmenu_SUB_MENU;
+
+    atbs(menu, tag, menu->coords);
+
+    if (flags & toolbox_SHOW_AS_MENU)
+        *out  = (wimp_menu *) buffer1;
+
+    return NULL;
+}
+
+
+// hide an object
+//   menu: the object
+//
+static os_error *hide_object(ZapFontMenu *menu)
+{
+    os_error *e;
+    wimp_selection selections;
+
+    debugf("hide object");
+
+    E(xwimp_get_menu_state(0, &selections, 0, 0));
+
+    if (find_menu_selection(menu, &selections) != -1)
+    {
+        has_been_hidden(menu);
+
+        E(xwimp_create_menu((wimp_menu *)-1, 0, 0));
+
+        current_menu = NULL;
+    }
+
+    return NULL;
+}
+
+
+// get the status of an object
+//     menu: the menu
+//   status: b0 set if menu currently showing
+//
+static os_error *object_status(ZapFontMenu *menu, int *status)
+{
+    os_error       *e;
+    wimp_selection  selections;
+
+    debugf("get object state");
+
+    E(xwimp_get_menu_state(0, &selections, 0, 0));
+
+    if (find_menu_selection(menu, &selections) != -1)
+        *status = 1;
+    else
+        *status = 0;
+
+    debugf("menu %p  state %d", menu, *status);
+
+    return NULL;
+}
+
+
+// -------------------------------- Wimp handlers --------------------------------
+
+// remove objects for a given task
+void task_died(wimp_t task)
+{
+    ZapFontMenu *menu;
+    ZapFontMenu *next;
+
+    debugf("task %p died", task);
+
+    for (menu = font_menus; menu; menu = next)
+    {
+        debugf("  menu %p task %p", menu, menu->task);
+        next = menu->next;
+
+        if (menu->task == task)
+            delete_object(menu);
+    }
+}
+
+
+// find the relevant menu selection list
+//         menu: the menu we got the event on
+//   selections: selection list for clicked item
+//
+// returns the index of the relevant selections, or -1 if nothing to do with us
+static int find_menu_selection(ZapFontMenu *menu, wimp_selection *selections)
+{
+    int i = -1;
+
+//     debugf("current menu selections: %d %d %d %d %d %d %d %d",
+//            menu_selections.items[0], menu_selections.items[1], menu_selections.items[2], menu_selections.items[3],
+//            menu_selections.items[4], menu_selections.items[5], menu_selections.items[6], menu_selections.items[7]);
+//
+//     debugf("new menu selections: %d %d %d %d %d %d %d %d",
+//            selections->items[0], selections->items[1], selections->items[2], selections->items[3],
+//            selections->items[4], selections->items[5], selections->items[6], selections->items[7]);
+//
+//     debugf("current menu %p", current_menu);
+
+    if (menu && menu == current_menu)
+    {
+        for (i = 0; i < 9; i++)
+        {
+            if (menu_selections.items[i] == -1)
+                return i;
+
+            if (selections->items[i] != menu_selections.items[i])
+                break;
+        }
+    }
+
+    return -1;
+}
+
+// -------------------------------- Wimp handlers --------------------------------
+
+// received a menu selection event
+static os_error *menu_selection(wimp_block *block, toolbox_block *id, int *claimed)
+{
+    zapfontmenu_action_selection_block sel;
+    font_decode_flags                  flags = 0;
+
+    os_error    *e = NULL;
+    wimp_pointer p;
+    int          i;
+
+//     debugf("menu selection");
+
+    i = find_menu_selection(current_menu, &block->selection);
+
+    if (i != -1)
+    {
+        id->this_obj = current_menu->obj;
+        id->this_cmp = toolbox_NULL_COMPONENT;
+
+        if (current_menu->flags & zapfontmenu_ENCODING_MENU)
+            flags |= font_GIVEN_ENCODING_MENU;
+
+        E(xzapredraw_decode_menu(flags, buffer1, (byte *) (&block->selection.items[i]), (byte *) sel.identifier, sizeof(sel.identifier), NULL, &i));
+
+        if (i == 0)
+        {
+            debugf("System font");
+            // system font
+            sel.size = 16 + ((sizeof("SystemFont") + 3) & ~3);
+            strcpy(sel.identifier, "SystemFont");
+        }
+        else
+        {
+            debugf("%s", sel.identifier);
+            sel.size = 16 + ((i + 3) & ~3);
+        }
+
+        sel.action_no = action_ZAP_FONT_MENU_SELECTION;
+        sel.flags     = (current_menu->flags & zapfontmenu_ENCODING_MENU) ? zapfontmenu_ENCODING_SELECTION : 0;
+
+        E(xtoolbox_raise_toolbox_event(0, current_menu->obj, toolbox_NULL_COMPONENT, (toolbox_action *) &sel));
+
+        E(set_font(current_menu, sel.identifier));
+
+        // hmm - if build_font_menu moves the buffer things will go wrong on
+        // adjust click. You'd have to be very unlucky for that, though
+        E(build_font_menu(current_menu));
+
+        *claimed = 1;
+
+        E(xwimp_get_pointer_info(&p));
+
+        if (p.buttons & wimp_CLICK_ADJUST)
+        {
+            E(xmenu_update_tree(0));
+
+            if ((current_menu->flags & zapfontmenu_SUB_MENU) == 0)
+            {
+                // we were the root menu, so regenerate it ourselves
+                E(xwimp_create_menu((wimp_menu *) buffer1, 0, 0));
+            }
+        }
+        else
+        {
+            // menu selected, so no longer open
+            has_been_hidden(current_menu);
+            current_menu = NULL;
+        }
+    }
+
+    return e;
+}
+
+// -------------------------------- SWI handlers --------------------------------
+
+// wimp post filter
+//     event: wimp event number
+//     block: wimp block
+//        id: toolbox id to fill in
+//   claimed: pre-zeroed variable to set if event handled
+//
+os_error *zapfontmenu_post_filter(wimp_event_no event, wimp_block *block, toolbox_block *id, int *claimed)
+{
+    os_error *e = NULL;
+    help_full_message_reply    help;
+    help_full_message_request *req = (help_full_message_request *) &block->message;
+    wimp_selection             selection;
+    toolbox_action            *action = (toolbox_action *) block;
+
+    int i;
+
+    debugf("PostFilter event %d", event);
+
+    switch (event)
+    {
+    case wimp_MENU_SELECTION:
+        E(menu_selection(block, id, claimed));
+        break;
+
+    case wimp_USER_MESSAGE:
+    case wimp_USER_MESSAGE_RECORDED:
+        switch (block->message.action)
+        {
+        case message_HELP_REQUEST:
+            debugf("help request");
+
+            E(xwimp_get_menu_state(wimp_GIVEN_WINDOW_AND_ICON, &selection, req->w, req->i));
+
+            i = find_menu_selection(current_menu, &selection);
+
+            if (i != -1)
+            {
+                help.size     = 20 + help_len;
+                help.your_ref = 0;
+                help.action   = message_HELP_REPLY;
+                strcpy(help.reply, help_message);
+
+                E(xwimp_send_message(wimp_USER_MESSAGE, (wimp_message *) &help, block->message.sender));
+            }
+            break;
+
+        case message_MENUS_DELETED:
+            debugf("menus deleted");
+
+            has_been_hidden(current_menu);
+            current_menu = NULL;
+            break;
+        }
+
+        break;
+
+    case toolbox_EVENT:
+        switch (action->action_no)
+        {
+        case action_ZAP_FONT_MENU_ABOUT_TO_BE_SHOWN:
+            debugf("zfmatbs");
+            // the atbs message is now being delivered, so show the mnenu on the next Wimp_Poll call
+            E(xtoolbox_register_pre_filter(0, ZapFontMenu_PreFilter, current_menu));
+            break;
+        }
+
+        break;
+    }
+
+    return e;
+}
+
+
+// prefilter, called when the client calls Wimp_Poll after the ATBS message has been delivered
+//
+os_error *zapfontmenu_pre_filter(ZapFontMenu *menu)
+{
+    debugf("pre filter");
+
+    xtoolbox_register_pre_filter(toolbox_DE_REGISTER_FILTER, ZapFontMenu_PreFilter, menu);
+
+    return actually_show_menu(menu);
+}
+
+
+
+// MiscOp, object specific methods
+//
+static os_error *object_misc_op(ZapFontMenu *menu, _kernel_swi_regs *r)
+{
+    os_error *e = NULL;
+
+    int reason = r->r[2];
+
+    switch (reason)
+    {
+    case ZapFontMenu_SetFont:
+        e = set_font(menu, (char *) r->r[3]);
+        break;
+
+    case ZapFontMenu_GetFont:
+        e = get_font(menu, (char *) r->r[3], &r->r[4]);
+        break;
+
+    case ZapFontMenu_SetSystemAvailable:
+        if (r->r[3])
+            menu->flags |= zapfontmenu_INCLUDE_SYSTEM_FONT;
+        else
+            menu->flags &= ~zapfontmenu_INCLUDE_SYSTEM_FONT;
+        break;
+
+    case ZapFontMenu_GetSystemAvailable:
+        r->r[0] = (menu->flags & zapfontmenu_INCLUDE_SYSTEM_FONT) ? 1 : 0;
+        break;
+
+    default:
+        e = messages_error_hex(error_ZAP_FONT_MENU_NO_SUCH_MISC_OP_METHOD, reason);
+        break;
+    }
+
+    return e;
+}
+
+
+// Class SWI
+//   E R0 = reason code  R1 = toolbox_o object_id  R2 = ZapFontMenu *our_internal_handle
+//     R3 = wimp_t task_handle_of_client  R4 -> kernel_swi_regs cleint_regs
+os_error *zapfontmenu_class_swi(_kernel_swi_regs *r)
+{
+    os_error *e;
+
+    ZapFontMenu      *menu        = (ZapFontMenu *)      r->r[2];
+    _kernel_swi_regs *client_regs = (_kernel_swi_regs *) r->r[4];
+
+    debugf("class op %d", r->r[0]);
+
+    switch (r->r[0])
+    {
+    case toolbox_CREATE_OBJECT:
+        e = create_object((zapfontmenu_object_template *) client_regs->r[1], (toolbox_o) r->r[1], (wimp_t) r->r[3], (ZapFontMenu **) &r->r[0]);
+        break;
+
+    case toolbox_DELETE_OBJECT:
+        e = delete_object(menu);
+        break;
+
+    case toolbox_SHOW_OBJECT:
+        e = show_object(menu, (toolbox_show_flags) client_regs->r[0], (toolbox_position_tag) client_regs->r[2],
+                        (toolbox_position *) client_regs->r[3], (wimp_menu **) &r->r[0]);
+        break;
+
+    case toolbox_HIDE_OBJECT:
+        e = hide_object(menu);
+        break;
+
+    case toolbox_GET_OBJECT_STATE:
+        e = object_status(menu, &r->r[0]);
+        break;
+
+    case toolbox_MISC_OP:
+        e = object_misc_op(menu, client_regs);
+        break;
+
+    default:
+        e = messages_error_hex(error_ZAP_FONT_MENU_NO_SUCH_METHOD, r->r[0]);
+        break;
+    }
+
+    return e;
+}
+

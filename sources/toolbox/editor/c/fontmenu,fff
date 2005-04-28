@@ -1,0 +1,646 @@
+///////////////////////////////////////////////////////////////////////
+//
+//  Main editor application
+//
+//  $Id: fontmenu,fff,v 1.1 2005/04/28 19:08:52 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#include "oslib/os.h"
+#include "oslib/osbyte.h"
+#include "oslib/territory.h"
+
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/window.h"
+
+#include "oslib/optionbutton.h"
+#include "oslib/writablefield.h"
+#include "oslib/popup.h"
+#include "oslib/actionbutton.h"
+
+#include "oslib/zapfontmenu.h"
+
+#include "oslib/resed.h"
+
+#include "fontmenu.h"
+#include "event.h"
+#include "events.h"
+#include "messages.h"
+#include "error.h"
+#include "main.h"
+
+#define SAVE_VERSION 100    // version number to be saved by this editor
+
+// valid flags in saved objects
+#define VALID_FLAGS_MASK (zapfontmenu_ENCODING_MENU | zapfontmenu_GENERATE_ABOUT_TO_BE_SHOWN \
+                          | zapfontmenu_GENERATE_HAS_BEEN_HIDDEN | zapfontmenu_INCLUDE_SYSTEM_FONT)
+
+static toolbox_o font_menu;
+static toolbox_o encoding_menu;
+
+typedef struct ZapFontMenu     ZapFontMenu;
+typedef struct ZapFontMenuData ZapFontMenuData;
+typedef struct ZapFontMenuFile ZapFontMenuFile;
+
+struct ZapFontMenuData
+{
+    zapfontmenu_flags flags;
+    int has_font;    // non-zero if intial font button ticked
+    char font[256];  // font to tick
+};
+
+struct ZapFontMenu
+{
+    char name[12]; // name of object
+
+    Object *handle; // handle for main.c
+
+    toolbox_o win;  // editor window object
+
+    ZapFontMenuData data;       // current state of menu
+    ZapFontMenuData original;   // original state when first loaded
+};
+
+struct ZapFontMenuFile
+{
+    RelocatableObjectHeader     header;
+    zapfontmenu_object_template body;
+
+    // string table goes here
+    // followed by relocation table
+};
+
+
+// relocate an object
+//
+// returns pointer to the relocated body / NULL on failure
+// FIXME: we should really give more desciptive error messages
+static void *relocate_object(RelocatableObject *object, int size)
+{
+    char *data = (char *) object;
+    int *idata;
+
+    char *strings;
+    char *messages;
+
+    toolbox_relocation_table *relocs;
+    toolbox_relocation       *rel;
+
+    int ok = 1;
+    int i;
+
+    // validate various fields
+    if (   object->relocheader.strtab   > size
+        || object->relocheader.msgtab   > size
+        || object->relocheader.reloctab > size
+        || object->objheader.size + sizeof(RelocatableObjectHeader) > size
+        || object->objheader.header_size + object->objheader.body_size > object->objheader.size
+        || object->objheader.header_size + object->objheader.body_size > size - sizeof(RelocatableObjectHeader))
+        return NULL;
+
+    // find out pointers
+    strings  = (object->relocheader.strtab   == -1) ? NULL : data + object->relocheader.strtab;
+    messages = (object->relocheader.msgtab   == -1) ? NULL : data + object->relocheader.msgtab;
+    relocs   = (object->relocheader.reloctab == -1) ? NULL : (toolbox_relocation_table *) (data + object->relocheader.reloctab);
+
+    // find the body
+    idata = (int *) (((char *) &object->objheader) + object->objheader.header_size);
+
+    if (relocs)
+    {
+        for (i = 0; i < relocs->relocation_count && ok; i++)
+        {
+            rel = &relocs->relocations[i];
+
+            if (rel->word > size || ((rel->word & 3) != 0))
+            {
+                ok = 0; // error!
+                break;
+            }
+
+            switch (rel->relocation)
+            {
+            case toolbox_RELOCATE_STRING_REFERENCE:
+                if (idata[rel->word >> 2] == -1)
+                    idata[rel->word >> 2] = NULL;
+                else
+                {
+                    if (strings == NULL)
+                        ok = 0; // error!
+                    else
+                        idata[rel->word >> 2] += (int) strings;
+                }
+                break;
+
+            case toolbox_RELOCATE_MSG_REFERENCE:
+                if (idata[rel->word >> 2] == -1)
+                    idata[rel->word >> 2] = NULL;
+                else
+                {
+                    if (messages == NULL)
+                        ok = 0; // error!
+                    else
+                        idata[rel->word >> 2] += (int) messages;
+                }
+                break;
+
+            case toolbox_RELOCATE_OBJECT_OFFSET:
+                idata[rel->word >> 2] += (int) data;
+                break;
+
+            case toolbox_RELOCATE_SPRITE_AREA_REFERENCE:  // not sure where to get the sprites pointer from
+            default: ok = 0; // error!
+            }
+        }
+    }
+
+    return ok ? idata : NULL;
+}
+
+
+// convert a menu from its internal format into a relocatable object template
+//   menu: the menu
+//   size: [out] resulting size of the object
+//
+// returns the relocatable object or NULL on error
+static RelocatableObject *prepare_for_transfer(ZapFontMenu *menu, int *sizeout)
+{
+    ZapFontMenuFile *file;
+
+    toolbox_relocation_table *rtable;
+    char                     *strtab;
+    char                     *body;
+
+    int strtabsize = menu->data.has_font ? ((strlen(menu->data.font) + 4) & ~3) : 0; // string table, inc terminator
+    int relocsize  = 4 + (1 * sizeof(toolbox_relocation)); // relocation table
+
+    int size       = sizeof(ZapFontMenuFile) + strtabsize + relocsize;
+
+    file = calloc(size, 1);
+
+    if (file)
+    {
+        // find the table pointers
+        strtab = ((char *) file) + sizeof(ZapFontMenuFile);
+        rtable = (toolbox_relocation_table *) (strtab + strtabsize);
+
+        body   = ((char *)&file->body) + sizeof(toolbox_resource_file_object_base);
+
+        // crikey, what a horrid lot of structures
+        file->header.strtab   = menu->data.has_font ? sizeof(ZapFontMenuFile) : -1;
+        file->header.msgtab   = -1;
+        file->header.reloctab = sizeof(ZapFontMenuFile) + strtabsize;
+
+        file->body.class_no    = class_ZAP_FONT_MENU;
+        file->body.flags       = 0;
+        file->body.version     = SAVE_VERSION;
+        file->body.size        = sizeof(file->body) + strtabsize;
+        file->body.header_size = sizeof(toolbox_resource_file_object_base);
+        file->body.body_size   = sizeof(zapfontmenu_object);
+
+        file->body.objectflags = menu->data.flags;
+
+        // now the string table
+        if (menu->data.has_font)
+        {
+            file->body.ticked_font = 0;
+            strcpy(strtab, menu->data.font);
+        }
+        else
+        {
+            file->body.ticked_font = (char *) -1;
+        }
+
+        // now the relocation table
+        rtable->relocation_count = 1;
+        rtable->relocations[0].word       = ((char *) &file->body.ticked_font) - body;
+        rtable->relocations[0].relocation = toolbox_RELOCATE_STRING_REFERENCE;
+    }
+
+    *sizeout = size;
+
+    return (RelocatableObject *) file;
+}
+
+
+static void copy_to_bs(char *d, const char *s)
+{
+    while (isspace(*s))
+        s++;
+
+    while (*s != '\\' && *s != '\0')
+        *d++ = *s++;
+
+    *d++ = '\0';
+}
+
+// get the localised name of a font
+static void get_font_name(const char *idfn, char *buf, int is_encoding)
+{
+    char *field;
+
+    if (font_find_field(idfn, is_encoding ? 'e' : 'f', &field))
+    {
+        // found a localised name - check if the territory's right
+        if (territory_number() == (int) strtol(field, &field, 10))
+        {
+            copy_to_bs(buf, field);
+            return;
+        }
+    }
+
+    // no localised name or wrong territory
+    if (font_find_field(idfn, is_encoding ? 'E' : 'F', &field))
+        copy_to_bs(buf, field);
+    else
+        strcpy(buf, idfn);
+}
+
+
+// put the caret in the box
+static void set_focus(ZapFontMenu *menu)
+{
+    wimp_w w = window_get_wimp_handle(0, menu->win);
+    wimp_i icon = wimp_ICON_WINDOW;
+    int index   = -1;
+
+    if (menu->data.has_font)
+    {
+        gadget_get_icon_list(0, menu->win, g_FONT, &icon, sizeof(icon));
+        index = writablefield_get_value(0, menu->win, g_FONT, NULL, 0);
+
+        index -= 1; // before terminator
+    }
+
+    wimp_set_caret_position(w, icon, 0, 0, -1, index);
+}
+
+
+// update the dialogue to reflect current state
+static void update_dialogue(ZapFontMenu *menu)
+{
+    char buf[256];
+
+    if (menu->data.has_font)
+    {
+        get_font_name(menu->data.font, buf, menu->data.flags & zapfontmenu_ENCODING_MENU);
+
+        gadget_set_flags(0, menu->win, g_FONT, 0);
+        gadget_set_flags(0, menu->win, g_FONT_POPUP, 0);
+
+        writablefield_set_value(0, menu->win, g_FONT, buf);
+
+        optionbutton_set_state(0, menu->win, g_INITIAL_VALUE, 1);
+    }
+    else
+    {
+        gadget_set_flags(0, menu->win, g_FONT, gadget_FADED);
+        gadget_set_flags(0, menu->win, g_FONT_POPUP, gadget_FADED);
+
+        writablefield_set_value(0, menu->win, g_FONT, "");
+
+        optionbutton_set_state(0, menu->win, g_INITIAL_VALUE, 0);
+    }
+
+    window_set_title(0, menu->win, messages_lookup1("ZFMTitle", menu->name));
+
+    popup_set_menu(0, menu->win, g_FONT_POPUP, (menu->data.flags & zapfontmenu_ENCODING_MENU) ? encoding_menu : font_menu);
+
+    optionbutton_set_state(0, menu->win, g_INCLUDE_SYSTEM, !!(menu->data.flags & zapfontmenu_INCLUDE_SYSTEM_FONT));
+    optionbutton_set_state(0, menu->win, g_ENCODINGS,      !!(menu->data.flags & zapfontmenu_ENCODING_MENU));
+    optionbutton_set_state(0, menu->win, g_ATBS,           !!(menu->data.flags & zapfontmenu_GENERATE_ABOUT_TO_BE_SHOWN));
+    optionbutton_set_state(0, menu->win, g_HBH,            !!(menu->data.flags & zapfontmenu_GENERATE_HAS_BEEN_HIDDEN));
+}
+
+
+// the Initial value button was pressed
+static int initial_button_pressed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->this_obj);
+
+    optionbutton_action_state_changed_block *block = (optionbutton_action_state_changed_block *) event;
+
+    menu->data.has_font = block->on;
+
+    gadget_set_flags(0, id->this_obj, g_FONT,       block->on ? 0 : gadget_FADED);
+    gadget_set_flags(0, id->this_obj, g_FONT_POPUP, block->on ? 0 : gadget_FADED);
+
+    writablefield_set_value(0, id->this_obj, g_FONT, "");
+    menu->data.font[0] = '\0';
+
+    // faded gadgets can't have the input focus
+    set_focus(menu);
+
+    return 1;
+}
+
+
+// the Encoding value button was pressed
+static int encoding_button_pressed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->this_obj);
+
+    optionbutton_action_state_changed_block *block = (optionbutton_action_state_changed_block *) event;
+
+    if (block->on)
+        menu->data.flags |= zapfontmenu_ENCODING_MENU;
+    else
+        menu->data.flags &= ~zapfontmenu_ENCODING_MENU;
+
+    // the default won't be valid any more
+    writablefield_set_value(0, id->this_obj, g_FONT, "");
+    menu->data.font[0] = '\0';
+
+    popup_set_menu(0, id->this_obj, g_FONT_POPUP, block->on ? encoding_menu : font_menu);
+
+    return 1;
+}
+
+
+// one of the other buttons was pressed
+static int other_buttons_pressed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->this_obj);
+
+    if (optionbutton_get_state(0, id->this_obj, g_INCLUDE_SYSTEM))
+        menu->data.flags |= zapfontmenu_INCLUDE_SYSTEM_FONT;
+    else
+        menu->data.flags &= ~zapfontmenu_INCLUDE_SYSTEM_FONT;
+
+    if (optionbutton_get_state(0, id->this_obj, g_ATBS))
+        menu->data.flags |= zapfontmenu_GENERATE_ABOUT_TO_BE_SHOWN;
+    else
+        menu->data.flags &= ~zapfontmenu_GENERATE_ABOUT_TO_BE_SHOWN;
+
+    if (optionbutton_get_state(0, id->this_obj, g_HBH))
+        menu->data.flags |= zapfontmenu_GENERATE_HAS_BEEN_HIDDEN;
+    else
+        menu->data.flags &= ~zapfontmenu_GENERATE_HAS_BEEN_HIDDEN;
+
+    return 1;
+}
+
+
+// the popup menu is about to be shown
+static int zfm_atbs(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->ancestor_obj);
+
+    zapfontmenu_set_font             (0, id->this_obj, menu->data.font);
+    zapfontmenu_set_system_available (0, id->this_obj, menu->data.flags & zapfontmenu_INCLUDE_SYSTEM_FONT);
+
+    return 1;
+}
+
+
+// font selection on the popup menu
+static int zfm_sel(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->ancestor_obj);
+
+    zapfontmenu_action_selection_block *block = (zapfontmenu_action_selection_block *) event;
+
+    strcpy(menu->data.font, block->identifier);
+
+    update_dialogue(menu);
+
+    return 1;
+}
+
+
+// note this is called on OK press AND return key
+static int ok_pressed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->this_obj);
+
+    actionbutton_action_selected_block *block = (actionbutton_action_selected_block *) event;
+    RelocatableObject *data;
+    int final = 1;
+    int size  = 0;
+
+    // if SHIFT key pressed or ADJUST click, leave the box open
+    if (osbyte1(121, 0x80, 0) || (block->flags & actionbutton_SELECTED_ADJUST))
+        final = 0;
+
+    data = prepare_for_transfer(menu, &size);
+
+    // the error code is used only of data == NULL
+    send_object_data(NULL, menu, data, size, resed_ERROR_NO_MEMORY, final);
+
+    // copy the now default state
+    menu->original = menu->data;
+
+    return 1;
+}
+
+
+// note this is called on Cancel press AND escape key
+static int cancel_pressed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    ZapFontMenu *menu = toolbox_get_client_handle(0, id->this_obj);
+
+    actionbutton_action_selected_block *block = (actionbutton_action_selected_block *) event;
+
+    // if SHIFT key pressed or ADJUST click, leave the box open
+    if (osbyte1(121, 0x80, 0) || (block->flags & actionbutton_SELECTED_ADJUST))
+    {
+        // restore the original configuration
+        menu->data = menu->original;
+
+        update_dialogue(menu);
+    }
+    else
+    {
+        // no longer required - this will call our deleted function
+        delete_object(menu);
+    }
+
+    return 1;
+}
+
+
+// initialise ourselves
+void zfm_init(void)
+{
+    font_menu     = toolbox_create_object(0, (toolbox_id) "BitmapMenu");
+    encoding_menu = toolbox_create_object(0, (toolbox_id) "EncMenu");
+
+    event_register_toolbox_handler((toolbox_id) -1, event_zfm_INITIAL,       initial_button_pressed,  0);
+    event_register_toolbox_handler((toolbox_id) -1, event_zfm_ENCODING,      encoding_button_pressed, 0);
+    event_register_toolbox_handler((toolbox_id) -1, event_zfm_OTHER_BUTTONS, other_buttons_pressed,   0);
+
+    event_register_toolbox_handler((toolbox_id) -1, event_zfm_OK,            ok_pressed,              0);
+    event_register_toolbox_handler((toolbox_id) -1, event_zfm_CANCEL,        cancel_pressed,          0);
+
+    event_register_toolbox_handler((toolbox_id) -1, action_ZAP_FONT_MENU_ABOUT_TO_BE_SHOWN, zfm_atbs, 0);
+    event_register_toolbox_handler((toolbox_id) -1, action_ZAP_FONT_MENU_SELECTION,         zfm_sel,  0);
+}
+
+
+// ResEd wants us to load an object. If we can, return a handle to identify this obejct,
+// otherwise call send_loaded_reply with a suitable error code and return NULL
+//
+// if handle != NULL, this is a forced load of an existing object, so load the
+// data, sanitise its options and update its dialogue box. If the force
+// flag is otherwise set, load the object and sanitise it, but don't open
+// an edit window for it. If handle is non-NULL on entry, we MUST return
+// either the SAME handle, or NULL on error (in which case we KEEP the old handle)
+//
+// this probably wants splitting into two functions
+void *zfm_load(resed_full_message_object_load *load, void *handle)
+{
+    os_error *e;
+
+    ZapFontMenu        *menu  = (ZapFontMenu *) handle;
+    ZapFontMenuFile    *data  = NULL;
+    zapfontmenu_object *templ = NULL;
+
+    char buf[16];
+
+    // check we understand the version number
+    if (load->version > 100)
+    {
+        sprintf(buf, "%d.%02d", load->version / 100, load->version % 100);
+        send_loaded_reply(load, resed_ERROR_UK_VERSION, NULL, buf);
+        return NULL;
+    }
+
+    // get our memory
+    if (menu == NULL)
+        menu = malloc(sizeof(ZapFontMenu));
+
+    data = malloc(load->obj_size);
+
+    if (menu == NULL || data == NULL)
+    {
+        free(menu);
+        free(data);
+        send_loaded_reply(load, resed_ERROR_NO_MEMORY, NULL, NULL);
+        return NULL;
+    }
+
+    // get a copy of it
+    xwimp_transfer_block(load->sender, load->address, wimp_task, (byte *) data, load->obj_size);
+
+    // relocate it
+    templ = relocate_object((RelocatableObject *) data, load->obj_size);
+
+    if (templ == NULL)
+    {
+        // error relocating it
+        send_loaded_reply(load, resed_ERROR_CORRUPT_DATA, NULL, NULL);
+        free(menu);
+        free(data);
+        return NULL;
+    }
+
+    // convert it to a more managable format
+    strcpy(menu->name, load->name);
+
+    if (templ->ticked_font)
+    {
+        strcpy(menu->original.font, templ->ticked_font);
+        menu->original.has_font = 1;
+    }
+    else
+    {
+        menu->original.has_font = 0;
+    }
+
+    menu->original.flags = (templ->flags & VALID_FLAGS_MASK);
+
+    // copy the original state to the current
+    menu->data = menu->original;
+
+    // free the template
+    free(data);
+
+    menu->win = toolbox_NULL_OBJECT;
+
+    // create a window if it's not a new force load
+    if (handle == NULL && ((load->flags & resed_FORCE_LOAD) == 0))
+    {
+        e = xtoolbox_create_object(0, (toolbox_id) "ZapFont", &menu->win);
+        if (e)
+        {
+            send_loaded_reply(load, resed_ERROR_NON_FATAL_INTERNAL_ERROR, NULL, e->errmess);
+            free(menu);
+            return NULL;
+        }
+
+        toolbox_set_client_handle(0, menu->win, menu);
+    }
+
+    // and show it
+    if (menu->win)
+    {
+        // update the box
+        update_dialogue(menu);
+
+        toolbox_show_object(0, menu->win, toolbox_POSITION_DEFAULT, NULL, toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+        set_focus(menu);
+    }
+
+    return menu;
+}
+
+
+// the shell wants us to return the updated object - prepare the data
+// and return an object suitable for inclusion in a resource file, or NULL on out of memory error
+RelocatableObject *zfm_send(int *size, void *handle)
+{
+    return prepare_for_transfer((ZapFontMenu *) handle, size);
+}
+
+
+// an object has been deleted by the shell, or we are otherwise not required to
+// edit it any more. Remove state and windows etc for this object silently.
+void zfm_deleted(void *handle)
+{
+    ZapFontMenu *menu = (ZapFontMenu *) handle;
+
+    if (menu->win)
+        toolbox_delete_object(toolbox_DELETE_NO_RECURSE, menu->win);  // don't delete the popup menu
+
+    free(menu);
+}
+
+
+// an object has been renamed by the shell
+void zfm_renamed(resed_full_message_object_renamed *renamed, void *handle)
+{
+    ZapFontMenu *menu = (ZapFontMenu *) handle;
+
+    strncpy(menu->name, renamed->new_name, sizeof(menu->name));
+    update_dialogue(menu);
+}
+
+
+// ResEd asked us to load an object we're already editing, so just bring it to the front
+void zfm_raise(void *handle)
+{
+    ZapFontMenu *menu = (ZapFontMenu *) handle;
+
+    if (menu->win)
+    {
+        // this is harder than it should be
+        wimp_window_state state;
+
+        state.w = window_get_wimp_handle(0, menu->win);
+        wimp_get_window_state(&state);
+
+        state.next = wimp_TOP;
+
+        toolbox_show_object(0, menu->win, toolbox_POSITION_FULL, (toolbox_position *) &state.visible,
+                            toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+
+        set_focus(menu);
+    }
+}
+
+

@@ -1,0 +1,542 @@
+///////////////////////////////////////////////////////////////////////
+//
+//  Main editor application
+//
+//  $Id: main,fff,v 1.1 2005/04/28 19:08:52 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+#include <setjmp.h>
+#include <assert.h>
+
+#include "kernel.h"
+
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/resed.h"
+#include "oslib/zapfontmenu.h"
+
+#include "event.h"
+#include "events.h"
+
+#include "error.h"
+#include "main.h"
+#include "messages.h"
+
+#include "fontmenu.h"
+
+#define WimpVersion    350
+
+static  wimp_block                  poll_block;
+static  messagetrans_control_block  messages;
+static  toolbox_block               id_block;
+
+static jmp_buf post_error;
+
+wimp_t wimp_task;
+wimp_t resed_task;
+
+int finished = 0;
+
+char home_dir[256];
+
+static Object *objects; // list of objects we're currently editing
+
+typedef struct Editor Editor;
+struct Editor
+{
+    toolbox_class cls;
+    void              *(*load)    (resed_full_message_object_load *load, void *handle);        // request to load object
+    RelocatableObject *(*send)    (int *size, void *handle);                                   // request to save object
+    void               (*renamed) (resed_full_message_object_renamed *renamed, void *handle);  // object has been renamed
+    void               (*deleted) (void *handle);                                              // object no longer required
+    void               (*raise)   (void *handle);                                              // raise object to front
+};
+
+struct Object
+{
+    Object *next;
+
+    Editor *editor;
+    resed_d doc_id;
+    resed_o obj_id;
+
+    int delete_after_send;
+    void *data;
+
+    void *handle;
+};
+
+static Editor editors[] =
+{
+    { class_ZAP_FONT_MENU, zfm_load, zfm_send, zfm_renamed, zfm_deleted, zfm_raise },
+    { 0, }
+};
+
+static wimp_message_list wimp_messages[] =
+{
+    message_TASK_CLOSE_DOWN,
+    message_RESED_OBJECT_LOAD,
+    message_RESED_OBJECT_LOADED,
+    message_RESED_OBJECT_SEND,
+    message_RESED_OBJECT_SENDING,
+    message_RESED_OBJECT_RENAMED,
+    message_RESED_OBJECT_DELETED,
+
+    message_QUIT
+};
+
+#define ADDEVENT(a, b) b,
+
+static toolbox_action_list toolbox_events[] =
+{
+    action_ZAP_FONT_MENU_ABOUT_TO_BE_SHOWN,
+    action_ZAP_FONT_MENU_SELECTION,
+
+#include "events.h"
+
+    0
+};
+
+
+void oserror_handler(int a)
+{
+    error_report((os_error *)_kernel_last_oserror());
+
+    longjmp(post_error, 1);
+}
+
+static int toolbox_error_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    error_report((os_error *) &event->data.error);
+
+    return 1;
+}
+
+
+// Quit wimp message
+int quit_message(wimp_message *message, void *handle)
+{
+    finished = 1;
+    return 1;
+}
+
+// a task has died
+int closedown_message(wimp_message *message, void *handle)
+{
+    if (message->sender == resed_task)
+        finished = 1;
+
+    return 1;
+}
+
+
+// remove an object from the list
+//    obj: the oject
+//   send: non-zero to send a Closed message to ResEd
+//
+static void remove_object(Object *obj, int send)
+{
+    resed_full_message_object_closed closed;
+    Object **pobj;
+
+    // have the editor tidy its state
+    obj->editor->deleted(obj->handle);
+
+    if (send)
+    {
+        // tell ResEd we no longer have it
+        closed.size     = sizeof(closed);
+        closed.your_ref = 0;
+        closed.action   = message_RESED_OBJECT_CLOSED;
+        closed.flags    = 0;
+        closed.doc_id   = obj->doc_id;
+        closed.obj_id   = obj->obj_id;
+
+        wimp_send_message(wimp_USER_MESSAGE, (wimp_message *) &closed, resed_task);
+    }
+
+    // remove it from the list
+    for (pobj = &objects; *pobj && *pobj != obj; pobj = &(*pobj)->next)
+        ;
+
+    *pobj = obj->next;
+}
+
+
+// a CSE has agreed to endit an object, so keep track of it and reply to ResEd
+//     load: the load messaage we got
+//   handle: handle to be passed to CSE functions
+//
+// returns a handle identifying this object / NULL if out of memory, and replies to ResEd
+Object *editing_object(resed_full_message_object_load *load, void *handle)
+{
+    Object *newobj = malloc(sizeof(Object));
+
+    int i;
+
+    // find its editor
+    for (i = 0; editors[i].cls != 0; i++)
+        if (editors[i].cls == load->obj_class)
+            break;
+
+    assert(editors[i].cls != 0);
+
+    if (newobj)
+    {
+        // fill it in
+        newobj->editor = &editors[i];
+        newobj->doc_id = load->doc_id;
+        newobj->obj_id = load->obj_id;
+        newobj->handle = handle;
+        newobj->data   = NULL;
+
+        newobj->delete_after_send = 0;
+
+        // link it in
+        newobj->next = objects;
+        objects      = newobj;
+
+        send_loaded_reply(load, load_SUCCESS, NULL, NULL);
+    }
+    else
+    {
+        editors[i].deleted(handle);
+        send_loaded_reply(load, resed_ERROR_NO_MEMORY, NULL, NULL);
+    }
+
+    return newobj;
+}
+
+
+// no longer editing an object - called when the user clicks Cancel
+//   handle: the editor handle for the object
+void delete_object(void *handle)
+{
+    Object *obj;
+
+    // find the doc ids
+    for (obj = objects; obj && obj->handle != handle; obj = obj->next)
+        ;
+
+    assert(obj);
+
+    remove_object(obj, 1);
+}
+
+
+// get a text message for a resed error code
+//       err: error number
+//   message: string to use / NULL for default
+//     param: parameter for emssage text
+//
+static const char *get_resed_message(resed_error err, const char *message, const char *param)
+{
+    static const char const *default_error_messages[] =
+    {
+        "NoMem",
+        "UKVersion",
+        "Corrupt",
+        "NonFatal",
+        "Fatal"
+    };
+
+    if (message == NULL)
+        message = default_error_messages[MIN(err, lenof(default_error_messages))];
+
+    return messages_lookup1(message, param);
+}
+
+
+// send an error message reply to a LOAD message
+//      load: the load message
+//       err: the error number / load_SUCCESS for no error
+//   message: the error message token / NULL for standard
+//     param: parameter for message / NULL
+//
+void send_loaded_reply(resed_full_message_object_load *load, resed_error err, const char *message, const char *param)
+{
+    resed_full_message_object_loaded loaded;
+    const char *msg;
+
+    loaded.size     = sizeof(loaded);
+    loaded.your_ref = load->my_ref;
+    loaded.action   = message_RESED_OBJECT_LOADED;
+    loaded.flags    = err == load_SUCCESS ? 0 : resed_LOAD_FAILED;
+    loaded.doc_id   = load->doc_id;
+    loaded.obj_id   = load->obj_id;
+    loaded.error    = err;
+
+    wimp_send_message(wimp_USER_MESSAGE, (wimp_message *) &loaded, load->sender);
+
+    if (err != load_SUCCESS)
+    {
+        msg = get_resed_message(err, message, param);
+        error_report_string(msg);
+    }
+}
+
+
+// send the object data back to ResEd
+//     send: the Send message, or NULL if we initiate the send
+//   handle: editor private handle
+//     data: the data to send / NULL if error reply
+//     size: the size of the data
+//    error: error code iff data == NULL
+//    final: non-zero to delete the object after successful send
+//
+void send_object_data(resed_full_message_object_send *send, void *handle, RelocatableObject *data, int size, resed_error error, int final)
+{
+    resed_full_message_object_sending message;
+    Object *obj;
+
+    // find the doc ids
+    for (obj = objects; obj && obj->handle != handle; obj = obj->next)
+        ;
+
+    assert(obj);
+
+    obj->delete_after_send = final;
+    obj->data              = data;
+
+    message.size     = sizeof(message);
+    message.your_ref = send ? send->my_ref : 0;
+    message.action   = message_RESED_OBJECT_SENDING;
+    message.flags    = data ? 0 : resed_CANNOT_SEND;
+    message.doc_id   = obj->doc_id;
+    message.obj_id   = obj->obj_id;
+    message.address  = (byte *) data;
+    message.obj_size = size;
+    message.error    = error;
+
+    // send it recorded if we initiated the transaction
+    wimp_send_message(send ? wimp_USER_MESSAGE : wimp_USER_MESSAGE_RECORDED, (wimp_message *) &message, resed_task);
+}
+
+
+// ResEd wants us to load an object
+int resed_load(wimp_message *message, void *handle)
+{
+    resed_full_message_object_load *load = (resed_full_message_object_load *) message;
+    Object *obj;
+    int i;
+
+    // see if it's already being edited
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == load->doc_id && obj->obj_id == load->obj_id)
+            break;
+
+    if (obj)
+    {
+        if (load->flags & resed_FORCE_LOAD)
+        {
+            // forced load, update the object and sanitise its options
+            if (obj->editor->load(load, obj->handle))
+                send_loaded_reply(load, load_SUCCESS, NULL, NULL);
+        }
+        else
+        {
+            // not forced, just bring the window to the front
+            obj->editor->raise(obj->handle);
+            send_loaded_reply(load, load_SUCCESS, NULL, NULL);
+        }
+    }
+    else
+    {
+        // otherwise try to load it
+        for (i = 0; editors[i].cls != 0; i++)
+            if (editors[i].cls == load->obj_class)
+                break;
+
+        if (editors[i].cls == 0)
+            send_loaded_reply(load, resed_ERROR_NON_FATAL_INTERNAL_ERROR, "NoEditor", NULL);
+        else
+        {
+            void *handle = editors[i].load(load, NULL);
+
+            if (handle)
+                editing_object(load, handle);
+        }
+    }
+
+    return 1;
+}
+
+
+// ResEd wants us to send the object back to it
+int resed_send(wimp_message *message, void *handle)
+{
+    resed_full_message_object_send *send = (resed_full_message_object_send *) message;
+    int size;
+
+    Object            *obj;
+    RelocatableObject *data;
+
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == send->doc_id && obj->obj_id == send->obj_id)
+            break;
+
+    if (obj)
+    {
+        obj->delete_after_send = !!(send->flags & resed_DELETE_AFTER_SEND);
+
+        data = obj->editor->send(obj->handle, &size);
+
+        if (data)
+            send_object_data(send, obj->handle, data, size, 0, !!(send->flags & resed_DELETE_AFTER_SEND));
+        else
+        {
+            error_report_string(messages_lookup("NoMem"));
+            send_object_data(send, obj->handle, NULL, 0, resed_ERROR_NO_MEMORY, 0);
+        }
+    }
+    else
+    {
+        error_report_string(messages_lookup("UKObject"));
+        send_object_data(send, obj->handle, NULL, 0, resed_ERROR_UK_OBJECT, 0);
+    }
+
+    return 1;
+}
+
+
+// an object has been transferred to ResEd
+int resed_loaded(wimp_message *message, void *handle)
+{
+    resed_full_message_object_loaded *loaded = (resed_full_message_object_loaded *) message;
+    Object *obj;
+
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == loaded->doc_id && obj->obj_id == loaded->obj_id)
+            break;
+
+    if (obj)
+    {
+        free(obj->data);
+        obj->data = NULL;
+
+        if (((loaded->flags & resed_LOAD_FAILED) == 0) && obj->delete_after_send)
+            remove_object(obj, 1);
+    }
+
+    return 1;
+}
+
+
+// our send message bounced
+int resed_sending(wimp_message *message, void *handle)
+{
+    resed_full_message_object_sending *sending = (resed_full_message_object_sending *) message;
+    Object *obj;
+
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == sending->doc_id && obj->obj_id == sending->obj_id)
+            break;
+
+    if (obj)
+    {
+        // save failed, so don't close the object
+        free(obj->data);
+        obj->data = NULL;
+    }
+
+    return 1;
+}
+
+
+// an object has been deleted by ResEd
+int resed_deleted(wimp_message *message, void *handle)
+{
+    resed_full_message_object_deleted *deleted = (resed_full_message_object_deleted *) message;
+    Object *obj;
+
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == deleted->doc_id && obj->obj_id == deleted->obj_id)
+            break;
+
+    if (obj)
+        remove_object(obj, 0);
+
+    return 1;
+}
+
+
+// an object has been renamed by ResEd
+int resed_renamed(wimp_message *message, void *handle)
+{
+    resed_full_message_object_renamed *renamed = (resed_full_message_object_renamed *) message;
+    Object *obj;
+
+    for (obj = objects; obj; obj = obj->next)
+        if (obj->doc_id == renamed->doc_id && obj->obj_id == renamed->obj_id)
+            break;
+
+    if (obj)
+        obj->editor->renamed(renamed, obj->handle);
+
+    return 1;
+}
+
+
+int main(int argc, char *argv[])
+{
+    int event_code;
+
+    // get a copy of our application directory path
+    strcpy(home_dir, getenv("ResEd$ZapRedraw$Dir"));
+
+    // register ourselves with the Toolbox.
+    wimp_task = toolbox_initialise (0, WimpVersion, (wimp_message_list *)&wimp_messages, (toolbox_action_list *)&toolbox_events,
+                                    home_dir, &messages, &id_block, 0, 0);
+
+    // initialise the event library.
+    event_initialise (&id_block);
+
+    event_set_mask (1+256);
+
+    // register our global handlers
+    event_register_message_handler(message_QUIT, quit_message, 0);
+    event_register_message_handler(message_TASK_CLOSE_DOWN, closedown_message, 0);
+
+    event_register_toolbox_handler((toolbox_id)-1, action_ERROR, toolbox_error_event, 0);
+
+    event_register_message_handler(message_RESED_OBJECT_LOAD,    resed_load,    0);
+    event_register_message_handler(message_RESED_OBJECT_DELETED, resed_deleted, 0);
+    event_register_message_handler(message_RESED_OBJECT_RENAMED, resed_renamed, 0);
+    event_register_message_handler(message_RESED_OBJECT_SEND,    resed_send,    0);
+    event_register_message_handler(message_RESED_OBJECT_LOADED,  resed_loaded,  0);
+    event_register_message_handler(message_RESED_OBJECT_SENDING, resed_sending, 0);
+
+    // initialise our editors
+    zfm_init();
+
+    // find ResEd's task handle
+    if (argc == 2)
+        resed_task = (wimp_t) atoi(argv[1]);
+    else
+        error_report_fatal(messages_error("Usage"));
+
+    setjmp(post_error);
+    signal(SIGOSERROR, oserror_handler);
+
+    /*
+     * poll loop
+     */
+
+    while (!finished)
+        event_poll(&event_code, &poll_block, 0);
+}
+
+
+
+
+
+
+
+
+
+
+
