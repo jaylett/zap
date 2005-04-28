@@ -1,0 +1,64 @@
+#ifndef LOADSAVE_H
+#define LOADSAVE_H
+
+typedef struct OldZapFont    OldZapFont;
+typedef struct Font          Font;
+typedef struct ZapFont       ZapFont;
+typedef struct ChunkDirEntry ChunkDirEntry;
+typedef struct Chunk         Chunk;
+
+// font once loaded
+struct Font
+{
+    Font *next;
+
+    char *filename;              // name of font file
+
+    unsigned char *null_glyph;   // -> 1bpp null glyph def'n
+
+    int cbpl;                    // cbpl } for 1bpp data
+    int cbpc;                    // cbpc }
+
+    int charw;                   // width in px
+    int charh;                   // height in px
+
+    Chunk *chunks;
+
+    struct
+    {
+        unsigned int has_null_glyph : 1;
+        unsigned int modified       : 1;
+        unsigned int close_on_save  : 1; // set to close the window when saved (due to save button on DCS)
+    } flags;
+};
+
+
+struct Chunk
+{
+    Chunk *next;
+
+    int num;               // chunk number
+    int nchars;            // number of chars in chunk
+
+    char present[256];     // non-zero if character present
+    unsigned char data[];  // 1bpp bitmap data
+};
+
+
+/* Auto */
+
+extern Chunk *find_chunk(Font *font, int num);
+extern void free_font(Font *font);
+extern Font *load_new_style_font(ZapFont *header, FILE *f);
+extern Font *load_old_style_font(OldZapFont *header, FILE *f);
+extern Font *load_font(const char *filename);
+extern int save_font(Font *font, const char *filename);
+extern Chunk *create_chunk(Font *font, int num);
+extern void loadsave_init(void);
+extern void open_save_box(toolbox_o parent);
+extern int count_modified_fonts(void);
+extern int create_font(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle);
+
+/* End auto */
+
+#endif

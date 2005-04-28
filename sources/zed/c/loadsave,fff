@@ -1,0 +1,719 @@
+//////////////////////////////////////////////////////////////
+//
+// font.c : load / save Zap fonts
+//
+// $Id: loadsave,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/osfile.h"
+
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/saveas.h"
+#include "oslib/numberrange.h"
+
+#include "oslib/zapredraw.h"
+
+#include "main.h"
+#include "event.h"
+#include "events.h"
+#include "error.h"
+#include "strings.h"
+#include "loadsave.h"
+#include "fontwin.h"
+
+#define MAGIC_UNIFONT 0x4655525A  // 'ZRUF'
+//#define MAGIC_FONT1   0x4670615A  // 'ZapF'
+//#define MAGIC_FONT2   0x0D746E6F  // 'ont',13
+
+static toolbox_o saveas;
+
+// Old-style font header
+struct OldZapFont
+{
+    char magic[8];       // 'ZapFont',13
+    int charw;           // width in px
+    int charh;           // height in px
+    int firstchar;       // chunk directory size
+    int lastchar;        // null glyph offset / 0
+    int res0;            // reserved SBZ
+    int res1;            // reserved SBZ
+};
+
+// Unicode font file header
+struct ZapFont
+{
+    int magic;           // 'ZRUF'
+    int res0;            // reserved SBZ
+    int charw;           // width in px
+    int charh;           // height in px
+    int chunk_dir_size;  // chunk directory size
+    int null_glyph;      // null glyph offset / 0
+    int res2;            // reserved SBZ
+    int res3;            // reserved SBZ
+
+    // then the chunk directory
+};
+
+// chunk directory entry
+struct ChunkDirEntry
+{
+    int  num;            // chunk base number
+    int  nchars;         // number of chars in chunk
+    long foff;           // file offset of chunk
+    int  res0;           // reserved SBZ
+};
+
+
+Font *fonts = NULL;
+
+// return the given chunk from a font
+//   font: the font
+//    num: the chunk base number
+//
+// returns the chunk / NULL
+Chunk *find_chunk(Font *font, int num)
+{
+    Chunk *res;
+
+    for (res = font->chunks; res && res->num != num; res = res->next)
+        ;
+
+    return res;
+}
+
+
+// add a chunk to the list in order
+//    list: the original list
+//   chunk: the new chunk
+//
+// returns the new list pointer
+static Chunk *add_chunk(Chunk *list, Chunk *chunk)
+{
+    Chunk **pc;
+
+    if (list == NULL)
+    {
+        chunk->next = NULL;
+        return chunk;
+    }
+
+    if (list->num > chunk->num)
+    {
+        chunk->next = list;
+        return chunk;
+    }
+
+    // add in order
+    for (pc = &list->next; *pc && (*pc)->num < chunk->num; pc = &(*pc)->next)
+        ;
+
+    chunk->next = *pc;
+    *pc         = chunk;
+
+    return list;
+}
+
+
+// free a font
+//   font: the font
+void free_font(Font *font)
+{
+    Chunk *c;
+    Chunk *nextc;
+
+    if (font)
+    {
+        for (Font **pf = &fonts; *pf; pf = &(*pf)->next)
+            if (*pf == font)
+            {
+                *pf = font->next;
+                break;
+            }
+
+        // free the chunks
+        for (c = font->chunks; c; c = nextc)
+        {
+            nextc = c->next;
+            free(c);
+        }
+
+        if (font->filename)
+            free(font->filename);
+
+        if (font->null_glyph)
+            free(font->null_glyph);
+
+        free(font);
+    }
+}
+
+
+// load a new-style font
+//   header: pointer to new-style font header
+//        f: the file
+//
+Font *load_new_style_font(ZapFont *header, FILE *f)
+{
+    unsigned char *nullg = NULL;
+    ChunkDirEntry *dir   = NULL;
+    Chunk         *chunk = NULL;
+    Font          *font  = NULL;
+
+    // validate the header
+    if (header->res0 || header->res2 || header->res3)
+        error_report_token("ResNon0"); // warning
+
+    if (header->chunk_dir_size % 16)
+    {
+        error_report_token("ChunkDirSize");
+        goto fail;
+    }
+
+    font = calloc(1, sizeof(Font));
+    if (font)
+    {
+        zapredraw_cached_char_size(0, header->charw, header->charh, &font->cbpl, &font->cbpc);
+
+        redraw_block.dsa.charw = header->charw;
+        redraw_block.dsa.charh = header->charh;
+
+        font->charw = header->charw;
+        font->charh = header->charh;
+
+        // read the chunk directory
+        dir = malloc(header->chunk_dir_size);
+        if (dir)
+        {
+            // TODO: error checking on malloc!
+
+            // read in the chunk directory
+            if (fread(dir, header->chunk_dir_size, 1, f) != 1)
+            {
+                error_report_token("ChunkDirFile");
+                goto fail;
+            }
+        }
+        else goto fail;
+
+        // read in the null glyph
+        nullg = malloc(font->cbpc);
+        if (nullg)
+        {
+            if (header->null_glyph != 0)
+            {
+                fseek(f, header->null_glyph, SEEK_SET);
+                if (fread(nullg, font->cbpc, 1, f) != 1)
+                    error_report_token("BadNullG"); // warning
+                else
+                    font->flags.has_null_glyph = 1;
+            }
+
+            // if not provided by file, or error loading it, generate it
+            if (font->flags.has_null_glyph == 0)
+                zapredraw_add_vdu_bitmaps(&redraw_block, 0x106, 0x106, (zapredraw_char_cache) (nullg - (0x106 * font->cbpc)));
+
+            font->null_glyph = nullg;
+        }
+        else goto fail;
+
+        // load each chunk
+        for (int i = 0; i < header->chunk_dir_size / 16; i++)
+        {
+            char buf[16];
+            sprintf(buf, "%d", dir[i].num >> 8);
+
+            if (dir[i].nchars == 0)
+            {
+                error_report_token_1("ChunkDirMT", buf); // warning
+                continue;
+            }
+
+            chunk = malloc(sizeof(Chunk) + 256 * font->cbpc);
+            if (chunk)
+            {
+                chunk->num    = dir[i].num;
+                chunk->nchars = dir[i].nchars;
+
+                fseek(f, dir[i].foff, SEEK_SET);
+
+                if (dir[i].nchars >= 256)
+                {
+                    // a full chunk - no translation table
+                    if (fread(chunk->data, 256 * font->cbpc, 1, f) != 1)
+                    {
+                        error_report_token_1("BadChunk1", buf); // warning
+                        continue;
+                    }
+
+                    for (int x = 0; x < 256; x++)
+                        chunk->present[x] = 1;
+                }
+                else
+                {
+                    int n = 0;
+
+                    // read in the translation table
+                    if (fread(chunk->present, 256, 1, f) != 1)
+                    {
+                        error_report_token_1("BadChunk2", buf); // warning
+                        free(chunk);
+                        continue;
+                    }
+
+                    // read in each glyph
+                    for (int j = 0; j < 256; j++)
+                    {
+                        if (chunk->present[j] != 0)
+                        {
+                            // the character is present
+                            fseek(f, dir[i].foff + 256 + ((long)(chunk->present[j] - 1) * font->cbpc), SEEK_SET);
+
+                            if (fread(chunk->data + (j * font->cbpc), font->cbpc, 1, f) != 1)
+                            {
+                                error_report_token_1("BadChunk3", buf); // warning
+                                free(chunk);
+                                chunk = NULL;
+                                break;
+                            }
+
+                            n++;
+                        }
+                        else
+                        {
+                            // replace it with the null glyph
+                            memcpy(chunk->data + (j * font->cbpc), font->null_glyph, font->cbpc);
+                        }
+
+                    }
+
+                    if (n == 0)
+                        error_report_token_1("BadChunk4", buf); // warning
+                    else if (n != dir[i].nchars)
+                        error_report_token_1("BadChunk5", buf); // warning
+                }
+
+                // add the chunk to the font
+                if (chunk)
+                    font->chunks = add_chunk(font->chunks, chunk);
+            }
+            else goto fail;
+        }
+    }
+
+    free(dir);
+    return font;
+
+fail:
+    free_font(font);
+    if (dir)
+        free(dir);
+    return NULL;
+}
+
+
+
+Font *load_old_style_font(OldZapFont *header, FILE *f)
+{
+    Chunk         *chunk = NULL;
+    Font          *font  = NULL;
+
+    // validate the header
+    if (header->res0 || header->res1)
+        error_report_token("ResNon0"); // warning
+
+    if (header->lastchar > 256)
+    {
+        header->lastchar = 256;
+        error_report_token("Trucated"); // warning
+    }
+
+    font = calloc(1, sizeof(Font));
+    if (font)
+    {
+        zapredraw_cached_char_size(0, header->charw, header->charh, &font->cbpl, &font->cbpc);
+
+        redraw_block.dsa.charw = header->charw;
+        redraw_block.dsa.charh = header->charh;
+
+        font->charw = header->charw;
+        font->charh = header->charh;
+
+        // create the null glyph
+        font->null_glyph = malloc(font->cbpc);
+        if (font->null_glyph)
+        {
+            zapredraw_add_vdu_bitmaps(&redraw_block, 0x106, 0x106, (zapredraw_char_cache) (font->null_glyph - (0x106 * font->cbpc)));
+
+            // load the data
+            chunk = malloc(sizeof(Chunk) + 256 * font->cbpc);
+            if (chunk)
+            {
+                chunk->num    = 0;
+                chunk->nchars = header->lastchar - header->firstchar;
+
+                fseek(f, sizeof(OldZapFont), SEEK_SET);
+
+                if (fread(chunk->data + (header->firstchar * font->cbpc), chunk->nchars * font->cbpc, 1, f) != 1)
+                    goto fail;
+
+                // fill in the presence flags
+                memset(chunk->present, 0, 256);
+                for (int x = header->firstchar; x < header->lastchar; x++)
+                    chunk->present[x] = 1;
+
+                // overwrite the missing chars
+                for (int x = 0; x < header->firstchar; x++)
+                    memcpy(chunk->data + (x * font->cbpc), font->null_glyph, font->cbpc);
+
+                for (int x = header->lastchar; x < 256; x++)
+                    memcpy(chunk->data + (x * font->cbpc), font->null_glyph, font->cbpc);
+
+                // add the chunk to the font
+                font->chunks = add_chunk(font->chunks, chunk);
+            }
+            else goto fail;
+        }
+        else goto fail;
+    }
+
+    return font;
+
+fail:
+    free_font(font);
+    return NULL;
+}
+
+
+
+// load a font
+//   filename: the name of the font
+Font *load_font(const char *filename)
+{
+    ZapFont header = {0, };
+
+    FILE *f;
+    Font *font = NULL;
+
+    f = fopen(filename, "rb");
+
+    if (f != NULL)
+    {
+        fread(&header, sizeof(header), 1, f);
+
+        if (header.magic == MAGIC_UNIFONT)
+            font = load_new_style_font(&header, f);
+        else if (strncmp((char *)&header.magic, "ZapFont\r", 8) == 0)
+            font = load_old_style_font((OldZapFont *) &header, f);
+        else
+            error_report_token("NotFont");
+
+        if (font)
+            font->filename = strdup(filename);
+
+        fclose(f);
+    }
+    else
+    {
+        error_report_token_1("NoFile", filename);
+    }
+
+/*    if (font)
+    {
+        font->next = fonts;
+        fonts      = font;
+
+        Chunk *c;
+
+        printf("Chunks:\n");
+        for (c = font->chunks; c; c = c->next)
+            printf("  num %d : %d chars\n", c->num, c->nchars);
+    }*/
+
+    return font;
+}
+
+
+
+// saves the font to a file
+// returns non-zero on success
+int save_font(Font *font, const char *filename)
+{
+    int ret = 0;
+
+    FILE *f = NULL;
+
+    int nchunks;
+    Chunk *chunk;
+
+    ZapFont       header;
+    ChunkDirEntry entry;
+
+    int off;
+
+    // chunk 0 needs to be full
+    for (int i = 0; i < 256; i++)
+    {
+        if (font->chunks->present[i] == 0)
+            memcpy(font->chunks->data + (i * font->cbpc), font->null_glyph, font->cbpc);
+
+        font->chunks->present[i] = 1;
+    }
+
+    font->chunks->nchars = 256;
+
+    if (font->chunks->next == NULL && font->chunks->num == 0 && font->flags.has_null_glyph == 0)
+    {
+        // can save as an old-style font
+        error_report_string("Saving old style fonts not implemented yet");
+        return 0;
+    }
+    else
+    {
+        f = fopen(filename, "wb");
+        if (f)
+        {
+            // count the number of chunks
+            nchunks = 0;
+            for (chunk = font->chunks; chunk; chunk = chunk->next)
+                nchunks++;
+
+            // fill in the header
+            header.magic          = MAGIC_UNIFONT;
+            header.res0           = 0;
+            header.charw          = font->charw;
+            header.charh          = font->charh;
+            header.chunk_dir_size = nchunks * sizeof(ChunkDirEntry);
+            header.null_glyph     = font->flags.has_null_glyph ? sizeof(ZapFont) + header.chunk_dir_size : 0;
+            header.res2           = 0;
+            header.res3           = 0;
+
+            // work out where the first chunk goes
+            off = sizeof(ZapFont) + (nchunks * sizeof(ChunkDirEntry));
+            if (font->flags.has_null_glyph)
+                off += font->cbpc;
+
+            if (fwrite(&header, sizeof(header), 1, f) < 1)
+                goto fail;
+
+            // output the chunk directory
+            for (chunk = font->chunks; chunk; chunk = chunk->next)
+            {
+                entry.num    = chunk->num;
+                entry.nchars = chunk->nchars;
+                entry.foff   = off;
+                entry.res0   = 0;
+
+                off += chunk->nchars * font->cbpc;
+                if (chunk->nchars < 256)
+                    off += 256;
+
+                if (fwrite(&entry, sizeof(entry), 1, f) < 1)
+                    goto fail;
+            }
+
+            // output the null glyph
+            if (font->flags.has_null_glyph)
+                if (fwrite(font->null_glyph, font->cbpc, 1, f) < 1)
+                    goto fail;
+
+            // output the chunks
+            for (chunk = font->chunks; chunk; chunk = chunk->next)
+            {
+                if (chunk->nchars < 256)
+                {
+                    // output the translation table
+                    int y = 1;
+
+                    for (int x = 0; x < 256; x++)
+                        if (chunk->present[x] != 0)
+                            chunk->present[x] = y++;
+
+                    if (fwrite(chunk->present, 256, 1, f) < 1)
+                        goto fail;
+                }
+
+                for (int x = 0; x < 256; x++)
+                    if (chunk->present[x] != 0)
+                        if (fwrite(chunk->data + (x * font->cbpc), font->cbpc, 1, f) < 1)
+                            goto fail;
+            }
+
+            fclose(f);
+
+            osfile_set_type(filename, filetype_ZAPFONT);
+            ret = 1;
+        }
+        else
+        {
+            error_report_token_1("NoFile", filename);
+        }
+    }
+
+    return ret;
+
+fail:
+     if (f)
+         fclose(f);
+
+     error_report_token("WriteErr");
+     return 0;
+}
+
+
+
+Chunk *create_chunk(Font *font, int num)
+{
+    Chunk *chunk = calloc(sizeof(Chunk) + 256 * font->cbpc, 1);
+
+    if (chunk)
+    {
+        chunk->num    = num;
+        chunk->nchars = 0;
+
+        for (int x = 0; x < 256; x++)
+            memcpy(chunk->data + (x * font->cbpc), font->null_glyph, font->cbpc);
+
+        add_chunk(font->chunks, chunk);
+    }
+
+    return chunk;
+}
+
+
+static int saveas_atbs(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    Font *font = toolbox_get_client_handle(0, id->ancestor_obj);
+
+    if (id->parent_cmp == cmp_EXPORT)
+    {
+        saveas_set_file_type(0, id->this_obj, filetype_TEXT);
+        saveas_set_file_name(0, id->this_obj, "BDF");
+    }
+    else
+    {
+        saveas_set_file_type(0, id->this_obj, filetype_ZAPFONT);
+        saveas_set_file_name(0, id->this_obj, font->filename);
+    }
+
+    return 1;
+}
+
+static int saveas_save(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    saveas_action_save_to_file_block *save = (saveas_action_save_to_file_block *) event;
+
+    Font *font = toolbox_get_client_handle(0, id->ancestor_obj);
+
+    int success = save_font(font, save->file_name);
+
+    // don't want this to return the error it does when you call with b0 clear,
+    // since we'll already have reported the error
+    xsaveas_file_save_completed(success ? 1 : 0, id->this_obj, save->file_name);
+
+    return 1;
+}
+
+static int saveas_done(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    saveas_action_save_completed_block *block = (saveas_action_save_completed_block *)event;
+
+    Font     *font;
+    os_error *e = xtoolbox_get_client_handle(0, id->ancestor_obj, (void **) &font);
+
+    if (e == NULL)
+    {
+        // I appear to get TWO saveas_save_completed events when the icon is dragged (only one
+        //   if you click save) so by the time we get here again we might have deleted the FontWin
+        font_saved(font, block->flags & saveas_SAVE_SAFE ? 1 : 0, block->file_name);
+    }
+
+    return 1;
+}
+
+
+void loadsave_init(void)
+{
+    event_register_toolbox_handler((toolbox_o) -1, action_SAVE_AS_ABOUT_TO_BE_SHOWN, saveas_atbs, NULL);
+    event_register_toolbox_handler((toolbox_o) -1, action_SAVE_AS_SAVE_TO_FILE,      saveas_save, NULL);
+    event_register_toolbox_handler((toolbox_o) -1, action_SAVE_AS_SAVE_COMPLETED,    saveas_done, NULL);
+
+    saveas = toolbox_create_object(0, (toolbox_id) "Save");
+}
+
+void open_save_box(toolbox_o parent)
+{
+    toolbox_show_object(0, saveas, toolbox_POSITION_AT_POINTER, NULL, parent, toolbox_NULL_COMPONENT);
+}
+
+int count_modified_fonts(void)
+{
+    int ret = 0;
+
+    for (Font *f = fonts; f; f = f->next)
+        if (f->flags.modified)
+            ret++;
+
+    return ret;
+}
+
+
+// OK clicked in the new font dbox
+int create_font(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    Font  *font  = NULL;
+    Chunk *chunk = NULL;
+
+    font = calloc(1, sizeof(Font));
+
+    if (font)
+    {
+        font->charw = numberrange_get_value(0, id->this_obj, g_nf_WIDTH);
+        font->charh = numberrange_get_value(0, id->this_obj, g_nf_HEIGHT);
+
+        zapredraw_cached_char_size(0, font->charw, font->charh, &font->cbpl, &font->cbpc);
+
+        chunk = calloc(1, sizeof(Chunk) + 256 * font->cbpc);
+
+        if (chunk)
+        {
+            font->chunks = chunk;
+
+            font->filename = strdup("<Untitled>");
+
+            font->null_glyph = calloc(1, font->cbpc);
+
+            font->flags.has_null_glyph = 1;
+            font->flags.modified       = 1;
+        }
+    }
+
+    if (font == NULL || chunk ==  NULL || font->null_glyph == NULL || font->filename == NULL)
+    {
+        error_report_token("NoMem");
+
+        if (font)
+        {
+            free(font->null_glyph);
+            free(font->filename);
+        }
+
+        free(chunk);
+        free(font);
+    }
+    else
+    {
+        create_and_show_font_window(font);
+    }
+
+    return 1;
+}

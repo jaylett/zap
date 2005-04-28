@@ -1,0 +1,443 @@
+//////////////////////////////////////////////////////////////
+//
+// editwin.c : manages the glyph editor window
+//
+// $Id: editwin,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/colourtrans.h"
+#include "oslib/toolbox.h"
+#include "oslib/window.h"
+#include "oslib/numberrange.h"
+#include "oslib/zapredraw.h"
+
+#include "event.h"
+#include "events.h"
+#include "strings.h"
+#include "error.h"
+#include "loadsave.h"
+#include "editwin.h"
+#include "fontwin.h"
+
+static char *styles[] =
+{
+    "0", "B",  "I",  "IB",  "S",  "SB",  "SI",  "SIB",
+    "U", "UB", "UI", "UIB", "US", "USB", "USI", "USIB",
+};
+
+struct EditWin
+{
+    EditWin *next;
+
+    toolbox_o win;             // the toolbox window
+
+    Font  *font;               // the font
+    Chunk *chunk;              // the chunk
+    int    num;                // the (full) character number
+
+    Font  *bfont;              // the template font
+    int    bnum;               // the template glyph number
+    unsigned char *bdata;      // the template character data
+
+    unsigned char was_present; // flag whether this char was present before editing
+    unsigned char *data;       // pointer to the data to be editied (in the actual chunk)
+    unsigned char original[];  // the original glyph, for discarding changes
+};
+
+EditWin *edit_windows = 0;
+
+
+#define H_MARGIN 32  // horizontal margins (OS units)
+#define V_MARGIN 32  // vertical margins (OS units)
+#define SCALE    32  // OS units per pixel
+
+// wimp redraw window request
+static int redraw_window(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    EditWin *win = (EditWin *) handle;
+
+    osbool more = wimp_redraw_window(&block->redraw);
+
+    int w = win->font->charw;
+    int h = win->font->charh;
+
+    int cbpl  = win->font->cbpl;
+
+    int x,y;
+
+    int x0 = block->redraw.box.x0 - block->redraw.xscroll + H_MARGIN;
+    int y1 = block->redraw.box.y1 - block->redraw.yscroll - V_MARGIN;
+
+    int bw;
+    int bh;
+    int bcbpl;
+
+    if (win->bdata)
+    {
+        bw    = win->bfont->charw;
+        bh    = win->bfont->charh;
+        bcbpl = win->bfont->cbpl;
+    }
+
+    while (more)
+    {
+        // the template glyph
+        if (win->bdata)
+        {
+            colourtrans_set_gcol(os_COLOUR_VERY_LIGHT_GREY, 0, os_ACTION_OVERWRITE, NULL);
+
+            for (y = 0; y < bh; y++)
+                for (x = 0; x < bw; x++)
+                    if (win->bdata[(y * bcbpl) + (x / 8)] & (1 << (x  % 8)))
+                    {
+                        os_plot(                    os_MOVE_TO, x0 + (x * SCALE),       y1 - ((y + 1) * SCALE));
+                        os_plot(os_PLOT_RECTANGLE + os_PLOT_TO, x0 + ((x + 1) * SCALE), y1 - ((y)     * SCALE));
+                    }
+        }
+
+        // the glyph itself
+        colourtrans_set_gcol(os_COLOUR_BLACK, 0, os_ACTION_OVERWRITE, NULL);
+
+        for (y = 0; y < h; y++)
+            for (x = 0; x < w; x++)
+                if (win->data[(y * cbpl) + (x / 8)] & (1 << (x  % 8)))
+                {
+                    os_plot(                    os_MOVE_TO, x0 + (x * SCALE),       y1 - ((y + 1) * SCALE));
+                    os_plot(os_PLOT_RECTANGLE + os_PLOT_TO, x0 + ((x + 1) * SCALE), y1 - ((y)     * SCALE));
+                }
+
+        colourtrans_set_gcol(os_COLOUR_DARK_BLUE, 0, os_ACTION_OVERWRITE, NULL);
+
+        // grid vertical
+        for (x = 0; x <= w; x++)
+        {
+            os_plot(os_MOVE_TO,                 x0 + (x * SCALE), y1);
+            os_plot(os_PLOT_SOLID + os_PLOT_TO, x0 + (x * SCALE), y1 - (h * SCALE));
+        }
+
+        // grid horizontal
+        for (y = 0; y <= h; y++)
+        {
+            os_plot(os_MOVE_TO,                 x0,               y1 - (y * SCALE));
+            os_plot(os_PLOT_SOLID + os_PLOT_TO, x0 + (w * SCALE), y1 - (y * SCALE));
+        }
+
+        more = wimp_get_rectangle(&block->redraw);
+    }
+
+    return 1;
+}
+
+
+// mouse click in the edit window
+static int mouse_click(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    EditWin *win = (EditWin *) handle;
+
+    wimp_window_state state;
+
+    state.w = block->pointer.w;
+    wimp_get_window_state(&state);
+
+    if (block->pointer.buttons & (wimp_CLICK_SELECT | wimp_CLICK_ADJUST))
+    {
+        int x0 = state.visible.x0 - state.xscroll + H_MARGIN;
+        int y1 = state.visible.y1 - state.yscroll - V_MARGIN;
+
+        int x = (block->pointer.pos.x - x0) / SCALE;
+        int y = (y1 - block->pointer.pos.y) / SCALE;
+
+        if (x >= 0 && x < win->font->charw && y >= 0 && y < win->font->charh)
+        {
+            int prev = win->data[(y * win->font->cbpl) + (x / 8)];
+
+            if (block->pointer.buttons & wimp_CLICK_SELECT)
+                win->data[(y * win->font->cbpl) + (x / 8)] |= (1 << (x  % 8));
+            else if (block->pointer.buttons & wimp_CLICK_ADJUST)
+                win->data[(y * win->font->cbpl) + (x / 8)] &= ~(1 << (x  % 8));
+
+            if (win->data[(y * win->font->cbpl) + (x / 8)] != prev)
+                glyph_changed(win->font, win->num, x, y);
+        }
+    }
+
+    return 1;
+}
+
+
+// return the font name without substyle extensions etc
+static char *font_name(char *filename)
+{
+    static char buf[64];
+    char *t = buf;
+    char *s;
+    int  i;
+
+    s = strrchr(filename, '.');
+    if (s)
+    {
+        s++;
+
+        for (i = 0; i < (sizeof(styles) / sizeof(styles[0])); i++)
+        {
+            if (stricmp(s, styles[i]) == 0)
+            {
+                s--;
+
+                while (--s > filename && *s != '.')
+                    ;
+
+                s++;
+                break;
+            }
+        }
+    }
+    else
+    {
+        s = filename;
+    }
+
+    while (*s != '.' && *s != '\0')
+        *t++ = *s++;
+
+    *t = '\0';
+
+    return buf;
+}
+
+
+
+// create an edit window
+//    font: the font
+//   chunk: the chunk containing the character
+//     num: the character number offset (from chunk)
+void edit_character(Font *font, Chunk *chunk, int num)
+{
+    toolbox_o  obj;
+    EditWin   *win;
+    os_box     box;
+
+    char buf[256];
+
+    for (win = edit_windows; win; win = win->next)
+        if (win->font == font && ((num != -1 && win->num == chunk->num + num) || (win->num == num)))
+            break;
+
+    if (win)
+    {
+        // bring the existing window to the front
+        toolbox_show_object(0, win->win, toolbox_POSITION_DEFAULT, NULL, toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+    }
+    else
+    {
+        obj = toolbox_create_object(0, (toolbox_id) "Edit");
+        win = malloc(sizeof(EditWin) + font->cbpc);
+
+        if (win)
+        {
+            win->win   = obj;
+            win->font  = font;
+            win->chunk = chunk;
+
+            if (num != -1)
+            {
+                // editing a normal character
+                win->data  = chunk->data + (num * font->cbpc);
+                win->num   = chunk->num + num;
+
+                win->was_present    = chunk->present[num];
+                chunk->present[num] = 1;
+            }
+            else
+            {
+                // editing the null glyph
+                win->data        = font->null_glyph;
+                win->num         = -1;
+                win->was_present = 1;
+            }
+
+            win->bdata = 0;
+
+            memcpy(win->original, win->data, font->cbpc);
+
+            if (win->was_present == 0)
+            {
+                chunk->nchars++;
+
+                memset(win->data, 0, font->cbpc);
+                glyph_changed(font, win->num, -1, -1);
+            }
+
+            win->next    = edit_windows;
+            edit_windows = win;
+
+            toolbox_set_client_handle(0, obj, win);
+
+            box.x0 = 0;
+            box.y0 = -((font->charh * SCALE) + (V_MARGIN * 2));
+            box.x1 =  ((font->charw * SCALE) + (H_MARGIN * 2));
+            box.y1 = 0;
+            window_set_extent(0, obj, &box);
+
+            if (num != -1)
+                sprintf(buf, "%s : U+%04X", font_name(font->filename), chunk->num + num);
+            else
+                sprintf(buf, "%s : %s",     font_name(font->filename), lookup("NullGlyph"));
+            window_set_title(0, obj, buf);
+
+            toolbox_show_object(0, obj, toolbox_POSITION_CENTRED, NULL, toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+
+            event_register_wimp_handler(obj, wimp_REDRAW_WINDOW_REQUEST, redraw_window, win);
+            event_register_wimp_handler(obj, wimp_MOUSE_CLICK,           mouse_click,   win);
+        }
+        else
+        {
+            toolbox_delete_object(0, obj);
+        }
+    }
+}
+
+
+static void close_window(EditWin *win)
+{
+    EditWin **pw;
+
+    for (pw = &edit_windows; *pw != win; pw = &(*pw)->next)
+        ;
+
+    *pw = win->next;
+
+    toolbox_delete_object(0, win->win);
+
+    free(win);
+}
+
+
+static void redraw_win(EditWin *win)
+{
+    wimp_w w = window_get_wimp_handle(0, win->win);
+    wimp_force_redraw(w, -1000, -1000000, 1000000, 1000);
+}
+
+static void discard_glyph(EditWin *win)
+{
+    if (win->num != -1)
+    {
+        win->chunk->present[win->num & 0xff] = win->was_present;
+        if (win->was_present == 0)
+            win->chunk->nchars--;
+    }
+
+    memcpy(win->data, win->original, win->font->cbpc);
+
+    update_glyph(win->font, win->num, -1, -1);
+
+    toolbox_hide_object(0, win->win); // sends us a Hidden event, where we tidy up
+}
+
+
+// called when a font is discarded to close all editing windows on it
+void font_closed(Font *font)
+{
+    EditWin *win;
+    EditWin *next;
+
+    for (win = edit_windows; win; win = next)
+    {
+        next = win->next;
+
+        if (win->font == font)
+            toolbox_hide_object(0, win->win); // sends us a Hidden event, where we tidy up
+    }
+}
+
+
+// called to update windows on a given glyph
+//   font: the font
+//    num: the (full) glyph number
+//      x: column of pixel changed / -1 for whole glyph
+//      y: row of pixel changed / -1 for whole glyph
+void editwin_glyph_changed(Font *font, int num, int x, int y)
+{
+    for (EditWin *win = edit_windows; win; win = win->next)
+    {
+        if ((win->font == font && win->num == num) || (win->bfont == font && win->bnum == num))
+        {
+            wimp_w w = window_get_wimp_handle(0, win->win);
+
+            if (x == -1)
+                wimp_force_redraw(w, -1000, -1000000, 1000000, 1000);
+            else
+                wimp_force_redraw(w, (x     * SCALE) + H_MARGIN, -((y+1) * SCALE) - V_MARGIN,
+                                     ((x+1) * SCALE) + H_MARGIN, -(y     * SCALE) - V_MARGIN);
+        }
+    }
+}
+
+
+// add a character to be drawn as the template
+//     obj: the edit toolbox window
+//   bfont: the font to use as the template
+//     num: the (full) glyph number
+void editwin_add_base(toolbox_o obj, Font *bfont, int num)
+{
+    EditWin *win = toolbox_get_client_handle(0, obj);
+    Chunk *chunk = find_chunk(bfont, num & ~255);
+
+    win->bfont = bfont;
+    win->bnum  = num;
+    win->bdata = chunk->data + ((num & 255) * bfont->cbpc);
+
+    redraw_win(win);
+}
+
+
+// called for events on the edit window
+int editwin_misc_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id)
+{
+    EditWin *win = toolbox_get_client_handle(0, id->ancestor_obj == toolbox_NULL_OBJECT ? id->this_obj : id->ancestor_obj);
+
+    int ret = 1;
+
+    switch (event->action_no)
+    {
+    case event_EDITWIN_DISCARD:
+        discard_glyph(win);
+        break;
+
+    case event_EDITWIN_HIDDEN:
+        close_window(win);
+        break;
+
+    default: ret = 0; // not handled
+    }
+
+    return ret;
+}
+
+
+// get the glyph from a window
+//     obj: [in] the window
+//    font: [out] the font
+//   chunk: [out] the chunk
+//     num: [out] the glyph number offset
+void editwin_get_glyph(toolbox_o obj, Font **font, Chunk **chunk, int *num)
+{
+    EditWin *win = toolbox_get_client_handle(0, obj);
+
+    if (font)  *font  = win->font;
+    if (chunk) *chunk = win->chunk;
+    if (num)   *num   = win->num & 255;
+}
+
+

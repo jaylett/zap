@@ -1,0 +1,202 @@
+//////////////////////////////////////////////////////////////
+//
+// ops.c : perform operations on glyphs
+//
+// $Id: ops,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+
+#include "event.h"
+#include "events.h"
+#include "loadsave.h"
+#include "fontwin.h"
+#include "editwin.h"
+
+typedef unsigned char u08;
+
+static void embolden_line(u08 *data, int cbpl)
+{
+    u08 c = 0;
+    u08 nc;
+
+    for (int x = 0; x < cbpl; x++)
+    {
+        nc = data[x] >> 7;
+        data[x] |= (data[x] << 1) | c;
+        c = nc;
+    }
+}
+
+static void move_line_right(u08 *data, int cbpl)
+{
+    u08 c = 0;
+    u08 nc;
+
+    for (int x = 0; x < cbpl; x++)
+    {
+        nc = data[x] >> 7;
+        data[x] = (data[x] << 1) | c;
+        c = nc;
+    }
+}
+
+static void move_line_left(u08 *data, int cbpl)
+{
+    u08 c = 0;
+    u08 nc;
+
+    for (int x = cbpl - 1; x >= 0; x--)
+    {
+        nc = data[x] & 1;
+        data[x] = (data[x] >> 1) | (c << 7);
+        c = nc;
+    }
+}
+
+// overstrike a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+//    line: the row to line
+static void add_line(Font *font, Chunk *chunk, int num, int line)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc) + (line * font->cbpl);
+    int x;
+
+    for (x = 0; x < font->cbpl - 1; x++)
+        data[x] = 0xff;
+
+    data[x] = font->charw % 8 ? (1 << (font->charw % 8)) - 1 : 0xff;
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// italicise a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void italicise_glyph(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+    int third = (font->charh / 3) + 1;
+    int y;
+
+    for (y = 0; y < third; y++)
+        move_line_right(data + (y * font->cbpl), font->cbpl);
+
+    for (y = font->charh - third; y < font->charh; y++)
+        move_line_left(data + (y * font->cbpl), font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// embolden a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void embolden_glyph(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+
+    for (int y = 0; y < font->charh; y++)
+        embolden_line(data + (y * font->cbpl), font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// overstrike a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void strike_glyph_through(Font *font, Chunk *chunk, int num)
+{
+    add_line(font, chunk, num, (font->charh / 2) - 1);
+}
+
+
+// underline a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void underline_glyph(Font *font, Chunk *chunk, int num)
+{
+    add_line(font, chunk, num, font->charh - 1);
+}
+
+
+int style_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id)
+{
+    int ret = 1;
+    char buf[16];
+
+    Font *font;
+    Chunk *chunk;
+    int num;
+    u08 *sel;
+
+    void (*func)(Font *font, Chunk *chunk, int num);
+
+    switch (event->action_no)
+    {
+    case event_EMBOLDEN:      func = embolden_glyph;       break;
+    case event_ITALICISE:     func = italicise_glyph;      break;
+    case event_UNDERLINE:     func = underline_glyph;      break;
+    case event_STRIKETHROUGH: func = strike_glyph_through; break;
+    default: ret = 0;
+    }
+
+    if (ret)
+    {
+        toolbox_get_template_name(0, id->ancestor_obj, buf, sizeof(buf));
+
+        if (strcmp(buf, "Edit") == 0)
+        {
+            // edit window->action
+            editwin_get_glyph(id->ancestor_obj, &font, &chunk, &num);
+            func(font, chunk, num);
+        }
+        else if (strcmp(buf, "Font") == 0)
+        {
+            if (id->parent_cmp == cmp_FONTWINMENU_GLYPH)
+            {
+                // Font window->Selection->action
+                fontwin_get_selection(&font, &chunk, &sel);
+
+                for (num = 0; num < 256; num++)
+                    if (sel[num] && chunk->present[num])
+                        func(font, chunk, num);
+            }
+            else
+            {
+                // File->action
+                font = fontwin_get_font(id->ancestor_obj);
+
+                for (chunk = font->chunks; chunk; chunk = chunk->next)
+                    for (num = 0; num < 256; num++)
+                        if (chunk->present[num])
+                            func(font, chunk, num);
+            }
+        }
+        else
+        {
+            ret = 0;
+        }
+    }
+
+    return ret;
+}
+
+

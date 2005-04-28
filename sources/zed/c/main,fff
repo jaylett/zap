@@ -1,0 +1,266 @@
+/*
+ * Minimal Toolbox application, using the event veneers library.
+ */
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/dcs.h"
+#include "oslib/quit.h"
+
+#include "main.h"
+#include "event.h"
+#include "events.h"
+#include "loadsave.h"
+#include "fontwin.h"
+#include "editwin.h"
+#include "error.h"
+#include "drag.h"
+#include "ops.h"
+
+#define WimpVersion    350
+
+static  wimp_block                  poll_block;
+static  messagetrans_control_block  messages;
+static  toolbox_block               id_block;
+
+wimp_t wimp_task;
+
+int finished = 0;
+
+int global_quit = 0;
+/*
+ * Event handler to be called when toolbox event 1
+ * is generated (by click on the 'Quit' entry of
+ * the iconbar menu.
+ */
+
+// check whether we can quit
+//   global: non-zero if this is a desktop shutdown
+//
+// returns non-zero if we have fonts open
+static int prequit(int global)
+{
+    char buf[16];
+    int n = 0;
+
+    if (global_quit == 0)
+    {
+        n = count_modified_fonts();
+
+        if (n > 0)
+        {
+            toolbox_o obj = toolbox_create_object(0, (toolbox_id) "Quit");
+
+            sprintf(buf, "%d", n);
+            quit_set_message(0, obj, lookup_1(n == 1 ? "Modified1" : "ModifiedN", buf));
+
+            toolbox_show_object(0, obj, toolbox_POSITION_CENTRED, NULL, toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+
+            global_quit = global;
+        }
+    }
+
+    return n;
+}
+
+
+
+static int quit_quit(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    if (global_quit)
+        wimp_process_key(508);
+    else
+        finished = 1;
+
+    return 1;
+}
+
+static int quit_cancel(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    global_quit = 0;
+    toolbox_delete_object(0, id->this_obj);
+
+    return 1;
+}
+
+static int quit_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    if (prequit(0) == 0)
+        finished = 1;
+
+    return 1;
+}
+
+static int prequit_message(wimp_message *message, void *handle)
+{
+    int global = 0;
+
+    if (message->size > 20)
+        global = message->data.prequit.flags & 1;
+
+    if (prequit(global ^ 1))
+    {
+        message->your_ref = message->my_ref;
+        wimp_send_message(wimp_USER_MESSAGE_ACKNOWLEDGE, message, message->sender);
+    }
+
+    return 1;
+}
+
+
+int quit_message(wimp_message *message, void *handle)
+{
+    finished = 1;
+    return 1;
+}
+
+
+// DataLoad or DataOpen message
+static int load_message(wimp_message *message, void *handle)
+{
+    wimp_full_message_data_xfer *m = (wimp_full_message_data_xfer *)message;
+    int result = 0;
+
+    Font *font;
+
+    if (message->action == message_DATA_LOAD || m->file_type == filetype_ZAPFONT)
+    {
+        // acknowledge it FIRST
+        m->action   = message_DATA_LOAD_ACK;
+        m->your_ref = m->my_ref;
+        wimp_send_message(wimp_USER_MESSAGE, message, m->sender);
+
+        font = load_font(m->file_name);
+        if (font)
+            create_and_show_font_window(font);
+
+        result = 1;
+    }
+
+    return result;
+}
+
+
+static wimp_message_list wimp_messages[] =
+{
+    message_PRE_QUIT,
+    message_DATA_OPEN,
+    message_DATA_LOAD,
+    message_MODE_CHANGE,
+    message_QUIT
+};
+
+static toolbox_action_list toolbox_events[] =
+{
+//    action_ICONBAR_CLICKED,
+//    action_OBJECT_AUTO_CREATED,
+    0
+};
+
+void oserror_handler(int a)
+{
+    wimp_report_error((os_error *)_kernel_last_oserror(), wimp_ERROR_BOX_CANCEL_ICON, "Zed");
+
+    exit(1);
+}
+
+// called for all other events
+static int other_events(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    int ret = 1;
+
+    printf("other event: %x for object %p cmp %d\n", event->action_no, id->this_obj, id->this_cmp);
+
+    if (event->action_no >= event_FONTWIN_FIRST && event->action_no < event_FONTWIN_LAST)
+        return fontwin_misc_event(event_code, event, id);
+
+    if (event->action_no >= event_EDITWIN_FIRST && event->action_no < event_EDITWIN_LAST)
+        return editwin_misc_event(event_code, event, id);
+
+    if (event->action_no >= event_STYLE_FIRST && event->action_no < event_STYLE_LAST)
+        return style_event(event_code, event, id);
+
+    // other events (I'd like to be able to register for ALL events on a given object, but I can't.)
+    switch (event->action_no)
+    {
+    case action_DCS_DISCARD:            dcs_discard  (id); break;
+    case action_DCS_SAVE:               dcs_save     (id); break;
+    case action_DCS_DIALOGUE_COMPLETED: dcs_complete (id); break;
+
+    default: ret = 0; // not handled
+    }
+
+    return ret;
+}
+
+static int mode_changed(wimp_message *message, void *handle)
+{
+    update_redraw_block();
+
+    return 1;
+}
+
+int main(int argc, char *argv[])
+{
+    int event_code;
+
+    // register ourselves with the Toolbox.
+    wimp_task = toolbox_initialise (0, WimpVersion, (wimp_message_list *)&wimp_messages, (toolbox_action_list *)&toolbox_events,
+                                    "<Zed$Dir>", &messages, &id_block, 0, 0);
+
+    signal(SIGOSERROR, oserror_handler);
+
+    logmem_verbose(1);
+
+    update_redraw_block();
+    loadsave_init();
+
+    // initialise the event library.
+    event_initialise (&id_block);
+
+    event_set_mask (1+256);
+
+    event_register_toolbox_handler((toolbox_o)-1, 1,                  quit_event,  0);
+    event_register_toolbox_handler((toolbox_o)-1, action_QUIT_QUIT,   quit_quit,   0);
+    event_register_toolbox_handler((toolbox_o)-1, action_QUIT_CANCEL, quit_cancel, 0);
+
+    event_register_toolbox_handler((toolbox_o)-1, event_CREATE_FONT, create_font, 0);
+
+    event_register_message_handler(message_QUIT,    quit_message,    0);
+    event_register_message_handler(message_PREQUIT, prequit_message, 0);
+
+    event_register_wimp_handler((toolbox_o)-1, wimp_USER_DRAG_BOX, drag_finished, 0);
+
+    event_register_message_handler(message_DATA_LOAD, load_message, 0);
+    event_register_message_handler(message_DATA_OPEN, load_message, 0);
+
+    event_register_message_handler(message_MODE_CHANGE, mode_changed, 0);
+
+    // all other events
+    event_register_toolbox_handler((toolbox_o)-1, -1, other_events, 0);
+
+    // deal with command line arguments
+    for (int x = 0; x < argc; x++)
+    {
+        if (strcmp(argv[x], "-file") == 0 && x+1 < argc)
+        {
+            Font *font = load_font(argv[x+1]);
+            if (font)
+                create_and_show_font_window(font);
+        }
+    }
+
+    // poll loop
+    while (!finished)
+    {
+        event_poll_idle(&event_code, &poll_block, os_read_monotonic_time() + 10, 0);
+    }
+}

@@ -1,0 +1,242 @@
+//////////////////////////////////////////
+//
+//  $Id: logmem,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define GUARD_WORD 0xc4e1c4e1u
+
+struct LogmemHeader
+{
+    struct LogmemHeader *next;
+    int size;
+    int line;
+    const char *file;
+    unsigned int guard;
+    unsigned int *endguard;
+};
+
+typedef struct LogmemHeader LogmemHeader;
+
+static int initialised = 0;
+static int verbose     = 0;
+static FILE *logfile = NULL;
+
+static LogmemHeader *logmem_list = 0;
+
+static void logmem_report(void);
+
+
+static int check(LogmemHeader *block)
+{
+    LogmemHeader *p = logmem_list;
+
+    while (p && p != block)
+        p = p->next;
+
+    if (p)
+    {
+        if (p->guard == GUARD_WORD && *p->endguard == GUARD_WORD)
+            return 1;
+
+        fprintf(logfile, "!!! Guard words corrupt!\n");
+        return 0;
+    }
+
+    fprintf(logfile, "!!! Not an allocated block!\n");
+    return 0;
+}
+
+
+void *logmem_realloc(void *block, size_t size, const char *file, int line)
+{
+    LogmemHeader *p, *q;
+
+    if (!initialised)
+    {
+        atexit(logmem_report);
+        initialised = 1;
+
+        logfile = fopen("memlog", "w");
+
+        if (verbose && logfile)
+            fprintf(logfile, "logmem initialised\n");
+    }
+
+    if (block)
+    {
+        p = (LogmemHeader *)block - 1;
+
+        if (verbose && logfile)
+            fprintf(logfile, "realloc of %p to %d bytes by %s : %d\n",
+                    block, size, file, line);
+
+        if (!check(p))
+            return NULL;
+
+        if (verbose && logfile)
+        {
+            fprintf(logfile, "  last allocated as %d bytes by %s : %d\n",
+                    p->size, p->file, p->line);
+        }
+
+        for (q = logmem_list; q->next != p; q = q->next)
+            ;
+
+        p = realloc(p, size + sizeof(LogmemHeader) + 8);
+        if (!p && verbose && logfile)
+            fprintf(logfile, "no more free memory\n");
+
+        if (p)
+        {
+            p->file     = file;
+            p->line     = line;
+            p->size     = size;
+            p->endguard = (unsigned int *)((char *)p + ((size + sizeof(LogmemHeader) + 3) & ~3));
+
+            p->guard     = GUARD_WORD;
+            *p->endguard = GUARD_WORD;
+
+            if (verbose && logfile)
+                fprintf(logfile, "  new block at %p\n", p);
+
+            q->next = p; /* relink in new place */
+            return (void *)(p + 1);
+        }
+
+        return NULL;
+    }
+
+    /* malloc */
+    if (verbose && logfile)
+        fprintf(logfile, "malloc of %d bytes by %s : %d\n", size, file, line);
+
+    p = malloc(size + sizeof(LogmemHeader) + 8);
+
+    if (!p && verbose && logfile)
+        fprintf(logfile, "no more free memory\n");
+
+    if (p)
+    {
+        if (verbose && logfile)
+            fprintf(logfile, " block at %p\n", p);
+
+        p->line = line;
+        p->size = size;
+        p->file = file;
+        p->next = NULL;
+
+        p->endguard = (unsigned int *)((char *)p + ((size + sizeof(LogmemHeader) + 3) & ~3));
+
+        p->guard     = GUARD_WORD;
+        *p->endguard = GUARD_WORD;
+
+        q = logmem_list;
+        if (q)
+        {
+            while (q->next)
+                q = q->next;
+
+            q->next = p;
+        }
+        else
+            logmem_list = p;
+
+        return (void *)(p + 1);
+    }
+
+    return NULL;
+}
+
+
+void *logmem_calloc(size_t n, size_t size, const char *file, int line)
+{
+    void *p;
+
+    if (verbose && logfile)
+        fprintf(logfile, "calloc:");
+
+    p = logmem_realloc(NULL, (n * size), file, line);
+    memset(p, 0, (n * size));
+
+    return p;
+}
+
+
+void logmem_free(void *block, const char *file, int line)
+{
+    LogmemHeader *p = (LogmemHeader *)block - 1;
+    LogmemHeader *q;
+
+    if (verbose && logfile)
+        fprintf(logfile, "free of %p by %s : %d\n", block, file, line);
+
+    if (!initialised && logfile)
+    {
+        fprintf(logfile, "!!! free before allocate!!\n");
+        return;
+    }
+
+    if (verbose && logfile)
+        fprintf(logfile, "  allocated as %d bytes by %s : %d\n", p->size, p->file, p->line);
+
+    if (!check(p))
+        return;
+
+    if (logmem_list == p)
+        logmem_list = p->next;
+    else
+    {
+        for (q = logmem_list; q->next != p; q = q->next)
+            ;
+
+        q->next = p->next;
+    }
+
+    free(p);
+}
+
+
+void logmem_verbose(int i)
+{
+    verbose = i;
+}
+
+
+static void logmem_report(void)
+{
+    LogmemHeader *p = logmem_list;
+
+    if (p && logfile)
+    {
+        fprintf(logfile, "\n\nblocks allocated at exit:\n");
+
+        while (p)
+        {
+            fprintf(logfile, "  %p (%d bytes) allocated by %s : %d\n",
+                    p, p->size, p->file, p->line);
+            p = p->next;
+        }
+    }
+}
+
+
+char *logmem_strdup(const char *s, const char *file, int line)
+{
+    int i;
+    char *out;
+
+    if (s == NULL)
+        return NULL;
+
+    i   = strlen(s);
+    out = logmem_realloc(NULL, i + 1, file, line);
+
+    if (out)
+        strcpy(out, s);
+
+    return out;
+}

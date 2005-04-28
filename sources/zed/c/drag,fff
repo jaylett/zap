@@ -1,0 +1,142 @@
+//////////////////////////////////////////////////////////////
+//
+// drag.c : useful dragging routines
+//
+// $Id: drag,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/window.h"
+
+#include "event.h"
+
+static void (*dragfunc)(os_box *box, void *handle) = NULL;
+static void *draghandle;
+
+
+int drag_finished(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    os_box *box   = &block->dragged.final;
+    int     temp;
+
+    if (dragfunc)
+    {
+        xwimp_auto_scroll(0, NULL, NULL);
+
+        if (box->x0 > box->x1)
+        {
+            temp = box->x0; box->x0 = box->x1; box->x1 = temp;
+        }
+
+        if (box->y0 > box->y1)
+        {
+            temp = box->y0; box->y0 = box->y1; box->y1 = temp;
+        }
+
+        dragfunc(box, draghandle);
+
+        dragfunc = NULL;
+    }
+
+    return 1;
+}
+
+
+static void enable_auto_scroll(wimp_w w)
+{
+    wimp_auto_scroll_info info;
+
+    info.w                   = w;
+    info.pause_zone_sizes.x0 = 12;//80;
+    info.pause_zone_sizes.y0 = 12;//80;
+    info.pause_zone_sizes.x1 = 12;//80;
+    info.pause_zone_sizes.y1 = 12;//80;
+    info.pause_duration      = 0;//-1;
+    info.state_change        = (void *)1;
+
+    xwimp_auto_scroll(wimp_AUTO_SCROLL_ENABLE_HORIZONTAL | wimp_AUTO_SCROLL_ENABLE_VERTICAL, &info, NULL);
+}
+
+
+// start a rubber-box drag operation
+//      obj: the toolbox WINDOW object to start the drag in
+//      pos: the initial drag point
+//     func: the function to call on termination
+//   handle: the handle to call it with
+void rubber_drag(toolbox_o obj, os_coord *pos, void (*func)(os_box *box, void *handle), void *handle)
+{
+    wimp_drag drag;
+
+    drag.w    = window_get_wimp_handle(0, obj);
+    drag.type = wimp_DRAG_USER_RUBBER;
+
+    drag.initial.x0 = pos->x;
+    drag.initial.y0 = pos->y;
+    drag.initial.x1 = pos->x;
+    drag.initial.y1 = pos->y;
+
+    drag.bbox.x0 = -100000;
+    drag.bbox.y0 = -100000;
+    drag.bbox.x1 =  100000;
+    drag.bbox.y1 =  100000;
+
+    wimp_drag_box_with_flags(&drag, wimp_DRAG_BOX_KEEP_IN_LINE | wimp_DRAG_BOX_CLIP);
+    enable_auto_scroll(drag.w);
+
+    dragfunc   = func;
+    draghandle = handle;
+}
+
+
+static const int vdu_vars[] =
+{
+    os_MODEVAR_XWIND_LIMIT,
+    os_MODEVAR_YWIND_LIMIT,
+    os_MODEVAR_XEIG_FACTOR,
+    os_MODEVAR_YEIG_FACTOR,
+    os_VDUVAR_END_LIST
+};
+
+// start a fixed box drag operation
+//      obj: the toolbox WINDOW object to start the drag in
+//      pos: the initial drag point
+//     func: the function to call on termination
+//   handle: the handle to call it with
+void fixed_drag(toolbox_o obj, os_box *pos, void (*func)(os_box *box, void *handle), void *handle)
+{
+    wimp_drag drag;
+    int vars[4];
+
+    os_read_vdu_variables((os_vdu_var_list *) vdu_vars, vars);
+
+    int screenw = (vars[0] + 1) << vars[2];
+    int screenh = (vars[1] + 1) << vars[3];
+
+    drag.w    = window_get_wimp_handle(0, obj);
+    drag.type = wimp_DRAG_USER_FIXED;
+
+    drag.initial = *pos;
+
+    drag.bbox.x0 = -pos->x0;
+    drag.bbox.y0 = -pos->y0;
+    drag.bbox.x1 =  screenw + pos->x1;
+    drag.bbox.y1 =  screenh + pos->y1;
+
+    wimp_drag_box_with_flags(&drag, 0);
+    enable_auto_scroll(drag.w);
+
+    dragfunc   = func;
+    draghandle = handle;
+}
+
+

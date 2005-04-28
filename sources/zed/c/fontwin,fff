@@ -1,0 +1,1196 @@
+//////////////////////////////////////////////////////////////
+//
+// fontwin.c : manages the main font window
+//
+// $Id: fontwin,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/osbyte.h"
+#include "oslib/wimp.h"
+#include "oslib/wimpextend.h"
+#include "oslib/toolbox.h"
+#include "oslib/window.h"
+#include "oslib/numberrange.h"
+#include "oslib/menu.h"
+#include "oslib/zapredraw.h"
+
+#include "event.h"
+#include "events.h"
+#include "error.h"
+#include "strings.h"
+#include "loadsave.h"
+#include "fontwin.h"
+#include "editwin.h"
+#include "drag.h"
+
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+
+#define MR_BILLION 1000000000
+
+enum
+{
+    PALETTE_BAC,
+    PALETTE_FOR,
+    PALETTE_UNDEF,
+    PALETTE_CTL,
+    PALETTE_UNDEF_CTL,
+    PALETTE_SEL,
+
+    PALETTE_LAST
+};
+
+struct FontWin
+{
+    FontWin *next;
+
+    toolbox_o win;	    // the toolbox window
+
+    Font *font;		    // the font
+
+    Chunk *chunk;	    // currently displayed chunk
+    int chunknum;           // number of cuurently displayed chunk (in case chunk is NULL)
+
+    int cbpl;               // cbpl in current screen mode
+    int cbpc;               // cbpc "
+
+    unsigned char *data;    // <n>bpp bitmaps for current chunk, not used for bpp 0 or 5
+    unsigned char *nullg;   // <n>bpp bitmaps for null glyph, used for completely empty chunks
+};
+
+struct Selection
+{
+    Font *font;		    // the font contatining the selection
+    Chunk *chunk;           // the chunk "
+
+    struct
+    {
+        int temporary : 1;  // set if the selection was created by a menu click
+        int changed   : 1;  // set if the selection has changed since the window was last redrawn
+    } flags;
+
+    int count;
+
+    unsigned char sel[256]; // non-zero if char selected
+};
+
+static FontWin *font_windows = NULL;
+static Selection selection   = {0, };
+
+#define CHARSP	 4
+#define LINESP	 4
+#define H_MARGIN 4
+#define V_MARGIN 4
+
+zapredraw_block redraw_block;
+
+static int minimum_width = 0;
+static int mode_changed  = 0;
+static int y_pos         = 0;
+
+
+// returns the number of views displayed on a given font
+static int views_on_this_font(Font *font)
+{
+    int wins = 0;
+
+    for (FontWin *f = font_windows; f; f = f->next)
+	if (f->font == font)
+	    wins++;
+
+    return wins;
+}
+
+
+static void create_palette(void)
+{
+    static const unsigned int colours[PALETTE_LAST] =
+    {
+	os_COLOUR_BLACK,       // background
+	os_COLOUR_WHITE,       // foreground
+	os_COLOUR_LIGHT_GREY,  // undefined characters
+	0x0000DD00,	       // control characters	       (red)
+	0xaaaacc00,	       // undefined control characters (light red)
+	0x44aaff00,            // selected characters
+    };
+
+    static unsigned int palette[PALETTE_LAST];
+
+    zapredraw_create_palette(2, &redraw_block, (zapredraw_palette *) colours, (zapredraw_palette *) palette, PALETTE_LAST);
+
+    redraw_block.dsa.palette = (zapredraw_palette *) palette;
+}
+
+
+static void clear_selection(void)
+{
+    // FIXME: this redraw isn't always necessary
+    redraw_font(selection.font);
+
+    selection.font  = NULL;
+    selection.chunk = NULL;
+
+    selection.flags.temporary = 1;
+    selection.flags.changed   = 1;
+
+    memset(selection.sel, 0, 256);
+}
+
+
+static void select_all(FontWin *f)
+{
+    if (selection.font != f->font)
+        clear_selection();
+
+    selection.font  = f->font;
+    selection.chunk = f->chunk;
+
+    selection.flags.temporary = 0;
+    selection.flags.changed   = 1;
+
+    memset(selection.sel, 1, 256);
+    redraw_font(selection.font);
+}
+
+
+// create the redraw data for a window
+//   win: the window
+static void create_redraw_data(FontWin *win)
+{
+    static char *lines[9];
+    static char data[4096];
+
+    static Chunk *prev_chunk = NULL;
+    static int prev_nchars   = 0;
+
+    char *s = data;
+
+    int oldcol;
+    int colour;
+
+    Chunk *chunk = find_chunk(win->font, win->chunknum);
+
+    if (chunk != prev_chunk || chunk->nchars != prev_nchars || selection.flags.changed || mode_changed)
+    {
+        for (int y = 0; y < 8; y++)
+        {
+            lines[y] = s - (int)lines;
+
+            oldcol = PALETTE_FOR;
+
+            for (int x = 0; x < 32; x++)
+            {
+                if (chunk && chunk->present[(y * 32) + x] != 0)
+                    colour = PALETTE_FOR;
+                else
+                    colour = PALETTE_UNDEF;
+
+                if (chunk == selection.chunk && selection.sel[(y * 32) + x] != 0)
+                    colour = PALETTE_SEL;
+                else if (chunk->num == 0 && y == 0)
+                    colour += 2;  // for,undef -> ctl,undef ctl
+
+                if (colour != oldcol)
+                {
+                    *s++ = zapredraw_COMMAND;
+                    *s++ = zapredraw_COMMAND_SET_FG;
+                    *s++ = (char) colour;
+
+                    oldcol = colour;
+                }
+
+                if (chunk)
+                {
+                    if (y == 0 && x == 0)
+                        *s++ = 0; // 0 -> 0,0
+
+                    *s++ = (char) ((y * 32) + x);
+                }
+                else
+                {
+                    *s++ = 0;
+                    *s++ = 0;
+                }
+            }
+
+            *s++ = zapredraw_COMMAND;
+            *s++ = zapredraw_COMMAND_SET_FG;
+            *s++ = PALETTE_BAC;
+
+            *s++ = zapredraw_COMMAND;
+            *s++ = zapredraw_COMMAND_EOL;
+        }
+
+        if (chunk)
+            redraw_block.dsa.caddr = (zapredraw_char_cache *) (win->data ? win->data : chunk->data);
+        else
+            redraw_block.dsa.caddr = (zapredraw_char_cache *) (win->nullg ? win->nullg : win->font->null_glyph);
+
+	lines[8] = 0;
+
+	redraw_block.dsa.charw = win->font->charw;
+	redraw_block.dsa.charh = win->font->charh;
+	redraw_block.dsa.cbpl  = win->cbpl;
+	redraw_block.dsa.cbpc  = win->cbpc;
+
+	redraw_block.dsa.data = (char **) lines;
+
+	prev_chunk  = chunk;
+	prev_nchars = chunk->nchars;
+
+	selection.flags.changed = 0;
+    }
+}
+
+
+// set the chunk to be displayed
+//   win: the window
+//   num: the chunk number (ie. b0:7 clear)
+static void set_chunk(FontWin *win, int num)
+{
+    wimp_w w;
+
+    win->chunk    = find_chunk(win->font, num);
+    win->chunknum = num;
+
+    zapredraw_cached_char_size(redraw_block.dsa.log2_bpp, win->font->charw, win->font->charh, &win->cbpl, &win->cbpc);
+
+    if (win->cbpc != win->font->cbpc)
+    {
+	redraw_block.dsa.charw = win->font->charw;
+	redraw_block.dsa.charh = win->font->charh;
+	redraw_block.dsa.cbpl  = win->cbpl;
+	redraw_block.dsa.cbpc  = win->cbpl;
+	zapredraw_read_vdu_vars(&redraw_block); // FIXME: necessary?
+
+        if (win->chunk)
+        {
+            win->data = realloc(win->data, 256 * win->cbpc);
+
+            if (win->data)
+            {
+                redraw_block.dsa.caddr = (zapredraw_char_cache *) win->data;
+                zapredraw_convert_bitmap(&redraw_block, 0, 255, win->chunk->data);
+            }
+        }
+
+	win->nullg = realloc(win->nullg, win->cbpc);
+
+	if (win->nullg)
+	{
+	    redraw_block.dsa.caddr = (zapredraw_char_cache *) win->nullg;
+	    zapredraw_convert_bitmap(&redraw_block, 0, 0, win->font->null_glyph);
+	}
+
+    }
+    else
+    {
+	if (win->data)
+	    free(win->data);
+	if (win->nullg)
+	    free(win->nullg);
+
+	win->data = win->nullg = 0;
+    }
+
+    w = window_get_wimp_handle(0, win->win);
+    wimp_force_redraw(w, 0, -1000000, 1000000, 0);
+}
+
+
+static int font_redraw_request(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    FontWin *f = handle;
+
+    create_redraw_data(f);
+    zapredraw_redraw_window(&block->redraw, &redraw_block);
+
+    return 1;
+}
+
+
+// update the redraw block after a mode change, for example
+void update_redraw_block(void)
+{
+    zapredraw_read_vdu_vars(&redraw_block);
+    create_palette();
+
+    redraw_block.dsa.fg	      = PALETTE_FOR;
+    redraw_block.dsa.bg	      = PALETTE_BAC;
+    redraw_block.dsa.linesp   = (CHARSP<<16) + LINESP;
+    redraw_block.dsa.flags    = zapredraw_DSA | zapredraw_AUTO_SCALE | zapredraw_EXTEND;
+    redraw_block.dsa.workarea = NULL;
+    redraw_block.dsa.length   = (char *) &redraw_block.dsa.tmargin - (char *) &redraw_block;
+    redraw_block.dsa.lmargin  = H_MARGIN;
+    redraw_block.dsa.tmargin  = V_MARGIN;
+
+    mode_changed = 1;
+
+    for (FontWin *f = font_windows; f; f = f->next)
+        set_chunk(f, f->chunknum);
+}
+
+
+
+// get the character column and row from a mouse click
+//   font: [in]  the font
+//    obj: [in]  the window object
+//    pos: [in]  the click (screen coordinates)
+//    row: [out] the row
+//    col: [out] the column
+//
+// returns glyph number as offset into chunk
+static int off_char(Font *font, toolbox_o obj, os_coord *pos, int *row, int *col)
+{
+    wimp_window_state state;
+
+    state.w = window_get_wimp_handle(0, obj);
+    wimp_get_window_state(&state);
+
+    int wax = state.visible.x0 - state.xscroll;
+    int way = state.visible.y1 - state.yscroll;
+
+    unsigned int ncol = MIN((pos->x - wax) / ((font->charw + CHARSP) << redraw_block.dsa.magx), 31);
+    unsigned int nrow = MIN((way - pos->y) / ((font->charh + LINESP) << redraw_block.dsa.magy), 7);
+
+    if (row)
+        *row = nrow;
+    if (col)
+        *col = ncol;
+
+    return (nrow * 32) + ncol;
+}
+
+
+// called when a selection drag has terminated
+static void select_chars(os_box *box, void *handle)
+{
+    FontWin *f = handle;
+
+    int w = (f->font->charw + CHARSP) << redraw_block.dsa.magx;
+    int h = (f->font->charh + LINESP) << redraw_block.dsa.magy;
+
+    wimp_window_state state;
+
+    state.w = window_get_wimp_handle(0, f->win);
+    wimp_get_window_state(&state);
+
+    int wax = state.visible.x0 - state.xscroll;
+    int way = state.visible.y1 - state.yscroll;
+
+    box->x0 = box->x0 - wax;
+    box->y0 = way - box->y0;
+    box->x1 = box->x1 - wax;
+    box->y1 = way - box->y1;
+
+    selection.flags.changed   = 1;
+    selection.flags.temporary = 0;
+
+    // now box contains offsets into work area (with +ve y down, and y1 < y0)
+    int col0 = MAX(box->x0 / w,       0);
+    int col1 = MIN((box->x1 / w) + 1, 32);
+    int row0 = MAX(box->y1 / h,       0);
+    int row1 = MIN((box->y0 / h) + 1, 8);
+
+    for (int y = row0; y < row1; y++)
+        for (int x = col0; x < col1; x++)
+            selection.sel[(y * 32) + x] ^= 1;
+
+    redraw_font(f->font);
+}
+
+
+// called when a glyph drag has terminated
+static void copy_drag(os_box *box, void *handle)
+{
+    window_mouse_state buttons;
+    os_coord pos;
+    toolbox_o obj;
+    char buf[16];
+
+    int sel;
+
+    for (int x = 0; x < 256; x++)
+        if (selection.sel[x])
+        {
+            sel = x;
+            break;
+        }
+
+    window_get_pointer_info(0, &pos.x, &pos.y, &buttons, &obj, NULL);
+
+    if ((buttons & window_CLICK_NOT_TOOLBOX) == 0)
+    {
+        toolbox_get_template_name(0, obj, buf, sizeof(buf));
+
+        if (strcmp(buf, "Font") == 0)
+        {
+            toolbox_o tool;
+
+            Font *dfont = toolbox_get_client_handle(0, obj);
+
+            int off;
+            int chunkn;
+
+            window_get_tool_bars(window_TOOL_BAR_ITL, obj, NULL, &tool, NULL, NULL);
+
+            off    = off_char(dfont, obj, &pos, NULL, NULL);
+            chunkn = numberrange_get_value(0, tool, g_tb_CHUNK) << 8;
+
+            copy_glyph(dfont, chunkn + off, selection.font, selection.chunk->num + sel);
+        }
+        else if (strcmp(buf, "Edit") == 0)
+        {
+            editwin_add_base(obj, selection.font, selection.chunk->num + sel);
+        }
+    }
+
+    clear_selection();
+}
+
+
+// called to deal with mouse clicks on the font window
+static int font_mouse_click(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    FontWin *f = handle;
+    wimp_w w   = window_get_wimp_handle(0, id->this_obj);
+
+    int off = off_char(f->font, id->this_obj, &block->pointer.pos, NULL, NULL);
+
+    wimp_set_caret_position(w, -1, 0, 0, -1, -1);
+
+    if (block->pointer.buttons & (wimp_SINGLE_SELECT | wimp_DRAG_SELECT))
+    {
+        if (f->chunk != selection.chunk || selection.sel[off] == 0 || (block->pointer.buttons & wimp_DRAG_SELECT))
+        {
+            clear_selection();
+
+            selection.font     = f->font;
+            selection.chunk    = f->chunk;
+            selection.sel[off] = 1;
+
+            selection.flags.changed   = 1;
+            selection.flags.temporary = 0;
+
+            redraw_font(f->font);
+        }
+
+        if (block->pointer.buttons & wimp_DRAG_SELECT)
+        {
+            wimp_pointer pointer;
+            os_box       box;
+
+            wimp_get_pointer_info(&pointer);
+
+            box.x0 = pointer.pos.x - ((f->font->charw << redraw_block.dsa.magx) / 2);
+            box.y0 = pointer.pos.y - ((f->font->charh << redraw_block.dsa.magy) / 2);
+
+            box.x1 = box.x0 + (f->font->charw << redraw_block.dsa.magx);
+            box.y1 = box.y0 + (f->font->charh << redraw_block.dsa.magy);
+
+            fixed_drag(id->this_obj, &box, copy_drag, f);
+        }
+    }
+
+    else if (block->pointer.buttons & wimp_DOUBLE_SELECT)
+    {
+        clear_selection();
+
+	if (f->chunk == NULL)
+	{
+	    // chunk completely empty - need to create it first
+	    toolbox_o tool;
+
+	    window_get_tool_bars(window_TOOL_BAR_ITL, f->win, NULL, &tool, NULL, NULL);
+	    numberrange_get_value(0, tool, g_tb_CHUNK);
+
+	    f->chunk = create_chunk(f->font, numberrange_get_value(0, tool, g_tb_CHUNK) << 8);
+	}
+
+	if (f->chunk)
+	    edit_character(f->font, f->chunk, off);
+    }
+
+    else if (block->pointer.buttons & (wimp_SINGLE_ADJUST | wimp_DRAG_ADJUST | wimp_DOUBLE_ADJUST))
+    {
+        if (f->chunk != selection.chunk)
+            clear_selection();
+
+        selection.font      = f->font;
+        selection.chunk     = f->chunk;
+        selection.sel[off] ^= 1;
+
+        selection.flags.changed   = 1;
+        selection.flags.temporary = 0;
+
+        redraw_glyph(f->font, f->chunk->num + off);
+
+        if (block->pointer.buttons & wimp_DRAG_ADJUST)
+            rubber_drag(id->this_obj, &block->pointer.pos, select_chars, f);
+    }
+
+    else if (block->pointer.buttons & wimp_CLICK_MENU)
+    {
+        if (f->chunk != selection.chunk || selection.flags.temporary)
+            clear_selection();
+
+        if (selection.flags.temporary)
+        {
+            selection.font     = f->font;
+            selection.chunk    = f->chunk;
+            selection.sel[off] = 1;
+
+            selection.flags.changed   = 1;
+            selection.flags.temporary = 1;
+
+            redraw_glyph(f->font, f->chunk->num + off);
+        }
+
+        selection.count++;
+    }
+
+    return 1;
+}
+
+// called when the chunk display has changed
+static int chunk_changed(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    FontWin *fw = handle;
+    int num	= ((numberrange_action_value_changed_block *) event)->new_value;
+
+    set_chunk(fw, num << 8);
+
+    return 1;
+}
+
+
+// create / update the titles for the font windows on a given font
+void create_title(Font *font)
+{
+    FontWin *f;
+    char buf[512];
+
+    int wins = 0;
+    int win  = 1;
+
+    // count the views on this font
+    wins = views_on_this_font(font);
+
+    for (f = font_windows; f; f = f->next)
+    {
+	if (f->font == font)
+	{
+	    strcpy(buf, font->filename);
+
+	    if (font->flags.modified)
+		strcat(buf, " *");
+
+	    if (wins > 1)
+		sprintf(buf + strlen(buf), " [%d/%d]", win, wins);
+
+	    window_set_title(0, f->win, buf);
+	    win++;
+	}
+    }
+}
+
+
+// called when a font is successfully saved
+//   font: the font
+//   safe: non-zero if the save was safe
+//   name: the new filename if safe
+void font_saved(Font *font, int safe, char *name)
+{
+    if (font->flags.close_on_save)
+    {
+        for (FontWin *f = font_windows; f; f = f->next)
+            if (f->font == font)
+            {
+                toolbox_hide_object(0, f->win);
+                break;
+            }
+    }
+    else
+    {
+        if (safe)
+        {
+            free(font->filename);
+            font->filename = strdup(name);
+        }
+
+        font_set_modified(font, !safe);
+    }
+}
+
+
+// set the modified state of a font
+//	 font: the font
+//   modified: non-zero for modified
+void font_set_modified(Font *font, int modified)
+{
+    font->flags.modified = modified ? 1 : 0;
+
+    create_title(font);
+}
+
+
+void dcs_complete(toolbox_block *id)
+{
+    toolbox_delete_object(0, id->this_obj);
+}
+
+void dcs_discard(toolbox_block *id)
+{
+    toolbox_hide_object(0, id->parent_obj);
+}
+
+void dcs_save(toolbox_block *id)
+{
+    Font *f = toolbox_get_client_handle(0, id->parent_obj);
+
+    f->flags.close_on_save = 1;
+    open_save_box(id->parent_obj);
+}
+
+
+// called when a font window close icon is clicked
+static int font_close(wimp_event_no event_code, wimp_block *block, toolbox_block *id, void *handle)
+{
+    FontWin *f = handle;
+
+    wimp_pointer pointer;
+
+    wimp_get_pointer_info(&pointer);
+
+    if (pointer.buttons & wimp_CLICK_ADJUST)
+    {
+        char buf[280];
+        char *s;
+
+        strcpy(buf, "Filer_OpenDir ");
+        strcat(buf, f->font->filename);
+        s = strrchr(buf, '.');
+
+        if (s)
+        {
+            *s = '\0';
+            xos_cli(buf);
+        }
+    }
+
+    if (osbyte1(osbyte_SCAN_KEYBOARD, 0x80, 0) != 0xFF)
+    {
+        // shift not pressed
+        if (f->font->flags.modified && views_on_this_font(f->font) == 1)
+        {
+            toolbox_o dcs = toolbox_create_object(0, (toolbox_id)"CloseFont");
+            toolbox_show_object(toolbox_SHOW_AS_MENU, dcs, toolbox_POSITION_DEFAULT, NULL, id->this_obj, id->this_cmp); // setup the parent/ancestor
+        }
+        else
+        {
+            toolbox_hide_object(0, f->win);
+        }
+    }
+
+    return 1;
+}
+
+
+// called when a font window has been hidden
+static void fontwin_hidden(FontWin *f)
+{
+    FontWin **pw;
+    toolbox_o tool;
+
+    for (pw = &font_windows; *pw != f; pw = &(*pw)->next)
+	;
+
+    *pw = f->next;
+
+    if (views_on_this_font(f->font) == 0)
+    {
+        if (selection.font == f->font)
+            clear_selection();
+
+        font_closed(f->font);	// remove the edit windows
+        free_font(f->font);
+    }
+    else
+    {
+        // update the title on the remaining views
+        create_title(f->font);
+    }
+
+    window_get_tool_bars(window_TOOL_BAR_ITL, f->win, NULL, &tool, NULL, NULL);
+
+    event_deregister_wimp_handlers_for_object	 (f->win);
+    event_deregister_toolbox_handlers_for_object (f->win);
+    event_deregister_wimp_handlers_for_object	 (tool);
+    event_deregister_toolbox_handlers_for_object (tool);
+
+    toolbox_delete_object(0, f->win);
+
+    if (f->data)
+        free(f->data);
+    if (f->nullg)
+        free(f->nullg);
+
+    free(f);
+}
+
+
+// create a font window
+static FontWin *create_font_window(Font *font)
+{
+    toolbox_o win;
+    toolbox_o tool;
+
+    os_box box;
+    int	   width;
+
+    FontWin *f = calloc(sizeof(FontWin), 1);
+    FontWin **pf;
+
+    if (f)
+    {
+	win = toolbox_create_object(0, (toolbox_id) "Font");
+	toolbox_set_client_handle(0, win, font); // set to the font for the savebox routines
+
+	f->win  = win;
+	f->font = font;
+
+	// add in order to get window numbers right on multiple views
+	for (pf = &font_windows; *pf; pf = &(*pf)->next)
+	    ;
+
+	*pf	= f;
+	f->next = NULL;
+
+	// cache the data for this chunk
+	set_chunk(f, 0);
+
+	create_title(font);
+
+	event_register_wimp_handler(win, wimp_REDRAW_WINDOW_REQUEST, font_redraw_request, f);
+	event_register_wimp_handler(win, wimp_CLOSE_WINDOW_REQUEST,  font_close,	  f);
+	event_register_wimp_handler(win, wimp_MOUSE_CLICK,	     font_mouse_click,	  f);
+
+	window_get_tool_bars(window_TOOL_BAR_ITL, win, NULL, &tool, NULL, NULL);
+
+	if (minimum_width == 0)
+	{
+	    // read the max x of the character name, which will be used as the
+	    // minimum width of the main window
+	    gadget_get_bbox(0, tool, g_tb_CHAR_NAME, &box);
+            minimum_width = box.x1 + 8;
+
+	    // read the template width of the toolbar, which will be used as the
+	    // minimum width of the main window
+/*	    wimp_window_state state;
+	    state.w = window_get_wimp_handle(0, tool);
+
+	    wimp_get_window_state(&state);
+	    minimum_width = state.visible.x1 - state.visible.x0;*/
+	}
+
+	width = (((font->charw + CHARSP) * 32) + (H_MARGIN * 2)) << redraw_block.dsa.magx;
+	if (width < minimum_width)
+	    width = minimum_width;
+
+	window_get_extent(0, win, &box);
+	box.x1 = width;
+	box.y0 = -((((font->charh + LINESP) * 8) + (V_MARGIN * 2)) << redraw_block.dsa.magy);
+	window_set_extent(0, win, &box);
+
+	window_get_extent(0, tool, &box);
+	box.x1 = width;
+	window_set_extent(0, tool, &box);
+
+        gadget_get_bbox(0, tool, g_tb_CHAR_NAME, &box);
+        box.x1 = width - 8;
+        gadget_move_gadget(0, tool, g_tb_CHAR_NAME, &box);
+
+	// register the handlers on the toolbar
+	event_register_toolbox_handler(tool, action_NUMBER_RANGE_VALUE_CHANGED, chunk_changed, f);
+    }
+
+    return f;
+}
+
+
+void create_and_show_font_window(Font *font)
+{
+    wimpextend_furniture_sizes  sizes;
+    toolbox_position            pos;
+    FontWin                    *f = create_font_window(font);
+
+    sizes.w                  = 0;
+    sizes.toggle_size_height = 0;
+    xwimpextend_get_furniture_sizes(&sizes);
+
+    if (sizes.toggle_size_height == 0)
+        sizes.toggle_size_height = 40;
+
+    y_pos -= sizes.toggle_size_height;
+
+    if (y_pos < ((redraw_block.dsa.ysize << redraw_block.dsa.magy) / 2))
+        y_pos = (((redraw_block.dsa.ysize << redraw_block.dsa.magy) * 2) / 3);
+
+    pos.top_left.x = ((redraw_block.dsa.ysize << redraw_block.dsa.magy) / 3);
+    pos.top_left.y = y_pos;
+
+    toolbox_show_object(0, f->win, toolbox_POSITION_TOP_LEFT, &pos, toolbox_NULL_OBJECT, toolbox_NULL_COMPONENT);
+}
+
+
+// create a new view from a given font window
+void new_view(FontWin *f)
+{
+    FontWin *newf = create_font_window(f->font);
+
+    toolbox_o tool;
+
+    wimp_window_state state;
+    os_coord	      coord;
+
+    if (newf)
+    {
+	window_get_tool_bars(window_TOOL_BAR_ITL, newf->win, NULL, &tool, NULL, NULL);
+
+	set_chunk(newf, f->chunknum);
+	numberrange_set_value(0, tool, g_tb_CHUNK, f->chunk->num >> 8);
+
+	state.w = window_get_wimp_handle(0, f->win);
+	wimp_get_window_state(&state);
+
+	coord.x = state.visible.x0 + 44;
+	coord.y = state.visible.y1 - 44;
+	toolbox_show_object(0, newf->win, toolbox_POSITION_TOP_LEFT, (toolbox_position *)&coord, 0, -1);
+    }
+}
+
+
+// redraw all windows on a font
+//   font: the font
+void redraw_font(Font *font)
+{
+    FontWin *f;
+    wimp_w   w;
+
+    for (f = font_windows; f; f = f->next)
+    {
+        if (f->font == font)
+        {
+            w = window_get_wimp_handle(0, f->win);
+            wimp_force_redraw(w, 0, -10000000, 10000000, 10000);
+        }
+    }
+}
+
+
+// redraw a glyph in the display windows
+//   font: the font
+//    num: the (full) character number
+void redraw_glyph(Font *font, int num)
+{
+    FontWin *f;
+    wimp_w   w;
+
+    int x = (num & 255) % 32;
+    int y = (num & 255) / 32;
+
+    x =	  ((x * (font->charw + CHARSP)) + H_MARGIN) << redraw_block.dsa.magx;
+    y = -(((y * (font->charh + LINESP)) + V_MARGIN) << redraw_block.dsa.magy);
+
+    for (f = font_windows; f; f = f->next)
+    {
+	if (f->font == font && f->chunk && f->chunk->num == (num & ~255))
+	{
+	    w = window_get_wimp_handle(0, f->win);
+	    wimp_force_redraw(w, x, y - ((font->charh + LINESP) << redraw_block.dsa.magy), x + ((font->charw + CHARSP) << redraw_block.dsa.magx), y);
+	}
+    }
+}
+
+// redraw a chunk in the display windows
+//    font: the font
+//   chunk: the chunk, or NULL for non-existant ones
+static void redraw_chunk(Font *font, Chunk *chunk)
+{
+    FontWin *f;
+    wimp_w   w;
+
+    for (f = font_windows; f; f = f->next)
+    {
+	if (f->font == font && f->chunk == chunk)
+	{
+	    w = window_get_wimp_handle(0, f->win);
+	    wimp_force_redraw(w, -1000, -MR_BILLION, MR_BILLION, 1000);
+	}
+    }
+}
+
+void glyph_changed(Font *font, int num, int x, int y)
+{
+    if (font->flags.modified == 0)
+    {
+        font->flags.modified = 1;
+        create_title(font);
+    }
+
+    update_glyph(font, num, x, y);
+}
+
+// called to say a glyph has changed, so update the window
+//   font: the font
+//    num: the (full) character number
+//      x: the column of the pixel that's changed / -1 for whole glyph
+//      y: the row of the pixel that's changed / -1 for whole glyph
+void update_glyph(Font *font, int num, int x, int y)
+{
+    int mask = (1<<(1<<redraw_block.dsa.log2_bpp)) - 1; // ok since it's not used for 32 bpp
+
+    if (num != -1)
+    {
+        // regenerate the many-bpp data for the modified glyph
+        for (FontWin *f = font_windows; f; f = f->next)
+        {
+            if (f->font == font && f->chunk->num == (num & ~255) && f->cbpc != f->font->cbpc)
+            {
+                redraw_block.dsa.charh = f->font->charh;
+
+                zapredraw_conv_bitmap_char(&redraw_block, f->font->cbpl, f->cbpl, (f->chunk->data + ((num & 255) * f->font->cbpc)),
+                (f->data + ((num & 255) * f->cbpc)), mask, redraw_block.dsa.log2_bpp, NULL);
+            }
+        }
+
+        redraw_glyph(font, num);
+    }
+    else
+    {
+        // the null glyph's changed
+        Chunk *chunk;
+        int i, redraw;
+
+        for (chunk = font->chunks; chunk; chunk = chunk->next)
+        {
+            redraw = 0;
+
+            for (i = 0; i < 256; i++)
+            {
+                if (chunk->present[i] == 0)
+                {
+                    memcpy(chunk->data + (i * font->cbpc), font->null_glyph, font->cbpc);
+                    redraw = 1;
+                }
+            }
+
+            if (redraw)
+                redraw_chunk(font, chunk);
+        }
+
+        redraw_chunk(font, NULL);
+    }
+
+    editwin_glyph_changed(font, num, x, y);
+}
+
+
+// copy a glyph
+//   dfont, dnum: the destination font, full glyph num
+//   sfont, snum: the source font, full glyph num
+void copy_glyph(Font *dfont, int dnum, Font *sfont, int snum)
+{
+    if (dfont != sfont || dnum != snum)
+    {
+        Chunk *dchunk = find_chunk(dfont, dnum & ~255);
+        Chunk *schunk = find_chunk(sfont, snum & ~255);
+
+	if (dchunk == NULL)
+	{
+	    // destination chunk completely empty - need to create it first
+	    dchunk = create_chunk(dfont, dnum & ~255);
+	}
+
+        unsigned char *d = dchunk->data + (dfont->cbpc * (dnum & 255));
+        unsigned char *s = schunk->data + (sfont->cbpc * (snum & 255));
+
+        int dcbpl = dfont->cbpl;
+        int scbpl = sfont->cbpl;
+
+        if (dchunk)
+        {
+            if (schunk->present[snum & 255])
+            {
+                memset(d, 0, dfont->cbpc);
+
+                for (int y = 0; y < MIN(sfont->charh, dfont->charh); y++)
+                    memcpy(d + (y * dcbpl), s + (y * scbpl), scbpl);
+
+                if (dchunk->present[dnum & 255] == 0)
+                {
+                    dchunk->present[dnum & 255] = 1;
+                    dchunk->nchars++;
+                }
+            }
+            else
+            {
+                memcpy(d, dfont->null_glyph, dfont->cbpc);
+                dchunk->present[dnum & 255] = 0;
+                dchunk->nchars--;
+            }
+
+            glyph_changed(dfont, dnum, -1, -1);
+        }
+    }
+}
+
+
+// delete a glyph
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number offset
+void delete_glyph(Font *font, Chunk *chunk, int num)
+{
+    memcpy(chunk->data + (num * font->cbpc), font->null_glyph, font->cbpc);
+
+    chunk->present[num] = 0;
+    chunk->nchars       -= 1;
+
+    glyph_changed(font, chunk->num + num, -1, -1);
+}
+
+
+static void delete_selection(void)
+{
+    for (int x = 0; x < 256; x++)
+        if (selection.sel[x])
+            delete_glyph(selection.font, selection.chunk, x);
+
+    clear_selection();
+}
+
+// called to update the main menu when it's about to be shown
+static void menu_atbs(FontWin *f, toolbox_o menu)
+{
+    int nsel = 0;
+    int sel;
+
+    char buf[16];
+
+    for (int x = 0; x < 256; x++)
+        if (selection.sel[x])
+            nsel++, sel = x;
+
+    menu_set_fade(0, menu, cmp_FONTWINMENU_CLEAR_SEL, nsel ? 0 : 1);
+    menu_set_fade(0, menu, cmp_FONTWINMENU_GLYPH,     nsel ? 0 : 1);
+
+    buf[0] = '\0';
+
+    if (nsel == 1)
+        sprintf(buf, "U+%04X", f->chunknum + sel);
+
+    menu_set_entry_text(0, menu, cmp_FONTWINMENU_GLYPH, lookup_1(nsel > 1 ? "Selection" : "GlyphN", buf));
+}
+
+
+// called to update the glyph menu when it's about to be shown
+static void glyph_menu_atbs(FontWin *f, toolbox_o menu)
+{
+    int nsel = 0;
+
+    for (int x = 0; x < 256; x++)
+        if (selection.sel[x])
+            nsel++;
+
+    menu_set_title(0, menu, lookup(nsel > 1 ? "Selection" : "Glyph"));
+}
+
+
+// called when the manin emnu has been hidden
+static void menu_hidden(void)
+{
+    // The selection count is there because when we open the menu with a menu click (thus creating a temporary
+    // selection), then do it again (creating a different temporary selection), we get the second menu click
+    // event _before_ the menu hidden event, so we have to make sure a new menu isn't about to be shown.
+    selection.count--;
+
+    if (selection.flags.temporary && selection.count == 0)
+        clear_selection();
+}
+
+
+// called for various events on the font window
+int fontwin_misc_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id)
+{
+    FontWin *f;
+    toolbox_o obj = id->ancestor_obj == toolbox_NULL_OBJECT ? id->this_obj : id->ancestor_obj;
+
+    int ret  = 0;
+    int menu = 0;
+
+    printf("fontwin_misc_event %x\n", event->action_no);
+    for (f = font_windows; f->win != obj; f = f->next)
+	;
+
+    if (f)
+    {
+	ret = 1;
+
+	switch (event->action_no)
+	{
+	case event_FONTWIN_NEW_VIEW:        new_view(f);                       break;
+	case event_FONTWIN_HIDDEN:          fontwin_hidden(f);                 break;
+	case event_FONTWIN_SELECT_ALL:      select_all(f);      menu = 1;      break;
+	case event_FONTWIN_CLEAR_SEL:       clear_selection();  menu = 1;      break;
+	case event_FONTWIN_MENU_ATBS:       menu_atbs(f, id->this_obj);        break;
+	case event_FONTWIN_GLYPH_MENU_ATBS: glyph_menu_atbs(f, id->this_obj);  break;
+	case event_FONTWIN_MENU_HIDDEN:     menu_hidden();                     break;
+	case event_FONTWIN_DELETE_SEL:      delete_selection();                break;
+	case event_FONTWIN_EDIT_NULL_GLYPH: edit_character(f->font, NULL, -1); break;
+
+	default: ret = 0; // not handled
+	}
+    }
+
+    // update the window menu
+    if (menu) menu_atbs(f, id->this_obj);
+
+    return ret;
+}
+
+
+// get the selection from a window
+//    font: [out] the font
+//   chunk: [out] the chunk
+//     sel: [out] array giving the selection property for each glyph
+void fontwin_get_selection(Font **font, Chunk **chunk, unsigned char **sel)
+{
+    if (font)  *font  = selection.font;
+    if (chunk) *chunk = selection.chunk;
+    if (sel)   *sel   = selection.sel;
+}
+
+
+// get the font from a window
+//     obj: the window
+Font *fontwin_get_font(toolbox_o win)
+{
+    FontWin *f;
+
+    for (f = font_windows; f; f = f->next)
+        if (f->win == win)
+            break;
+
+    return f->font;
+}
+
