@@ -1,0 +1,391 @@
+//////////////////////////////////////////////////////////////
+//
+// bdf.c : bdf file import / export
+//
+// $Id: bdf,fff,v 1.1 2005/04/30 16:48:02 christian Exp $
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <ctype.h>
+
+#include "logmem.h"
+
+#include "oslib/os.h"
+#include "oslib/hourglass.h"
+#include "oslib/zapredraw.h"
+
+#include "loadsave.h"
+#include "error.h"
+
+#define CHUNK(a)  ((a) & ~0xff)
+#define OFFSET(a) ((a) & 0xff)
+
+#define LINE_SIZE 65536  // maximum line length according to the spec. Biggest I've seen is around 20...
+
+// these statics are here because this file was adapted
+// from bdf2zap, a command line program operating on one font
+// then quitting.
+static int lineno;
+static char *buf = NULL;
+static FILE *bdf = NULL;
+
+typedef struct Command Command;
+struct Command
+{
+    char *name;
+    int len;
+};
+
+Command commands[] =
+{
+    #define DEFCOM(a) {#a, sizeof(#a)-1},
+    #include "commands.h"
+};
+
+enum
+{
+    #define DEFCOM(a) COM_##a,
+    #include "commands.h"
+
+    COM_NONE
+};
+
+
+static int decode(char *com)
+{
+    int i = COM_NONE;
+
+    if (com)
+        for (i = 0; i < COM_NONE; i++)
+            if (strncmp(com, commands[i].name, commands[i].len) == 0 && isspace(com[commands[i].len]))
+                break;
+
+    return i;
+}
+
+static char *skipword(char *s)
+{
+    while (!isspace(*s))
+        s++;
+
+    while (isspace(*s))
+        s++;
+
+    return s;
+}
+
+// get the next line, or NULL on error / eof
+static char *getline(void)
+{
+    lineno++;
+
+    return fgets(buf, LINE_SIZE, bdf);
+}
+
+// skip to a specific command and return its arguments
+static char *skiptocom(int c)
+{
+    char *s;
+
+    while (1)
+    {
+        s = getline();
+        if (s)
+        {
+            if (decode(s) == c)
+                break;
+        }
+        else
+        {
+            error_report_token("BDFEOF");
+            return NULL;
+        }
+    }
+
+    return skipword(s);
+}
+
+
+// table of reversed nybbles
+unsigned char reversed[] =
+{
+    0x00, 0x08, 0x04, 0x0c, 0x02, 0x0a, 0x06, 0x0e, 0x01, 0x09,  // 0 to 9
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                    // : to @
+    0x05, 0x0d, 0x03, 0x0b, 0x07, 0x0f                           // a to f
+};
+
+int acorn_extended_latin1[] =
+{
+    0x20ac, 0x0174, 0x0175, 0xffff, 0xffff, 0x0176, 0x0177, 0xffff,
+    0xffff, 0xffff, 0xffff, 0xffff, 0x2026, 0x2122, 0x2030, 0x2022,
+
+    0x2018, 0x2019, 0x2039, 0x203a, 0x201c, 0x201d, 0x201e, 0x2013,
+    0x2014, 0x2212, 0x0152, 0x0153, 0x2020, 0x2021, 0xfb01, 0xfb02
+};
+
+static int hexval(char *s)
+{
+    int ret;
+
+    ret  = reversed[s[0] - '0'];
+    ret |= reversed[s[1] - '0'] << 4;
+
+    return ret;
+}
+
+
+// read in a glyph
+//   font: the font
+//   data: the place to put the glyph data
+//    bdf: the BDF file, fseek'd after the STARTCHAR line
+//
+// returns non-zero on success
+static int read_glyph(Font *font, unsigned char *data)
+{
+    char *s;
+    int j, k, v;
+    int x, y, shift;
+    int charw, charh;
+
+    s = skiptocom(COM_BBX);
+
+    if (s == NULL)
+        return 0;
+
+    charw = (int) strtol(s, &s,   10);
+    charh = (int) strtol(s, NULL, 10);
+
+    if (charw > font->charw || charh > font->charh)
+    {
+        // bounding box too big
+        error_report_token_d("BDFbbx", lineno);
+        return 1; // try to carry on
+    }
+
+    shift = ((font->charw - charw) / 2) % 8;
+
+    memset(data, 0, font->cbpc);
+
+    skiptocom(COM_BITMAP);
+
+    for (j = 0, y = ((font->charh - charh) / 2); j < charh; j++, y++)
+    {
+        if ((s = getline()) == NULL)
+            return 0;
+
+        for (k = 0, x = (font->charw - charw) / 2 / 8; k < ((charw + 7) / 8); k++, x++)
+        {
+            v = hexval(s);
+
+                       data[(y * font->cbpl) + x]     |= v << shift;
+            if (shift) data[(y * font->cbpl) + x + 1] |= v >> shift;
+
+            s += 2;
+        }
+    }
+
+    if (decode(getline()) != COM_ENDCHAR)
+        error_report_token_d("BDFEChar", lineno);
+
+    return 1;
+}
+
+
+// import a BDF font file
+//   filename: the name of the file
+//
+Font *import_bdf(const char *filename)
+{
+    Font  *font;
+    Chunk *chunk;
+    Chunk *czero;
+
+    int i, j;
+    char *s;
+
+    int num;
+
+    int null_glyph_was_first = 0;
+
+    long fsize;
+
+    bdf = fopen(filename, "rb");
+    if (!bdf)
+    {
+        error_report_token_1("NoFile", filename);
+        return 0;
+    }
+
+    fseek(bdf, 0, SEEK_END);
+    fsize = ftell(bdf);
+    fseek(bdf, 0, SEEK_SET);
+
+    buf = malloc(LINE_SIZE);
+    if (buf == NULL)
+    {
+        error_report_token("NoMem");
+        goto error;
+    }
+
+    font = calloc(sizeof(Font), 1);
+    if (font)
+    {
+        // get the start of a font
+        s = skiptocom(COM_STARTFONT);
+        if (s == NULL)
+        {
+            error_report_token_1("BDFNot", s);
+            goto error;
+        }
+
+        if (strncmp(s, "2.1", 3) != 0 && strncmp(s, "2.2", 3) != 0)
+            error_report_token_1("BDFVer", s); // warning
+
+        // find the bounding box
+        s = skiptocom(COM_FONTBOUNDINGBOX);
+        if (s == NULL)
+            goto error;
+
+        if (sscanf(s, "%i %i %i %i", &font->charw, &font->charh, &i, &j) < 4)
+        {
+            error_report_token_d("BDFSyntax", lineno);
+            goto error;
+        }
+
+        printf("Font size %d x %d\n", font->charh, font->charw);
+
+        zapredraw_cached_char_size(0, font->charw, font->charh, &font->cbpl, &font->cbpc);
+
+        // get some memory for the null glyph
+        font->null_glyph = calloc(1, font->cbpc);
+        if (font->null_glyph == NULL)
+        {
+            error_report_token("NoMem");
+            goto error;
+        }
+
+        s = strrchr(filename, '.');
+        font->filename = strdup(s ? s + 1 : filename);
+
+        font->flags.has_null_glyph = 1;
+        font->flags.modified       = 1;
+
+        hourglass_on();
+
+        // read in the glyphs
+        while (1)
+        {
+            hourglass_percentage((int) ((ftell(bdf) * 100) / fsize));
+
+            s = getline();
+            if (s)
+            {
+                if (decode(s) == COM_STARTCHAR)
+                {
+                    s   = skiptocom(COM_ENCODING);
+                    if (s == NULL)
+                        goto error;
+
+                    num = atoi(s);
+
+                    if (num == 0)
+                    {
+                        // the null glyph
+                        if (font->chunks == NULL)
+                            null_glyph_was_first = 1;
+
+                        if (read_glyph(font, font->null_glyph) == 0)
+                            goto error;
+                    }
+                    else
+                    {
+                        chunk = find_chunk(font, CHUNK(num));
+                        if (chunk == NULL)
+                        {
+                            chunk = create_chunk(font, CHUNK(num));
+                            if (chunk == NULL)
+                            {
+                                error_report_token("NoMem");
+                                goto error;
+                            }
+                        }
+
+                        if (chunk->present[OFFSET(num)] == 0)
+                        {
+                            chunk->present[OFFSET(num)] = 1;
+                            chunk->nchars++;
+                        }
+                        else
+                        {
+                            error_report_token_d("BDFDup", num); // warning
+                        }
+
+                        if (read_glyph(font, chunk->data + (OFFSET(num) * font->cbpc)) == 0)
+                            goto error;
+                    }
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    // copy the Acorn Latin-1 extensions
+    czero = find_chunk(font, 0);
+
+    if (czero)
+    {
+        for (num = 0x80; num < 0xa0; num++)
+        {
+            if (czero->present[OFFSET(num)] == 0)
+            {
+                int l1 = acorn_extended_latin1[num - 0x80];
+
+                chunk = find_chunk(font, CHUNK(l1));
+
+                if (chunk && chunk->present[OFFSET(l1)])
+                {
+                    memcpy(czero->data + (OFFSET(num) * font->cbpc), chunk->data + (OFFSET(l1) * font->cbpc), font->cbpc);
+
+                    czero->present[OFFSET(num)] = 1;
+                }
+            }
+        }
+    }
+
+    // TODO: if the null glyph wans't the first glyph defined in the file, we now need to
+    // copy it into every undefined character slot
+
+    hourglass_off();
+    fclose(bdf);
+
+    if (buf)
+    {
+        free(buf);
+        buf = NULL;
+    }
+
+    return font;
+
+
+error:
+    if (bdf)
+        fclose(bdf);
+
+    if (buf)
+    {
+        free(buf);
+        buf = NULL;
+    }
+
+    free_font(font);
+
+    hourglass_off();
+    return NULL;
+}
+

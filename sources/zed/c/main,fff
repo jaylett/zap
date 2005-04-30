@@ -1,6 +1,9 @@
-/*
- * Minimal Toolbox application, using the event veneers library.
- */
+//////////////////////////////////////////////////////////////
+//
+// Zed : A ZapRedraw bitmap font editor
+//
+// $Id: main,fff,v 1.2 2005/04/30 16:48:02 christian Exp $
+//
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -21,9 +24,11 @@
 #include "loadsave.h"
 #include "fontwin.h"
 #include "editwin.h"
+#include "infowin.h"
 #include "error.h"
 #include "drag.h"
 #include "ops.h"
+#include "bdf.h"
 
 #define WimpVersion    350
 
@@ -36,11 +41,6 @@ wimp_t wimp_task;
 int finished = 0;
 
 int global_quit = 0;
-/*
- * Event handler to be called when toolbox event 1
- * is generated (by click on the 'Quit' entry of
- * the iconbar menu.
- */
 
 // check whether we can quit
 //   global: non-zero if this is a desktop shutdown
@@ -70,7 +70,6 @@ static int prequit(int global)
 
     return n;
 }
-
 
 
 static int quit_quit(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
@@ -138,7 +137,11 @@ static int load_message(wimp_message *message, void *handle)
         m->your_ref = m->my_ref;
         wimp_send_message(wimp_USER_MESSAGE, message, m->sender);
 
-        font = load_font(m->file_name);
+        if (m->file_type == filetype_TEXT)
+            font = import_bdf(m->file_name);
+        else
+            font = load_font(m->file_name);
+
         if (font)
             create_and_show_font_window(font);
 
@@ -243,6 +246,8 @@ int main(int argc, char *argv[])
     event_register_message_handler(message_DATA_OPEN, load_message, 0);
 
     event_register_message_handler(message_MODE_CHANGE, mode_changed, 0);
+
+    event_register_toolbox_handler((toolbox_o)-1, event_FONTINFO_ATBS, infowin_atbs, 0);
 
     // all other events
     event_register_toolbox_handler((toolbox_o)-1, -1, other_events, 0);

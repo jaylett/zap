@@ -2,7 +2,7 @@
 //
 // fontwin.c : manages the main font window
 //
-// $Id: fontwin,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+// $Id: fontwin,fff,v 1.2 2005/04/30 16:48:02 christian Exp $
 //
 
 #include <stdlib.h>
@@ -605,11 +605,14 @@ void create_title(Font *font)
 
 
 // called when a font is successfully saved
-//   font: the font
-//   safe: non-zero if the save was safe
-//   name: the new filename if safe
-void font_saved(Font *font, int safe, char *name)
+//     font: the font
+//     safe: non-zero if the save was safe
+//     name: the new filename if safe
+//   parent: the toolbox window which was responsible for the save
+void font_saved(Font *font, int safe, char *name, toolbox_o parent)
 {
+    wimp_w w;
+
     if (font->flags.close_on_save)
     {
         for (FontWin *f = font_windows; f; f = f->next)
@@ -628,6 +631,9 @@ void font_saved(Font *font, int safe, char *name)
         }
 
         font_set_modified(font, !safe);
+
+        w = window_get_wimp_handle(0, parent);
+        wimp_set_caret_position(w, wimp_ICON_WINDOW, 0, 0, -1, 0);
     }
 }
 
@@ -710,6 +716,7 @@ static void fontwin_hidden(FontWin *f)
 {
     FontWin **pw;
     toolbox_o tool;
+    wimp_w    w;
 
     for (pw = &font_windows; *pw != f; pw = &(*pw)->next)
 	;
@@ -745,6 +752,13 @@ static void fontwin_hidden(FontWin *f)
         free(f->nullg);
 
     free(f);
+
+    // put the focus in another window
+    if (font_windows)
+    {
+        w = window_get_wimp_handle(0, font_windows->win);
+        wimp_set_caret_position(w, wimp_ICON_WINDOW, 0, 0, -1, 0);
+    }
 }
 
 
@@ -969,7 +983,7 @@ void update_glyph(Font *font, int num, int x, int y)
                 redraw_block.dsa.charh = f->font->charh;
 
                 zapredraw_conv_bitmap_char(&redraw_block, f->font->cbpl, f->cbpl, (f->chunk->data + ((num & 255) * f->font->cbpc)),
-                (f->data + ((num & 255) * f->cbpc)), mask, redraw_block.dsa.log2_bpp, NULL);
+                                           (f->data + ((num & 255) * f->cbpc)), mask, redraw_block.dsa.log2_bpp, NULL);
             }
         }
 
@@ -1178,6 +1192,24 @@ void fontwin_get_selection(Font **font, Chunk **chunk, unsigned char **sel)
     if (font)  *font  = selection.font;
     if (chunk) *chunk = selection.chunk;
     if (sel)   *sel   = selection.sel;
+}
+
+
+// select a glyph
+//    font: [in] the font
+//     num: the glyph number to select
+void fontwin_select_glyph(Font *font, int num)
+{
+    clear_selection();
+
+    selection.font  = font;
+    selection.chunk = find_chunk(font, num & ~0xff);
+
+    selection.sel[num & 0xff] = 1;
+
+    selection.flags.temporary = 0;
+
+    redraw_glyph(font, num);
 }
 
 

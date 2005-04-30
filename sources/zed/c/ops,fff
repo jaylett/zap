@@ -2,7 +2,7 @@
 //
 // ops.c : perform operations on glyphs
 //
-// $Id: ops,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+// $Id: ops,fff,v 1.2 2005/04/30 16:48:02 christian Exp $
 //
 
 #include <stdlib.h>
@@ -137,6 +137,72 @@ void underline_glyph(Font *font, Chunk *chunk, int num)
 }
 
 
+// move a glyph left one pixel
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void move_glyph_left(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+
+    for (int y = 0; y < font->charh; y++)
+        move_line_left(data + (y * font->cbpl), font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// move a glyph right one pixel
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void move_glyph_right(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+
+    for (int y = 0; y < font->charh; y++)
+        move_line_right(data + (y * font->cbpl), font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// move a glyph up one pixel
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void move_glyph_up(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+    int  y;
+
+    for (y = 0; y < font->charh - 1; y++)
+        memcpy((data + (y * font->cbpl)), (data + ((y + 1) * font->cbpl)), font->cbpl);
+
+    memset((data + (y * font->cbpl)), 0, font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
+// move a glyph down one pixel
+//    font: the font
+//   chunk: the chunk
+//     num: the glyph number
+void move_glyph_down(Font *font, Chunk *chunk, int num)
+{
+    u08 *data = chunk->data + ((num & 255) * font->cbpc);
+    int  y;
+
+    for (y = font->charh - 1; y > 0; y--)
+        memcpy((data + (y * font->cbpl)), (data + ((y - 1) * font->cbpl)), font->cbpl);
+
+    memset((data + (y * font->cbpl)), 0, font->cbpl);
+
+    glyph_changed(font, chunk->num + (num & 255), -1, -1);
+}
+
+
 int style_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *id)
 {
     int ret = 1;
@@ -155,6 +221,10 @@ int style_event(wimp_event_no event_code, toolbox_action *event, toolbox_block *
     case event_ITALICISE:     func = italicise_glyph;      break;
     case event_UNDERLINE:     func = underline_glyph;      break;
     case event_STRIKETHROUGH: func = strike_glyph_through; break;
+    case event_MOVE_UP:       func = move_glyph_up;        break;
+    case event_MOVE_DOWN:     func = move_glyph_down;      break;
+    case event_MOVE_LEFT:     func = move_glyph_left;      break;
+    case event_MOVE_RIGHT:    func = move_glyph_right;     break;
     default: ret = 0;
     }
 

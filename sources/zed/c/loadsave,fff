@@ -2,7 +2,7 @@
 //
 // font.c : load / save Zap fonts
 //
-// $Id: loadsave,fff,v 1.1 2005/04/28 19:12:31 christian Exp $
+// $Id: loadsave,fff,v 1.2 2005/04/30 16:48:02 christian Exp $
 //
 
 #include <stdlib.h>
@@ -37,44 +37,8 @@
 
 static toolbox_o saveas;
 
-// Old-style font header
-struct OldZapFont
-{
-    char magic[8];       // 'ZapFont',13
-    int charw;           // width in px
-    int charh;           // height in px
-    int firstchar;       // chunk directory size
-    int lastchar;        // null glyph offset / 0
-    int res0;            // reserved SBZ
-    int res1;            // reserved SBZ
-};
-
-// Unicode font file header
-struct ZapFont
-{
-    int magic;           // 'ZRUF'
-    int res0;            // reserved SBZ
-    int charw;           // width in px
-    int charh;           // height in px
-    int chunk_dir_size;  // chunk directory size
-    int null_glyph;      // null glyph offset / 0
-    int res2;            // reserved SBZ
-    int res3;            // reserved SBZ
-
-    // then the chunk directory
-};
-
-// chunk directory entry
-struct ChunkDirEntry
-{
-    int  num;            // chunk base number
-    int  nchars;         // number of chars in chunk
-    long foff;           // file offset of chunk
-    int  res0;           // reserved SBZ
-};
-
-
 Font *fonts = NULL;
+
 
 // return the given chunk from a font
 //   font: the font
@@ -583,7 +547,7 @@ Chunk *create_chunk(Font *font, int num)
         for (int x = 0; x < 256; x++)
             memcpy(chunk->data + (x * font->cbpc), font->null_glyph, font->cbpc);
 
-        add_chunk(font->chunks, chunk);
+        font->chunks = add_chunk(font->chunks, chunk);
     }
 
     return chunk;
@@ -634,7 +598,7 @@ static int saveas_done(wimp_event_no event_code, toolbox_action *event, toolbox_
     {
         // I appear to get TWO saveas_save_completed events when the icon is dragged (only one
         //   if you click save) so by the time we get here again we might have deleted the FontWin
-        font_saved(font, block->flags & saveas_SAVE_SAFE ? 1 : 0, block->file_name);
+        font_saved(font, block->flags & saveas_SAVE_SAFE ? 1 : 0, block->file_name, id->ancestor_obj);
     }
 
     return 1;
@@ -670,10 +634,7 @@ int count_modified_fonts(void)
 // OK clicked in the new font dbox
 int create_font(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
 {
-    Font  *font  = NULL;
-    Chunk *chunk = NULL;
-
-    font = calloc(1, sizeof(Font));
+    Font *font = calloc(1, sizeof(Font));
 
     if (font)
     {
@@ -682,22 +643,25 @@ int create_font(wimp_event_no event_code, toolbox_action *event, toolbox_block *
 
         zapredraw_cached_char_size(0, font->charw, font->charh, &font->cbpl, &font->cbpc);
 
-        chunk = calloc(1, sizeof(Chunk) + 256 * font->cbpc);
+        font->flags.has_null_glyph = 1;
+        font->flags.modified       = 1;
 
-        if (chunk)
+        font->null_glyph = calloc(1, font->cbpc);
+
+        if (font->null_glyph)
         {
-            font->chunks = chunk;
+            // generate the null glyph
+            redraw_block.font.charw = font->charw;
+            redraw_block.font.charh = font->charh;
+            zapredraw_add_vdu_bitmaps(&redraw_block, 0x106, 0x106, (zapredraw_char_cache) (font->null_glyph - (0x106 * font->cbpc)));
+
+            font->chunks = create_chunk(font, 0);
 
             font->filename = strdup("<Untitled>");
-
-            font->null_glyph = calloc(1, font->cbpc);
-
-            font->flags.has_null_glyph = 1;
-            font->flags.modified       = 1;
         }
     }
 
-    if (font == NULL || chunk ==  NULL || font->null_glyph == NULL || font->filename == NULL)
+    if (font == NULL || font->chunks == NULL || font->null_glyph == NULL || font->filename == NULL)
     {
         error_report_token("NoMem");
 
@@ -707,7 +671,7 @@ int create_font(wimp_event_no event_code, toolbox_action *event, toolbox_block *
             free(font->filename);
         }
 
-        free(chunk);
+        free(font->chunks);
         free(font);
     }
     else
