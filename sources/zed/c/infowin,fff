@@ -1,0 +1,101 @@
+//////////////////////////////////////////////////////////////
+//
+// infowin.c : manages the font info window
+//
+// $Id: infowin,fff,v 1.1 2005/04/30 17:00:39 christian Exp $
+//
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "logmem.h"
+#include "kernel.h"
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/toolbox.h"
+#include "oslib/displayfield.h"
+
+#include "event.h"
+#include "events.h"
+#include "strings.h"
+#include "error.h"
+#include "loadsave.h"
+#include "fontwin.h"
+
+// I'm debating whether to remove the Memory overhead item since that's always
+// the same as the file overhead minus the very first file header.
+//
+// But then most of these statistics were only useful to me when I was experimenting
+// with various file formats and chunk sizes etc. There's certainly nothing you can
+// do to 'tune' the font to reduce the various overheads.
+
+
+// called when the info win is about to be shown
+int infowin_atbs(wimp_event_no event_code, toolbox_action *event, toolbox_block *id, void *handle)
+{
+    Font *font = fontwin_get_font(id->ancestor_obj);
+    Chunk *chunk;
+
+    char buf[64];
+
+    int nglyphs       = 0;
+    int nchunks       = 0;
+    int data_size     = 0;
+    int file_overhead = sizeof(ZapFont);
+    int mem_overhead  = 0;
+    int total_size    = 0;
+
+    // count the font
+    for (chunk = font->chunks; chunk; chunk = chunk->next)
+    {
+        nchunks++;
+
+        nglyphs       += chunk->nchars;
+        data_size     += chunk->nchars * font->cbpc;
+        file_overhead += chunk->nchars == 256 ? 0 : 256; // translation table
+        mem_overhead  += chunk->nchars == 256 ? 0 : 256; // translation table
+        total_size    += (chunk->nchars * font->cbpc) + (chunk->nchars == 256 ? 0 : 256);
+    }
+
+    // add chunk directory
+    file_overhead += nchunks * sizeof(ChunkDirEntry);
+    mem_overhead  += nchunks * sizeof(ChunkDirEntry);
+    total_size    += nchunks * sizeof(ChunkDirEntry);
+
+    // and null glyph
+    if (font->flags.has_null_glyph)
+    {
+        data_size  += font->cbpc;
+        total_size += font->cbpc;
+    }
+
+    // fill in the window
+    sprintf(buf, font->flags.has_null_glyph ? "%d + 1" : "%d", nglyphs);
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_NGLYPHS, buf);
+
+    sprintf(buf, "%d", nchunks);
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_NCHUNKS, buf);
+
+    os_convert_spaced_integer4(data_size, buf, sizeof(buf));
+    strcat(buf, " bytes");
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_DATA_SIZE, buf);
+
+    os_convert_spaced_integer4(file_overhead, buf, sizeof(buf));
+    strcat(buf, " bytes");
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_FILE_OVERHEAD, buf);
+
+    os_convert_spaced_integer4(mem_overhead, buf, sizeof(buf));
+    strcat(buf, " bytes");
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_MEM_OVERHEAD, buf);
+
+    os_convert_spaced_integer4(total_size, buf, sizeof(buf));
+    strcat(buf, " bytes");
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_TOTAL_SIZE, buf);
+
+    displayfield_set_value(0, id->this_obj, cmp_FONTINFO_FONT_NAME, font->filename);
+
+    return 1;
+}
+
