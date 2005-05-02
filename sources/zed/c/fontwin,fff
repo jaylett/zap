@@ -2,7 +2,7 @@
 //
 // fontwin.c : manages the main font window
 //
-// $Id: fontwin,fff,v 1.2 2005/04/30 16:48:02 christian Exp $
+// $Id: fontwin,fff,v 1.3 2005/05/02 14:41:52 christian Exp $
 //
 
 #include <stdlib.h>
@@ -95,7 +95,7 @@ zapredraw_block redraw_block;
 
 static int minimum_width = 0;
 static int mode_changed  = 0;
-static int y_pos         = 0;
+static int y_pos         = 0;  // vertical position to open next new window at
 
 
 // returns the number of views displayed on a given font
@@ -290,20 +290,17 @@ static void set_chunk(FontWin *win, int num)
 	    redraw_block.dsa.caddr = (zapredraw_char_cache *) win->nullg;
 	    zapredraw_convert_bitmap(&redraw_block, 0, 0, win->font->null_glyph);
 	}
-
     }
     else
     {
-	if (win->data)
-	    free(win->data);
-	if (win->nullg)
-	    free(win->nullg);
+	if (win->data)  free(win->data);
+	if (win->nullg) free(win->nullg);
 
 	win->data = win->nullg = 0;
     }
 
     w = window_get_wimp_handle(0, win->win);
-    wimp_force_redraw(w, 0, -1000000, 1000000, 0);
+    wimp_force_redraw(w, 0, -MR_BILLION, MR_BILLION, 0);
 }
 
 
@@ -340,7 +337,6 @@ void update_redraw_block(void)
 }
 
 
-
 // get the character column and row from a mouse click
 //   font: [in]  the font
 //    obj: [in]  the window object
@@ -366,6 +362,34 @@ static int off_char(Font *font, toolbox_o obj, os_coord *pos, int *row, int *col
         *row = nrow;
     if (col)
         *col = ncol;
+
+    return (nrow * 32) + ncol;
+}
+
+
+// get the character column and row from a drag (can be outside the window)
+//   font: [in]  the font
+//    obj: [in]  the window object
+//    box: [in]  the box (top left used only)
+//    row: [out] the row (possibly -ve)
+//    col: [out] the column (possibly -ve)
+//
+// returns glyph number as offset into chunk
+static int off_box(Font *font, toolbox_o obj, os_box *box, int *row, int *col)
+{
+    wimp_window_state state;
+
+    state.w = window_get_wimp_handle(0, obj);
+    wimp_get_window_state(&state);
+
+    int wax = state.visible.x0 - state.xscroll;
+    int way = state.visible.y1 - state.yscroll;
+
+    int ncol = (box->x0 - wax) / ((font->charw + CHARSP) << redraw_block.dsa.magx);
+    int nrow = (way - box->y1) / ((font->charh + LINESP) << redraw_block.dsa.magy);
+
+    if (row) *row = nrow;
+    if (col) *col = ncol;
 
     return (nrow * 32) + ncol;
 }
@@ -419,12 +443,9 @@ static void copy_drag(os_box *box, void *handle)
 
     int sel;
 
-    for (int x = 0; x < 256; x++)
-        if (selection.sel[x])
-        {
-            sel = x;
+    for (sel = 0; sel < 256; sel++)
+        if (selection.sel[sel])
             break;
-        }
 
     window_get_pointer_info(0, &pos.x, &pos.y, &buttons, &obj, NULL);
 
@@ -441,12 +462,42 @@ static void copy_drag(os_box *box, void *handle)
             int off;
             int chunkn;
 
-            window_get_tool_bars(window_TOOL_BAR_ITL, obj, NULL, &tool, NULL, NULL);
+            int dest_row;
+            int dest_col;
 
-            off    = off_char(dfont, obj, &pos, NULL, NULL);
+            int source_row = sel / 32;
+            int source_col = sel % 32;
+
+            window_get_tool_bars(window_TOOL_BAR_ITL, obj, NULL, &tool, NULL, NULL);
             chunkn = numberrange_get_value(0, tool, g_tb_CHUNK) << 8;
 
-            copy_glyph(dfont, chunkn + off, selection.font, selection.chunk->num + sel);
+            // get the row,col of first destination glyph
+            off = off_box(dfont, obj, box, &dest_row, &dest_col);
+
+            if (source_col < dest_col || source_row < dest_row)
+            {
+                // copy from end
+                for (int sr = 7, dr = 7 + (dest_row - source_row); sr >= source_row; sr--, dr--)
+                    for (int sc = 31; sc >= 0; sc--)
+                    {
+                        int dc = sc + (dest_col - source_col);
+
+                        if (dc >= 0 && dc < 32 && dr >= 0 && dr < 8 && selection.sel[(sr * 32) + sc])
+                            copy_glyph(dfont, (dr * 32) + dc + chunkn, selection.font, (sr * 32) + sc + selection.chunk->num);
+                    }
+            }
+            else
+            {
+                // copy from start
+                for (int sr = source_row, dr = dest_row; sr < 8; sr++, dr++)
+                    for (int sc = 0; sc < 32; sc++)
+                    {
+                        int dc = sc + (dest_col - source_col);
+
+                        if (dc >= 0 && dc < 32 && dr >= 0 && dr < 8 && selection.sel[(sr * 32) + sc])
+                            copy_glyph(dfont, (dr * 32) + dc + chunkn, selection.font, (sr * 32) + sc + selection.chunk->num);
+                    }
+            }
         }
         else if (strcmp(buf, "Edit") == 0)
         {
@@ -468,9 +519,9 @@ static int font_mouse_click(wimp_event_no event_code, wimp_block *block, toolbox
 
     wimp_set_caret_position(w, -1, 0, 0, -1, -1);
 
-    if (block->pointer.buttons & (wimp_SINGLE_SELECT | wimp_DRAG_SELECT))
+    if (block->pointer.buttons & wimp_SINGLE_SELECT)
     {
-        if (f->chunk != selection.chunk || selection.sel[off] == 0 || (block->pointer.buttons & wimp_DRAG_SELECT))
+        if (selection.font != f->font || selection.chunk != f->chunk || selection.sel[off] == 0)
         {
             clear_selection();
 
@@ -483,22 +534,34 @@ static int font_mouse_click(wimp_event_no event_code, wimp_block *block, toolbox
 
             redraw_font(f->font);
         }
+    }
 
-        if (block->pointer.buttons & wimp_DRAG_SELECT)
-        {
-            wimp_pointer pointer;
-            os_box       box;
+    if (block->pointer.buttons & wimp_DRAG_SELECT)
+    {
+        wimp_window_state state;
+        os_box       box = {MR_BILLION, MR_BILLION, 0, 0};
 
-            wimp_get_pointer_info(&pointer);
+        state.w = w;
+        wimp_get_window_state(&state);
 
-            box.x0 = pointer.pos.x - ((f->font->charw << redraw_block.dsa.magx) / 2);
-            box.y0 = pointer.pos.y - ((f->font->charh << redraw_block.dsa.magy) / 2);
+        // find the bounding box in chars
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 32; x++)
+            {
+                if (selection.sel[(y * 32) + x])
+                {
+                    box.x0 = MIN(box.x0, x); box.x1 = MAX(box.x1, (x + 1));
+                    box.y0 = MIN(box.y0, y); box.y1 = MAX(box.y1, (y + 1));
+                }
+            }
 
-            box.x1 = box.x0 + (f->font->charw << redraw_block.dsa.magx);
-            box.y1 = box.y0 + (f->font->charh << redraw_block.dsa.magy);
+        // and in screen coordinates
+        box.x0 = state.visible.x0 + ((box.x0 * (f->font->charw + CHARSP)) << redraw_block.dsa.magx) + H_MARGIN - state.xscroll;
+        box.x1 = state.visible.x0 + ((box.x1 * (f->font->charw + CHARSP)) << redraw_block.dsa.magx) + H_MARGIN - state.xscroll;
+        box.y0 = state.visible.y1 - ((box.y0 * (f->font->charh + LINESP)) << redraw_block.dsa.magy) - V_MARGIN - state.yscroll;
+        box.y1 = state.visible.y1 - ((box.y1 * (f->font->charh + LINESP)) << redraw_block.dsa.magy) - V_MARGIN - state.yscroll;
 
-            fixed_drag(id->this_obj, &box, copy_drag, f);
-        }
+        fixed_drag(id->this_obj, &box, copy_drag, f);
     }
 
     else if (block->pointer.buttons & wimp_DOUBLE_SELECT)
