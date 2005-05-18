@@ -2,7 +2,7 @@
 //
 // fontwin.c : manages the main font window
 //
-// $Id: fontwin,fff,v 1.3 2005/05/02 14:41:52 christian Exp $
+// $Id: fontwin,fff,v 1.4 2005/05/18 12:33:58 christian Exp $
 //
 
 #include <stdlib.h>
@@ -1092,41 +1092,45 @@ void copy_glyph(Font *dfont, int dnum, Font *sfont, int snum)
         Chunk *dchunk = find_chunk(dfont, dnum & ~255);
         Chunk *schunk = find_chunk(sfont, snum & ~255);
 
-	if (dchunk == NULL)
-	{
-	    // destination chunk completely empty - need to create it first
-	    dchunk = create_chunk(dfont, dnum & ~255);
-	}
-
-        unsigned char *d = dchunk->data + (dfont->cbpc * (dnum & 255));
-        unsigned char *s = schunk->data + (sfont->cbpc * (snum & 255));
-
-        int dcbpl = dfont->cbpl;
-        int scbpl = sfont->cbpl;
-
-        if (dchunk)
+        // do nothing if copying an undefined glyph into a nonexistant chunk
+        if (dchunk != NULL || schunk->present[snum & 255])
         {
-            if (schunk->present[snum & 255])
+            if (dchunk == NULL)
             {
-                memset(d, 0, dfont->cbpc);
+                // destination chunk completely empty - need to create it first
+                dchunk = create_chunk(dfont, dnum & ~255);
+            }
 
-                for (int y = 0; y < MIN(sfont->charh, dfont->charh); y++)
-                    memcpy(d + (y * dcbpl), s + (y * scbpl), scbpl);
+            unsigned char *d = dchunk->data + (dfont->cbpc * (dnum & 255));
+            unsigned char *s = schunk->data + (sfont->cbpc * (snum & 255));
 
-                if (dchunk->present[dnum & 255] == 0)
+            int dcbpl = dfont->cbpl;
+            int scbpl = sfont->cbpl;
+
+            if (dchunk)
+            {
+                if (schunk->present[snum & 255])
                 {
-                    dchunk->present[dnum & 255] = 1;
-                    dchunk->nchars++;
+                    // source glyph present
+                    memset(d, 0, dfont->cbpc);
+
+                    for (int y = 0; y < MIN(sfont->charh, dfont->charh); y++)
+                        memcpy(d + (y * dcbpl), s + (y * scbpl), scbpl);
+
+                    if (dchunk->present[dnum & 255] == 0)
+                    {
+                        dchunk->present[dnum & 255] = 1;
+                        dchunk->nchars++;
+                    }
+
+                    glyph_changed(dfont, dnum, -1, -1);
+                }
+                else
+                {
+                    // source not present
+                    delete_glyph(dfont, dchunk, dnum & 255);
                 }
             }
-            else
-            {
-                memcpy(d, dfont->null_glyph, dfont->cbpc);
-                dchunk->present[dnum & 255] = 0;
-                dchunk->nchars--;
-            }
-
-            glyph_changed(dfont, dnum, -1, -1);
         }
     }
 }
@@ -1138,12 +1142,15 @@ void copy_glyph(Font *dfont, int dnum, Font *sfont, int snum)
 //     num: the glyph number offset
 void delete_glyph(Font *font, Chunk *chunk, int num)
 {
-    memcpy(chunk->data + (num * font->cbpc), font->null_glyph, font->cbpc);
+    if (chunk->present[num])
+    {
+        memcpy(chunk->data + (num * font->cbpc), font->null_glyph, font->cbpc);
 
-    chunk->present[num] = 0;
-    chunk->nchars       -= 1;
+        chunk->present[num]  = 0;
+        chunk->nchars       -= 1;
 
-    glyph_changed(font, chunk->num + num, -1, -1);
+        glyph_changed(font, chunk->num + num, -1, -1);
+    }
 }
 
 
@@ -1155,6 +1162,7 @@ static void delete_selection(void)
 
     clear_selection();
 }
+
 
 // called to update the main menu when it's about to be shown
 static void menu_atbs(FontWin *f, toolbox_o menu)
