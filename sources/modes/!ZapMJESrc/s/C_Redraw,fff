@@ -39,6 +39,7 @@ crtab		RN	r5		;  b0-7  : Tab char
 					;  b8    : Set if C
 					;  b9    : Set if C++
 					;  b10   : Set if Java
+					;  b11   : Set if Pascal
 					;  b12,13: Tab style, as for b12,13 in w_format
 					;  b24-31: CR char
 output		RN	r6		;  b0-30 : Ptr to buffer for output, 0 for none
@@ -102,12 +103,14 @@ whitespace	EQU	1<<31		;  Only whitespace so far this line
 cext		EQU	1<<8		;  In C mode
 cppext		EQU	1<<9		;  In C++ mode
 javaext		EQU	1<<10		;  In Java mode
+pascalext	EQU	1<<11		;  In Pacal mode
 
 ;  Flags in reserved word table
 
 ;  Normal reserved words, first word
 cppkeyword	EQU	1<<7		;  Keyword valid in C++ mode
 javakeyword	EQU	1<<15		;  Keyword valid in Java mode
+pascalkeyword	EQU	1<<23		;  Keyword valid in Pascal mode
 
 ;  Normal reserved words, second word
 ckeyword	EQU	1<<23		;  Keyword valid in C mode
@@ -248,6 +251,8 @@ scaninit$C	FNJSR	"modeblk,wsblk"
 		ORREQ	crtab,crtab,#cppext		;  Also C++ flag into crtab
 		TEQ	r0,#java
 		ORREQ	crtab,crtab,#javaext		;  Also Java flag into crtab
+		TEQ	r0,#pascal
+		ORREQ	crtab,crtab,#pascalext		;  Also Pascal flag into crtab
 		FNRTS
 
 
@@ -286,7 +291,7 @@ asm_a_generic	FNJSR	"r4"
 
 		BL	scaninit$C		; sets up R5...
 
-		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext)
+		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext:OR:pascalext)
 		BEQ	inassembler$L
 		LDR	R0,f_len
 		CMP	R11,R0
@@ -327,7 +332,7 @@ asm_a_quoted	FNJSR
 
 		BL	scaninit$C		; sets up R5...
 
-		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext)
+		ANDS	R0,crtab,#(cext:OR:cppext:OR:javaext:OR:pascalext)
 		BEQ	inassembler$L
 		LDR	R0,f_len
 		CMP	R11,R0
@@ -463,7 +468,7 @@ scanfile$C	FNJSR	"r4,r11"		; BEWARE: explicit pull on return
 		TEQNE	lastchar,#inccomment
 		TEQNE	lastchar,#endcomment
 		TEQNE	lastchar,#endinccomment
-		BEQ	commentloop$L
+		BEQ	commentloopentry$L
 		TEQ	lastchar,#cppcomment
 		BEQ	cpploop$L
 ;notprevnext$L
@@ -503,6 +508,8 @@ normal$L	ORREQ	state,state,#reset ; /always/ EQ when gets here
 mainloop$L	BL	getchar$L
 gotchar$L	TEQ	char,#'#'
 		BEQ	checkpreproc$L
+		TST     crtab, #pascalext
+		BNE     checkcommentpascal$L ; slow if we're in pascal mode - it's PASCAL for pete's sake
 		TEQ	char,#'/'
 		BEQ	checkcomment$L
 notcomment$L	TEQ	char,crtab,LSR #24
@@ -525,23 +532,39 @@ notcomment$L	TEQ	char,crtab,LSR #24
 		RSBLSS	lr,lr,#'A'
 		TEQHI	char,#'_'
 		BLS	name$L
+
+		; Uh, this might not be the most sensible - invert the pascal
+		; bit in a temporary register and then test so that the CC
+		; is EQ for 'true', so that we can then use an EQ test for
+		; the $
+		EOR     lr,crtab,#pascalext
+		TST     lr,#pascalext
+		TEQEQ   char,#'$'
+		BEQ     numberishex$L ; relies on 'EQ' being set and lr not
+		                      ; being anything that might be a
+		                      ; prefix character in C.
 		CMP	char,#'9'
 		RSBLSS	lr,char,#'0'
 		BHI	mainloop$L
 
 ;  Numbers
 
-number$L	TEQ	char,#'0'
+number$L
+		TST	crtab, #pascalext ; pascal doesn't have these fancies
+		TEQEQ	char,#'0'
 		BICNE	state,state,#statemask
 		ORRNE	state,state,#decnumber
 		BNE	numberloop$L
 		BIC	state,state,#statemask
 		ORR	state,state,#somenumber
-findnumtype$L	BL	getchar$L
+findnumtype$L
+; JRF: We can get entered here from the dispatcher, but not for Pascal
+		BL	getchar$L
 		BIC	state,state,#statemask
 		ORR	state,state,#decnumber
 		AND	lr,char,#&DF
 		TEQ	lr,#'X'
+numberishex$L
 		BICEQ	state,state,#statemask
 		ORREQ	state,state,#hexnumber
 		TEQ	lr,#'B'
@@ -605,6 +628,39 @@ fraction$L	PUSH	"char,ptr,splito"
 
 ;  Comments
 
+checkcommentpascal$L
+		TEQ	char,#'{'
+		BEQ	checkcommentpascalyay$L
+		TEQ	char,#'('
+		BNE	notcomment$L
+		PUSH	"char,ptr,splito"
+		BL	getahead$L
+		TEQ	char,#'*'
+		PULL	"char,ptr,splito"
+		BCS	notcomment$L
+		BNE	notcomment$L
+checkcommentpascalyay$L
+		BIC	state,state,#statemask
+		ORR	state,state,#startcomment
+commentpascalstart$L
+		BL	getchar$L
+		SUB	state,state,#1<<4 ; clears us to regular comment state
+commentpascalloop$L
+		BL	getchar$L
+		TEQ	char,crtab,LSR #24
+		BICEQ	state,state,#statemask
+		ORREQ	state,state,#comment
+		AND	lr,state,#statemask
+		TEQ	char,#'}'
+		BEQ	normal$L
+		TEQ	lr,#endcomment
+		TEQEQ	char,#')'
+		BEQ	normal$L
+		TEQ	char,#'*'
+		ORREQ	state,state,#endcomment:EOR:comment
+		BICNE	state,state,#endcomment:EOR:comment
+		B	commentpascalloop$L
+
 ;cppcomloop$L	BL	getchar$L
 ;		TEQ	char,crtab,LSR #24
 ;		BNE	cppcomloop$L
@@ -625,7 +681,11 @@ checkcomment$L	PUSH	"char,ptr,splito"
 		BIC	state,state,#statemask
 		ORRNE	state,state,#startcomment
 		ORREQ	state,state,#startinccmmnt
-commentstart$L	BL	getchar$L
+commentstart$L
+; JRF: Note that we can be re-entered here from the dispatcher
+		TST	crtab, #pascalext
+		BNE	commentpascalstart$L
+		BL	getchar$L
 		SUB	state,state,#1<<4
 commentloop$L	BL	getchar$L
 		TEQ	char,crtab,LSR #24
@@ -639,6 +699,12 @@ commentloop$L	BL	getchar$L
 		TEQ	char,#'*'
 		ORREQ	state,state,#endcomment:EOR:comment
 		BICNE	state,state,#endcomment:EOR:comment
+		B	commentloop$L
+
+commentloopentry$L
+; JRF: Note that we get re-entered here from the dispatcher
+		TST	crtab, #pascalext
+		BNE	commentpascalloop$L
 		B	commentloop$L
 
 cpp$L		PULL	"char,ptr,splito"
@@ -940,8 +1006,12 @@ namesearchlp$L	SUBS	width,width,#1
 		BLS	namesearchlp$L
 		TEQ	state,#preprocinc+preprocflag
 		BEQ	nameendfound$L
-whitespacelp$L	TEQ	char,#'/'
+whitespacelp$L
+		TST	crtab, #pascalext
+		BNE	namecommentpascal$L ; very slow pascal again
+		TEQ	char,#'/'
 		BEQ	namecomment$L
+namecommentpascalreturns$L
 		TEQ	char,#' '
 		TEQNE	char,crtab,LSR #24
 		ANDNE	lr,crtab,#255
@@ -1020,6 +1090,7 @@ searchresloop$L	ADD	lr,char,crtab
 		LDR	lastchar,[lastchar,lr,LSL #3]
 		BIC	lastchar,lastchar,#cppkeyword
 		BIC	lastchar,lastchar,#javakeyword
+		BIC	lastchar,lastchar,#pascalkeyword
 		CMP	lastchar,width
 		MOVHI	crtab,lr
 		ADDLO	char,lr,#1
@@ -1048,6 +1119,7 @@ notres1$L	TST	lastchar,#dupkeyword
 		LDR	lastchar,[lastchar,lr,LSL #3]
 		BIC	lastchar,lastchar,#cppkeyword
 		BIC	lastchar,lastchar,#javakeyword
+		BIC	lastchar,lastchar,#pascalkeyword
 		TEQ	lastchar,crtab
 		ADDNE	lr,lr,#2
 		ADR	lastchar,reservedstart$L+4
@@ -1085,6 +1157,9 @@ matchedres$L	LDR	crtab,[sp,#16+2*4]		;  Keep in step with stack - gets crtab
 		BNE	isreserved$L
 		ADR	lastchar,reservedstart$L
 		LDR	lastchar,[lastchar,lr,LSL #3]
+		TST	lastchar,#pascalkeyword
+		TSTNE	crtab,#pascalext
+		BNE	isreserved$L
 		TST	lastchar,#javakeyword
 		TSTNE	crtab,#javaext
 		BNE	isreserved$L
@@ -1134,6 +1209,36 @@ namecpploop$L	TST	crtab,#cppext+javaext
 		BNE	namecpploop$L
 		B	whitespacelp$L
 
+namecommentpascal$L
+		TEQ	char,#'{'
+		BEQ	namecommentpascalyay$L
+		TEQ	char,#'('
+		BNE	namecommentpascalreturns$L
+		PUSH	"char,ptr,splito"
+		BL	getahead$L
+		TEQ	char,#'*'
+		TEQCS	pc, #0 ; if CS, set NE
+		PULL	"char,ptr,splito", NE
+		BNE	namecommentpascalreturns$L
+		ADD	sp, sp, #4*3
+
+namecommentpascalyay$L ; all the 'pascalyay' markers are 'success for a { match comment'
+namecommentpascallp$L
+		BL	getahead$L
+		BCS	isvariable$L
+nameendcmmntpascal$L
+		TEQ	char,#'}'
+		BEQ	nameendcmmentpascalyay$L
+		TEQ	char,#'*'
+		BNE	namecommentpascallp$L
+		BL	getahead$L
+		BCS	isvariable$L
+		TEQ	char,#')'
+		BNE	nameendcmmntpascal$L
+nameendcmmentpascalyay$L
+		BL	getahead$L
+		B	morewhitespc$L
+
 ;		LTORG
 
 ;  This is worse than it looks...
@@ -1148,6 +1253,45 @@ $label		=	$flag2<<7,$flag3<<7,'$lt1','$lt0'
 $label		=	$flag2<<7,'$lt2'+($flag3<<7),'$lt1','$lt0'
 		|
 $label		=	'$lt3'+($flag2<<7),'$lt2'+($flag3<<7),'$lt1','$lt0'
+		]
+		]
+		ALIGN
+		[	"$addr"=""
+		[	"$lt5"=""
+		[	"$lt4"=""
+		=	0,$dup<<7,$flag1<<7,0
+		|
+		=	0,$dup<<7,$flag1<<7,'$lt4'
+		]
+		|
+		[	"$lt6"=""
+		=	0,$dup<<7,'$lt5'+($flag1<<7),'$lt4'
+		|
+		[	"$lt7"=""
+		=	0,'$lt6'+($dup<<7),'$lt5'+($flag1<<7),'$lt4'
+		|
+		=	'$lt7','$lt6'+($dup<<7),'$lt5'+($flag1<<7),'$lt4'
+		]
+		]
+		]
+		|
+		DCD	$addr+($dup<<15)+($flag1<<23)+(1<<31)
+		]
+		MEND
+
+; This is as bad as it looks - we're now using bit 7 of $lt1 to indicate the $flag4 value
+; which we use to indicate a pascal reserved word. To things less scarey, I've created a
+; copy of this macro so that RWORD is unaffected (safer for my sanity).
+		MACRO
+$label		RWORD2	$flag1,$flag2,$flag3,$flag4,$dup,$addr,$lt0,$lt1,$lt2,$lt3,$lt4,$lt5,$lt6,$lt7
+		ALIGN
+		[	"$lt2"=""
+$label		=	$flag2<<7,$flag3<<7,'$lt1'+($flag4<<7),'$lt0'
+		|
+		[	"$lt3"=""
+$label		=	$flag2<<7,'$lt2'+($flag3<<7),'$lt1'+($flag4<<7),'$lt0'
+		|
+$label		=	'$lt3'+($flag2<<7),'$lt2'+($flag3<<7),'$lt1'+($flag4<<7),'$lt0'
 		]
 		]
 		ALIGN
@@ -1208,109 +1352,151 @@ preprocend$L
 ;    1 - Valid in C
 ;    2 - Valid in C++
 ;    3 - Valid in Java
-;    4 - Shares first 4 chars with another reserved word
-;    5 - Address of remainder of long word (>8 chars)
-;    6 - Reserved word, or first four chars if long word
+;    4 - Valid in Pascal
+;    5 - Shares first 4 chars with another reserved word
+;    6 - Address of remainder of long word (>8 chars)
+;    7 - Reserved word, or first four chars if long word
 
-;			1 , 2 , 3 , 4 , 5        , 6...
-reservedstart$L	RWORD	1 , 1 , 0 , 0 ,          , _,_,D,A,T,E,_,_
-		RWORD	1 , 1 , 0 , 0 ,          , _,_,F,I,L,E,_,_
-		RWORD	1 , 1 , 0 , 0 ,          , _,_,L,I,N,E,_,_
-		RWORD	1 , 1 , 0 , 0 ,          , _,_,S,T,D,C,_,_
-		RWORD	1 , 1 , 0 , 0 ,          , _,_,T,I,M,E,_,_
-		RWORD	0 , 0 , 1 , 0 ,          , a,b,s,t,r,a,c,t
-		RWORD	0 , 1 , 0 , 0 ,          , a,n,d
-		RWORD	0 , 1 , 0 , 0 ,          , a,n,d,_,e,q
-		RWORD	0 , 1 , 0 , 0 ,          , a,s,m
-		RWORD	1 , 1 , 0 , 0 ,          , a,u,t,o
-		RWORD	0 , 1 , 0 , 0 ,          , b,i,t,a,n,d
-		RWORD	0 , 1 , 0 , 0 ,          , b,i,t,o,r
-		RWORD	0 , 1 , 0 , 1 ,          , b,o,o,l
-		RWORD	0 , 0 , 1 , 1 ,          , b,o,o,l,e,a,n
-		RWORD	1 , 1 , 1 , 0 ,          , b,r,e,a,k
-		RWORD	0 , 0 , 1 , 0 ,          , b,y,t,e
-		RWORD	1 , 1 , 1 , 0 ,          , c,a,s,e
-		RWORD	0 , 1 , 1 , 0 ,          , c,a,t,c,h
-		RWORD	1 , 1 , 1 , 0 ,          , c,h,a,r
-		RWORD	0 , 1 , 1 , 0 ,          , c,l,a,s,s
-		RWORD	0 , 1 , 0 , 0 ,          , c,o,m,p,l
-		RWORD	1 , 1 , 1 , 1 ,          , c,o,n,s,t
-		RWORD	0 , 1 , 0 , 1 , k_cons$L , c,o,n,s	; const_cast
-		RWORD	1 , 1 , 1 , 0 ,          , c,o,n,t,i,n,u,e
-		RWORD	1 , 1 , 1 , 0 ,          , d,e,f,a,u,l,t
-		RWORD	0 , 1 , 0 , 0 ,          , d,e,l,e,t,e
-		RWORD	1 , 1 , 1 , 0 ,          , d,o
-		RWORD	1 , 1 , 1 , 0 ,          , d,o,u,b,l,e
-		RWORD	0 , 1 , 0 , 0 , k_dyna$L , d,y,n,a	; dynamic_cast
-		RWORD	1 , 1 , 1 , 0 ,          , e,l,s,e
-		RWORD	1 , 1 , 0 , 0 ,          , e,n,u,m
-		RWORD	0 , 1 , 0 , 0 ,          , e,x,p,l,i,c,i,t
-		RWORD	0 , 0 , 1 , 1 ,          , e,x,t,e,n,d,s
-		RWORD	1 , 1 , 0 , 1 ,          , e,x,t,e,r,n
-		RWORD	0 , 1 , 0 , 0 ,          , f,a,l,s,e
-		RWORD	0 , 0 , 1 , 1 ,          , f,i,n,a,l
-		RWORD	0 , 0 , 1 , 1 ,          , f,i,n,a,l,l,y
-		RWORD	1 , 1 , 1 , 0 ,          , f,l,o,a,t
-		RWORD	1 , 1 , 1 , 0 ,          , f,o,r
-		RWORD	0 , 1 , 0 , 0 ,          , f,r,i,e,n,d
-		RWORD	0 , 0 , 1 , 0 ,          , f,u,t,u,r,e
-		RWORD	0 , 0 , 1 , 0 ,          , g,e,n,e,r,i,c
-		RWORD	1 , 1 , 1 , 0 ,          , g,o,t,o
-		RWORD	1 , 1 , 1 , 0 ,          , i,f
-		RWORD	0 , 0 , 1 , 0 , k_impl$L , i,m,p,l	; implements
-		RWORD	0 , 0 , 1 , 0 ,          , i,m,p,o,r,t
-		RWORD	0 , 1 , 0 , 0 ,          , i,n,l,i,n,e
-		RWORD	0 , 0 , 1 , 0 ,          , i,n,n,e,r
-		RWORD	0 , 0 , 1 , 0 , k_inst$L , i,n,s,t	; instanceof
-		RWORD	1 , 1 , 1 , 0 ,          , i,n,t
-		RWORD	0 , 0 , 1 , 0 , k_inte$L , i,n,t,e	; interface
-		RWORD	1 , 1 , 1 , 0 ,          , l,o,n,g
-		RWORD	0 , 1 , 0 , 0 ,          , m,u,t,a,b,l,e
-		RWORD	0 , 1 , 0 , 0 , k_name$L , n,a,m,e	; namespace
-		RWORD	0 , 0 , 1 , 0 ,          , n,a,t,i,v,e
-		RWORD	0 , 1 , 1 , 0 ,          , n,e,w
-		RWORD	0 , 1 , 0 , 0 ,          , n,o,t
-		RWORD	0 , 0 , 1 , 0 ,          , n,u,l,l
-		RWORD	0 , 1 , 1 , 0 ,          , o,p,e,r,a,t,o,r
-		RWORD	0 , 1 , 0 , 0 ,          , o,r
-		RWORD	0 , 1 , 0 , 0 ,          , o,r,_,e,q
-		RWORD	0 , 0 , 1 , 0 ,          , o,u,t,e,r
-		RWORD	0 , 0 , 1 , 0 ,          , p,a,c,k,a,g,e
-		RWORD	0 , 1 , 1 , 0 ,          , p,r,i,v,a,t,e
-		RWORD	0 , 1 , 1 , 0 , k_prot$L , p,r,o,t	; protected
-		RWORD	0 , 1 , 1 , 0 ,          , p,u,b,l,i,c
-		RWORD	1 , 1 , 0 , 0 ,          , r,e,g,i,s,t,e,r
-		RWORD	0 , 1 , 0 , 0 , k_rein$L , r,e,i,n	; reinterpret_cast
-		RWORD	0 , 0 , 1 , 0 ,          , r,e,s,t
-		RWORD	1 , 1 , 1 , 0 ,          , r,e,t,u,r,n
-		RWORD	1 , 1 , 1 , 0 ,          , s,h,o,r,t
-		RWORD	1 , 1 , 0 , 0 ,          , s,i,g,n,e,d
-		RWORD	1 , 1 , 0 , 0 ,          , s,i,z,e,o,f
-		RWORD	1 , 1 , 1 , 1 ,          , s,t,a,t,i,c
-		RWORD	0 , 1 , 0 , 1 , k_stat$L , s,t,a,t	; static_cast
-		RWORD	1 , 1 , 0 , 0 ,          , s,t,r,u,c,t
-		RWORD	0 , 0 , 1 , 0 ,          , s,u,p,e,r
-		RWORD	1 , 1 , 1 , 0 ,          , s,w,i,t,c,h
-		RWORD	0 , 0 , 1 , 0 , k_sync$L , s,y,n,c	; synchronized
-		RWORD	0 , 1 , 0 , 0 ,          , t,e,m,p,l,a,t,e
-		RWORD	0 , 1 , 1 , 0 ,          , t,h,i,s
-		RWORD	0 , 1 , 1 , 1 ,          , t,h,r,o,w
-		RWORD	0 , 0 , 1 , 1 ,          , t,h,r,o,w,s
-		RWORD	0 , 0 , 1 , 0 , k_tran$L , t,r,a,n	; transient
-		RWORD	0 , 1 , 0 , 0 ,          , t,r,u,e
-		RWORD	0 , 1 , 1 , 0 ,          , t,r,y
-		RWORD	1 , 1 , 0 , 1 ,          , t,y,p,e,d,e,f
-		RWORD	0 , 1 , 0 , 1 ,          , t,y,p,e,i,d
-		RWORD	1 , 1 , 0 , 0 ,          , u,n,i,o,n
-		RWORD	1 , 1 , 0 , 0 ,          , u,n,s,i,g,n,e,d
-		RWORD	0 , 1 , 0 , 0 ,          , u,s,i,n,g
-		RWORD	0 , 0 , 1 , 0 ,          , v,a,r
-		RWORD	0 , 1 , 0 , 0 ,          , v,i,r,t,u,a,l
-		RWORD	1 , 1 , 1 , 0 ,          , v,o,i,d
-		RWORD	1 , 1 , 1 , 0 ,          , v,o,l,a,t,i,l,e
-		RWORD	1 , 1 , 1 , 0 ,          , w,h,i,l,e
-		RWORD	0 , 1 , 0 , 0 ,          , x,o,r
-		RWORD	0 , 1 , 0 , 0 ,          , x,o,r,_,e,q
+;			1 , 2 , 3 , 4 , 5 , 6        , 7...
+reservedstart$L	RWORD2	1 , 1 , 0 , 0 , 0 ,          , _,_,D,A,T,E,_,_
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , _,_,F,I,L,E,_,_
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , _,_,L,I,N,E,_,_
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , _,_,S,T,D,C,_,_
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , _,_,T,I,M,E,_,_
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , a,b,s,t,r,a,c,t
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , a,l,p,h,a
+		RWORD2	0 , 1 , 0 , 1 , 0 ,          , a,n,d
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , a,n,d,_,e,q
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , a,n,y,p,t,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , a,r,r,a,y
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , a,s,m
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , a,u,t,o
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , b,e,g,i,n
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , b,i,t,a,n,d
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , b,i,t,o,r
+		RWORD2	0 , 1 , 0 , 0 , 1 ,          , b,o,o,l
+		RWORD2	0 , 0 , 1 , 1 , 1 ,          , b,o,o,l,e,a,n
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , b,r,e,a,k
+		RWORD2	0 , 0 , 1 , 1 , 0 ,          , b,y,t,e
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , c,a,s,e
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , c,a,t,c,h
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , c,h,a,r
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , c,l,a,s,s
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , c,o,m,p,l
+		RWORD2	1 , 1 , 1 , 1 , 1 ,          , c,o,n,s,t
+		RWORD2	0 , 1 , 0 , 0 , 1 , k_cons$L , c,o,n,s	; const_cast
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , c,o,n,t,i,n,u,e
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , d,e,f,a,u,l,t
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , d,e,l,e,t,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , d,i,v
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , d,o
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , d,o,w,n,t,o
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , d,o,u,b,l,e
+		RWORD2	0 , 1 , 0 , 0 , 0 , k_dyna$L , d,y,n,a	; dynamic_cast
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , e,l,s,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , e,n,d
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , e,n,u,m
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , e,x,p,l,i,c,i,t
+		RWORD2	0 , 0 , 1 , 0 , 1 ,          , e,x,t,e,n,d,s
+		RWORD2	1 , 1 , 0 , 1 , 1 ,          , e,x,t,e,r,n
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , e,x,t,e,r,n,a,l
+		RWORD2	0 , 1 , 0 , 1 , 0 ,          , f,a,l,s,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , f,i,l,e
+		RWORD2	0 , 0 , 1 , 0 , 1 ,          , f,i,n,a,l
+		RWORD2	0 , 0 , 1 , 0 , 1 ,          , f,i,n,a,l,l,y
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , f,l,o,a,t
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , f,o,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , f,o,r,w,a,r,d
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , f,r,i,e,n,d
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , f,u,n,c,t,i,o,n
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , f,u,t,u,r,e
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , g,e,n,e,r,i,c
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , g,o,t,o
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , i,f
+		RWORD2	0 , 0 , 0 , 1 , 1 , k_impl2$L , i,m,p,l	; implementation
+		RWORD2	0 , 0 , 1 , 0 , 1 , k_impl$L , i,m,p,l	; implements
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , i,m,p,o,r,t
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , i,n
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , i,n,l,i,n,e
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , i,n,n,e,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , i,n,p,u,t
+		RWORD2	0 , 0 , 1 , 0 , 0 , k_inst$L , i,n,s,t	; instanceof
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , i,n,t
+		RWORD2	0 , 0 , 1 , 1 , 1 , k_inte$L , i,n,t,e	; interface
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , i,n,t,e,g,e,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , l,a,b,e,l
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , l,o,n,g
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , m,a,x,i,n,t
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , m,o,d
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , m,u,t,a,b,l,e
+		RWORD2	0 , 1 , 0 , 0 , 0 , k_name$L , n,a,m,e	; namespace
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , n,a,t,i,v,e
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , n,e,w
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , n,i,l
+		RWORD2	0 , 1 , 0 , 1 , 0 ,          , n,o,t
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , n,u,l,l
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , o,p,e,r,a,t,o,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , o,f
+		RWORD2	0 , 1 , 0 , 1 , 0 ,          , o,r
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , o,r,_,e,q
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , o,u,t,e,r
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , o,u,t,p,u,t
+		RWORD2	0 , 0 , 0 , 1 , 0 , k_othe$L , o,t,h,e ; otherwise
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , p,a,c,k,e,d
+		RWORD2	0 , 0 , 1 , 0 , 1 ,          , p,a,c,k,a,g,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , p,o,i,n,t,e,r
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , p,r,i,v,a,t,e
+		RWORD2	0 , 0 , 0 , 1 , 0 , k_proc$L , p,r,o,c	; procedure
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , p,r,o,g,r,a,m
+		RWORD2	0 , 1 , 1 , 0 , 0 , k_prot$L , p,r,o,t	; protected
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , p,u,b,l,i,c
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , r,e,a,l
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , r,e,c,o,r,d
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , r,e,c,o,v,e,r
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , r,e,g,i,s,t,e,r
+		RWORD2	0 , 1 , 0 , 0 , 0 , k_rein$L , r,e,i,n	; reinterpret_cast
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , r,e,p,e,a,t
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , r,e,s,t
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , r,e,t,u,r,n
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , s,e,t
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , s,h,o,r,t
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , s,i,g,n,e,d
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , s,i,z,e,o,f
+		RWORD2	1 , 1 , 1 , 0 , 1 ,          , s,t,a,t,i,c
+		RWORD2	0 , 1 , 0 , 0 , 1 , k_stat$L , s,t,a,t	; static_cast
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , s,t,r,i,n,g
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , s,t,r,u,c,t
+		RWORD2	0 , 0 , 1 , 0 , 0 ,          , s,u,p,e,r
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , s,w,i,t,c,h
+		RWORD2	0 , 0 , 1 , 0 , 0 , k_sync$L , s,y,n,c	; synchronized
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , t,e,m,p,l,a,t,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , t,e,x,t
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , t,h,e,n
+		RWORD2	0 , 1 , 1 , 0 , 0 ,          , t,h,i,s
+		RWORD2	0 , 1 , 1 , 0 , 1 ,          , t,h,r,o,w
+		RWORD2	0 , 0 , 1 , 0 , 1 ,          , t,h,r,o,w,s
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , t,o
+		RWORD2	0 , 0 , 1 , 0 , 0 , k_tran$L , t,r,a,n	; transient
+		RWORD2	0 , 1 , 0 , 1 , 0 ,          , t,r,u,e
+		RWORD2	0 , 1 , 1 , 1 , 0 ,          , t,r,y
+		RWORD2	0 , 0 , 0 , 1 , 1 ,          , t,y,p,e
+		RWORD2	1 , 1 , 0 , 0 , 1 ,          , t,y,p,e,d,e,f
+		RWORD2	0 , 1 , 0 , 0 , 1 ,          , t,y,p,e,i,d
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , u,n,i,o,n
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , u,n,i,t
+		RWORD2	1 , 1 , 0 , 0 , 0 ,          , u,n,s,i,g,n,e,d
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , u,n,t,i,l
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , u,s,e,s
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , u,s,i,n,g
+		RWORD2	0 , 0 , 1 , 1 , 0 ,          , v,a,r
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , v,i,r,t,u,a,l
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , v,o,i,d
+		RWORD2	1 , 1 , 1 , 0 , 0 ,          , v,o,l,a,t,i,l,e
+		RWORD2	1 , 1 , 1 , 1 , 0 ,          , w,h,i,l,e
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , w,i,t,h
+		RWORD2	0 , 0 , 0 , 1 , 0 ,          , w,o,r,d
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , x,o,r
+		RWORD2	0 , 1 , 0 , 0 , 0 ,          , x,o,r,_,e,q
 reservedend$L
 
 ;  Tail strings
@@ -1328,6 +1514,10 @@ k_impl$L	=	"neme"
 		=	0,0,"st"
 		DCD	0
 
+k_impl2$L	=	"neme"
+		=	"itat"
+		=	0,0,"no"
+
 k_inst$L	=	"ecna"
 		=	0,0,"fo"
 		DCD	0
@@ -1337,6 +1527,14 @@ k_inte$L	=	"cafr"
 		DCD	0
 
 k_name$L	=	"caps"
+		=	0,0,0,"e"
+		DCD	0
+
+k_othe$L	=	"siwr"
+		=	0,0,0,"e"
+		DCD	0
+
+k_proc$L	=	"rude"
 		=	0,0,0,"e"
 		DCD	0
 

@@ -330,7 +330,7 @@ entrytable$P	DCD	entrytable$P		;  Table offset from start of module
 		DCD	modetitle$P		;  Title of mode
 		DCD	authortext		;  Author's name
 		DCD	0			;  Base mode number (text)
-		DCD	14 + 1<<10		;  This mode number (uses mode data block)
+		DCD	14 + 1<<10 + 1<<12	;  This mode number (uses mode data block + msgtrans)
 		DCD	service$P		;  Service code
 		DCD	0	;  menu		;  Menu to be attached to 'Mode' menu
 		DCD	etableend$P-entrytable$P ;  Total length of entry table
@@ -343,21 +343,21 @@ entrytable$P	DCD	entrytable$P		;  Table offset from start of module
 		DCD	0	;  linecol	;  Column offset to file offset
 		DCD	0	;  lineoff	;  File offset to column offset
 		DCD	0	;  clnlog	;  Logical line to file offset/physical line
-		DCD	0	;  clnphy	;  Physical line to file offset
+		DCD	clnphy$C	;  clnphy	;  Physical line to file offset
 		DCD	0	;  clnoff	;  File offset to physical/logical line & offset
-		DCD	0	;  nextline	;  Return first line shiftable with no redraw
+		DCD	nextline$C	;  nextline	;  Return first line shiftable with no redraw
 		DCD	0	;  minus	;  Move left one char
 		DCD	0	;  plus		;  Move right one char
 		DCD	0	; sminus	;  Move left one word
 		DCD	0	; splus		;  Move right one word
 		DCD	0	;  cminus	;  Move to start of line
 		DCD	0	;  cplus	;  Move to end of line
-		DCD	0	;  redrawline	;  Redraw single line of display
+		DCD	redrawline	;  redrawline	;  Redraw single line of display
 		DCD	0	;  redrawlnum	;  Check if physical line is start of logical
-		DCD	0			;  Insert character(s)
+		DCD	char			;  Insert character(s)
 		DCD	0	;  delete	;  Delete character(s)
 		DCD	0	;  tab		;  Perform tab(s)
-		DCD	0	;  return	;  Insert return(s)
+		DCD	return	;  return	;  Insert return(s)
 		DCD	0	;  renumber	;  Perform renumber
 		DCD	0	;  saveandrun	;  Perform save, run & quit
 		DCD	0	;  linestart	;  Returns pos of first character of line
@@ -381,6 +381,12 @@ entrytable$P	DCD	entrytable$P		;  Table offset from start of module
 		DCD	0	;  message	;  Called when unrecognised messages received
 		DCD	0	;  setwidth	;  Called when user changes width of window
 		DCD	funcbrowser		;  Create function browser (hmm... shared with asm mode?)
+		DCD	prevline$C		;  Find start of update region
+		DCD	0			;  Open window
+		DCD	interrogate		;  Answer Zap's questions...
+		DCD	0	; returnword
+		DCD	0	; help
+		DCD	stripspaces$C
 etableend$P
 
 
@@ -593,13 +599,13 @@ infotable$ASM	DCD	asm		;  Internal mode number
 infotable$P	DCD	pascal		;  Internal mode number
 		DCD	0		;  Zap mode number - this is written to
 		DCD	modetitle$P	;  Ptr: Mode name
-		DCD	m_defsize$P	;  Length of default mode block
-		DCD	m_totsize$P	;  Length of full mode block
-		DCD	modeblk$P$L	;  Ptr: Default mode block
+		DCD	m_defsize$C	;  Length of default mode block
+		DCD	m_totsize$C	;  Length of full mode block
+		DCD	modeblk$C$L	;  Ptr: Default mode block
 		DCD	modedata$P$L	;  Ptr: Default Zap mode blocks
-		DCD	0		;  Ptr: Extra colour names
-		DCD	0		;  Number of extra colours
-		DCD	0		;  Ptr: Defaults for extra colours
+		DCD	colnames$C$L	;  Ptr: Extra colour names
+		DCD	numcols$C$L	;  Number of extra colours
+		DCD	colours$C$L	;  Ptr: Defaults for extra colours
 		DCD	compile$P$L	;  Ptr: Command to compile with
 		DCD	params$P$L	;  Ptr: Parameters to compile with
 		DCD	funcstr$P$L	;  Ptr: Search text for function finding
@@ -619,8 +625,8 @@ infotable$P	DCD	pascal		;  Internal mode number
 		DCD	?endif$P$L	;  Length of endif text
 		DCD	directory$P$L	;  Ptr: List of dirs that files this type are usually in
 		DCD	extension$P$L	;  Ptr: List of extensions files this type usually have
-		DCD	0		;  Fn: Mode's e_redrawline
-		DCD	8		;  Zap colour number for bracket highlights
+		DCD	redrawline$C	;  Fn: Mode's e_redrawline
+		DCD	16		;  Zap colour number for bracket highlights
 		DCD	0		;  Pointer to mode's menu structure created at run time
 		DCD	0		;  Fn: perform FINDFUNCTION
 		ASSERT	{PC}-infotable$P=i_size
@@ -651,16 +657,6 @@ modeblk$ASM$L	DCD	m_defsize$ASM	;  Size of block (must be first for Zap)
 		ASSERT	{PC}-modeblk$ASM$L=m_sharedsize
 		DCD	0		;  Flags word 1
 		ASSERT	{PC}-modeblk$ASM$L=m_defsize$ASM
-
-modeblk$P$L	DCD	m_defsize$P	;  Size of block (must be first for Zap)
-		=	"MJE",0		;  Version of mode block layout
-		DCD	m_sharedsize	;  Size of shared section of block
-		DCD	0		;  Pointer to mode information block
-		DCD	15		;  Delay in cs for matching brackets, 0 to disable
-		DCD	0		;  Shared flags word 1
-		ASSERT	{PC}-modeblk$P$L=m_sharedsize
-		DCD	0		;  Flags word 1
-		ASSERT	{PC}-modeblk$P$L=m_defsize$P
 
 
 ;  Default Zap mode blocks (for use with Zap_ModeData)
