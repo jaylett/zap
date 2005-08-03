@@ -372,7 +372,6 @@ scanto$C	FNJSR	"hourcount$L,r7,toptr$L,r12"
 		LDR	toptr$L,[sp,#4*2]		;  Restore toptr
 		LDR	ptr,m_caddr$C			;  Check for extra cache being suitable
 		TEQ	ptr,toptr$L
-;		CMP	ptr,toptr$L
 		LDREQ	state,m_cstate$C
 		FNRTS	EQ	;  If so then already done
 		ADD	cache$L,modeblk,#m_cacheaddr$C-m_0$C
@@ -800,6 +799,7 @@ intobuffer$L	BIC	lastchar,output,#1<<31
 		STR	state,[lastchar]
 		ADD	output,output,#4
 		B	nooutput$L
+
 nottab$L	ADD	rcolumn,rcolumn,#1
 		AND	lastchar,char,#255
 		TEQ	output,#0
@@ -1363,6 +1363,21 @@ k_tran$L	=	"neis"
 
 		LOCAL
 
+; how prevline works (according to the gospel of cl)
+;
+; first examine the data to be inserted to see how far back we'll neeed to check.
+; then scan the file to fill in the state cache up to n bytes behind the insertion (n is
+; 17 or 128 depending on data inserted). Now scan the file to get states for every byte
+; up to the offset of the change, then copy the data in to the file and hack up
+; f_splito etc so that it appears to be there. Scan the file again getting the new state
+; values for each byte. Now we can check to find the earliest state value that has changed
+; due to the modification.
+;
+; that gives us prevline. To determine nextline, we scan each physical line after the
+; changed offsset in turn, first with the starting state as was before the change, then
+; with the starting state after. If the result state is the same, then that gives us
+; the first unchanged line. We store that and wait for Zap to call e_nextilne.
+
 ; what cl thinks is in tempblk in prevline
 		^	0
 pl_0		#	4				;  0
@@ -1481,7 +1496,7 @@ carryon$L
 		MOV	lwidth,#-1
 		BL	scanfile$C		; scan file to get state
 		STR	output,[tempblk$L]
-noprev$L	LDR	r11,f_splito
+noprev$L	LDR	r11,f_splito			; start from current splito
 		BL	scanto$C
 		MOV	output,#0			; no output, stop at LF
 		MOV	lwidth,#-1			; ignore physical line boundaries
@@ -1591,12 +1606,12 @@ foundprev$L	PULL   "R1,R4,R5,R7,R8,R9,R10,R11,R12"
 		ADD	r0,r0,r3
 		STR	r0,[sp]
 		LDR	modeblk,[tempblk$L,#16]
-nocheckprev$L	LDR	r11,f_splito
+nocheckprev$L	LDR	r11,f_splito		; start at modified splito
 		BL	scanto$C
 		MOV	output,#0
 		MOV	lwidth,#-1
 		MOV	rangeend,#-1
-		BL	scanfile$C		; scan file to get state
+		BL	scanfile$C		; scan file to get state at start of next log line
 		MOV	r6,state
 		ADD	r0,tempblk$L,#20
 		LDMIA	r0,{r0,r1,r2}
@@ -1604,25 +1619,21 @@ nocheckprev$L	LDR	r11,f_splito
 		STR	r1,f_splits		; OK - restore...
 		STR	r2,f_len
 		ADD	r0,tempblk$L,#(firstsize$L - 40) ; 600
-		LDMIA	r0,{ptr,state}
-;		AND	R7,state,#15		; statemask
-;		CMP	R7,#2			; cppcomment ???
-;		MOVEQ	state,#-1		; ???!
-;		SWIEQ	&107
+		LDMIA	r0,{ptr,state}		; go from old splito offset
+
 		MOV	r7,#50			; Counter...? whoa...???
-;		BEQ	premature$L
 scanloop$L	TEQ	state,r6		; hmm problem with //<CR>/*?
 		BEQ	foundnext$L
 ;		SWI	&107			; never...
 premature$L
 		PUSH	"ptr,r6,r7"
-		MOV	output,#0
+		MOV	output,#0		; scan physical line with old starting state
 		LDR	lwidth,w_bpl
-		MOV	rangeend,#-1		; R7 = for ever?
-		BL	scanfile$C		; scan file to get status
+		MOV	rangeend,#-1
+		BL	scanfile$C
 		STMIA	tempblk$L,{state}
-		PULL	"ptr,state"
-		BL	scanfile$C		; scan file to get status
+		PULL	"ptr,state"		; and again with new starting state
+		BL	scanfile$C
 		MOV	r6,state
 		LDMIA	tempblk$L,{state}
 		PULL	"r7"
@@ -1634,6 +1645,7 @@ premature$L
 foundnext$L	LDR	modeblk,[tempblk$L,#16]
 		STR	ptr,m_invend$C
 
+		LDR	R0,[R13]
 ;		MOV	R0,#0
 ;		STR	R0,local_prevnextflag
 
@@ -1647,7 +1659,7 @@ attempttoexit$L MOV	R11,R0
 		ADD	sp,sp,#4
 		MOV	R0,R11
 		PULL	"r1-r11,lr"	; !!! Unmatched return LDM
-		SEC
+		SEV
 		MOV	PC,R14
 ;resolver1$L	MOV 	R14,#
 
