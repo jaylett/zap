@@ -655,7 +655,7 @@ void reindentline(char brack)
   int start2, i;
   char c;
   indentsize original_size_of_indent,size_of_indent2;
-  int oomb = -1, casedef = 1, visibilitydef = 1;
+  int oomb = -1, casedef = 1, visibilitydef = 1, obrace = 0;
   unsigned int oldflags=file->flags;
   unsigned int start=zap_basemode_e_linestart(cursor->off);
 
@@ -695,6 +695,7 @@ void reindentline(char brack)
     for (; ((c=getc(start2))==' ' || c==window->tabchar.byte) && start2 < file->len; start2++);
     casedef = !is_label(c, start2);
     visibilitydef = !is_visibility_modifier(c, start2);
+    obrace = (c == '{');
     // does this line NOT begin with 'case' / 'default' / visibility modifier?
   }
 
@@ -703,7 +704,9 @@ void reindentline(char brack)
 
   // Check for 'case' or 'default'; unindent a little if found
   // Do this only if the previous useful line didn't have case/default starting it.
-  if (casedef && !ischarincomment(i) && is_label(c, i))
+  // don't if we're just after an open brace and the user doesn't want us to
+  if (casedef && !ischarincomment(i) && is_label(c, i)
+      && (((mode->c.flags1 & M_FLAGS1_INDENT_CASE) == 0) || obrace == 0))
     size_of_indent2 = changeindentby(size_of_indent2, -1);
   // Similarly for visibility modifiers
   if (visibilitydef && !ischarincomment(i) && is_visibility_modifier_simple(c, i))
