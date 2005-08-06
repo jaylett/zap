@@ -1,6 +1,6 @@
 ;test string: \\\aaa+++aaa\\\aaa\\\+++aaa+++\\\aaa
 ; Contains mode entry points for text mode.
-; $Id: Mode0,fff,v 2.19 2005/02/23 17:55:54 christian Exp $
+; $Id: Mode0,fff,v 2.20 2005/08/06 13:47:27 christian Exp $
 
  GET h.ZapHeader
  GET h.Commands
@@ -50,6 +50,7 @@
  EXPORT redraw_tab
  EXPORT utf8_table
  EXPORT utf8_max
+ EXPORT minus
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Default modes added and their blocks			      ;
@@ -347,10 +348,12 @@ mode0_redrawline
 	ADDNE	R4,R4,R4,LSL #2		;
 	MOVEQ	R4,R4,LSL #1		;
 	ADD	R4,R4,R6		; colour bg mask buffer...
-red_c0_l1
 	CMP	R7,R10
-	BLCS	red_overflow		; off buffer section
-	BVS	red_c0_6		; hit file end
+	BLHS	red_overflow
+	BVS	red_c0_6
+red_c0_l1
+	CMP	R10,#0			; hit file end
+	BEQ	red_c0_6
 	BL	cln_readc_addr_auto	; get next char
 	AND	R14,R2,#&FF
 	TEQ	R0,R14			; is it a cr
@@ -367,15 +370,14 @@ red_c0_3
 red_c0_4
 	CMP	R1,R3			; are we at end of line
 	BCC	red_c0_l1		; next if not
-	CMP	R7,R10
-	BLCS	red_overflow		; off buffer section
-	BVS	red_c0_6		; off end of file
-	PUSH	"R7"
+	CMP	R10,#0
+	BEQ	red_c0_6		; off end of file
+	PUSH	"R5,R7"
 	BL	cln_readc_addr_auto	; get next char
 	AND	R14,R2,#&FF
 	TEQ	R0,R14
-	PULL	"R7",NE
-	ADDEQ	R13,R13,#4		; skip return if follows
+	PULL	"R5,R7",NE
+	ADDEQ	R13,R13,#8		; skip return if follows
 	BEQ	red_c0_6
 	FNRTS
 
@@ -1971,6 +1973,11 @@ cln_nex_3
 
 mode0_prevline
 	FNJSR
+	LDR	R14,[R8,#w_info]	; go back to potential start of UTF-8 sequence
+	TST	R14,#info_UTF8          ; (clears N)
+	SUBNES	R0,R0,#6                ;
+	MOVMI	R0,#0                   ;
+
 	LDR	R14,[R8,#w_format]
 	ANDS	R14,R14,#bit_softwrap
 	BLNE	modesw_prevline		; call_mode_prevline

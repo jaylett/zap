@@ -1,5 +1,5 @@
 ; Contains code to alter the text in the buffer.
-; $Id: AlterTxt,fff,v 2.15 2005/02/21 14:29:03 christian Exp $
+; $Id: AlterTxt,fff,v 2.16 2005/08/06 13:47:27 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -53,6 +53,7 @@
  EXPORT cln_readc_auto
  EXPORT cln_readc_addr_utf8
  EXPORT cln_readc_addr_auto
+ EXPORT cln_readc_addr_utf8_file
  EXPORT convert_charsets
  EXPORT ucs4_to_utf8
 
@@ -191,36 +192,57 @@ cln_readc_auto
 ;X R0=character at this offset  R1 updated to start of next char
 	FNAME	cln_readc_utf8
 cln_readc_utf8
-	FNJSR	"R2,R7,R9-R11"
-	LDR	R14,[R9,#f_splito]
-	CMP	R1,R14
+	FNJSR	"R2,R5,R7,R10"
+	LDR	R10,[R9,#f_splito]
+	CMP	R1,R10
+	LDRCS	R10,[R9,#f_bufl]
 	LDRCS	R14,[R9,#f_splits]
 	LDR	R7,[R9,#f_ptr]
+	MOV	R5,R7
+	ADD	R10,R7,R10
 	ADD	R7,R7,R1
 	ADDCS	R7,R7,R14
+	ADDCS	R5,R5,R14
 	MOV	R2,R7
 	BL	cln_readc_addr_utf8
-	SUB	R14,R7,R2
-	ADD	R1,R1,R14
+	SUB	R1,R7,R5
 	FNRTS
 
 
-; E R7 = address in file  R8
+; E R7 = address
 ; X R0 = chacter at this offset  R7 updated to start of next char
+	FNAME	cln_readc_addr_utf8,1
+cln_readc_addr_utf8
+	FNJSR	"R10"
+	MOV	R10,#-1			; no end of section
+	BL	cln_readc_addr_utf8_file
+	FNRTS
+
+
+; E R7 = address in file  R8/R9  R10 = address of start of split / byte after end of file
+; X R0 = chacter at this offset  R7 updated to start of next char  R10 updated, is 0 if EOF
+;   R5 updated if split point reached (as for e_redrawline)
 	FNAME	cln_readc_addr_auto
 cln_readc_addr_auto
 	LDR	R0,[R8,#w_info]
 	TST	R0,#info_UTF8
-	LDREQB	R0,[R7],#1
-	MOVEQ	PC,R14
-	; FALL THROUGH
+	BNE	cln_readc_addr_utf8_file
 
-; E R7 = address in file
-; X R0 = chacter at this offset  R7 updated to start of next char
-	FNAME	cln_readc_addr_utf8,1
-cln_readc_addr_utf8
-	FNJSR	"R2,R10-R11"
 	LDRB	R0,[R7],#1
+	CMP	R7,R10
+	BHS	ov$l
+	MOV	PC,R14
+
+
+; E R7 = address in file  R9  R10 = address of start of split / byte after end of file
+; X R0 = chacter at this offset  R7 updated to start of next char  R10 updated, is 0 if EOF
+;   R5 updated if split point reached (as for e_redrawline)
+	FNAME	cln_readc_addr_utf8_file
+cln_readc_addr_utf8_file
+	FNJSR	"R2,R11-R12"
+	LDRB	R0,[R7],#1
+	CMP	R7,R10
+	BLHS	ov$l
 	CMP	R0,#&80			;
 	FNRTS	LO			; ascii
 
@@ -228,26 +250,31 @@ cln_readc_addr_utf8
 	BMI	err$l			; malformed
 
 	ADRL	R11,utf8_table
-	LDRB	R10,[R11,R14]		;
-	CMP	R10,#6			;
+	LDRB	R12,[R11,R14]		;
+	CMP	R12,#6			;
 	FNRTS	HS			; too many
 
 	ADD	R14,R14,#64		; get mask for 1st byte
 	LDRB	R14,[R11,R14]		;
 	AND	R0,R0,R14
-	MOV	R11,R10			; keep number of continuation bytes
+	MOV	R11,R12			; keep number of continuation bytes
 
-next$l	LDRB	R2,[R7],#1		; get next byte
+next$l	CMP	R10,#0			; check we're still within the file
+	BEQ	err$l                   ;
+	LDRB	R2,[R7],#1		; get next byte
 
 	AND	R14,R2,#&C0		; validate
 	TEQ	R14,#&80		;
 	SUBNE	R7,R7,#1		;
 	BNE	err$l			;
 
+	CMP	R7,R10			; skip the split
+	BLHS	ov$l                    ;
+
 	BIC	R2,R2,#&C0		; add in
 	ORR	R0,R2,R0,LSL #6		;
 
-	SUBS	R10,R10,#1		; loop for next continuation byte
+	SUBS	R12,R12,#1		; loop for next continuation byte
 	BNE	next$l			;
 
 	ADRL	R2,utf8_max		; check for non-canonical input
@@ -267,6 +294,24 @@ next$l	LDRB	R2,[R7],#1		; get next byte
 err$l	MOV	R0,#&FF00		; replacement character
 	ORR	R0,R0,#&FD		;
 	FNRTS				;
+
+; overflow into next section, updates R7 past the split and R10 to point to end of section
+; returns CS and R10 = 0 if off EOF
+; modified from red_overflow
+ov$l	FNJSR	"R0"
+	LDR	R0,[R9,#f_ptr]
+	LDR	R14,[R9,#f_bufl]
+	ADD	R0,R0,R14		; end of buffer
+	CMP	R10,R0
+	MOVCS	R10,#0
+	FNRTS	CS			; end is off end of buffer=overflow
+	MOV	R10,R0			; end of second buffer
+	LDR	R0,[R9,#f_splits]	; split size
+	ADD	R7,R7,R0		; move into second buffer
+	ADD	R5,R5,R0		; move into second buffer
+	CMP	R7,R10			; is it off the end of the second buf
+	MOVCS	R10,#0
+	FNRTS				; return (with C set up)
 
 
 	LOCAL
@@ -2128,14 +2173,14 @@ gettable$l
 	MOV	R0,#0			;
 	FNSTR	R0,alphabet_handle	;
 
-	MOV	R1,#&43			; try getting the table from the OS
-	MOV	R2,#8			;
-	FNLDR	R3,alphabet_number	;
-	SWI	XOS_ServiceCall		;
-	TEQ	R1,#0			;
-	MOV	R0,R4			;
-	FNSTR	R4,alphabet_table,EQ	;
-	MOVEQ	PC,R14			;
+	;MOV	R1,#&43			; try getting the table from the OS
+	;MOV	R2,#8			;
+	;FNLDR	R3,alphabet_number	;
+	;SWI	XOS_ServiceCall		;
+	;TEQ	R1,#0			;
+	;MOV	R0,R4			;
+	;FNSTR	R4,alphabet_table,EQ	;
+	;MOVEQ	PC,R14			;
 
 	FNJSR	"R4-R5"
 
