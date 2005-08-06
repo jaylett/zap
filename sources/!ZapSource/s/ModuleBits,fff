@@ -1,6 +1,6 @@
 ; Contains module header and initialise/finialise/service call code and
 ; module command table.
-; $Id: ModuleBits,fff,v 2.14 2004/09/23 22:58:09 christian Exp $
+; $Id: ModuleBits,fff,v 2.15 2005/08/06 14:13:42 christian Exp $
 
  GET h.ZapHeader
  GET h.Messages
@@ -102,6 +102,12 @@ command_table
 	DCD	dessy
 	DCD	deshp
 
+	FNS	(|zap$|:CC:"ForceClean")
+	DCD	Zap_ForceClean
+	DCD	&0
+	DCD	zfcsy
+	DCD	zfchp
+
 	DCD 0
 
 zchp	= "*",27,0," executes a colon-separated string of Zap commands.",13
@@ -110,6 +116,9 @@ zcsy	= 27,30,"*]<string>",0
 deshp	= "*",27,0," runs",27,2,"Zap module",27,16,"(optionally) loads in",27,2
 	= "given file on startup. Zap",27,")initialised as a WIMP task.",13
 dessy	= 27,30,"-noicon] [<filename>]",0
+
+zfchp	= "*",27,0," allows Zap's module to quit if Zap has crashed.",13
+zfcsy	= 27,1,0
 
  ALIGN
 
@@ -166,14 +175,17 @@ finalise_code
 	FNRTS				;
 
 noyoudont$l
- ADR R0,err$l
- FNRTV
+	ADR	R0,err$l
+	MOV	R1,#0
+	MOV	R2,#0
+	MOV	R3,#0
+	ADR	R4,title_string
+	SWI	XMessageTrans_ErrorLookup
+	FNRTS
 
-err$l
- DCD 0
- = "You must quit the ":CC:|zap$|:CC:" application before you can "
- = "kill the ":CC:|zap$|:CC:" module",0
- ALIGN
+err$l	DCD	0
+	=	"AppQuit",0
+	ALIGN
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -191,6 +203,14 @@ Zap_Desktop
 	MOVEQ	R0,#2
 	SWIEQ	XOS_Module		; enter the module
 	FNRTS
+
+
+Zap_ForceClean
+	LDR	R12,[R12]
+	MOV	R0,#0
+	FNSTR	R0,wimp_task
+	MOV	PC,R14
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SERVICE CALL HANDLER					       ;
