@@ -816,7 +816,7 @@ reads opt_flags and opt_format and stores them as the default option etc.
 
 Zap_GetModeWord
 This call reads the contents of your mode word. If R8=0 then it reads
-opt_moden, otherwise it reads [R8,#w_moden]. This is useful for menu
+opt_mode<n>, otherwise it reads [R8,#w_mode<n>]. This is useful for menu
 options.
 	\E R1=mode number
 	   R8=window to get mode word / 0 for default options mode word
@@ -1590,3 +1590,58 @@ An interface to the query side of the Wimp error box.
 	\X R1 = button number; Z set if R1=1 or R1=3.
 	   R0 corrupted.
 	   May return an error.
+
+Zap_ReadC
+Reads a character from a given offset in a file. If the window is in the
+UTF-8 encoding, this returns the UCS-4 character code at the given offset,
+otherwise it returns the byte at the offset. In both cases the offset is
+updated to point to the next character. If the file contains a malformed
+UTF-8 sequence, this call updates the pointer past it and returns &FFFD (the
+replacement character).
+	\E R1 = file offset
+	   R8 / R9
+	\X R0 = (32 bit) character
+	   R1 updated to the file offset of the next character
+
+Zap_ReadUTF8
+As Zap_ReadC, but assumes the file is in UTF-8 and thus doesn't need the
+window pointer.
+	\E R1 = file offset
+	   R9
+	\X R0 = (32 bit) character
+	   R1 updated to the file offset of the next character
+
+Zap_ReadMinus
+Given a file offset, this reads the _previous_ character, and updates the
+offset to point to it. This isn't trivial if the file is in the UTF-8
+encoding. This call checks whether the window is in UTF-8, and copes
+correctly with malformed UTF-8 sequences (returning the relacement character
+as per Zap_ReadC). This call is mainly used for its side effect of returning
+the previous character offset, for example in e_delete or e_minus entry
+points.
+	\E R1 = file offset of character
+	   R8 / R9
+	\X R0 = previous (32 bit) character
+	   R1 = offset of this character
+
+Zap_ReadAddrUTF8
+As Zap_ReadUTF8, but takes an address rather than a file offset.
+	\E R7 = address
+	\X R0 = (32 bit) character
+	   R7 updated to the address of the next character
+
+Zap_ReadAddrUTF8File
+As Zap_ReadUTF8, but takes an address within a file rather than a file 
+offset, and skips the split when encountered. It also updates two registers
+depending on which half of the file it's in, useful for e_redrawline
+entry points. If R10 is 0 on exit, the character in R0 is valid, but the
+EOF has been reached so R7 no longer points within the file.
+	\E R7 = address
+	   R8 / R9
+	   R10 = address of byte after end of this section
+	         (ie. either f_buf+f_splito or f_buf+f_bufl)
+	\X R0 = (32 bit) character
+	   R5 has f_splits added if f_splito was reached (see e_redrawline)
+	   R7 updated to the address of the next character
+	   R10 updated to end of next section, or 0 if EOF
+
