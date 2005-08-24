@@ -1,5 +1,5 @@
 ; Contains menu related code.
-; $Id: Menus,fff,v 2.40 2005/02/14 11:58:20 christian Exp $
+; $Id: Menus,fff,v 2.41 2005/08/24 00:17:45 christian Exp $
 ; -*- armasm -*-
 
  GET h.ZapHeader
@@ -847,8 +847,10 @@ execsub$l
 	LOCAL
 
 ; list of encodings which can be applied
-	&	7+(1<<16)
+	&	7+(1<<16)+(1<<15)
 EncodingList
+	TEQ	R2,#15
+	BEQ	shade$l
 	TEQ	R2,#16
 	MOVNE	PC,R14
 
@@ -860,7 +862,9 @@ EncodingList
 	MOV	R4,#20
 	ADR	R5,mhelp$l
 	MOV	R6,#0
-	LDR	R9,[R8,#w_encoding]	; idfn to tick
+	TEQ	R8,#0
+	LDRNE	R9,[R8,#w_encoding]	; idfn to tick
+	MOVEQ	R9,#0
 	MOV	R10,#(1<<16)+(1<<17)+(1<<22)
 	BL	build_menu_with_help
 	FNRTS
@@ -868,6 +872,13 @@ EncodingList
 name$l	=	27,"zap_m_encodings",0
 mhelp$l	=	27,"zap_mh_encodings",0
 	ALIGN
+
+shade$l
+	DEBUGF	"shafe"
+	TEQ	R8,#0
+	MOVEQ	R0,#2
+	MOVNE	R0,#0
+	MOV	PC,R14
 
 sub$l	FNJSR	"R2-R7,R11"
 	CMP	R10,#-1			; return if no more
@@ -908,12 +919,19 @@ sub$l	FNJSR	"R2-R7,R11"
 notutf8$l
 	STR	R2,[R6]
 
-none$l	BIC	R0,R10,#(1<<17)		; index for this entry (= counter)
+ok$l	BIC	R0,R10,#(1<<17)		; index for this entry (= counter)
 	PULL	"R1,R10"		; new counter
 	ADR	R1,mhelp$l
 	FNRTS
 
+none$l	LDR	R0,[R6,#8]		; fade it
+	ORR	R0,R0,#1<<22            ;
+	STR	R0,[R6,#8]              ;
+	B	ok$l
+
 interpret$l
+	TEQ	R8,#0
+	MOVEQ	PC,R14
 	FNJSR
 	SUB	R13,R13,#32
 	MOV	R2,R1
