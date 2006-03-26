@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.7 2004/10/27 11:35:21 james Exp $
+  // $Id: index.php,v 1.8 2006/03/26 19:33:52 ds Exp $
   include ".php/zap-std.inc";
   setroot ('index');
   zap_header ("Zap - a programmers' editor", 'top:');
@@ -21,7 +21,7 @@
 	 ereg_replace ('\.', '', $link), "\">downloads page</a>\n";
   }
   plink ('stable');
-  plink ('alpha');
+  plink ('beta');
 ?>
  <li><a href="screenshots">Screenshots</a>
 </ul>
@@ -39,5 +39,5 @@
 <p>Anyone still using the zap.uk.eu.org domain should change to use the new <a href='http://zap.tartarus.org/'>web</a> and <a href='ftp://zap.tartarus.org/'>ftp</a> site addresses of zap.tartarus.org.</p>
 
 <?php
-  zap_body_end ('$Date: 2004/10/27 11:35:21 $');
+  zap_body_end ('$Date: 2006/03/26 19:33:52 $');
 ?>

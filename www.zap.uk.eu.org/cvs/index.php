@@ -1,5 +1,5 @@
 <?php
-  // $Id: index.php,v 1.5 2003/06/21 18:18:20 ds Exp $
+  // $Id: index.php,v 1.6 2006/03/26 19:33:52 ds Exp $
   include "../.php/zap-std.inc";
   setroot ('cvs/index');
   zap_header ("Zap - CVS access", 'up:../', 'previous:../mirrors:mirrors');
@@ -12,7 +12,9 @@
 
 <p>The files in the CVS tree are stored using Acorn's method for storing filetypes under NFS, namely as <samp>&lt;filename&gt;,&lt;filetype&gt;</samp> where the filetype is a three digit hex number with lower case letters. The <a href="http://www.cvs.riscos.org.uk/">RISC OS CVS port</a> will handle this translation automatically, as will RISC OS NFS clients (allowing the files to reside on a UNIX machine).</p>
 
+<!--
 <p>Alternatively, <a href="/ftp/pub/alpha/snapshots/">daily snapshots</a> of development work are generated automatically, both in source and binary form.</p>
+-->
 
 <h2><a name="pserver">pserver</a></h2>
 
@@ -117,5 +119,5 @@ bottom of the [System] section.)</p>
 <p>The command to run, from within the !Zap directory, is <kbd>make -f data/unix/Makefile</kbd>. This gives the default build name; you can use <kbd>make -f data/unix/Makefile BUILD=foo</kbd> and <kbd>make -f data/unix/Makefile BUILD=foo-42</kbd> as above.</p>
 
 <?php
-  zap_body_end ('$Date: 2003/06/21 18:18:20 $');
+  zap_body_end ('$Date: 2006/03/26 19:33:52 $');
 ?>
