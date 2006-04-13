@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.16 2006/04/13 22:17:06 ds Exp $
+  // $Id: download.php,v 1.17 2006/04/13 22:21:42 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -70,13 +70,6 @@ Development release sites
   $release='1.46';
   $patch='';
   $patchdir='latest';
-
-  function href ($leaf)
-  {
-    global $release, $patch, $patchdir;
-    echo (func_num_args () > 1 ? '<a '.func_get_arg (1) : '<a'),
-	 ' href="/ftp/pub/', $release, '/', $patchdir, '/', $leaf, '">';
-  }
 ?>
 
 <p>Downloading is much as for v1.45; here's the <a href="/ftp/pub/1.46/" class="dir">release area</a> and the <? href ('', 'class="dir"'); ?>current test release</a>.</p>
@@ -297,5 +290,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2006/04/13 22:17:06 $');
+  zap_body_end ('$Date: 2006/04/13 22:21:42 $');
 ?>
