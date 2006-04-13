@@ -1,5 +1,5 @@
 <?php
-  // $Id: download.php,v 1.15 2003/11/30 12:10:06 james Exp $
+  // $Id: download.php,v 1.16 2006/04/13 22:17:06 ds Exp $
   include ".php/zap-std.inc";
   setroot ('download');
   zap_header ("Zap download page", 'up:/', 'next:mirrors:mirrors');
@@ -17,6 +17,7 @@
 <p>The official Zap distribution site is <a href="/ftp/pub/">http://zap.tartarus.org/ftp/pub/</a> (also available as <a href="ftp://zap.tartarus.org/pub/">ftp://zap.tartarus.org/pub/</a>). There are currently no mirrors (anyone interested, please <a href="mailto:webmaster@zap.tartarus.org">get in touch</a>).</p>
 
 <ul>
+ <li><a href="#147">v1.47</a> - development version
  <li><a href="#146">v1.46</a> - development version
  <li><a href="#145">v1.45</a> - released 6th November, 2002
  <li><a href="#140">v1.40</a> - released 26th October, 1998
@@ -41,6 +42,25 @@ Development release sites
  <li><a class="dir" href="/ftp/pub/james/">James Aylett</a>
  <li><a class="dir" href="/ftp/pub/christian/">Christian Ludlam</a>
 </ul>
+
+<hr>
+
+<h2><a name="147">v1.47</a></h2>
+
+<?php
+  $release='1.47';
+  $patch='';
+  $patchdir='latest';
+
+  function href ($leaf)
+  {
+    global $release, $patch, $patchdir;
+    echo (func_num_args () > 1 ? '<a '.func_get_arg (1) : '<a'),
+	 ' href="/ftp/pub/', $release, '/', $patchdir, '/', $leaf, '">';
+  }
+?>
+
+<p>Downloading is much as for v1.45 or 1.46; here's the <a href="/ftp/pub/1.47/" class="dir">release area</a> and the <? href ('', 'class="dir"'); ?>current test release</a>.</p>
 
 <hr>
 
@@ -277,5 +297,5 @@ if ($patch) {
 </ul>
 
 <?php
-  zap_body_end ('$Date: 2003/11/30 12:10:06 $');
+  zap_body_end ('$Date: 2006/04/13 22:17:06 $');
 ?>
