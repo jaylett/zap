@@ -1,5 +1,5 @@
 <?php
-  // $Id: contact.php,v 1.4 2004/10/27 11:41:03 james Exp $
+  // $Id: contact.php,v 1.5 2007/10/21 14:08:16 james Exp $
   include ".php/zap-std.inc";
   setroot ('contact');
   zap_header ("Zap contact details", 'up:/');
@@ -46,20 +46,19 @@
 
 <p>Darren maintains ZapEmail, ZapDS and sometimes ZapBASIC. In the core, he is responsible (amongst other things) for the command language, ClickSend, menus, internationalisation, and mode handling (including clone modes). He's also responsible for ZapRedraw's Viewfinder support.</p>
 
-<address><a href="mailto:ds@zap.tartarus.org">ds@zap.tartarus.org</a></address>
+<a href="mailto:ds@zap.tartarus.org">ds@zap.tartarus.org</a>
 
 <h3><a name="sja">James Aylett</a></h3>
 
-<p>James maintains ZapFonts, the combined command extensions (although, to some extent, this is a shared responsibility), the 'glue' (documentation, web and ftp sites, domain, mailing lists), and an air of omniscience. He is also responsible (amongst other things) for c-vars and the general shape of the distribution. He currently works at Digital Advertising and Marketing ltd; please note that Zap has nothing to do with Digital Advertising and Marketing.</p>
+<p>James maintains ZapFonts, the combined command extensions (although, to some extent, this is a shared responsibility), the 'glue' (documentation, web and ftp sites, domain, mailing lists), and an air of omniscience. He is also responsible (amongst other things) for c-vars and the general shape of the distribution.</p>
 
-<address><a href="mailto:dj@zap.tartarus.org">dj@zap.tartarus.org</a></address>
-<address>James Aylett<br>Digital Advertising and Marketing Ltd<br>Eldon House<br>1 Dorset Street<br>LONDON<br>W1U 4BB<br>UK</address>
+<a href="mailto:dj@zap.tartarus.org">dj@zap.tartarus.org</a>
 
 <h3><a name="christian">Christian Ludlam</a></h3>
 
 <p>Christian maintains ZapRedraw and is responsible for driving that in the direction it's going. In Zap proper he fritters his time away fixing bugs, dreaming up wonderful ideas for the future, and correcting James' mistakes.</p>
 
-<address><a href="mailto:christian@zap.tartarus.org">christian@zap.tartarus.org</a></address>
+<a href="mailto:christian@zap.tartarus.org">christian@zap.tartarus.org</a>
 
 <hr>
 
@@ -84,5 +83,5 @@
 <!-- martin@galaxy.tcp.co.uk -->
 
 <?php
-  zap_body_end ('$Date: 2004/10/27 11:41:03 $');
+  zap_body_end ('$Date: 2007/10/21 14:08:16 $');
 ?>
