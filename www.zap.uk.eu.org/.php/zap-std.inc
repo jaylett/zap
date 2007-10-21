@@ -1,5 +1,5 @@
 <?php
-  // $Id: zap-std.inc,v 1.11 2004/10/27 11:35:33 james Exp $
+  // $Id: zap-std.inc,v 1.12 2007/10/21 14:07:41 james Exp $
 
   if ($GLOBALS['SERVER_NAME'] != 'zap.tartarus.org' ||
       substr (gethostbyaddr($GLOBALS['REMOTE_ADDR']), -13) == '.tartarus.org')
@@ -261,7 +261,7 @@ EOF;
     {
       $date = ereg_replace ('^\$Date\: ', '', $date);
       $date = ereg_replace (' \$$', '', $date);
-      echo '<a href="', $root, 'copyright">&copy; Copyright Zap Developers 1992-2004. All rights reserved.</a><br>Updated: ', $date, '. ';
+      echo '<a href="', $root, 'copyright">&copy; Copyright Zap Developers 1992-2007. All rights reserved.</a><br>Updated: ', $date, '. ';
     }
     echo '<a href="mailto:webmaster@zap.tartarus.org">webmaster@zap.tartarus.org</a>
 </address>
