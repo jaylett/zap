@@ -1,5 +1,5 @@
 ; Buttons - a Zap extension
-; $Id: module,fff,v 1.9 2004/11/03 19:08:03 christian Exp $
+; $Id: module,fff,v 1.10 2008/05/05 21:59:52 james Exp $
 
  GET ZapSource:h.ZapHeader
  GET <ZapExtSource$Dir>.h.RegNames
@@ -55,7 +55,7 @@ mod_header	DCD	0				; start offset
 
 mod_title	=	"ZapButtons",0
 
-mod_help	=	"ZapButtons",9,"2.03 (00 Jan 0000) © Zap Developers",0
+mod_help	=	"ZapButtons",9,"2.04 (00 Jan 0000) © Zap Developers",0
 		ALIGN
 
 module_flags	DCD	1				; 32 bit compatible
@@ -554,7 +554,7 @@ Buttons_FlagsToggle
 		BL	calculate_masks
 
 		AND	R0,R0,#&F			; convert to w_info mask
-		AND	R1,R1,#&F			;
+		AND	R1,R1,#&F			; (buttons live at b12-b15 of w_info)
 		MOV	R0,R0,LSL #12			;
 		MOV	R1,R1,LSL #12			;
 
@@ -567,7 +567,7 @@ Buttons_FlagsToggle
 		MOV	R14,R0
 		PULL	"R0,R1"
 
-a$l		TEQ	R2,#15
+a$l		TEQ	R2,#15				; tick/shade interrogation
 		BNE	set$l
 		ORR	R0,R0,R1
 		AND	R14,R14,R0			; check tick state
@@ -587,6 +587,12 @@ set$l		BIC	R14,R14,R0
 		MOV	R0,R14
 		MOV	R1,#36				; opt_info
 		FNcall	Zap_WriteVar,R2
+		; call e_end to get the mode to validate and store opt_info
+		; (otherwise this change will only be reflected in, eg, new
+		; windows of this mode after the iconbar menu is changed to
+		; a different mode, which triggers e_end via Zap_NewMode).
+		MOV	R11,#e_end
+		FNcall	Zap_CallMode, R0
 		FNRTS
 
 b$l		TST	R14,#winfo_buttons_on		; flags have changed
